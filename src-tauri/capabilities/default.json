@@ -37,6 +37,9 @@
           "path": "$APPCONFIG/**"
         },
         {
+          "path": "/media/**"
+        },
+        {
           "path": "/run/media/**"
         },
         {
@@ -69,6 +72,9 @@
           "path": "$APPCONFIG/**"
         },
         {
+          "path": "/media/**"
+        },
+        {
           "path": "/run/media/**"
         },
         {
@@ -98,6 +104,9 @@
           "path": "$APPCONFIG/**"
         },
         {
+          "path": "/media/**"
+        },
+        {
           "path": "/run/media/**"
         },
         {
@@ -119,6 +128,9 @@
         },
         {
           "path": "$APPCONFIG/**"
+        },
+        {
+          "path": "/media/**"
         },
         {
           "path": "/run/media/**"
@@ -144,6 +156,9 @@
           "path": "$APPCONFIG/**"
         },
         {
+          "path": "/media/**"
+        },
+        {
           "path": "/run/media/**"
         },
         {
@@ -165,6 +180,9 @@
         },
         {
           "path": "$APPCONFIG/**"
+        },
+        {
+          "path": "/media/**"
         },
         {
           "path": "/run/media/**"
@@ -197,6 +215,9 @@
         },
         {
           "path": "$APPCONFIG/**"
+        },
+        {
+          "path": "/media/**"
         },
         {
           "path": "/run/media/**"

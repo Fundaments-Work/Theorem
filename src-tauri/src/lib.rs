@@ -432,7 +432,9 @@ fn decode_pdf_string(s: &str) -> String {
                     for _ in 0..2 {
                         if let Some(&next) = chars.peek() {
                             if next.is_ascii_digit() {
-                                octal.push(chars.next().unwrap());
+                                if let Some(digit) = chars.next() {
+                                    octal.push(digit);
+                                }
                             } else {
                                 break;
                             }
@@ -463,7 +465,25 @@ fn decode_hex_string(hex: &str) -> Option<String> {
             u8::from_str_radix(byte_str, 16).ok()
         })
         .collect::<Option<Vec<u8>>>()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|bytes| {
+            if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+                let units: Vec<u16> = bytes[2..]
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+                    .collect();
+                Some(String::from_utf16_lossy(&units))
+            } else if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+                let units: Vec<u16> = bytes[2..]
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect();
+                Some(String::from_utf16_lossy(&units))
+            } else {
+                String::from_utf8(bytes.clone())
+                    .ok()
+                    .or_else(|| Some(String::from_utf8_lossy(&bytes).into_owned()))
+            }
+        })
 }
 
 #[tauri::command]
@@ -753,6 +773,10 @@ fn apply_linux_webkit_workarounds() {
         return;
     }
 
+    if env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     if env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
         env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     }
@@ -881,11 +905,28 @@ pub fn run() {
         let paths = collect_open_paths(argv, Some(&cwd));
         enqueue_open_paths(app, paths, true);
 
-        if let Some(window) = app.get_webview_window("main") {
+        let window = app
+            .get_webview_window("main")
+            .or_else(|| app.webview_windows().into_values().next());
+        if let Some(window) = window {
             let _ = window.show();
+            let _ = window.unminimize();
             let _ = window.set_focus();
         }
     }));
+
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
@@ -923,55 +964,67 @@ pub fn run() {
 
             #[cfg(desktop)]
             {
-                let show = MenuItemBuilder::with_id("show", "Show Theorem").build(app)?;
-                let sync_now = MenuItemBuilder::with_id("sync_now", "Sync Now").build(app)?;
-                let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+                let tray_result: Result<(), Box<dyn std::error::Error>> = (|| {
+                    let show = MenuItemBuilder::with_id("show", "Show Theorem").build(app)?;
+                    let sync_now = MenuItemBuilder::with_id("sync_now", "Sync Now").build(app)?;
+                    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
-                let menu = MenuBuilder::new(app)
-                    .item(&show)
-                    .item(&sync_now)
-                    .separator()
-                    .item(&quit)
-                    .build()?;
+                    let menu = MenuBuilder::new(app)
+                        .item(&show)
+                        .item(&sync_now)
+                        .separator()
+                        .item(&quit)
+                        .build()?;
 
-                TrayIconBuilder::new()
-                    .menu(&menu)
-                    .tooltip("Theorem")
-                    .on_menu_event(|app, event| match event.id().as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                    let mut tray_builder = TrayIconBuilder::new()
+                        .menu(&menu)
+                        .tooltip("Theorem")
+                        .on_menu_event(|app, event| match event.id().as_ref() {
+                            "show" => {
+                                let window = app
+                                    .get_webview_window("main")
+                                    .or_else(|| app.webview_windows().into_values().next());
+                                if let Some(window) = window {
+                                    let _ = window.show();
+                                    let _ = window.unminimize();
+                                    let _ = window.set_focus();
+                                }
                             }
-                        }
-                        "sync_now" => {
-                            let _ = app.emit("tray-sync-now", ());
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click { .. } = event {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                            "sync_now" => {
+                                let _ = app.emit("tray-sync-now", ());
                             }
-                        }
-                    })
-                    .build(app)?;
-            }
+                            "quit" => {
+                                app.exit(0);
+                            }
+                            _ => {}
+                        })
+                        .on_tray_icon_event(|tray, event| {
+                            if let TrayIconEvent::Click { .. } = event {
+                                let app = tray.app_handle();
+                                let window = app
+                                    .get_webview_window("main")
+                                    .or_else(|| app.webview_windows().into_values().next());
+                                if let Some(window) = window {
+                                    let _ = window.show();
+                                    let _ = window.unminimize();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        });
 
-            #[cfg(desktop)]
-            {
-                app.handle()
-                    .plugin(tauri_plugin_window_state::Builder::default().build())?;
-                app.handle()
-                    .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                    if let Some(icon) = app.default_window_icon() {
+                        tray_builder = tray_builder.icon(icon.clone());
+                    }
+
+                    tray_builder.build(app)?;
+                    Ok(())
+                })();
+
+                if let Err(e) = tray_result {
+                    eprintln!(
+                        "[tray] Warning: System tray not initialized (continuing anyway): {e}"
+                    );
+                }
             }
 
             eprintln!("[startup] Theorem ready.");
@@ -1112,7 +1165,10 @@ pub extern "C" fn Java_work_fundamentals_theorem_MainActivity_initNdkContext(
 
 #[tauri::command]
 fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
+    let window = app
+        .get_webview_window("main")
+        .or_else(|| app.webview_windows().into_values().next());
+    if let Some(window) = window {
         window
             .hide()
             .map_err(|e| format!("Failed to hide window: {e}"))

@@ -24,10 +24,26 @@ fn read_zip_by_name_inner<R: std::io::Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
     name: &str,
 ) -> Option<String> {
-    let mut file = archive.by_name(name).ok()?;
-    let mut buf = Vec::with_capacity(file.size() as usize);
+    let clean_name = name.trim_start_matches('/').trim_start_matches("./");
+
+    let target_index = archive
+        .index_for_name(name)
+        .or_else(|| archive.index_for_name(clean_name))
+        .or_else(|| {
+            archive.file_names().position(|f| {
+                let f_clean = f.trim_start_matches('/').trim_start_matches("./");
+                f_clean.eq_ignore_ascii_case(clean_name)
+            })
+        })?;
+
+    let mut file = archive.by_index(target_index).ok()?;
+    const MAX_METADATA_SIZE: usize = 32 * 1024 * 1024;
+    let size = (file.size() as usize).min(MAX_METADATA_SIZE);
+    let mut buf = Vec::with_capacity(size);
     file.read_to_end(&mut buf).ok()?;
-    String::from_utf8(buf).ok()
+
+    let normalized = strip_xml_bom(&buf);
+    Some(String::from_utf8_lossy(normalized.as_ref()).into_owned())
 }
 
 pub(crate) fn resolve_relative(base: &str, target: &str) -> String {

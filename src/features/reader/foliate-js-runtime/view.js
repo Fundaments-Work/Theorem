@@ -64,21 +64,27 @@ const makeZipLoader = async (file, prefetchPromise) => {
     }
 
     const loadText = name => {
-        const cached = textCache.get(name)
+        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
+        const cached = textCache.get(name) ?? (cleanName ? textCache.get(cleanName) : undefined)
         if (cached !== undefined) return cached
         return getLazyZip().then(({ map, TextWriter }) => {
-            const entry = map.get(name)
+            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
             return entry ? entry.getData(new TextWriter()) : null
         })
     }
 
-    const loadBlob = (name, type) =>
-        getLazyZip().then(({ map, BlobWriter }) => {
-            const entry = map.get(name)
+    const loadBlob = (name, type) => {
+        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
+        return getLazyZip().then(({ map, BlobWriter }) => {
+            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
             return entry ? entry.getData(new BlobWriter(type)) : null
         })
+    }
 
-    const getSize = name => sizes.get(name) ?? 0
+    const getSize = name => {
+        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
+        return sizes.get(name) ?? (cleanName ? sizes.get(cleanName) : undefined) ?? 0
+    }
 
     return { loadText, loadBlob, getSize, getLazyZip }
 }

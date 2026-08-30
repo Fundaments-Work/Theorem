@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Theorem",
         "width": 1440,
         "height": 900,
@@ -28,10 +29,17 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
+          "$HOME/**",
+          "$DOWNLOAD/**",
+          "$DATA/**",
+          "$LOCALDATA/**",
           "$APPDATA/**",
           "$APPCONFIG/**",
           "$APPLOCALDATA/**",
-          "$RESOURCE/**"
+          "$RESOURCE/**",
+          "/media/**",
+          "/run/media/**",
+          "/mnt/**"
         ]
       }
     }
