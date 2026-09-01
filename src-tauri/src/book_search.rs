@@ -167,20 +167,23 @@ pub fn search_epub_spine(
 
             let mut matches = Vec::new();
             let mut search_from = 0;
+            let mut last_byte_pos = 0;
+            let mut running_char_offset = 0;
+            let match_len = q.chars().count();
 
             while let Some(byte_pos) = search_text[search_from..].find(&target_query) {
                 let actual_byte_pos = search_from + byte_pos;
-                let char_offset = plain_text[..actual_byte_pos].chars().count();
-                let match_len = q.chars().count();
+                running_char_offset += plain_text[last_byte_pos..actual_byte_pos].chars().count();
+                last_byte_pos = actual_byte_pos;
 
-                let snippet = extract_context_snippet(&plain_text, char_offset, match_len);
+                let snippet = extract_context_snippet(&plain_text, running_char_offset, match_len);
 
                 matches.push(NativeSearchMatch {
                     section_index: *sec_idx,
                     section_href: sec_href.clone(),
                     snippet,
                     match_text: q.to_string(),
-                    char_offset,
+                    char_offset: running_char_offset,
                 });
 
                 search_from = actual_byte_pos + target_query.len();
@@ -337,5 +340,52 @@ mod tests {
         let snippet = extract_context_snippet(text, 8, 7); // "Ishmael"
         assert!(snippet.contains("Ishmael"));
         assert!(snippet.contains("Call me"));
+    }
+
+    #[test]
+    fn test_real_user_book_search() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/sapiens".to_string());
+        let cache_dir = std::path::PathBuf::from(home)
+            .join(".local/share/work.fundamentals.theorem/book-cache");
+
+        if !cache_dir.exists() {
+            println!("No book cache dir found at: {:?}", cache_dir);
+            return;
+        }
+
+        let mut entries = std::fs::read_dir(&cache_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "book"))
+            .collect::<Vec<_>>();
+
+        entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().map(|m| m.len()).unwrap_or(0)));
+
+        let test_queries = ["the", "chapter", "history", "time", "world"];
+
+        for entry in entries.iter().take(3) {
+            let path = entry.path();
+            let size_mb = path
+                .metadata()
+                .map(|m| m.len() as f64 / 1_048_576.0)
+                .unwrap_or(0.0);
+
+            for query in test_queries {
+                let start = std::time::Instant::now();
+                let res = search_epub_spine(&path, query, false);
+                let duration = start.elapsed();
+
+                if let Ok(matches) = res {
+                    println!(
+                        "🔍 Search [{:.2} MB Book: {:?}] Query: {:?} | Found {} matches in {:.2} ms",
+                        size_mb,
+                        path.file_name().unwrap(),
+                        query,
+                        matches.len(),
+                        duration.as_secs_f64() * 1000.0
+                    );
+                }
+            }
+        }
     }
 }

@@ -115,18 +115,34 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     // Book bytes live in `book-cache/{id}.book`. Legacy installs also stored a
     // full copy in `books.data`; zero those out (re-materializing the cache file
     // first when needed) so each book is stored exactly once.
-    let reclaimed = reclaim_legacy_book_blobs(&conn, &app_data_dir)?;
-    if reclaimed > 0 {
-        eprintln!("[database] Reclaimed legacy book BLOBs for {reclaimed} books");
-        // The DB file keeps the freed pages unless we repack it. This is a one-time
-        // cost after migration; if it fails (e.g. low disk space) pages are still
-        // reused for future writes.
+    let reclaimed_books = reclaim_legacy_book_blobs(&conn, &app_data_dir)?;
+    if reclaimed_books > 0 {
+        eprintln!("[database] Reclaimed legacy book BLOBs for {reclaimed_books} books");
+    }
+
+    // StarDict dictionaries are now loaded directly from disk files via mmap in stardict.rs.
+    // Clear any legacy multi-megabyte dictionary BLOBs from blob_store.
+    let reclaimed_dicts = reclaim_legacy_stardict_blobs(&conn)?;
+    if reclaimed_dicts > 0 {
+        eprintln!("[database] Reclaimed legacy StarDict BLOBs ({reclaimed_dicts} entries)");
+    }
+
+    if reclaimed_books > 0 || reclaimed_dicts > 0 {
         if let Err(e) = conn.execute_batch("VACUUM") {
             eprintln!("[database] VACUUM after blob reclaim failed: {e}");
         }
     }
 
     Ok(())
+}
+
+fn reclaim_legacy_stardict_blobs(connection: &Connection) -> Result<usize, String> {
+    connection
+        .execute(
+            "DELETE FROM blob_store WHERE key LIKE 'theorem-stardict:%'",
+            [],
+        )
+        .map_err(|e| format!("Failed to reclaim legacy StarDict blobs: {e}"))
 }
 
 fn reclaim_legacy_book_blobs(
