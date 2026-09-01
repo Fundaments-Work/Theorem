@@ -1,9 +1,12 @@
+pub mod article_extractor;
 pub mod batch_ingest;
+pub mod book_search;
 mod database;
 mod epub_parser;
 mod epub_rewriter;
 mod file_transfer;
 mod iroh_sync;
+pub mod mobi_parser;
 pub mod stardict;
 mod sync_commands;
 #[cfg(target_os = "linux")]
@@ -1111,6 +1114,10 @@ pub fn run() {
             stardict::stardict_delete,
             fetch_online_definition,
             batch_ingest::ingest_books_native,
+            book_search::search_book_content,
+            mobi_parser::decompress_palmdoc_record,
+            mobi_parser::get_mobi_metadata,
+            article_extractor::fetch_and_extract_article_native,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

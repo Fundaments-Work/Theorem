@@ -152,6 +152,17 @@ export class ArticleExtractorService {
             return null;
         }
 
+        if (isTauri()) {
+            try {
+                const nativeResult = await invoke<ExtractedArticle>("fetch_and_extract_article_native", { url });
+                if (nativeResult && nativeResult.title) {
+                    return nativeResult;
+                }
+            } catch (error) {
+                console.warn("[ArticleExtractor] Native extraction failed, falling back to browser:", error);
+            }
+        }
+
         try {
             const html = await this.fetchHtml(url);
             return this.extractFromHtml(html, url);

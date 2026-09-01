@@ -94,6 +94,8 @@ fn local_name(bytes: &[u8]) -> &[u8] {
 struct LocatedTocSources {
     nav_href: Option<String>,
     ncx_href: Option<String>,
+    css_hrefs: Vec<String>,
+    spine_hrefs: Vec<String>,
 }
 
 fn locate_toc_sources(opf_bytes: &[u8]) -> Result<LocatedTocSources, String> {
@@ -112,6 +114,9 @@ fn locate_toc_sources(opf_bytes: &[u8]) -> Result<LocatedTocSources, String> {
     let mut manifest: HashMap<String, Item> = HashMap::new();
     let mut nav_href: Option<String> = None;
     let mut in_manifest = false;
+    let mut in_spine = false;
+    let mut spine_idrefs: Vec<String> = Vec::new();
+    let mut css_hrefs: Vec<String> = Vec::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
@@ -141,8 +146,17 @@ fn locate_toc_sources(opf_bytes: &[u8]) -> Result<LocatedTocSources, String> {
                     {
                         nav_href = Some(item.href.clone());
                     }
+                    if item.media_type == "text/css" && !item.href.is_empty() {
+                        css_hrefs.push(item.href.clone());
+                    }
                     if !id.is_empty() {
                         manifest.insert(id, item);
+                    }
+                } else if in_spine && name == b"itemref" {
+                    for attr in e.attributes().flatten() {
+                        if attr.key.as_ref() == b"idref" {
+                            spine_idrefs.push(String::from_utf8_lossy(&attr.value).into_owned());
+                        }
                     }
                 }
             }
@@ -150,12 +164,16 @@ fn locate_toc_sources(opf_bytes: &[u8]) -> Result<LocatedTocSources, String> {
                 let name = local_name(e.name().as_ref()).to_vec();
                 if name == b"manifest" {
                     in_manifest = true;
+                } else if name == b"spine" {
+                    in_spine = true;
                 }
             }
             Ok(Event::End(e)) => {
                 let name = local_name(e.name().as_ref()).to_vec();
                 if name == b"manifest" {
                     in_manifest = false;
+                } else if name == b"spine" {
+                    in_spine = false;
                 }
             }
             Ok(Event::Eof) => break,
@@ -170,7 +188,17 @@ fn locate_toc_sources(opf_bytes: &[u8]) -> Result<LocatedTocSources, String> {
         .find(|it| it.media_type == "application/x-dtbncx+xml")
         .map(|it| it.href.clone());
 
-    Ok(LocatedTocSources { nav_href, ncx_href })
+    let spine_hrefs: Vec<String> = spine_idrefs
+        .into_iter()
+        .filter_map(|id| manifest.get(&id).map(|item| item.href.clone()))
+        .collect();
+
+    Ok(LocatedTocSources {
+        nav_href,
+        ncx_href,
+        css_hrefs,
+        spine_hrefs,
+    })
 }
 
 pub(crate) fn read_rootfile_path_inner<R: std::io::Read + std::io::Seek>(
@@ -210,6 +238,7 @@ struct EpubMeta {
     ncx_path: Option<String>,
     ncx: Option<String>,
     encryption: Option<String>,
+    sections: HashMap<String, String>,
 }
 
 fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
@@ -221,7 +250,12 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
     let opf_path = opf_rel;
     let opf_text = read_zip_entry_inner(archive, &opf_path)?;
 
-    let LocatedTocSources { nav_href, ncx_href } = locate_toc_sources(opf_text.as_bytes()).ok()?;
+    let LocatedTocSources {
+        nav_href,
+        ncx_href,
+        css_hrefs,
+        spine_hrefs,
+    } = locate_toc_sources(opf_text.as_bytes()).ok()?;
 
     let nav_path = nav_href
         .as_ref()
@@ -238,6 +272,24 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
         .and_then(|p| read_zip_entry_inner(archive, p));
     let encryption = read_zip_entry_inner(archive, "META-INF/encryption.xml");
 
+    let mut sections = HashMap::new();
+
+    // 1. Pre-inflate all CSS stylesheets
+    for css_href in &css_hrefs {
+        let full_css_path = resolve_relative(&opf_path, css_href);
+        if let Some(css_text) = read_zip_entry_inner(archive, &full_css_path) {
+            sections.insert(full_css_path, css_text);
+        }
+    }
+
+    // 2. Pre-inflate first 5 spine chapters for instant reader opening (< 50ms)
+    for spine_href in spine_hrefs.iter().take(5) {
+        let full_spine_path = resolve_relative(&opf_path, spine_href);
+        if let Some(spine_text) = read_zip_entry_inner(archive, &full_spine_path) {
+            sections.insert(full_spine_path, spine_text);
+        }
+    }
+
     Some(EpubMeta {
         container: Some(container_text),
         opf_path,
@@ -247,6 +299,7 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
         ncx_path,
         ncx,
         encryption,
+        sections,
     })
 }
 
@@ -316,7 +369,10 @@ fn prefetch_sync(_app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Str
         ncx: epub.as_ref().and_then(|e| e.ncx.clone()),
         encryption: epub.as_ref().and_then(|e| e.encryption.clone()),
         sizes,
-        sections: HashMap::new(),
+        sections: epub
+            .as_ref()
+            .map(|e| e.sections.clone())
+            .unwrap_or_default(),
     })
 }
 
