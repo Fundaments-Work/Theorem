@@ -179,46 +179,53 @@ export async function lookupDictionaryTerm(
 
     const language = input.language || "en";
     const installedIds = input.installedDictionaryIds || [];
-    const providersUsed: DictionaryProvider[] = [];
 
-    let phonetic: string | undefined;
-    let audioUrl: string | undefined;
-    let allMeanings: VocabularyMeaning[] = [];
-
-    // Run offline and online lookups in parallel for fastest response
-    const [stardictRes, onlineRes] = await Promise.allSettled([
-        installedIds.length > 0 ? lookupWithStarDict(normalizedTerm, installedIds) : Promise.resolve(null),
-        lookupWithFreeDictionaryApi(normalizedTerm),
-    ]);
-
-    if (stardictRes.status === "fulfilled" && stardictRes.value) {
-        allMeanings.push(...stardictRes.value.meanings);
-        providersUsed.push("stardict");
+    // 1. Instant Fast-Path: Offline StarDict via native Rust (executes in < 1ms)
+    if (installedIds.length > 0) {
+        try {
+            const stardictResult = await lookupWithStarDict(normalizedTerm, installedIds);
+            if (stardictResult && stardictResult.meanings.length > 0) {
+                const normalizedMeanings = dedupeDefinitions(stardictResult.meanings).filter(
+                    (item) => item.definitions.length > 0,
+                );
+                if (normalizedMeanings.length > 0) {
+                    return {
+                        term: input.term.trim(),
+                        normalizedTerm,
+                        language,
+                        meanings: normalizedMeanings,
+                        providersUsed: ["stardict"],
+                    };
+                }
+            }
+        } catch (error) {
+            console.warn("[DictionaryService] StarDict lookup error:", error);
+        }
     }
 
-    if (onlineRes.status === "fulfilled" && onlineRes.value) {
-        allMeanings.push(...onlineRes.value.meanings);
-        providersUsed.push("free-dictionary-api");
-        if (onlineRes.value.phonetic && !phonetic) phonetic = onlineRes.value.phonetic;
-        if (onlineRes.value.audioUrl && !audioUrl) audioUrl = onlineRes.value.audioUrl;
+    // 2. Fallback: Online Free Dictionary API (when word not found offline or no dictionary installed)
+    try {
+        const onlineResult = await lookupWithFreeDictionaryApi(normalizedTerm);
+        if (onlineResult && onlineResult.meanings.length > 0) {
+            const normalizedMeanings = dedupeDefinitions(onlineResult.meanings).filter(
+                (item) => item.definitions.length > 0,
+            );
+            if (normalizedMeanings.length > 0) {
+                return {
+                    term: input.term.trim(),
+                    normalizedTerm,
+                    language,
+                    phonetic: onlineResult.phonetic,
+                    audioUrl: onlineResult.audioUrl,
+                    meanings: normalizedMeanings,
+                    providersUsed: ["free-dictionary-api"],
+                };
+            }
+        }
+    } catch {
     }
 
-    if (allMeanings.length === 0) return null;
-
-    const normalizedMeanings = dedupeDefinitions(allMeanings).filter(
-        (item) => item.definitions.length > 0,
-    );
-    if (normalizedMeanings.length === 0) return null;
-
-    return {
-        term: input.term.trim(),
-        normalizedTerm,
-        language,
-        phonetic,
-        audioUrl,
-        meanings: normalizedMeanings,
-        providersUsed,
-    };
+    return null;
 }
 
 export function vocabularyTermFromLookup(result: DictionaryLookupResult): VocabularyTerm {

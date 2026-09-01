@@ -1472,8 +1472,6 @@ export const ArticleViewer = memo(function ArticleViewer({
             saved: false,
         });
 
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
         try {
             const result = await lookupTerm(term, "en");
             setDictionaryState((previous) => ({

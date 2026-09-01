@@ -1700,8 +1700,6 @@ const BookReaderPage = memo(function BookReaderPage() {
         setDictionaryLookupSaved(false);
         setDictionaryLookupLoading(true);
 
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
         try {
             const result = await lookupTerm(term, "en");
             setDictionaryLookupResult(result);
