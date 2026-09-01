@@ -193,6 +193,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [pdfInitialZoom, setPdfInitialZoom] = useState(DEFAULT_PDF_ZOOM);
     const [pdfInitialZoomMode, setPdfInitialZoomMode] = useState<PdfZoomMode>(DEFAULT_PDF_ZOOM_MODE);
     const [resolvedPdfPath, setResolvedPdfPath] = useState("");
+    const [resolvedNativePath, setResolvedNativePath] = useState("");
     const [pdfAnnotationMode, setPdfAnnotationMode] = useState<'none' | 'highlight' | 'pen' | 'text' | 'erase'>('none');
     const [pdfHighlightColor, setPdfHighlightColor] = useState<HighlightColor>("yellow");
     const [pdfBrushColor, setPdfBrushColor] = useState<HighlightColor>("blue");
@@ -737,6 +738,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                     setResolvedPdfPath("");
                     setPdfData(new Uint8Array(data));
                     return;
+                }
+
+                if (isTauri()) {
+                    const materializedPath = await getBookMaterializedPath(book.id, storagePath);
+                    if (materializedPath && !isCancelled) {
+                        setResolvedNativePath(materializedPath);
+                    }
                 }
 
                 const blob = await getBookBlob(book.id, storagePath);
@@ -2347,7 +2355,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         format={currentBook?.format || "epub"}
                         initialLocation={initialLocation}
                         savedLocations={currentBook?.locations}
-                        nativeFilePath={currentBook?.storagePath || currentBook?.filePath}
+                        nativeFilePath={resolvedNativePath || currentBook?.storagePath || currentBook?.filePath}
                         onReady={handleReady}
                         onLocationChange={handleLocationChange}
                         onLocationsSaved={handleLocationsSaved}

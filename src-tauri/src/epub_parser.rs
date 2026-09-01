@@ -341,13 +341,28 @@ pub async fn prefetch_zip_metadata(
         .map_err(|e| format!("join error: {e}"))?
 }
 
-fn prefetch_sync(_app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, String> {
-    let file_path = Path::new(path);
+fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, String> {
+    use tauri::Manager;
+    let mut file_path = std::path::PathBuf::from(path);
+    if !file_path.exists() {
+        if let Ok(app_dir) = app.path().app_data_dir() {
+            let candidate = app_dir.join(path);
+            if candidate.exists() {
+                file_path = candidate;
+            } else {
+                let clean_name = Path::new(path).file_name().unwrap_or_default();
+                let candidate_books = app_dir.join("books").join(clean_name);
+                if candidate_books.exists() {
+                    file_path = candidate_books;
+                }
+            }
+        }
+    }
     if !file_path.exists() {
         return Err(format!("file not found: {path}"));
     }
 
-    let file = File::open(file_path).map_err(|e| format!("Cannot open {path}: {e}"))?;
+    let file = File::open(&file_path).map_err(|e| format!("Cannot open {path}: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
 
     let mut sizes: HashMap<String, u64> = HashMap::with_capacity(archive.len());
