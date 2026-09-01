@@ -45,13 +45,20 @@ The service handles:
 - **Rate limiting**: A token bucket rate limiter (2 requests/second) prevents hammering servers.
 - **Error reporting**: Descriptive error messages for CORS, timeouts, invalid XML, and HTTP errors.
 
-## Content Extraction
+## Content Extraction & Readability Engine
 
-Article content extraction happens at fetch time, not on open:
+Theorem uses a high-performance native extraction pipeline:
 
-1. `fetch_url_content(url)` — Tauri Rust command with user-agent rotation (3 UAs: Chrome, Firefox, Safari). Uses retry with backoff for 429/403 responses.
-2. `@mozilla/readability` — Extracts article content from HTML (title, author, body text, featured image).
-3. Content is stored in the `RssArticle.content` field — no re-fetch on open.
+1. **Native Rust Extractor (`article_extractor.rs` + `fetch_and_extract_article_native`)**:
+   - Fetches web articles with desktop User-Agent rotation and 45-second connection timeouts.
+   - Parses OpenGraph and Twitter Card metadata (lead images, authors, titles).
+   - Strips ads, tracking pixels, scripts, cookie banners, and CSS styles in native code.
+   - Normalizes relative image and hyperlink URLs to absolute URLs against the origin domain.
+   - Returns clean, sanitized article HTML directly over IPC with zero webview memory bloat.
+
+2. **Browser Fallback (`ArticleExtractorService.ts`)**:
+   - In browser environments, uses `fetch()` + `@mozilla/readability` + `DOMPurify`.
+   - Stores extracted clean content in `RssArticle.fullContent` for instant offline reading.
 
 ## Article Reader
 
