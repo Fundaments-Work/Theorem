@@ -81,7 +81,7 @@ Vault sync is configured in Settings → Integrations:
 
 The export function (`syncVaultMarkdownSnapshot`) writes all files atomically: it generates all content in memory, then writes files one by one. If any write fails, the error is reported but previously written files are not rolled back (partial export is recoverable).
 
-## Implementation
+## Implementation & Headless CLI
 
 The core function is `syncVaultMarkdownSnapshot()` in `src/core/lib/vault-sync.ts`:
 
@@ -94,3 +94,9 @@ The core function is `syncVaultMarkdownSnapshot()` in `src/core/lib/vault-sync.t
 7. Removes book files for deleted books (stale cleanup)
 
 File writes use Tauri's `writeTextFile` via `@tauri-apps/plugin-fs`. On web, the export is not available (no filesystem access).
+
+In the **Headless CLI**, vault exports and JSON dumps can be triggered headlessly by shell scripts and AI agents:
+```bash
+theorem export vault --path ~/Obsidian/Reading
+theorem export json --output ~/backup/reading_data.json
+```
