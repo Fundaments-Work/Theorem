@@ -303,6 +303,47 @@ export async function parseOpdsFeed(xmlText: string, feedUrl: string): Promise<O
 
 export const OpdsService = {
     async fetchFeed(url: string): Promise<OpdsFeed> {
+        if (isTauri()) {
+            try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                const nativeResult = await invoke<any>("fetch_and_parse_opds_native", { url });
+                if (nativeResult && Array.isArray(nativeResult.entries)) {
+                    return {
+                        id: nativeResult.id,
+                        title: nativeResult.title,
+                        subtitle: nativeResult.subtitle,
+                        icon: nativeResult.icon,
+                        updated: nativeResult.updated,
+                        selfUrl: nativeResult.self_url,
+                        nextUrl: nativeResult.next_url,
+                        prevUrl: nativeResult.prev_url,
+                        upUrl: nativeResult.up_url,
+                        startUrl: nativeResult.start_url,
+                        searchUrlTemplate: nativeResult.search_url_template,
+                        entries: nativeResult.entries.map((e: any) => ({
+                            id: e.id,
+                            title: e.title,
+                            author: e.author,
+                            summary: e.summary,
+                            content: e.content,
+                            updated: e.updated,
+                            published: e.published,
+                            language: e.language,
+                            publisher: e.publisher,
+                            coverUrl: e.cover_url,
+                            thumbnailUrl: e.thumbnail_url,
+                            downloadUrl: e.download_url,
+                            downloadFormat: e.download_format,
+                            navUrl: e.nav_url,
+                            isNavigation: e.is_navigation,
+                            links: e.links || [],
+                        })),
+                    };
+                }
+            } catch (err) {
+                console.warn("[OpdsService] Native OPDS parse failed, falling back to JS:", err);
+            }
+        }
         const xmlText = await fetchFeedXml(url);
         return parseOpdsFeed(xmlText, url);
     },

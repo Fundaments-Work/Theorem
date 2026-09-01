@@ -2,7 +2,7 @@ import { isTauri } from "../lib/env";
 import { saveBookData, saveCoverImage } from "../lib/storage";
 import { useLibraryStore } from "../store";
 import type { Book, BookFormat, OpdsEntry, OpdsFeed } from "../types";
-import { parseOpdsFeed } from "./OpdsService";
+import { OpdsService, parseOpdsFeed } from "./OpdsService";
 
 export interface DiscoverSection {
     id: string;
@@ -69,25 +69,13 @@ function savePersistedCache(sections: DiscoverSection[]) {
     }
 }
 
-async function fetchFeedSafe(url: string, timeoutMs = 6000): Promise<OpdsFeed | null> {
+async function fetchFeedSafe(url: string, timeoutMs = 8000): Promise<OpdsFeed | null> {
     try {
-        let rawXml = "";
-        if (isTauri()) {
-            const { invoke } = await import("@tauri-apps/api/core");
-            const fetchPromise = invoke<string>("fetch_rss_feed", { url });
-            const timeoutPromise = new Promise<string>((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-            );
-            rawXml = await Promise.race([fetchPromise, timeoutPromise]);
-        } else {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            const res = await fetch(url, { signal: controller.signal });
-            clearTimeout(timer);
-            if (!res.ok) return null;
-            rawXml = await res.text();
-        }
-        return await parseOpdsFeed(rawXml, url);
+        const fetchPromise = OpdsService.fetchFeed(url);
+        const timeoutPromise = new Promise<OpdsFeed>((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), timeoutMs)
+        );
+        return await Promise.race([fetchPromise, timeoutPromise]);
     } catch (e) {
         console.warn(`Failed to fetch feed from ${url}:`, e);
         return null;
