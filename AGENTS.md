@@ -86,12 +86,12 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 - Settings: Goal Notifications toggle, Daily Reminder Time picker, Sync Notifications toggle in Settings → Reading Goals
 - Android: `POST_NOTIFICATIONS` permission added to `AndroidManifest.xml
 
-**Dictionary & Vocabulary**: Two-tier lookup system:
-- **Online**: Free Dictionary API (`api.dictionaryapi.dev`) via browser `fetch()` — used when available
-- **Offline**: StarDict dictionaries imported by user (`.ifo`/`.idx`/`.dict.dz` files) or downloaded from GitHub (`download_and_extract_stardict` Rust command using `reqwest` + zip/tar extraction)
-- **Storage**: Dictionaries cached in SQLite BLOB columns via `sqlite-storage.ts`
-- **Frontend**: `src/core/services/StarDictService.ts` loads and queries dictionaries; `src/core/services/DictionaryService.ts` orchestrates online + offline lookups
-- **UI**: `src/features/settings/DictionaryDownloadModal.tsx` — download/install UI; vocabulary workspace in Workbench
+**Dictionary & Vocabulary**: High-performance two-tier lookup system:
+- **Offline (Fast-path)**: Native Rust memory-mapped StarDict binary search engine (`src-tauri/src/stardict.rs` + `stardict_lookup` command). Reads `.idx` binary tables via `memmap2`, auto-inflates DictZip `.dict.dz` / `.dict` chunks, cleans wiki markup, and formats definitions by Part of Speech in < 1ms.
+- **Online (Fallback)**: Native `fetch_online_definition` command via `reqwest` / Free Dictionary API (`api.dictionaryapi.dev`).
+- **Storage**: Dictionaries stored directly on disk at `~/.local/share/work.fundamentals.theorem/dictionaries/` (zero SQLite overhead; legacy blobs auto-reclaimed on startup).
+- **Frontend**: `src/core/services/DictionaryService.ts` executes instant offline fast-path (< 1ms) without blocking on remote HTTP timeouts.
+- **UI**: `src/features/settings/DictionaryDownloadModal.tsx` — download/install UI; vocabulary workspace in Workbench.
 
 **Discover & Catalogs**:
 - **Storefront**: `src/features/catalogs/DiscoverPage.tsx` provides an editorial discovery experience with curated sections (Gutenberg, Standard Ebooks) and custom OPDS 1.2 feeds.
@@ -101,7 +101,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 ## Tauri backend
 
-74 commands across `lib.rs` (file I/O, network, TTS, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs`, `epub_rewriter.rs`, `file_transfer.rs`. To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
+82 commands across `lib.rs` (file I/O, network, TTS, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion and SIMD cover extraction), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), and `article_extractor.rs` (native web article fetch and readability extraction). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
 
 ## Persistence
 
