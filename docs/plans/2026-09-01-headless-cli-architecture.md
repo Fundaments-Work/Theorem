@@ -14,16 +14,16 @@ This blueprint defines **Theorem CLI (`theorem`)** — a native, zero-overhead c
 
 ---
 
-## 2. Zero-Bloat Unified Binary Architecture
+## 2. Architecture & Design
 
-Rather than compiling a separate CLI daemon or bundling heavy neural embedding models:
+Theorem utilizes a high-performance native unified binary architecture:
 
 1. **Multi-Call Binary (`src-tauri/src/main.rs`)**:
    - The single `theorem` executable inspects `std::env::args()` on startup.
    - If CLI subcommands are passed (e.g. `theorem search`, `theorem read`, `theorem dict`), it routes immediately to headless Rust dispatchers and exits in **< 2 ms** without initializing WebKit or GTK.
    - If invoked without arguments, it launches the standard GUI e-reader.
 
-2. **Zero Mobile / Binary Bloat**:
+2. **Native Performance & Efficiency**:
    - Reuses the existing compiled engines (`stardict`, `book_search`, `epub_parser`, `mobi_parser`, `article_extractor`, `database`).
    - Binary footprint increase: **0 MB**.
    - Mobile APK is completely unaffected.
