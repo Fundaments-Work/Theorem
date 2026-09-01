@@ -182,8 +182,6 @@ To track size regressions during development:
 
 ## 6. Implementation Checklist
 
-- [ ] Update `src-tauri/Cargo.toml` with `panic = "abort"`, `opt-level = "z"`, `lto = "fat"`, `strip = true`.
 - [ ] Prune `vite.config.ts` `viteStaticCopy` for `pdfjs-dist` cmaps.
 - [ ] Add `resourceConfigurations` in `build.gradle.kts` for target locales.
-- [ ] Configure `image` crate with minimal format features (`default-features = false`).
 - [ ] Run benchmark build on `aarch64-linux-android` and record before/after APK byte sizes.
