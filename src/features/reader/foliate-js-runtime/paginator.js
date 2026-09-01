@@ -220,14 +220,20 @@ class View {
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
+            background: 'transparent',
+            backgroundColor: 'transparent',
         })
         Object.assign(this.#iframe.style, {
             overflow: 'hidden',
             border: '0',
             display: 'none',
             width: '100%', height: '100%',
+            background: 'transparent',
+            backgroundColor: 'transparent',
+            colorScheme: 'inherit',
         })
         
+        this.#iframe.setAttribute('allowtransparency', 'true')
         this.#iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
         this.#iframe.setAttribute('scrolling', 'no')
     }
@@ -244,10 +250,8 @@ class View {
                 const doc = this.document
                 afterLoad?.(doc)
 
-                this.#iframe.style.display = 'block'
                 const { vertical, rtl } = getDirection(doc)
                 const background = getBackground(doc)
-                this.#iframe.style.display = 'none'
 
                 this.#vertical = vertical
                 this.#rtl = rtl
@@ -257,7 +261,6 @@ class View {
                 void this.container.offsetWidth
 
                 const layout = beforeRender?.({ vertical, rtl, background })
-                this.#iframe.style.display = 'block'
 
                 // Pre-layout image settlement barrier: wait for all images
                 // to finish GPU decoding (max 120ms) before measuring column
@@ -275,6 +278,7 @@ class View {
                     timeout,
                 ]).then(() => {
                     this.render(layout)
+                    this.#iframe.style.display = 'block'
                     this.#observer.observe(doc.body)
                     doc.fonts.ready.then(() => this.expand())
                     resolve()
