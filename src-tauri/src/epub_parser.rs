@@ -657,4 +657,63 @@ mod tests {
         let result = read_zip_entry_inner(&mut archive, "nonexistent/path.html");
         assert_eq!(result, None);
     }
+
+    #[test]
+    fn test_real_user_big_book_opening() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/sapiens".to_string());
+        let cache_dir = std::path::PathBuf::from(home)
+            .join(".local/share/work.fundamentals.theorem/book-cache");
+
+        if !cache_dir.exists() {
+            println!("No book cache dir found at: {:?}", cache_dir);
+            return;
+        }
+
+        let mut entries = std::fs::read_dir(&cache_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "book"))
+            .collect::<Vec<_>>();
+
+        // Sort by file size descending
+        entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().map(|m| m.len()).unwrap_or(0)));
+
+        for entry in entries.iter().take(5) {
+            let path = entry.path();
+            let size_mb = path
+                .metadata()
+                .map(|m| m.len() as f64 / 1_048_576.0)
+                .unwrap_or(0.0);
+
+            let start = std::time::Instant::now();
+            let file = std::fs::File::open(&path);
+            if file.is_err() {
+                continue;
+            }
+            let file = file.unwrap();
+            let archive_res = zip::ZipArchive::new(file);
+            if archive_res.is_err() {
+                continue; // might be PDF or non-zip
+            }
+            let mut archive = archive_res.unwrap();
+            let meta = read_epub_metadata_inner(&mut archive);
+            let duration = start.elapsed();
+
+            if let Some(m) = meta {
+                println!(
+                    "📖 Real Book [{:.2} MB]: {:?} | Parsed in {:.2} ms | Initial Pre-Inflated Sections: {} | Container: {:?}",
+                    size_mb,
+                    path.file_name().unwrap(),
+                    duration.as_secs_f64() * 1000.0,
+                    m.sections.len(),
+                    m.container.is_some()
+                );
+                assert!(
+                    duration.as_millis() < 500,
+                    "Opening took too long: {:?}",
+                    duration
+                );
+            }
+        }
+    }
 }
