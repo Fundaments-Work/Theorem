@@ -3812,6 +3812,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "memoffset"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7337,6 +7346,7 @@ name = "theorem"
 version = "1.3.0"
 dependencies = [
  "bzip2 0.4.4",
+ "flate2",
  "futures",
  "hex",
  "iroh",
@@ -7345,6 +7355,7 @@ dependencies = [
  "iroh-gossip",
  "iroh-mdns-address-lookup",
  "jni 0.21.1",
+ "memmap2",
  "ndk-context",
  "percent-encoding",
  "quick-xml 0.36.2",

@@ -3,6 +3,7 @@ mod epub_parser;
 mod epub_rewriter;
 mod file_transfer;
 mod iroh_sync;
+pub mod stardict;
 mod sync_commands;
 #[cfg(target_os = "linux")]
 mod tts_linux;
@@ -1105,6 +1106,8 @@ pub fn run() {
             set_android_fingerprint,
             hide_to_tray,
             download_and_extract_stardict,
+            stardict::stardict_lookup,
+            stardict::stardict_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1273,6 +1276,19 @@ async fn download_and_extract_stardict(
         manifest_key,
         serde_json::to_string(&manifest).map_err(|e| e.to_string())?,
     )?;
+
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let dict_dir = app_data.join("dictionaries").join(&id);
+    let _ = std::fs::create_dir_all(&dict_dir);
+    let _ = std::fs::write(dict_dir.join("dict.ifo"), &ifo);
+    let _ = std::fs::write(dict_dir.join("dict.idx"), &idx);
+    let _ = std::fs::write(dict_dir.join("dict.dict.dz"), &dict);
+    if let Some(ref syn_data) = syn {
+        let _ = std::fs::write(dict_dir.join("dict.syn"), syn_data);
+    }
 
     database::sqlite_set_blob(app.clone(), format!("theorem-stardict:{id}:ifo"), ifo)?;
     database::sqlite_set_blob(app.clone(), format!("theorem-stardict:{id}:idx"), idx)?;

@@ -426,6 +426,14 @@ export async function importStarDictFromBytes(
 
 export async function removeStarDictDictionary(id: string): Promise<void> {
     loadedDictionaries.delete(id);
+    if (isTauri()) {
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("stardict_delete", { dictId: id });
+        } catch (err) {
+            console.warn("[StarDict] Native delete failed:", err);
+        }
+    }
     await Promise.all([
         deleteManifest(id),
         deleteDictionaryPart(id, "ifo"),
@@ -477,37 +485,81 @@ export async function lookupInStarDictDictionary(
     id: string,
     term: string,
 ): Promise<VocabularyMeaning[]> {
-    const dictionary = await ensureLoadedDictionary(id);
-    if (!dictionary) {
-        return [];
-    }
-
-    try {
-        const entries = await dictionary.lookup(term);
-        if (!entries || entries.length === 0) {
-            return [];
-        }
-        return parseDictionaryEntries(entries, "stardict");
-    } catch (error) {
-        console.warn("[StarDict] Lookup failed for dictionary:", error);
-        return [];
-    }
+    return lookupInStarDictDictionaries([id], term);
 }
 
 export async function lookupInStarDictDictionaries(
     dictionaryIds: string[],
     term: string,
 ): Promise<VocabularyMeaning[]> {
+    if (dictionaryIds.length === 0 || !term.trim()) {
+        return [];
+    }
+
+    // 1. Fast path: Native Rust StarDict engine with zero-copy memory mapping
+    if (isTauri()) {
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            interface NativeMeaning {
+                part_of_speech: string;
+                definitions: string[];
+                examples?: string[];
+                synonyms?: string[];
+                antonyms?: string[];
+                provider: string;
+            }
+            interface NativeEntryResult {
+                word: string;
+                dictionary_name: string;
+                meanings: NativeMeaning[];
+            }
+
+            const results = await invoke<NativeEntryResult[]>("stardict_lookup", {
+                dictionaryIds,
+                term,
+            });
+
+            if (results && results.length > 0) {
+                const combined: VocabularyMeaning[] = [];
+                for (const entry of results) {
+                    for (const m of entry.meanings) {
+                        combined.push({
+                            provider: "stardict" as const,
+                            partOfSpeech: m.part_of_speech,
+                            definitions: m.definitions,
+                            examples: m.examples,
+                            synonyms: m.synonyms,
+                            antonyms: m.antonyms,
+                        });
+                    }
+                }
+                if (combined.length > 0) {
+                    return combined;
+                }
+            }
+        } catch (error) {
+            console.warn("[StarDict] Native lookup error, falling back to JS:", error);
+        }
+    }
+
+    // 2. Web fallback: JS engine
     const combined: VocabularyMeaning[] = [];
 
     for (const id of dictionaryIds) {
         try {
-            const meanings = await lookupInStarDictDictionary(id, term);
-            if (meanings.length > 0) {
-                combined.push(...meanings);
+            const dictionary = await ensureLoadedDictionary(id);
+            if (!dictionary) {
+                continue;
+            }
+            const entries = await dictionary.lookup(term);
+            if (entries && entries.length > 0) {
+                const parsed = parseDictionaryEntries(entries, "stardict");
+                if (parsed.length > 0) {
+                    combined.push(...parsed);
+                }
             }
         } catch (error) {
-            console.warn("[StarDict] Lookup failed for dictionary", id, error);
+            console.warn("[StarDict] JS lookup failed for dictionary", id, error);
         }
     }
 
