@@ -2,7 +2,7 @@ import { isTauri } from "../lib/env";
 import { saveBookData, saveCoverImage } from "../lib/storage";
 import { useLibraryStore } from "../store";
 import type { Book, BookFormat, OpdsEntry, OpdsFeed } from "../types";
-import { OpdsService, parseOpdsFeed } from "./OpdsService";
+import { OpdsService } from "./OpdsService";
 
 export interface DiscoverSection {
     id: string;
