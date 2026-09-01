@@ -699,6 +699,82 @@ export async function importBooksIncremental(
     onBookImported?: (book: Book) => void,
     onBookFailed?: ImportFailureHandler,
 ): Promise<Book[]> {
+    if (isTauri() && !isMobile() && filePaths.length > 0) {
+        try {
+            const { listen } = await import('@tauri-apps/api/event');
+            let unlisten: (() => void) | null = null;
+
+            unlisten = await listen<{
+                completed: number;
+                total: number;
+                currentFile: string;
+                book?: any;
+                error?: string;
+            }>('import-batch-progress', (event) => {
+                if (event.payload.book) {
+                    const raw = event.payload.book;
+                    const book: Book = {
+                        id: raw.id,
+                        title: raw.title,
+                        author: raw.author,
+                        filePath: raw.file_path || raw.filePath,
+                        storagePath: raw.storagePath,
+                        format: raw.format as BookFormat,
+                        contentHash: raw.contentHash,
+                        coverPath: raw.coverPath,
+                        coverExtractionDone: raw.coverExtractionDone ?? true,
+                        description: raw.description,
+                        publisher: raw.publisher,
+                        publishedDate: raw.publishedDate,
+                        language: raw.language,
+                        isbn: raw.isbn,
+                        fileSize: raw.fileSize || 0,
+                        readingTime: raw.readingTime || 0,
+                        addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
+                        progress: raw.progress || 0,
+                        isFavorite: raw.isFavorite || false,
+                        tags: raw.tags || [],
+                    };
+                    onBookImported?.(book);
+                } else if (event.payload.error) {
+                    onBookFailed?.(event.payload.currentFile, new Error(event.payload.error));
+                }
+            });
+
+            try {
+                const results = await invoke<any[]>('ingest_books_native', { filePaths });
+                if (Array.isArray(results) && results.length > 0) {
+                    return results.map((raw) => ({
+                        id: raw.id,
+                        title: raw.title,
+                        author: raw.author,
+                        filePath: raw.file_path || raw.filePath,
+                        storagePath: raw.storagePath,
+                        format: raw.format as BookFormat,
+                        contentHash: raw.contentHash,
+                        coverPath: raw.coverPath,
+                        coverExtractionDone: raw.coverExtractionDone ?? true,
+                        description: raw.description,
+                        publisher: raw.publisher,
+                        publishedDate: raw.publishedDate,
+                        language: raw.language,
+                        isbn: raw.isbn,
+                        fileSize: raw.fileSize || 0,
+                        readingTime: raw.readingTime || 0,
+                        addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
+                        progress: raw.progress || 0,
+                        isFavorite: raw.isFavorite || false,
+                        tags: raw.tags || [],
+                    }));
+                }
+            } finally {
+                unlisten?.();
+            }
+        } catch (error) {
+            console.warn('[Import] Native batch ingestion failed, falling back to JS worker:', error);
+        }
+    }
+
     const imported = await runWithConcurrency(
         filePaths,
         getImportConcurrency(),

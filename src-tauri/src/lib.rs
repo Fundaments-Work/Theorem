@@ -1,3 +1,4 @@
+pub mod batch_ingest;
 mod database;
 mod epub_parser;
 mod epub_rewriter;
@@ -1109,6 +1110,7 @@ pub fn run() {
             stardict::stardict_lookup,
             stardict::stardict_delete,
             fetch_online_definition,
+            batch_ingest::ingest_books_native,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

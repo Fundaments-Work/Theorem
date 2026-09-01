@@ -58,6 +58,11 @@ tar = "0.4"
 zip = "2"
 flate2 = "1.0"
 memmap2 = "0.9"
+rayon = "1.10"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 walkdir = "2"
 tempfile = "3"
 
