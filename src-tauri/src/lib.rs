@@ -1108,6 +1108,7 @@ pub fn run() {
             download_and_extract_stardict,
             stardict::stardict_lookup,
             stardict::stardict_delete,
+            fetch_online_definition,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1393,4 +1394,39 @@ fn extract_stardict_parts_from_tar_bz2(data: &[u8]) -> Result<StardictParts, Str
     let dict = dict_bytes.ok_or("Archive missing .dict.dz/.dict file")?;
 
     Ok((ifo, idx, dict, syn_bytes))
+}
+
+#[tauri::command]
+async fn fetch_online_definition(term: String) -> Result<serde_json::Value, String> {
+    let clean = term.trim();
+    if clean.is_empty() {
+        return Err("Term is empty".to_string());
+    }
+
+    let encoded = percent_encoding::utf8_percent_encode(clean, percent_encoding::NON_ALPHANUMERIC)
+        .to_string();
+    let url = format!("https://api.dictionaryapi.dev/api/v2/entries/en/{encoded}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(4))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Network request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON parse error: {e}"))?;
+
+    Ok(json)
 }

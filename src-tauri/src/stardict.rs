@@ -241,7 +241,8 @@ impl StarDict {
     pub fn open(dir: &Path) -> Result<Self, String> {
         let mut ifo_path = None;
         let mut idx_path = None;
-        let mut dict_path = None;
+        let mut uncompressed_dict_path = None;
+        let mut compressed_dict_path = None;
         let mut syn_path = None;
 
         let entries = std::fs::read_dir(dir)
@@ -256,11 +257,10 @@ impl StarDict {
                     ifo_path = Some(path);
                 } else if ext_lower == "idx" || ext_lower == "index" {
                     idx_path = Some(path);
-                } else if filename.ends_with(".dict.dz")
-                    || filename.ends_with(".dz")
-                    || ext_lower == "dict"
-                {
-                    dict_path = Some(path);
+                } else if ext_lower == "dict" {
+                    uncompressed_dict_path = Some(path);
+                } else if filename.ends_with(".dict.dz") || filename.ends_with(".dz") {
+                    compressed_dict_path = Some(path);
                 } else if ext_lower == "syn" {
                     syn_path = Some(path);
                 }
@@ -269,8 +269,6 @@ impl StarDict {
 
         let ifo_file = ifo_path.ok_or_else(|| "Missing .ifo file in dictionary".to_string())?;
         let idx_file = idx_path.ok_or_else(|| "Missing .idx file in dictionary".to_string())?;
-        let dict_file =
-            dict_path.ok_or_else(|| "Missing .dict/.dict.dz file in dictionary".to_string())?;
 
         let ifo_content = std::fs::read_to_string(&ifo_file)
             .map_err(|e| format!("Failed to read .ifo file: {e}"))?;
@@ -298,13 +296,42 @@ impl StarDict {
             }
         }
 
-        // Parse DictZip header if compressed
-        let mut dict_handle =
-            File::open(&dict_file).map_err(|e| format!("Failed to open .dict file: {e}"))?;
-        let dictzip_header = if dict_file.to_string_lossy().ends_with(".dz") {
-            DictZipHeader::parse(&mut dict_handle).ok()
+        // Determine dictionary data file (prefer uncompressed if already exists)
+        let (dict_file, dictzip_header) = if let Some(uncomp) = uncompressed_dict_path {
+            (uncomp, None)
+        } else if let Some(comp) = compressed_dict_path {
+            let mut dict_handle =
+                File::open(&comp).map_err(|e| format!("Failed to open .dict.dz file: {e}"))?;
+
+            // Check if it's GZIP
+            let mut magic = [0u8; 2];
+            let is_gzip = dict_handle.read_exact(&mut magic).is_ok() && magic == [0x1f, 0x8b];
+
+            if is_gzip {
+                match DictZipHeader::parse(&mut dict_handle) {
+                    Ok(dz) => (comp, Some(dz)),
+                    Err(_) => {
+                        // Standard sequential GZIP (lacks RA chunk header) — decompress to .dict on disk
+                        let uncomp_path = dir.join("dict.dict");
+                        if !uncomp_path.exists() {
+                            let gz_handle = File::open(&comp)
+                                .map_err(|e| format!("Failed to reopen .dict.dz: {e}"))?;
+                            let mut decoder = flate2::read::GzDecoder::new(gz_handle);
+                            let mut out_file = File::create(&uncomp_path).map_err(|e| {
+                                format!("Failed to create uncompressed dict file: {e}")
+                            })?;
+                            std::io::copy(&mut decoder, &mut out_file).map_err(|e| {
+                                format!("Failed to decompress standard gzip dict: {e}")
+                            })?;
+                        }
+                        (uncomp_path, None)
+                    }
+                }
+            } else {
+                (comp, None)
+            }
         } else {
-            None
+            return Err("Missing .dict or .dict.dz file in dictionary".to_string());
         };
 
         // Parse synonym index if present
@@ -611,10 +638,15 @@ fn parse_wiktionary_text(raw: &str) -> Vec<NativeVocabularyMeaning> {
         "Idiom",
     ];
 
-    // Clean formatting tags
+    // 1. Strip comments and HTML/XML tags
     let mut cleaned = raw.replace("\r\n", "\n").replace('\r', "\n");
-
-    // Remove HTML/XML tags
+    while let Some(start) = cleaned.find("<!--") {
+        if let Some(end) = cleaned[start..].find("-->") {
+            cleaned.replace_range(start..=start + end + 2, " ");
+        } else {
+            break;
+        }
+    }
     while let Some(start) = cleaned.find('<') {
         if let Some(end) = cleaned[start..].find('>') {
             cleaned.replace_range(start..=start + end, " ");
@@ -623,55 +655,89 @@ fn parse_wiktionary_text(raw: &str) -> Vec<NativeVocabularyMeaning> {
         }
     }
 
+    // 2. Find all POS occurrences and their byte positions
+    let mut markers: Vec<(usize, usize, &'static str)> = Vec::new(); // (start, end, pos_name)
+    for &pos in KNOWN_POS {
+        let patterns = [
+            format!("({pos})"),
+            format!("({})", pos.to_lowercase()),
+            format!("[{pos}]"),
+            format!("[{}]", pos.to_lowercase()),
+            format!("\n{pos}\n"),
+            format!("\n{pos}:"),
+        ];
+
+        for pat in &patterns {
+            let mut search_from = 0;
+            while let Some(rel_pos) = cleaned[search_from..].find(pat) {
+                let start = search_from + rel_pos;
+                let end = start + pat.len();
+                markers.push((start, end, pos));
+                search_from = end;
+            }
+        }
+    }
+
+    // Sort markers by starting index
+    markers.sort_by_key(|&(s, _, _)| s);
+    // Deduplicate overlapping markers
+    markers.dedup_by(|a, b| a.0 == b.0);
+
     let mut pos_map: HashMap<String, Vec<String>> = HashMap::new();
-    let mut current_pos: Option<String> = None;
 
-    for line in cleaned.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    if markers.is_empty() {
+        // No inline POS markers found, clean line by line
+        let mut defs = Vec::new();
+        for line in cleaned.lines() {
+            let cl = clean_wiktionary_line(line);
+            if !cl.is_empty() {
+                defs.push(cl);
+            }
         }
-
-        let mut found_pos = None;
-        for &pos in KNOWN_POS {
-            let p_upper = format!("({pos})");
-            let p_lower = format!("({})", pos.to_lowercase());
-            let b_upper = format!("[{pos}]");
-            let b_lower = format!("[{}]", pos.to_lowercase());
-
-            if line.eq_ignore_ascii_case(pos)
-                || line.starts_with(&p_upper)
-                || line.starts_with(&p_lower)
-                || line.starts_with(&b_upper)
-                || line.starts_with(&b_lower)
-            {
-                found_pos = Some(pos.to_string());
-                break;
+        if !defs.is_empty() {
+            pos_map.insert("General".to_string(), defs);
+        }
+    } else {
+        // Add content before first marker (if any) to General
+        let first_start = markers[0].0;
+        if first_start > 0 {
+            let pre = &cleaned[..first_start];
+            let mut pre_defs = Vec::new();
+            for line in pre.lines() {
+                let cl = clean_wiktionary_line(line);
+                if !cl.is_empty() {
+                    pre_defs.push(cl);
+                }
+            }
+            if !pre_defs.is_empty() {
+                pos_map.insert("General".to_string(), pre_defs);
             }
         }
 
-        if let Some(pos) = found_pos {
-            current_pos = Some(pos.clone());
-            let stripped = line
-                .trim_matches(|c: char| {
-                    c == '('
-                        || c == ')'
-                        || c == '['
-                        || c == ']'
-                        || c == '*'
-                        || c == ':'
-                        || c.is_whitespace()
-                })
-                .trim();
-            if !stripped.is_empty() && !stripped.eq_ignore_ascii_case(&pos) {
-                pos_map.entry(pos).or_default().push(stripped.to_string());
+        // Process segments between markers
+        for i in 0..markers.len() {
+            let (_, header_end, pos_name) = markers[i];
+            let seg_end = if i + 1 < markers.len() {
+                markers[i + 1].0
+            } else {
+                cleaned.len()
+            };
+
+            let seg_text = if header_end < seg_end {
+                &cleaned[header_end..seg_end]
+            } else {
+                ""
+            };
+
+            // Split segment into lines or numbered sub-definitions
+            for raw_line in seg_text.split('\n') {
+                for sub_line in raw_line.split('#') {
+                    let cl = clean_wiktionary_line(sub_line);
+                    if !cl.is_empty() && !cl.eq_ignore_ascii_case(pos_name) {
+                        pos_map.entry(pos_name.to_string()).or_default().push(cl);
+                    }
+                }
             }
-        } else {
-            let active_pos = current_pos.as_deref().unwrap_or("General").to_string();
-            pos_map
-                .entry(active_pos)
-                .or_default()
-                .push(line.to_string());
         }
     }
 
@@ -682,7 +748,7 @@ fn parse_wiktionary_text(raw: &str) -> Vec<NativeVocabularyMeaning> {
 
         for d in defs {
             let d_clean = d.trim().to_string();
-            if d_clean.len() >= 3 && seen.insert(d_clean.to_lowercase()) {
+            if d_clean.len() >= 4 && seen.insert(d_clean.to_lowercase()) {
                 unique_defs.push(d_clean);
             }
         }
@@ -700,17 +766,74 @@ fn parse_wiktionary_text(raw: &str) -> Vec<NativeVocabularyMeaning> {
     }
 
     if results.is_empty() && !raw.trim().is_empty() {
-        results.push(NativeVocabularyMeaning {
-            part_of_speech: "General".to_string(),
-            definitions: vec![raw.trim().to_string()],
-            examples: None,
-            synonyms: None,
-            antonyms: None,
-            provider: "stardict".to_string(),
-        });
+        let fallback = clean_wiktionary_line(raw.trim());
+        if !fallback.is_empty() {
+            results.push(NativeVocabularyMeaning {
+                part_of_speech: "General".to_string(),
+                definitions: vec![fallback],
+                examples: None,
+                synonyms: None,
+                antonyms: None,
+                provider: "stardict".to_string(),
+            });
+        }
     }
 
     results
+}
+
+/// Helper to clean wiki markup from a definition line
+fn clean_wiktionary_line(line: &str) -> String {
+    let mut s = line.trim().to_string();
+    if s.is_empty() {
+        return String::new();
+    }
+
+    // Skip bullet-only or punctuation-only lines
+    if s == "*" || s == "*:" || s == ":" || s == "." || s == "·" || s == "--" || s == "—" {
+        return String::new();
+    }
+
+    // Remove leading numbering/bullets like "1. ", "* ", "*: "
+    while s.starts_with('*') || s.starts_with(':') || s.starts_with('#') || s.starts_with(' ') {
+        s = s[1..].trim().to_string();
+    }
+
+    if let Some(stripped) = s.strip_prefix(|c: char| c.is_ascii_digit()) {
+        s = stripped
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ')' || c == ' ')
+            .trim()
+            .to_string();
+    }
+
+    // Process tokens to strip wiki link targets `target|display` -> `display`
+    let mut words = Vec::new();
+    for token in s.split_whitespace() {
+        let clean_token = if let Some((_, display)) = token.split_once('|') {
+            display
+        } else if let Some(stripped) = token.strip_prefix("w:") {
+            stripped
+        } else {
+            token
+        };
+
+        let sanitized: String = clean_token
+            .chars()
+            .filter(|&c| c != '[' && c != ']' && c != '{' && c != '}' && c != '"' && c != '\\')
+            .collect();
+
+        if !sanitized.is_empty() && sanitized != "*" && sanitized != ":" {
+            words.push(sanitized);
+        }
+    }
+
+    let joined = words.join(" ");
+    let trimmed = joined.trim().to_string();
+    if trimmed.len() < 3 || trimmed == "." || trimmed == ":" {
+        String::new()
+    } else {
+        trimmed
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -950,7 +1073,7 @@ author=Wiktionary Contributors
         assert_eq!(res1.word, "bloom");
         assert_eq!(
             res1.meanings[0].definitions[0],
-            "1. A state of flourishing, thriving, or good fortune."
+            "A state of flourishing, thriving, or good fortune."
         );
 
         // Case-insensitive lookup
@@ -958,10 +1081,73 @@ author=Wiktionary Contributors
         assert_eq!(res2.word, "epiphany");
         assert_eq!(
             res2.meanings[0].definitions[0],
-            "1. A moment of sudden revelation or insight."
+            "A moment of sudden revelation or insight."
         );
 
         // Non-existent word
         assert!(dict.lookup("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_real_dictionary_if_present() {
+        let base_dir =
+            PathBuf::from("/home/sapiens/.local/share/work.fundamentals.theorem/dictionaries");
+        if !base_dir.exists() {
+            return;
+        }
+
+        let entries = match std::fs::read_dir(&base_dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let start_open = std::time::Instant::now();
+                let dict = match StarDict::open(&p) {
+                    Ok(d) => d,
+                    Err(err) => {
+                        eprintln!("Failed to open dict {}: {err}", p.display());
+                        continue;
+                    }
+                };
+                let open_dur = start_open.elapsed();
+                eprintln!(
+                    "[Benchmark] Loaded real dictionary '{}' ({} words) in {:?}",
+                    dict.ifo.bookname, dict.ifo.wordcount, open_dur
+                );
+
+                for word in &[
+                    "agricultural",
+                    "epiphany",
+                    "book",
+                    "read",
+                    "computer",
+                    "architecture",
+                ] {
+                    let start_lookup = std::time::Instant::now();
+                    let res = dict.lookup(word).unwrap();
+                    let lookup_dur = start_lookup.elapsed();
+                    eprintln!(
+                        "[Benchmark] Lookup for '{}': found = {}, duration = {:?}",
+                        word,
+                        res.is_some(),
+                        lookup_dur
+                    );
+                    if let Some(r) = res {
+                        eprintln!("  Definition for '{}': {} meanings", word, r.meanings.len());
+                        for m in &r.meanings {
+                            eprintln!(
+                                "    [{}] {} definitions. First: {:?}",
+                                m.part_of_speech,
+                                m.definitions.len(),
+                                m.definitions.first()
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
