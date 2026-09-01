@@ -6,7 +6,7 @@ import { saveCoverImage, getBookData } from "../../core/lib/storage";
 import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
 import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncremental, pickAndImportBooksIncremental, scanFolderForBooks } from "../../core/lib/import";
 import { pickLibraryFolderMobile, scanLibraryFolderMobile } from "../../core/lib/mobile-folder-scan";
-import { isMobile, isTauri } from "../../core/lib/env";
+import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
 import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
 import type { Book, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
@@ -14,7 +14,7 @@ import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
-    ChevronDown, Star, Check, CloudOff, Pencil, Download
+    ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -143,6 +143,18 @@ export const BookCard = memo(function BookCard({
             shortcut: "Enter",
             onClick: () => onOpenBook(book),
         },
+        ...(isTauriDesktop() ? [{
+            id: "open-new-window",
+            label: "Open in New Window",
+            icon: <ExternalLink className="w-4 h-4" />,
+            onClick: () => {
+                import("@tauri-apps/api/core").then(({ invoke }) => {
+                    invoke("open_book_in_new_window", { bookId: book.id, title: book.title }).catch((err) => {
+                        toast.error(`Failed to open window: ${err}`);
+                    });
+                });
+            },
+        }] : []),
         {
             id: "favorite",
             label: book.isFavorite ? "Remove from Favorites" : "Add to Favorites",

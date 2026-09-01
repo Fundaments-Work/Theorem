@@ -178,6 +178,20 @@ function App() {
 
     useEffect(() => {
         if (typeof window === "undefined") return;
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const targetRoute = params.get("route");
+            const targetBookId = params.get("bookId");
+            if (targetRoute === "reader" && targetBookId) {
+                setRoute("reader", targetBookId, false);
+            }
+        } catch {
+            // Ignore parse errors
+        }
+    }, [setRoute]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
 
         window.history.replaceState({ route: currentRoute, bookId: useUIStore.getState().currentBookId }, "");
 

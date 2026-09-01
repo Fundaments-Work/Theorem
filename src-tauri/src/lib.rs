@@ -877,6 +877,48 @@ fn tts_get_voices(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, Strin
     Ok(Vec::new())
 }
 
+#[tauri::command]
+#[allow(unused_variables)]
+async fn open_book_in_new_window(
+    app: tauri::AppHandle,
+    book_id: String,
+    title: String,
+) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        use tauri::Manager;
+        use tauri::WebviewUrl;
+        use tauri::WebviewWindowBuilder;
+
+        let safe_id = book_id.replace(|c: char| !c.is_alphanumeric(), "_");
+        let label = format!("reader_{}", safe_id);
+
+        if let Some(existing) = app.get_webview_window(&label) {
+            let _ = existing.show();
+            let _ = existing.unminimize();
+            let _ = existing.set_focus();
+            return Ok(());
+        }
+
+        let url = WebviewUrl::App(format!("index.html?route=reader&bookId={}", book_id).into());
+        let win = WebviewWindowBuilder::new(&app, &label, url)
+            .title(&title)
+            .inner_size(1024.0, 768.0)
+            .min_inner_size(600.0, 400.0)
+            .decorations(true)
+            .build()
+            .map_err(|e| format!("Failed to create new window: {e}"))?;
+
+        let _ = win.set_focus();
+        Ok(())
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (&app, &book_id, &title);
+        Err("Multi-window reading is only supported on desktop".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -888,8 +930,10 @@ pub fn run() {
         .manage(PendingOpenFiles::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
             }
         })
         .plugin(tauri_plugin_opener::init())
@@ -1120,6 +1164,7 @@ pub fn run() {
             mobi_parser::get_mobi_metadata,
             article_extractor::fetch_and_extract_article_native,
             opds_parser::fetch_and_parse_opds_native,
+            open_book_in_new_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
