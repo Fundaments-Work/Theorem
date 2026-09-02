@@ -1,5 +1,6 @@
 
 import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { PageHeader } from "../../ui";
 import { cn, formatFileSize } from "../../core/lib/utils";
 import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
@@ -40,6 +41,7 @@ import {
     AlertCircle,
     Keyboard,
     RefreshCw,
+    Terminal,
 } from "lucide-react";
 
 type SettingsTab = "general" | "dictionary" | "integrations" | "storage" | "shortcuts" | "about";
@@ -320,6 +322,7 @@ export const SettingsPage = memo(function SettingsPage() {
     const updateStats = useSettingsStore((state) => state.updateStats);
     const highlightsExportName = normalizeHighlightsExportName(settings.vault.highlightsFileName);
     const isMobilePlatform = isMobile();
+    const isLinuxDesktop = isTauriDesktop() && navigator.userAgent.includes("Linux");
     const setVaultSyncStatus = useUIStore((state) => state.setVaultSyncStatus);
     const vaultSyncStatus = useUIStore((state) => state.vaultSyncStatus);
     const vaultSyncMessage = useUIStore((state) => state.vaultSyncMessage);
@@ -361,12 +364,29 @@ export const SettingsPage = memo(function SettingsPage() {
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
     const [updateChecking, setUpdateChecking] = useState(false);
     const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
+    const [cliLinkPath, setCliLinkPath] = useState<string | null>(null);
+    const [cliEnabling, setCliEnabling] = useState(false);
 
     useEffect(() => {
         if (!dictionaryRemovedName) return;
         const timer = setTimeout(() => setDictionaryRemovedName(null), 3000);
         return () => clearTimeout(timer);
     }, [dictionaryRemovedName]);
+
+    const handleEnableCli = async () => {
+        setCliEnabling(true);
+        try {
+            const link = await invoke<string>("setup_linux_cli_symlink");
+            setCliLinkPath(link);
+        } catch (error) {
+            setAlertInfo({
+                title: "CLI Setup Failed",
+                message: String(error),
+            });
+        } finally {
+            setCliEnabling(false);
+        }
+    };
 
     const deviceSyncSectionRef = useRef<HTMLDivElement | null>(null);
     const markdownExportSectionRef = useRef<HTMLDivElement | null>(null);
@@ -1011,6 +1031,33 @@ export const SettingsPage = memo(function SettingsPage() {
                             <DeviceSyncSection />
                         </Suspense>
                     </div>
+
+                    {isLinuxDesktop && (
+                        <Section
+                            title="Terminal CLI"
+                            description="Expose Theorem's native engines (dictionary, search, library, article extraction) to your terminal, scripts, and AI agents via the `theorem` command"
+                            icon={<Terminal className="w-5 h-5" />}
+                        >
+                            <SettingRow
+                                label="Enable CLI"
+                                description={
+                                    cliLinkPath
+                                        ? `Symlinked: ${cliLinkPath} — run 'theorem help' in any terminal`
+                                        : "Symlink the executable into ~/.local/bin so `theorem` is on your $PATH (no sudo required)"
+                                }
+                            >
+                                <button
+                                    onClick={() => {
+                                        void handleEnableCli();
+                                    }}
+                                    disabled={cliEnabling}
+                                    className={cn("ui-btn", cliEnabling && "pointer-events-none opacity-50")}
+                                >
+                                    {cliLinkPath ? "Re-run Setup" : "Enable CLI"}
+                                </button>
+                            </SettingRow>
+                        </Section>
+                    )}
 
                     <div ref={markdownExportSectionRef}>
                         <Section

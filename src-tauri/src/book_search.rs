@@ -30,7 +30,7 @@ pub struct BookSearchResult {
 }
 
 /// Strip XML/HTML tags and return clean text with mapped character positions
-fn html_to_plain_text(html: &str) -> String {
+pub(crate) fn html_to_plain_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut in_tag = false;
 

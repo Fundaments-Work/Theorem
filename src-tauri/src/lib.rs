@@ -1,6 +1,7 @@
 pub mod article_extractor;
 pub mod batch_ingest;
 pub mod book_search;
+pub mod cli;
 mod database;
 mod epub_parser;
 mod epub_rewriter;
@@ -1082,6 +1083,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            cli::setup_linux_cli_symlink,
             tts_speak,
             tts_stop,
             tts_pause,

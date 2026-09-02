@@ -69,12 +69,15 @@ theorem export json --output ~/backup/data.json # Full JSON reading snapshot
 
 ## 4. Implementation Checklist
 
-- [ ] Add CLI argument parser in `src-tauri/src/main.rs` (or dedicated `src-tauri/src/cli.rs` module).
-- [ ] Connect CLI commands directly to existing Rust backend modules:
-  - `stardict::lookup_term`
-  - `book_search::search_epub_spine`
-  - `epub_parser::read_epub_metadata_inner`
-  - `article_extractor::extract_article_content_native`
-  - `database::with_connection` for highlights, library listing, and notes
-- [ ] Implement `setup_linux_cli_symlink` Tauri command.
-- [ ] Add 1-click CLI enable toggle in Settings UI.
+- [x] Add CLI argument parser in `src-tauri/src/cli.rs` (multi-call dispatch from `src-tauri/src/main.rs` via `theorem_lib::cli::maybe_dispatch`; unknown args fall through to the GUI).
+- [x] Connect CLI commands directly to existing Rust backend modules:
+  - `stardict::lookup_all_installed` (new CLI fast-path over `stardict::lookup_term`) — `theorem dict`
+  - `book_search::search_epub_spine` — `theorem search <book-id> "query"`
+  - `database::sqlite_search_books_inner` (FTS5) — `theorem search "query"`
+  - `article_extractor::fetch_and_extract_article_native` — `theorem extract`
+  - `database::with_connection` — `theorem library list`, `theorem highlights list`
+  - EPUB spine text extraction via `epub_parser` inner helpers + OPF spine-order scan — `theorem read <book-id> [--chapter N]` (EPUB only; `--cfi` pending the epubcfi.rs roadmap item; MOBI read pending)
+- [x] Implement `setup_linux_cli_symlink` Tauri command (also available headless as `theorem setup-cli`).
+- [x] Add 1-click CLI enable toggle in Settings → Devices & Export ("Terminal CLI", Linux desktop only).
+- [ ] `theorem export vault` / `theorem export json` (Vault export subsystem — not yet wired).
+- [ ] `theorem library import` (batch ingestion needs a headless ingest entry point).

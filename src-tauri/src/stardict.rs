@@ -877,6 +877,38 @@ fn get_or_load_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<StarDict
     Ok(dict)
 }
 
+/// List dictionary ids installed on disk (subfolders of `dictionaries/`).
+pub fn list_installed_dict_ids(app: &AppHandle) -> Vec<String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let root = app_data.join("dictionaries");
+    let mut ids = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                ids.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
+    ids.sort();
+    ids
+}
+
+/// Look up a term in every installed StarDict dictionary (headless CLI fast path).
+pub fn lookup_all_installed(app: &AppHandle, term: &str) -> Vec<StarDictEntryResult> {
+    let mut results = Vec::new();
+    for id in list_installed_dict_ids(app) {
+        if let Ok(dict) = get_or_load_dictionary(app, &id) {
+            if let Ok(Some(entry)) = dict.lookup(term) {
+                results.push(entry);
+            }
+        }
+    }
+    results
+}
+
 /// Auto-migrate legacy SQLite blobs to disk folder
 fn export_stardict_from_sqlite(
     app: &AppHandle,
