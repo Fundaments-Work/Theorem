@@ -1557,7 +1557,7 @@ export const ArticleViewer = memo(function ArticleViewer({
                 <div
                     ref={toolbarContainerRef}
                     className={cn(
-                        "absolute left-0 right-0 top-0 z-50 transition-transform duration-300",
+                        "absolute left-0 right-0 top-0 z-[140] transition-transform duration-300",
                         shouldShowReaderChrome ? "translate-y-0" : "-translate-y-full",
                     )}
                 >
@@ -1622,7 +1622,10 @@ export const ArticleViewer = memo(function ArticleViewer({
                 />
 
                 <div
-                    className="absolute inset-0 overflow-hidden"
+                    className={cn(
+                        "absolute inset-0 overflow-hidden transition-[top] duration-300",
+                        shouldShowReaderChrome ? "top-11 sm:top-12" : "top-0",
+                    )}
                     onClick={() => {
                         const sel = window.getSelection();
                         if (!sel || sel.isCollapsed) {

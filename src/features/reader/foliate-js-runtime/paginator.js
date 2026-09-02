@@ -558,7 +558,24 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             /* scrolled mode keeps real scrolling */
-            overflow: auto;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: color-mix(in srgb, currentColor 25%, transparent) transparent;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar {
+            width: 4px;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar-thumb {
+            background: color-mix(in srgb, currentColor 25%, transparent);
+            border-radius: 9999px;
+            transition: background 0.2s ease;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar-thumb:hover {
+            background: color-mix(in srgb, currentColor 50%, transparent);
         }
         #header {
             grid-column: 3 / 4;
