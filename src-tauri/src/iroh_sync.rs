@@ -17,6 +17,84 @@ use theorem_sync_core::sync_protocol::{PairedDevice, PairingRequest, PairingResp
 const ALPN: &[u8] = b"theorem-sync/v1";
 pub const ALPN_BYTES: &[u8] = ALPN;
 
+/// One remote doc entry delivered over the IPC bridge.
+#[derive(serde::Serialize, Clone)]
+struct EntryPayload {
+    key: String,
+    value: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct EntryBatchPayload {
+    entries: Vec<EntryPayload>,
+}
+
+/// Batches remote doc entries before emitting them over IPC so a bulk sync
+/// arrives as a few `docs-entry-batch` events instead of one event per entry.
+/// Later values for the same key replace earlier ones, so only the newest
+/// state of each record crosses the bridge.
+struct EntryBatcher {
+    app: tauri::AppHandle,
+    entries: std::sync::Mutex<Vec<EntryPayload>>,
+    flush_scheduled: std::sync::atomic::AtomicBool,
+}
+
+impl EntryBatcher {
+    const FLUSH_DELAY_MS: u64 = 300;
+    const MAX_BATCH: usize = 64;
+
+    fn new(app: tauri::AppHandle) -> Arc<Self> {
+        Arc::new(Self {
+            app,
+            entries: std::sync::Mutex::new(Vec::new()),
+            flush_scheduled: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    fn push(self: &Arc<Self>, key: String, value: String) {
+        let should_flush = {
+            let mut guard = self.entries.lock().unwrap();
+            match guard.iter_mut().find(|e| e.key == key) {
+                Some(existing) => {
+                    existing.value = value;
+                }
+                None => guard.push(EntryPayload { key, value }),
+            }
+            guard.len() >= Self::MAX_BATCH
+        };
+        if should_flush {
+            self.flush();
+        } else {
+            self.schedule_flush();
+        }
+    }
+
+    fn schedule_flush(self: &Arc<Self>) {
+        if !self
+            .flush_scheduled
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let this = Arc::clone(self);
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(Self::FLUSH_DELAY_MS)).await;
+                this.flush_scheduled
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                this.flush();
+            });
+        }
+    }
+
+    fn flush(&self) {
+        let drained = std::mem::take(&mut *self.entries.lock().unwrap());
+        if drained.is_empty() {
+            return;
+        }
+        let _ = self
+            .app
+            .emit("docs-entry-batch", EntryBatchPayload { entries: drained });
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 struct IrohEnvelope {
     #[serde(rename = "t")]
@@ -166,6 +244,7 @@ pub fn subscribe_doc_events(
     blobs: iroh_blobs::api::Store,
 ) {
     tokio::spawn(async move {
+        let batcher = EntryBatcher::new(app.clone());
         let mut subscribe_failures = 0u32;
         let mut stream_deaths = 0u32;
         const MAX_SUBSCRIBE_RETRIES: u32 = 3;
@@ -199,21 +278,7 @@ pub fn subscribe_doc_events(
                         let hash = entry.content_hash();
                         if let Ok(content) = blobs.blobs().get_bytes(hash).await {
                             if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                let app_clone = app.clone();
-                                #[derive(serde::Serialize, Clone)]
-                                struct EntryPayload {
-                                    key: String,
-                                    value: String,
-                                }
-                                app_clone
-                                    .emit(
-                                        "docs-entry-changed",
-                                        EntryPayload {
-                                            key: key.clone(),
-                                            value,
-                                        },
-                                    )
-                                    .ok();
+                                batcher.push(key.clone(), value);
                                 pending.insert(hash, key);
                             }
                         } else {
@@ -224,15 +289,7 @@ pub fn subscribe_doc_events(
                         if let Some(key) = pending.remove(&hash) {
                             if let Ok(content) = blobs.blobs().get_bytes(hash).await {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                    let app_clone = app.clone();
-                                    #[derive(serde::Serialize, Clone)]
-                                    struct EntryPayload {
-                                        key: String,
-                                        value: String,
-                                    }
-                                    app_clone
-                                        .emit("docs-entry-changed", EntryPayload { key, value })
-                                        .ok();
+                                    batcher.push(key, value);
                                 }
                             }
                         }
@@ -242,18 +299,13 @@ pub fn subscribe_doc_events(
                         for (hash, key) in remaining {
                             if let Ok(content) = blobs.blobs().get_bytes(hash).await {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                    let app_clone = app.clone();
-                                    #[derive(serde::Serialize, Clone)]
-                                    struct EntryPayload {
-                                        key: String,
-                                        value: String,
-                                    }
-                                    app_clone
-                                        .emit("docs-entry-changed", EntryPayload { key, value })
-                                        .ok();
+                                    batcher.push(key, value);
                                 }
                             }
                         }
+                        // A bulk transfer may have just filled the queue past the
+                        // batch limit without ever hitting the flush timer window.
+                        batcher.flush();
                         #[derive(serde::Serialize, Clone)]
                         struct PendingContentPayload {
                             remaining_count: usize,

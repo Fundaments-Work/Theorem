@@ -121,7 +121,7 @@ When devices are on the same local network:
 
 ### Phase 1: Native SQLite Ingestion
 - [ ] Implement Rust-side batch merge transactions in `theorem-sync-core`.
-- [ ] Migrate `docs-entry-changed` IPC events to lightweight change notifications.
+- [x] Migrate `docs-entry-changed` IPC events to lightweight notifications — **step 1 done**: `iroh_sync.rs` now batches/dedupes remote entries (latest value per key, flushed every ~300ms or 64 entries) and emits `docs-entry-batch`; `sync-orchestrator.ts` consumes the batch event. Next step: apply entries to SQLite inside Rust and emit only changed IDs (`sync_batch_applied`).
 
 ### Phase 2: Resumable File Streaming
 - [ ] Add byte-range resume support in `file_transfer.rs`.

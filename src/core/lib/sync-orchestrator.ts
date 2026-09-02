@@ -889,9 +889,10 @@ export async function initDocsLiveListener(): Promise<() => void> {
         await mergeIncomingData(entries);
     };
 
-    const rawUnlisten = await listen<{ key: string; value: string }>("docs-entry-changed", (event) => {
-        const { key, value } = event.payload;
-
+    // The Rust side batches remote doc entries (deduped per key, flushed every
+    // ~300ms or 64 entries) so a bulk sync crosses the IPC bridge in a few
+    // `docs-entry-batch` events instead of one event per entry.
+    const handleIncomingEntry = (key: string, value: string) => {
         if (isSelfOriginatedKey(key)) {
             return;
         }
@@ -938,13 +939,19 @@ export async function initDocsLiveListener(): Promise<() => void> {
 
         _pendingDocsEntries.set(key, value);
         if (_pendingDocsEntries.size > MAX_PENDING_ENTRIES) {
-            
+
             if (_docsLiveTimer) clearTimeout(_docsLiveTimer);
             _processPendingDocs();
             return;
         }
         if (_docsLiveTimer) clearTimeout(_docsLiveTimer);
         _docsLiveTimer = setTimeout(_processPendingDocs, 500);
+    };
+
+    const rawUnlisten = await listen<{ entries: { key: string; value: string }[] }>("docs-entry-batch", (event) => {
+        for (const { key, value } of event.payload.entries) {
+            handleIncomingEntry(key, value);
+        }
     });
 
     _docsLiveUnlisten = () => {
