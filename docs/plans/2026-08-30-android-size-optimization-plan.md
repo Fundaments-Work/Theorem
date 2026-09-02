@@ -182,6 +182,9 @@ To track size regressions during development:
 
 ## 6. Implementation Checklist
 
-- [ ] Prune `vite.config.ts` `viteStaticCopy` for `pdfjs-dist` cmaps.
-- [ ] Add `resourceConfigurations` in `build.gradle.kts` for target locales.
+- [x] Pillar 1: `panic = "abort"` + `opt-level = "z"` in `src-tauri/Cargo.toml` (lto/strip/codegen-units were already in place). `tokio` "process" feature is now desktop-only via `[target.'cfg(not(target_os = "android"))'.dependencies]`.
+- [x] Pillar 2: Prune `vite.config.ts` `viteStaticCopy` for `pdfjs-dist` cmaps (only `Adobe-*` and `Uni*` — 74 of 169 tables).
+- [x] Pillar 3: Add `resourceConfigurations` in `build.gradle.kts` for target locales. (R8 `isMinifyEnabled`/`isShrinkResources` and AAB splits were already configured.)
+- [x] Pillar 4: Per-ABI builds / AAB already configured in `build.gradle.kts` (bundle splits + per-target build comments).
 - [ ] Run benchmark build on `aarch64-linux-android` and record before/after APK byte sizes.
+- [ ] Verify `panic = "abort"` on a full release Android build (catch_unwind call sites degrade to abort-by-design).

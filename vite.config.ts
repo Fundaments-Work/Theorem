@@ -12,11 +12,16 @@ export default defineConfig(async () => ({
     plugins: [
         react(),
         tailwindcss(),
-        // Copy PDF.js assets (cmaps and fonts) from node_modules to build output
+        // Copy PDF.js assets (cmaps and fonts) from node_modules to build output.
+        // Only Adobe-* and Uni* cmaps are shipped: standard Unicode/Adobe tables
+        // cover real-world PDFs, the ~100 legacy CJK tables (2.5 MB) are skipped.
         viteStaticCopy({
             targets: [
                 {
-                    src: "node_modules/pdfjs-dist/cmaps/*",
+                    src: [
+                        "node_modules/pdfjs-dist/cmaps/Adobe-*.bcmap",
+                        "node_modules/pdfjs-dist/cmaps/Uni*.bcmap",
+                    ],
                     dest: "pdfjs/cmaps",
                 },
                 {

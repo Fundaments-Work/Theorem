@@ -48,7 +48,9 @@ r2d2_sqlite = "0.25"
 
 # ── LAN Device Sync ──
 theorem-sync-core = { path = "crates/theorem-sync-core" }
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "process"] }
+# "process" is only needed for desktop TTS shells (spd-say / say / powershell);
+# excluded on Android to keep the native lib lean.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
 futures = "0.3"
 
 hex = "0.4"
@@ -81,6 +83,9 @@ iroh-mdns-address-lookup = "0.4.0"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 unrar-ng = "0.7.7"
+# Desktop TTS shells (spd-say / say / powershell) need tokio process spawning.
+# Feature sets are additive per-target, so this only applies on desktop.
+tokio = { version = "1", features = ["process"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
@@ -88,10 +93,11 @@ jni = { version = "0.21", default-features = false, features = ["invocation"] }
 
 # Optimize for release (reduces binary size significantly)
 [profile.release]
-opt-level = "s"         # Optimize for size
+opt-level = "z"         # Aggressive size optimization (smaller than "s")
 strip = "symbols"       # Strip all symbols
 lto = true              # Enable Link Time Optimization
 codegen-units = 1       # Maximize optimization (takes longer to compile)
+panic = "abort"         # Drop unwinding landing pads / .eh_frame tables (~3-4 MB on iroh/tokio)
 
 # Dev profile: keep debug builds fast
 [profile.dev]
