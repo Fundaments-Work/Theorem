@@ -142,10 +142,13 @@ enum Command {
         #[arg(long)]
         chapter: Option<usize>,
     },
-    /// Look up a term in installed StarDict dictionaries
+    /// Look up a term in installed dictionaries (StarDict + MDict)
     Dict {
         /// Term to define
         term: String,
+        /// Also query the Free Dictionary API (network)
+        #[arg(long)]
+        online: bool,
     },
     /// Fetch a web page and print the clean article text
     Extract { url: String },
@@ -163,6 +166,21 @@ enum Command {
     Highlights {
         #[command(subcommand)]
         command: HighlightsCommand,
+    },
+    /// List bookmarks (annotations of type bookmark)
+    Bookmarks {
+        #[command(subcommand)]
+        command: BookmarksCommand,
+    },
+    /// Manage RSS feeds
+    Feeds {
+        #[command(subcommand)]
+        command: FeedsCommand,
+    },
+    /// Browse and download OPDS catalogs
+    Opds {
+        #[command(subcommand)]
+        command: OpdsCommand,
     },
     /// Install or inspect the `theorem` symlink in ~/.local/bin
     SetupCli,
@@ -233,6 +251,58 @@ enum HighlightsCommand {
         #[arg(long)]
         book: Option<String>,
     },
+    /// Add a note or highlight annotation
+    Add {
+        book_id: String,
+        /// Highlighted text (or the note itself for --type note)
+        #[arg(long)]
+        text: String,
+        /// Note content attached to the annotation
+        #[arg(long)]
+        note: Option<String>,
+        /// highlight | note
+        #[arg(long, default_value = "highlight")]
+        r#type: String,
+        /// Highlight color
+        #[arg(long, default_value = "yellow")]
+        color: String,
+    },
+    /// Delete an annotation by id
+    Delete { annotation_id: String },
+}
+
+#[derive(Subcommand)]
+enum BookmarksCommand {
+    /// List bookmarks, optionally for one book
+    List {
+        #[arg(long)]
+        book: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum FeedsCommand {
+    /// List feeds with unread counts
+    List,
+    /// Subscribe to a new feed
+    Add { url: String },
+    /// Unsubscribe from a feed (by url or id)
+    Remove { feed: String },
+    /// Fetch every feed and merge new articles into the library
+    Refresh,
+}
+
+#[derive(Subcommand)]
+enum OpdsCommand {
+    /// Browse an OPDS catalog feed (lists entries or navigation links)
+    Browse { url: String },
+    /// Download an entry from a catalog and import it into the library
+    Download {
+        /// Catalog feed URL
+        url: String,
+        /// Entry title (or index shown by `opds browse`)
+        entry: String,
+    },
 }
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
@@ -247,6 +317,9 @@ const SUBCOMMANDS: &[&str] = &[
     "library",
     "shelf",
     "highlights",
+    "bookmarks",
+    "feeds",
+    "opds",
     "setup-cli",
     "help",
     "version",
@@ -306,11 +379,14 @@ fn run(command: Command, output: &Output) -> i32 {
         other => with_app(|app| match other {
             Command::Search { query, book_id } => run_search(output, app, &query, book_id),
             Command::Read { book_id, chapter } => run_read(output, app, &book_id, chapter),
-            Command::Dict { term } => run_dict(output, app, &term),
+            Command::Dict { term, online } => run_dict(output, app, &term, online),
             Command::Extract { url } => run_extract(output, &url),
             Command::Library { command } => run_library(output, app, command),
             Command::Shelf { command } => run_shelf(output, app, command),
             Command::Highlights { command } => run_highlights(output, app, command),
+            Command::Bookmarks { command } => run_bookmarks(output, app, command),
+            Command::Feeds { command } => run_feeds(output, app, command),
+            Command::Opds { command } => run_opds(output, app, command),
             Command::SetupCli | Command::Version => unreachable!("handled without app context"),
         }),
     }
@@ -349,40 +425,121 @@ fn block_on<T: Send + 'static>(future: impl Future<Output = T>) -> T {
 
 // ── dict ─────────────────────────────────────────────────────────────────────
 
-fn run_dict(output: &Output, app: &tauri::AppHandle, term: &str) -> i32 {
+fn run_dict(output: &Output, app: &tauri::AppHandle, term: &str, online: bool) -> i32 {
     let started = std::time::Instant::now();
-    let results = crate::stardict::lookup_all_installed(app, term);
+    let stardict_results = crate::stardict::lookup_all_installed(app, term);
+    let mdx_results = mdx_lookup_all_installed(app, term);
     let elapsed = started.elapsed().as_secs_f64() * 1000.0;
 
-    if output.json {
-        output.print_json(&results)
-    } else {
-        if results.is_empty() {
-            output.note(&format!(
-                "no definitions for '{term}' in {} installed dictionaries",
-                crate::stardict::list_installed_dict_ids(app).len()
-            ));
-            return 1;
-        }
-        for entry in &results {
-            println!(
-                "{} {}",
-                output.bold(&entry.word),
-                output.dim(&format!("({})", entry.dictionary_name))
-            );
-            for meaning in &entry.meanings {
-                if !meaning.part_of_speech.is_empty() {
-                    println!("  {}", output.cyan(&meaning.part_of_speech));
-                }
-                for definition in &meaning.definitions {
-                    println!("    {definition}");
-                }
+    let online_result = if online {
+        match block_on(crate::fetch_online_definition(term.to_string())) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                output.note(&format!("online lookup failed: {e}"));
+                None
             }
-            println!();
         }
-        output.note(&format!("({:.2}ms)", elapsed));
-        0
+    } else {
+        None
+    };
+
+    let stardict_len = stardict_results.len();
+    let mdx_len = mdx_results.len();
+
+    if output.json {
+        return output.print_json(&serde_json::json!({
+            "term": term,
+            "stardict": stardict_results,
+            "mdx": mdx_results,
+            "online": online_result,
+            "elapsedMs": elapsed,
+        }));
     }
+
+    if stardict_len == 0 && mdx_len == 0 && online_result.is_none() {
+        output.note(&format!(
+            "no definitions for '{term}' in {} installed dictionaries",
+            stardict_len + mdx_len
+        ));
+        return 1;
+    }
+
+    for entry in &stardict_results {
+        println!(
+            "{} {}",
+            output.bold(&entry.word),
+            output.dim(&format!("({})", entry.dictionary_name))
+        );
+        for meaning in &entry.meanings {
+            if !meaning.part_of_speech.is_empty() {
+                println!("  {}", output.cyan(&meaning.part_of_speech));
+            }
+            for definition in &meaning.definitions {
+                println!("    {definition}");
+            }
+        }
+        println!();
+    }
+    for entry in &mdx_results {
+        println!(
+            "{} {}",
+            output.bold(&entry.term),
+            output.dim(&format!("({})", entry.dictionary_name))
+        );
+        let text = crate::book_search::html_to_plain_text(&entry.html);
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            println!("    {}", line.trim());
+        }
+        println!();
+    }
+    if let Some(value) = online_result {
+        println!("{} {}", output.bold(term), output.dim("(online)"));
+        if let Some(text) = value.get("textContent").and_then(|v| v.as_str()) {
+            for line in text.lines().take(30) {
+                println!("    {line}");
+            }
+        } else {
+            println!("    {value}");
+        }
+    }
+    output.note(&format!("({:.2}ms)", elapsed));
+    0
+}
+
+/// Look up a term in every installed MDict (.mdx) dictionary.
+fn mdx_lookup_all_installed(
+    app: &tauri::AppHandle,
+    term: &str,
+) -> Vec<crate::mdict::MdxEntryResult> {
+    use tauri::Manager;
+
+    let mut results = Vec::new();
+    for id in crate::stardict::list_installed_dict_ids(app) {
+        let dict_dir = app
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("dictionaries")
+            .join(&id);
+        let mdx_path = match std::fs::read_dir(&dict_dir) {
+            Ok(entries) => entries.flatten().map(|e| e.path()).find(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("mdx"))
+                    .unwrap_or(false)
+            }),
+            Err(_) => None,
+        };
+        let Some(mdx_path) = mdx_path else { continue };
+        let dict = match crate::mdict::MdxDictionary::open(&mdx_path) {
+            Ok(dict) => dict,
+            Err(_) => continue,
+        };
+        if let Ok(Some(entry)) = dict.lookup(term) {
+            results.push(entry);
+        }
+    }
+    results
 }
 
 // ── search ───────────────────────────────────────────────────────────────────
@@ -1314,16 +1471,57 @@ fn shelf_add(
 
 // ── highlights ───────────────────────────────────────────────────────────────
 
-fn run_highlights(output: &Output, app: &tauri::AppHandle, command: HighlightsCommand) -> i32 {
-    let HighlightsCommand::List { book } = command;
-    let book_filter = book;
+// ── highlights add/delete + bookmarks ────────────────────────────────────────
 
+fn run_highlights(output: &Output, app: &tauri::AppHandle, command: HighlightsCommand) -> i32 {
+    match command {
+        HighlightsCommand::List { book } => highlights_list(output, app, book.as_deref()),
+        HighlightsCommand::Add {
+            book_id,
+            text,
+            note,
+            r#type,
+            color,
+        } => highlights_add(
+            output,
+            app,
+            &book_id,
+            &text,
+            note.as_deref(),
+            &r#type,
+            &color,
+        ),
+        HighlightsCommand::Delete { annotation_id } => {
+            highlights_delete(output, app, &annotation_id)
+        }
+    }
+}
+
+fn load_annotations_rows(
+    app: &tauri::AppHandle,
+    book_id: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    crate::database::with_connection(app, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT annotation_json FROM book_annotations WHERE book_id = ?1 ORDER BY updated_at",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![book_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows
+            .iter()
+            .filter_map(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+            .collect())
+    })
+}
+
+fn highlights_list(output: &Output, app: &tauri::AppHandle, book: Option<&str>) -> i32 {
     let annotations: Vec<(String, String)> = match crate::database::with_connection(app, |conn| {
         let mut stmt = conn.prepare(
             "SELECT book_id, annotation_json FROM book_annotations \
              WHERE (?1 IS NULL OR book_id = ?1) ORDER BY book_id, updated_at",
         )?;
-        let mapped = stmt.query_map(rusqlite::params![book_filter], |row| {
+        let mapped = stmt.query_map(rusqlite::params![book], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         mapped.collect::<rusqlite::Result<Vec<_>>>()
@@ -1344,6 +1542,679 @@ fn run_highlights(output: &Output, app: &tauri::AppHandle, command: HighlightsCo
         })
         .collect();
     output.print_json(&items)
+}
+
+fn highlights_add(
+    output: &Output,
+    app: &tauri::AppHandle,
+    book_id: &str,
+    text: &str,
+    note: Option<&str>,
+    annotation_type: &str,
+    color: &str,
+) -> i32 {
+    let annotation_type = match annotation_type {
+        "highlight" | "note" => annotation_type.to_string(),
+        other => return output.error(&format!("invalid --type '{other}' (highlight or note)")),
+    };
+
+    let mut kv = match LibraryKv::load(app) {
+        Ok(kv) => kv,
+        Err(e) => return output.error(&e),
+    };
+    if kv.book_position(book_id).is_none() {
+        return output.error(&format!("book '{book_id}' not found in library"));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = now_iso();
+    let annotation = serde_json::json!({
+        "id": id,
+        "bookId": book_id,
+        "type": annotation_type,
+        "location": "",
+        "selectedText": text,
+        "noteContent": note,
+        "color": color,
+        "createdAt": now,
+    });
+
+    // Append to the per-book rows (the table stores one JSON per row).
+    let mut rows = match load_annotations_rows(app, book_id) {
+        Ok(rows) => rows,
+        Err(e) => return output.error(&e),
+    };
+    rows.push(annotation.clone());
+    let serialized: Vec<String> = rows
+        .iter()
+        .map(|v| serde_json::to_string(v).unwrap_or_default())
+        .collect();
+    if let Err(e) =
+        crate::database::sqlite_save_book_annotations(app.clone(), book_id.to_string(), serialized)
+    {
+        return output.error(&e);
+    }
+
+    // Mirror into the GUI's persisted annotations array.
+    let state = kv.state();
+    state
+        .as_object_mut()
+        .expect("library state is an object")
+        .entry("annotations")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .expect("annotations is an array")
+        .push(annotation);
+    if let Err(e) = kv.save(app) {
+        return output.error(&e);
+    }
+
+    if output.json {
+        output.print_json(&serde_json::json!({ "id": id, "bookId": book_id }))
+    } else {
+        println!("{} annotation {id}", output.green("added"));
+        0
+    }
+}
+
+fn highlights_delete(output: &Output, app: &tauri::AppHandle, annotation_id: &str) -> i32 {
+    // Locate the annotation in the GUI store to find its book.
+    let mut kv = match LibraryKv::load(app) {
+        Ok(kv) => kv,
+        Err(e) => return output.error(&e),
+    };
+    let state = kv.state();
+    let annotations = state
+        .as_object_mut()
+        .expect("library state is an object")
+        .entry("annotations")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .expect("annotations is an array");
+
+    let position = annotations
+        .iter()
+        .position(|a| a.get("id").and_then(|v| v.as_str()) == Some(annotation_id));
+    let Some(position) = position else {
+        return output.error(&format!("annotation '{annotation_id}' not found"));
+    };
+    let removed = annotations.remove(position);
+    let book_id = removed
+        .get("bookId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if let Err(e) = kv.save(app) {
+        return output.error(&e);
+    }
+
+    if !book_id.is_empty() {
+        let mut rows = load_annotations_rows(app, &book_id).unwrap_or_default();
+        rows.retain(|a| a.get("id").and_then(|v| v.as_str()) != Some(annotation_id));
+        let serialized: Vec<String> = rows
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap_or_default())
+            .collect();
+        let _ =
+            crate::database::sqlite_save_book_annotations(app.clone(), book_id.clone(), serialized);
+    }
+
+    let mut kv = LibraryKv::load(app).ok().unwrap_or_else(|| LibraryKv {
+        envelope: serde_json::json!({"state": {}, "version": LIBRARY_KV_VERSION}),
+    });
+    kv.add_tombstone(annotation_id, "annotation");
+    let _ = kv.save(app);
+
+    if output.json {
+        output.print_json(&serde_json::json!({ "deleted": annotation_id }))
+    } else {
+        println!("{} {annotation_id}", output.green("deleted"));
+        0
+    }
+}
+
+fn run_bookmarks(output: &Output, app: &tauri::AppHandle, command: BookmarksCommand) -> i32 {
+    let BookmarksCommand::List { book } = command;
+
+    let annotations: Vec<(String, String)> = match crate::database::with_connection(app, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT book_id, annotation_json FROM book_annotations \
+             WHERE (?1 IS NULL OR book_id = ?1) ORDER BY book_id, updated_at",
+        )?;
+        let mapped = stmt.query_map(rusqlite::params![book], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        mapped.collect::<rusqlite::Result<Vec<_>>>()
+    }) {
+        Ok(rows) => rows,
+        Err(e) => return output.error(&e),
+    };
+
+    let bookmarks: Vec<serde_json::Value> = annotations
+        .into_iter()
+        .filter_map(|(book_id, json)| {
+            serde_json::from_str::<serde_json::Value>(&json)
+                .ok()
+                .filter(|a| a.get("type").and_then(|v| v.as_str()) == Some("bookmark"))
+                .map(|mut v| {
+                    v["bookId"] = serde_json::Value::String(book_id);
+                    v
+                })
+        })
+        .collect();
+    output.print_json(&bookmarks)
+}
+
+// ── feeds (RSS) ──────────────────────────────────────────────────────────────
+
+const RSS_KV_KEY: &str = "zustand:theorem-rss";
+
+struct RssKv {
+    envelope: serde_json::Value,
+}
+
+impl RssKv {
+    fn load(app: &tauri::AppHandle) -> Result<Self, String> {
+        let raw = crate::database::sqlite_get_kv(app.clone(), RSS_KV_KEY.to_string())?;
+        let envelope = match raw {
+            Some(text) => {
+                serde_json::from_str(&text).map_err(|e| format!("RSS store is malformed: {e}"))?
+            }
+            None => serde_json::json!({
+                "state": { "feeds": [], "articles": [] },
+                "version": 1,
+            }),
+        };
+        Ok(Self { envelope })
+    }
+
+    fn save(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        let text = serde_json::to_string(&self.envelope)
+            .map_err(|e| format!("Failed to serialize RSS store: {e}"))?;
+        crate::database::sqlite_set_kv(app.clone(), RSS_KV_KEY.to_string(), text)
+    }
+
+    fn feeds(&mut self) -> &mut Vec<serde_json::Value> {
+        self.state()
+            .as_object_mut()
+            .expect("rss state is an object")
+            .entry("feeds")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .expect("feeds is an array")
+    }
+
+    fn articles(&mut self) -> &mut Vec<serde_json::Value> {
+        self.state()
+            .as_object_mut()
+            .expect("rss state is an object")
+            .entry("articles")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .expect("articles is an array")
+    }
+
+    fn state(&mut self) -> &mut serde_json::Value {
+        self.envelope
+            .as_object_mut()
+            .expect("rss envelope is an object")
+            .entry("state")
+            .or_insert_with(|| serde_json::json!({}))
+    }
+
+    fn add_tombstone(&mut self, entity_id: &str, entity_type: &str) {
+        self.state()
+            .as_object_mut()
+            .expect("rss state is an object")
+            .entry("deletionTombstones")
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .expect("deletionTombstones is an array")
+            .push(serde_json::json!({
+                "entityId": entity_id,
+                "entityType": entity_type,
+                "deletedAt": now_iso(),
+            }));
+    }
+}
+
+/// Minimal RSS 2.0 / Atom item extraction (title, link, date, summary).
+#[derive(Clone)]
+struct FeedItem {
+    title: String,
+    link: String,
+    published: Option<String>,
+    summary: Option<String>,
+}
+
+fn parse_feed_items(xml: &str) -> Vec<FeedItem> {
+    use quick_xml::events::Event;
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mode {
+        Rss,
+        Atom,
+    }
+    let mut mode: Option<Mode> = None;
+    let mut items: Vec<FeedItem> = Vec::new();
+    let mut current: Option<FeedItem> = None;
+    let mut field: Option<String> = None;
+    let mut text = String::new();
+    let mut link_href: Option<String> = None;
+
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                let name = e.name().as_ref().to_ascii_lowercase();
+                match name.as_slice() {
+                    b"rss" => mode = Some(Mode::Rss),
+                    b"feed" => mode = Some(Mode::Atom),
+                    b"item" if mode == Some(Mode::Rss) => {
+                        current = Some(FeedItem {
+                            title: String::new(),
+                            link: String::new(),
+                            published: None,
+                            summary: None,
+                        });
+                    }
+                    b"entry" if mode == Some(Mode::Atom) => {
+                        current = Some(FeedItem {
+                            title: String::new(),
+                            link: String::new(),
+                            published: None,
+                            summary: None,
+                        });
+                    }
+                    b"title" | b"description" | b"summary" | b"content" | b"pubdate"
+                    | b"published" | b"updated" | b"link"
+                        if current.is_some() =>
+                    {
+                        if name.as_slice() == b"link" {
+                            for attr in e.attributes().flatten() {
+                                if attr.key.as_ref() == b"href" {
+                                    link_href = Some(
+                                        attr.unescape_value()
+                                            .map(|v| v.into_owned())
+                                            .unwrap_or_default(),
+                                    );
+                                }
+                            }
+                        }
+                        field = Some(String::from_utf8_lossy(&name).into_owned());
+                        text.clear();
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(t)) => {
+                if field.is_some() {
+                    text.push_str(&t.unescape().unwrap_or_default());
+                }
+            }
+            Ok(Event::CData(t)) => {
+                if field.is_some() {
+                    text.push_str(
+                        &t.into_inner()
+                            .iter()
+                            .map(|&b| b as char)
+                            .collect::<String>(),
+                    );
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let name = e.name().as_ref().to_ascii_lowercase();
+                let done_field = field.take();
+                if let Some(_field_name) = done_field {
+                    if let Some(item) = current.as_mut() {
+                        let value = text.trim().to_string();
+                        match name.as_slice() {
+                            b"title" => item.title = value,
+                            b"description" | b"summary" | b"content" => {
+                                if item.summary.is_none() {
+                                    item.summary = Some(value);
+                                }
+                            }
+                            b"pubdate" | b"published" | b"updated" => item.published = Some(value),
+                            b"link" => {
+                                if let Some(href) = link_href.take() {
+                                    item.link = href;
+                                } else if !value.is_empty() {
+                                    item.link = value;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                } else if name.as_slice() == b"item" || name.as_slice() == b"entry" {
+                    if let Some(mut item) = current.take() {
+                        if item.link.is_empty() {
+                            if let Some(href) = link_href.take() {
+                                item.link = href;
+                            }
+                        }
+                        items.push(item);
+                    }
+                }
+                text.clear();
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    items
+}
+
+fn fetch_url_blocking(url: &str) -> Result<String, String> {
+    let response = crate::shared_http_client()
+        .get(url)
+        .send()
+        .map_err(|e| format!("Failed to fetch {url}: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {} for {url}", response.status()));
+    }
+    response
+        .text()
+        .map_err(|e| format!("Failed to read body of {url}: {e}"))
+}
+
+fn run_feeds(output: &Output, app: &tauri::AppHandle, command: FeedsCommand) -> i32 {
+    match command {
+        FeedsCommand::List => feeds_list(output, app),
+        FeedsCommand::Add { url } => feeds_add(output, app, &url),
+        FeedsCommand::Remove { feed } => feeds_remove(output, app, &feed),
+        FeedsCommand::Refresh => feeds_refresh(output, app),
+    }
+}
+
+fn feeds_list(output: &Output, app: &tauri::AppHandle) -> i32 {
+    let mut kv = match RssKv::load(app) {
+        Ok(kv) => kv,
+        Err(e) => return output.error(&e),
+    };
+    let feeds = kv.feeds().clone();
+    if output.json {
+        return output.print_json(&feeds);
+    }
+    for feed in &feeds {
+        let id = book_str(feed, "id").unwrap_or("?").to_string();
+        let title = book_str(feed, "title").unwrap_or("(untitled)").to_string();
+        let url = book_str(feed, "url").unwrap_or("").to_string();
+        let unread = feed
+            .get("unreadCount")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        println!(
+            "{}  {}  {}",
+            output.dim(&id),
+            output.bold(&title),
+            output.dim(&format!("({unread} unread) {url}"))
+        );
+    }
+    output.note(&format!("# {} feeds", feeds.len()));
+    0
+}
+
+fn feeds_add(output: &Output, app: &tauri::AppHandle, url: &str) -> i32 {
+    let mut kv = match RssKv::load(app) {
+        Ok(kv) => kv,
+        Err(e) => return output.error(&e),
+    };
+    if kv.feeds().iter().any(|f| book_str(f, "url") == Some(url)) {
+        return output.error(&format!("feed already subscribed: {url}"));
+    }
+
+    let xml = match fetch_url_blocking(url) {
+        Ok(xml) => xml,
+        Err(e) => return output.error(&e.to_string()),
+    };
+    let items = parse_feed_items(&xml);
+    let title = items
+        .first()
+        .map(|item| item.title.clone())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| url.to_string());
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let feed = serde_json::json!({
+        "id": id,
+        "title": title,
+        "url": url,
+        "addedAt": now_iso(),
+        "lastFetched": now_iso(),
+        "unreadCount": 0,
+    });
+    kv.feeds().push(feed);
+    if let Err(e) = kv.save(app) {
+        return output.error(&e);
+    }
+
+    if output.json {
+        output.print_json(&serde_json::json!({ "id": id, "url": url, "title": title }))
+    } else {
+        println!("{} {title}", output.green("subscribed"));
+        0
+    }
+}
+
+fn feeds_remove(output: &Output, app: &tauri::AppHandle, feed: &str) -> i32 {
+    let mut kv = match RssKv::load(app) {
+        Ok(kv) => kv,
+        Err(e) => return output.error(&e),
+    };
+    let position = kv
+        .feeds()
+        .iter()
+        .position(|f| book_str(f, "id") == Some(feed) || book_str(f, "url") == Some(feed));
+    let Some(position) = position else {
+        return output.error(&format!("feed '{feed}' not found"));
+    };
+    let removed = kv.feeds().remove(position);
+    let removed_id = book_str(&removed, "id").unwrap_or("?").to_string();
+    let removed_title = book_str(&removed, "name")
+        .or_else(|| book_str(&removed, "title"))
+        .unwrap_or("(untitled)")
+        .to_string();
+
+    kv.articles()
+        .retain(|a| a.get("feedId").and_then(|v| v.as_str()) != Some(removed_id.as_str()));
+    kv.add_tombstone(&removed_id, "feed");
+    if let Err(e) = kv.save(app) {
+        return output.error(&e);
+    }
+
+    if output.json {
+        output.print_json(&serde_json::json!({ "removed": removed_id }))
+    } else {
+        println!("{} {removed_title}", output.green("unsubscribed"));
+        0
+    }
+}
+
+fn feeds_refresh(output: &Output, app: &tauri::AppHandle) -> i32 {
+    let mut kv = match RssKv::load(app) {
+        Ok(kv) => kv,
+        Err(e) => return output.error(&e),
+    };
+    let feeds = kv.feeds().clone();
+    if feeds.is_empty() {
+        output.note("no feeds subscribed");
+        return 0;
+    }
+
+    let mut total_new = 0usize;
+    for feed in &feeds {
+        let feed_id = book_str(feed, "id").unwrap_or("").to_string();
+        let url = book_str(feed, "url").unwrap_or("").to_string();
+        let xml = match fetch_url_blocking(&url) {
+            Ok(xml) => xml,
+            Err(e) => {
+                output.note(&format!("refresh failed for {url}: {e}"));
+                continue;
+            }
+        };
+        let items = parse_feed_items(&xml);
+        let mut new_count = 0usize;
+        {
+            let articles = kv.articles();
+            for item in items {
+                let article_key = format!("{feed_id}:{}", item.link);
+                let exists = articles
+                    .iter()
+                    .any(|a| a.get("url").and_then(|v| v.as_str()) == Some(item.link.as_str()));
+                if exists {
+                    continue;
+                }
+                articles.push(serde_json::json!({
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "feedId": feed_id,
+                    "title": item.title,
+                    "url": item.link,
+                    "content": item.summary.unwrap_or_default(),
+                    "contentSource": "feed",
+                    "publishedAt": item.published,
+                    "fetchedAt": now_iso(),
+                    "isRead": false,
+                    "isFavorite": false,
+                    "_key": article_key,
+                }));
+                new_count += 1;
+            }
+        }
+        total_new += new_count;
+        if let Some(f) = kv
+            .feeds()
+            .iter_mut()
+            .find(|f| f.get("id").and_then(|v| v.as_str()) == Some(feed_id.as_str()))
+        {
+            f["lastFetched"] = serde_json::Value::String(now_iso());
+            let unread = f.get("unreadCount").and_then(|v| v.as_i64()).unwrap_or(0);
+            f["unreadCount"] = serde_json::json!(unread + new_count as i64);
+        }
+    }
+    if let Err(e) = kv.save(app) {
+        return output.error(&e);
+    }
+
+    if output.json {
+        output.print_json(&serde_json::json!({ "newArticles": total_new }))
+    } else {
+        println!(
+            "{} {} new articles across {} feeds",
+            output.green("refreshed"),
+            total_new,
+            feeds.len()
+        );
+        0
+    }
+}
+
+// ── opds ─────────────────────────────────────────────────────────────────────
+
+fn run_opds(output: &Output, app: &tauri::AppHandle, command: OpdsCommand) -> i32 {
+    match command {
+        OpdsCommand::Browse { url } => opds_browse(output, &url),
+        OpdsCommand::Download { url, entry } => opds_download(output, app, &url, &entry),
+    }
+}
+
+fn opds_browse(output: &Output, url: &str) -> i32 {
+    let feed = match block_on(crate::opds_parser::fetch_and_parse_opds_native(
+        url.to_string(),
+    )) {
+        Ok(feed) => feed,
+        Err(e) => return output.error(&e),
+    };
+
+    if output.json {
+        return output.print_json(&feed);
+    }
+    println!("{}", output.bold(&feed.title));
+    for (index, entry) in feed.entries.iter().enumerate() {
+        let kind = if entry.is_navigation || entry.nav_url.is_some() {
+            "nav"
+        } else {
+            "book"
+        };
+        println!(
+            "{}  {} {}",
+            output.dim(&format!("{:>3}", index + 1)),
+            output.bold(&entry.title),
+            output.dim(&format!(
+                "[{kind}]{}",
+                entry
+                    .author
+                    .as_ref()
+                    .map(|a| format!(" by {a}"))
+                    .unwrap_or_default()
+            ))
+        );
+    }
+    output.note(&format!("# {} entries", feed.entries.len()));
+    0
+}
+
+fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selector: &str) -> i32 {
+    let feed = match block_on(crate::opds_parser::fetch_and_parse_opds_native(
+        url.to_string(),
+    )) {
+        Ok(feed) => feed,
+        Err(e) => return output.error(&e),
+    };
+
+    let entry = match entry_selector.parse::<usize>() {
+        Ok(index) if index >= 1 && index <= feed.entries.len() => Some(&feed.entries[index - 1]),
+        _ => feed.entries.iter().find(|e| {
+            e.title
+                .to_lowercase()
+                .contains(&entry_selector.to_lowercase())
+        }),
+    };
+    let Some(entry) = entry else {
+        return output.error(&format!("entry '{entry_selector}' not found in catalog"));
+    };
+    let Some(download_url) = entry.download_url.as_ref() else {
+        return output.error(&format!(
+            "entry '{}' has no acquisition link (navigation entry?)",
+            entry.title
+        ));
+    };
+
+    output.note(&format!("downloading '{}'...", entry.title));
+    let bytes = {
+        let response = match crate::shared_http_client().get(download_url).send() {
+            Ok(response) => response,
+            Err(e) => return output.error(&e.to_string()),
+        };
+        if !response.status().is_success() {
+            return output.error(&format!("HTTP {} for {download_url}", response.status()));
+        }
+        match response.bytes() {
+            Ok(bytes) => bytes.to_vec(),
+            Err(e) => return output.error(&e.to_string()),
+        }
+    };
+
+    let extension = entry
+        .download_format
+        .as_deref()
+        .and_then(|f| f.split('/').next_back())
+        .unwrap_or("epub")
+        .to_ascii_lowercase();
+    let temp_dir = match tempfile::tempdir() {
+        Ok(dir) => dir,
+        Err(e) => return output.error(&e.to_string()),
+    };
+    let temp_file = temp_dir.path().join(format!("opds-download.{extension}"));
+    if let Err(e) = std::fs::write(&temp_file, &bytes) {
+        return output.error(&e.to_string());
+    }
+
+    ingest_and_register(output, app, &[temp_file.display().to_string()])
 }
 
 // ── read ─────────────────────────────────────────────────────────────────────
