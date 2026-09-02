@@ -887,6 +887,12 @@ async fn open_book_in_new_window(
     book_id: String,
     title: String,
 ) -> Result<(), String> {
+    open_reader_window(&app, &book_id, &title)
+}
+
+/// Open a reader window for a book (shared by `open_book_in_new_window` and
+/// the CLI `theorem open <book-id>` bridge).
+pub fn open_reader_window(app: &AppHandle, book_id: &str, title: &str) -> Result<(), String> {
     #[cfg(desktop)]
     {
         use tauri::Manager;
@@ -904,8 +910,8 @@ async fn open_book_in_new_window(
         }
 
         let url = WebviewUrl::App(format!("index.html?route=reader&bookId={}", book_id).into());
-        let win = WebviewWindowBuilder::new(&app, &label, url)
-            .title(&title)
+        let win = WebviewWindowBuilder::new(app, &label, url)
+            .title(title)
             .inner_size(1024.0, 768.0)
             .min_inner_size(600.0, 400.0)
             .decorations(true)
@@ -917,7 +923,7 @@ async fn open_book_in_new_window(
     }
     #[cfg(not(desktop))]
     {
-        let _ = (&app, &book_id, &title);
+        let _ = (app, book_id, title);
         Err("Multi-window reading is only supported on desktop".to_string())
     }
 }
@@ -1028,6 +1034,13 @@ pub fn run() {
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        if let Some(book_id) = argv
+            .iter()
+            .find_map(|a| a.strip_prefix("--open-book=").map(str::to_string))
+        {
+            let _ = open_reader_window(app, &book_id, "Theorem Reader");
+            return;
+        }
         let paths = collect_open_paths(argv, Some(&cwd));
         enqueue_open_paths(app, paths, true);
 
@@ -1085,8 +1098,16 @@ pub fn run() {
             }
 
             let startup_args: Vec<String> = std::env::args().skip(1).collect();
-            let open_paths = collect_open_paths(startup_args, None);
-            enqueue_open_paths(app.handle(), open_paths, false);
+            if let Some(book_id) = startup_args
+                .iter()
+                .find_map(|a| a.strip_prefix("--open-book=").map(str::to_string))
+            {
+                // CLI bridge: `theorem open <book-id>` re-execs with this marker.
+                let _ = open_reader_window(app.handle(), &book_id, "Theorem Reader");
+            } else {
+                let open_paths = collect_open_paths(startup_args, None);
+                enqueue_open_paths(app.handle(), open_paths, false);
+            }
 
             #[cfg(desktop)]
             {

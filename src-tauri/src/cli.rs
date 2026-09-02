@@ -18,7 +18,7 @@
 //! keeping the CLI out of the build preserves the 0 MB APK footprint.
 
 use std::future::Future;
-use std::io::{IsTerminal, Write as _};
+use std::io::{IsTerminal, Seek, SeekFrom, Write as _};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -182,6 +182,26 @@ enum Command {
         #[command(subcommand)]
         command: OpdsCommand,
     },
+    /// Manage P2P device sync
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommand,
+    },
+    /// Storage usage and cleanup
+    Storage {
+        #[command(subcommand)]
+        command: StorageCommand,
+    },
+    /// Print a reading statistics snapshot
+    Stats,
+    /// Export a full JSON snapshot of the library
+    Export {
+        /// Write to a file instead of stdout
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Open a book in the Theorem GUI (bridge for rendering/TTS features)
+    Open { book_id: String },
     /// Install or inspect the `theorem` symlink in ~/.local/bin
     SetupCli,
     /// Print version information
@@ -293,6 +313,29 @@ enum FeedsCommand {
 }
 
 #[derive(Subcommand)]
+enum SyncCommand {
+    /// Show device identity and paired devices
+    Status,
+    /// Pair with another device using its pairing code
+    Pair { code: String },
+    /// Unpair a device by id
+    Unpair { device_id: String },
+    /// Run a sync round now (all paired devices, or one)
+    Now {
+        #[arg(long)]
+        device: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum StorageCommand {
+    /// Show SQLite storage usage
+    Stats,
+    /// Remove orphaned covers, blobs, and cache files
+    Cleanup,
+}
+
+#[derive(Subcommand)]
 enum OpdsCommand {
     /// Browse an OPDS catalog feed (lists entries or navigation links)
     Browse { url: String },
@@ -320,6 +363,11 @@ const SUBCOMMANDS: &[&str] = &[
     "bookmarks",
     "feeds",
     "opds",
+    "sync",
+    "storage",
+    "stats",
+    "export",
+    "open",
     "setup-cli",
     "help",
     "version",
@@ -376,7 +424,9 @@ fn run(command: Command, output: &Output) -> i32 {
                 0
             }
         }
-        other => with_app(|app| match other {
+        // Sync needs the sync subsystem state managed in the headless context.
+        Command::Sync { command } => with_app_ex(true, |app| run_sync(output, app, command)),
+        other => with_app_ex(false, |app| match other {
             Command::Search { query, book_id } => run_search(output, app, &query, book_id),
             Command::Read { book_id, chapter } => run_read(output, app, &book_id, chapter),
             Command::Dict { term, online } => run_dict(output, app, &term, online),
@@ -387,21 +437,53 @@ fn run(command: Command, output: &Output) -> i32 {
             Command::Bookmarks { command } => run_bookmarks(output, app, command),
             Command::Feeds { command } => run_feeds(output, app, command),
             Command::Opds { command } => run_opds(output, app, command),
-            Command::SetupCli | Command::Version => unreachable!("handled without app context"),
+            Command::Storage { command } => run_storage(output, app, command),
+            Command::Stats => run_stats(output, app),
+            Command::Export { out } => run_export_snapshot(output, app, out),
+            Command::Open { book_id } => run_open(output, app, &book_id),
+            Command::SetupCli | Command::Version | Command::Sync { .. } => {
+                unreachable!("handled above")
+            }
         }),
     }
 }
 
-/// Build a bare Tauri app context so engine code can resolve app-data paths
-/// exactly like the GUI does. No plugins are registered and no event loop runs.
-fn headless_app() -> Result<tauri::App, String> {
-    tauri::Builder::default()
+/// With `with_sync`, the sync subsystem state is initialized so the
+/// `sync_commands` surface works headless (the iroh node starts on demand).
+fn headless_app_with_sync(with_sync: bool) -> Result<tauri::App, String> {
+    let app = tauri::Builder::default()
         .build(tauri::generate_context!())
-        .map_err(|e| format!("Failed to initialize app context: {e}"))
+        .map_err(|e| format!("Failed to initialize app context: {e}"))?;
+
+    let handle = app.handle().clone();
+    if let Err(e) = crate::database::run_schema_migrations(&handle) {
+        eprintln!("[cli] schema migration warning: {e}");
+    }
+    if with_sync {
+        use tauri::Manager;
+        let device_name = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| "Theorem Device".to_string());
+        match crate::sync_commands::init_sync(app_data_dir(&handle), device_name, handle.clone()) {
+            Ok(sync_state) => {
+                app.manage(sync_state);
+            }
+            Err(e) => eprintln!("[cli] sync init failed: {e}"),
+        }
+    }
+    Ok(app)
 }
 
-fn with_app(f: impl FnOnce(&tauri::AppHandle) -> i32) -> i32 {
-    match headless_app() {
+fn app_data_dir(handle: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    handle
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn with_app_ex(with_sync: bool, f: impl FnOnce(&tauri::AppHandle) -> i32) -> i32 {
+    match headless_app_with_sync(with_sync) {
         Ok(app) => {
             let handle = app.handle().clone();
             let code = f(&handle);
@@ -415,12 +497,23 @@ fn with_app(f: impl FnOnce(&tauri::AppHandle) -> i32) -> i32 {
     }
 }
 
-fn block_on<T: Send + 'static>(future: impl Future<Output = T>) -> T {
-    tokio::runtime::Builder::new_current_thread()
+/// Run a future to completion on a throwaway current-thread runtime.
+/// Takes a factory so tokio time primitives (timeouts) are created inside
+/// the runtime context — constructing them outside panics.
+fn block_on<T, F>(future_factory: impl FnOnce() -> F) -> T
+where
+    T: Send + 'static,
+    F: Future<Output = T>,
+{
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("failed to build async runtime")
-        .block_on(future)
+        .expect("failed to build async runtime");
+    // Enter the context BEFORE building the future: tokio time primitives
+    // panic if constructed outside a runtime.
+    let _guard = runtime.enter();
+    let future = future_factory();
+    runtime.block_on(future)
 }
 
 // ── dict ─────────────────────────────────────────────────────────────────────
@@ -432,7 +525,7 @@ fn run_dict(output: &Output, app: &tauri::AppHandle, term: &str, online: bool) -
     let elapsed = started.elapsed().as_secs_f64() * 1000.0;
 
     let online_result = if online {
-        match block_on(crate::fetch_online_definition(term.to_string())) {
+        match block_on(|| crate::fetch_online_definition(term.to_string())) {
             Ok(value) => Some(value),
             Err(e) => {
                 output.note(&format!("online lookup failed: {e}"));
@@ -741,53 +834,45 @@ fn run_library(output: &Output, app: &tauri::AppHandle, command: LibraryCommand)
 }
 
 fn library_list(output: &Output, app: &tauri::AppHandle, format: &str) -> i32 {
-    let rows: Vec<(String, String)> = match crate::database::with_connection(app, |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT bm.book_id, bm.metadata_json FROM book_metadata bm \
-             JOIN books b ON b.id = bm.book_id ORDER BY bm.book_id",
-        )?;
-        let mapped = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        mapped.collect::<rusqlite::Result<Vec<_>>>()
-    }) {
-        Ok(rows) => rows,
+    // The GUI's persisted books array is the authoritative library list; the
+    // book_metadata SQL table is only written on metadata edits.
+    let mut kv = match LibraryKv::load(app) {
+        Ok(kv) => kv,
         Err(e) => return output.error(&e),
     };
+    let mut books = kv.books().clone();
+    books.sort_by(|a, b| {
+        let ta = book_title(a).to_lowercase();
+        let tb = book_title(b).to_lowercase();
+        ta.cmp(&tb)
+    });
 
     if output.json || format == "json" {
-        library_list_json(output, rows)
-    } else {
-        for (id, metadata_json) in &rows {
-            let title = serde_json::from_str::<serde_json::Value>(metadata_json)
-                .ok()
-                .and_then(|v| v.get("title").and_then(|t| t.as_str()).map(String::from))
-                .unwrap_or_else(|| "(untitled)".to_string());
-            println!("{}\t{}", output.dim(id), output.bold(&title));
-        }
-        output.note(&format!("# {} books", rows.len()));
-        0
+        return output.print_json(&books);
     }
-}
-
-fn library_list_json(output: &Output, rows: Vec<(String, String)>) -> i32 {
-    let items: Vec<serde_json::Value> = rows
-        .into_iter()
-        .map(|(id, metadata_json)| {
-            let mut value = serde_json::json!({ "id": id });
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&metadata_json) {
-                if let Some(title) = parsed.get("title") {
-                    value["title"] = title.clone();
-                }
-                if let Some(author) = parsed.get("author") {
-                    value["author"] = author.clone();
-                }
-                value["metadata"] = parsed;
-            }
-            value
-        })
-        .collect();
-    output.print_json(&items)
+    for book in &books {
+        let title = book_title(book);
+        let author = book_author(book);
+        let progress = book.get("progress").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let favorite = if book
+            .get("isFavorite")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            " *"
+        } else {
+            ""
+        };
+        println!(
+            "{}  {}  {}{}",
+            output.dim(book_str(book, "id").unwrap_or("?")),
+            output.bold(&title),
+            output.dim(&format!("{:.0}% {}", progress * 100.0, author)),
+            favorite
+        );
+    }
+    output.note(&format!("# {} books", books.len()));
+    0
 }
 
 fn load_kv_book(
@@ -919,13 +1004,11 @@ fn library_import(output: &Output, app: &tauri::AppHandle, dir: &str) -> i32 {
 /// Run the native parallel ingest, then register each result in the GUI's
 /// persisted library store + FTS index (mirrors the frontend import flow).
 fn ingest_and_register(output: &Output, app: &tauri::AppHandle, paths: &[String]) -> i32 {
-    let records = match block_on(crate::batch_ingest::ingest_books_native(
-        app.clone(),
-        paths.to_vec(),
-    )) {
-        Ok(records) => records,
-        Err(e) => return output.error(&e),
-    };
+    let records =
+        match block_on(|| crate::batch_ingest::ingest_books_native(app.clone(), paths.to_vec())) {
+            Ok(records) => records,
+            Err(e) => return output.error(&e),
+        };
 
     let mut kv = match LibraryKv::load(app) {
         Ok(kv) => kv,
@@ -2123,9 +2206,7 @@ fn run_opds(output: &Output, app: &tauri::AppHandle, command: OpdsCommand) -> i3
 }
 
 fn opds_browse(output: &Output, url: &str) -> i32 {
-    let feed = match block_on(crate::opds_parser::fetch_and_parse_opds_native(
-        url.to_string(),
-    )) {
+    let feed = match block_on(|| crate::opds_parser::fetch_and_parse_opds_native(url.to_string())) {
         Ok(feed) => feed,
         Err(e) => return output.error(&e),
     };
@@ -2159,9 +2240,7 @@ fn opds_browse(output: &Output, url: &str) -> i32 {
 }
 
 fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selector: &str) -> i32 {
-    let feed = match block_on(crate::opds_parser::fetch_and_parse_opds_native(
-        url.to_string(),
-    )) {
+    let feed = match block_on(|| crate::opds_parser::fetch_and_parse_opds_native(url.to_string())) {
         Ok(feed) => feed,
         Err(e) => return output.error(&e),
     };
@@ -2217,6 +2296,400 @@ fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selec
     ingest_and_register(output, app, &[temp_file.display().to_string()])
 }
 
+// ── sync ─────────────────────────────────────────────────────────────────────
+
+const SYNC_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const SYNC_ROUND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+fn run_sync(output: &Output, app: &tauri::AppHandle, command: SyncCommand) -> i32 {
+    match command {
+        SyncCommand::Status => sync_status(output, app),
+        SyncCommand::Pair { code } => sync_pair(output, app, &code),
+        SyncCommand::Unpair { device_id } => sync_unpair(output, app, &device_id),
+        SyncCommand::Now { device } => sync_now(output, app, device.as_deref()),
+    }
+}
+
+fn sync_status(output: &Output, app: &tauri::AppHandle) -> i32 {
+    let identity = match block_on(|| {
+        tokio::time::timeout(
+            SYNC_COMMAND_TIMEOUT,
+            crate::sync_commands::get_device_identity(app.clone()),
+        )
+    }) {
+        Ok(Ok(identity)) => identity,
+        Ok(Err(e)) => return output.error(&e),
+        Err(_) => return output.error("device identity lookup timed out"),
+    };
+    let devices = match block_on(|| {
+        tokio::time::timeout(
+            SYNC_COMMAND_TIMEOUT,
+            crate::sync_commands::get_paired_devices(app.clone()),
+        )
+    }) {
+        Ok(Ok(devices)) => devices,
+        Ok(Err(e)) => return output.error(&e),
+        Err(_) => return output.error("paired device lookup timed out"),
+    };
+
+    if output.json {
+        return output.print_json(&serde_json::json!({
+            "identity": identity,
+            "pairedDevices": devices,
+        }));
+    }
+    println!(
+        "{}: {} ({})",
+        output.dim("this device"),
+        output.bold(&identity.device_name),
+        output.dim(&identity.fingerprint)
+    );
+    for device in &devices {
+        println!(
+            "  {}  {}  {}",
+            output.dim(&device.device_id),
+            output.bold(&device.device_name),
+            output.dim(&device.fingerprint)
+        );
+    }
+    output.note(&format!("# {} paired devices", devices.len()));
+    0
+}
+
+fn sync_pair(output: &Output, app: &tauri::AppHandle, code: &str) -> i32 {
+    let future = crate::sync_commands::submit_pairing_code(app.clone(), code.to_string());
+    match block_on(|| tokio::time::timeout(SYNC_COMMAND_TIMEOUT, future)) {
+        Ok(Ok(device)) => {
+            if output.json {
+                output.print_json(&device)
+            } else {
+                println!(
+                    "{} {}",
+                    output.green("paired with"),
+                    output.bold(&device.device_name)
+                );
+                0
+            }
+        }
+        Ok(Err(e)) => output.error(&e),
+        Err(_) => output.error("pairing timed out (is the other device online and pairing?)"),
+    }
+}
+
+fn sync_unpair(output: &Output, app: &tauri::AppHandle, device_id: &str) -> i32 {
+    let future = crate::sync_commands::unpair_device(app.clone(), device_id.to_string());
+    match block_on(|| tokio::time::timeout(SYNC_COMMAND_TIMEOUT, future)) {
+        Ok(Ok(())) => {
+            if output.json {
+                output.print_json(&serde_json::json!({ "unpaired": device_id }))
+            } else {
+                println!("{} {device_id}", output.green("unpaired"));
+                0
+            }
+        }
+        Ok(Err(e)) => output.error(&e),
+        Err(_) => output.error("unpair timed out"),
+    }
+}
+
+fn sync_now(output: &Output, app: &tauri::AppHandle, device: Option<&str>) -> i32 {
+    let devices = match block_on(|| {
+        tokio::time::timeout(
+            SYNC_COMMAND_TIMEOUT,
+            crate::sync_commands::get_paired_devices(app.clone()),
+        )
+    }) {
+        Ok(Ok(devices)) => devices,
+        Ok(Err(e)) => return output.error(&e),
+        Err(_) => return output.error("paired device lookup timed out"),
+    };
+
+    let targets: Vec<String> = match device {
+        Some(id) => {
+            if !devices.iter().any(|d| d.device_id == id) {
+                return output.error(&format!("device '{id}' is not paired"));
+            }
+            vec![id.to_string()]
+        }
+        None => devices.iter().map(|d| d.device_id.clone()).collect(),
+    };
+    if targets.is_empty() {
+        output.note("no paired devices to sync with");
+        return 0;
+    }
+
+    let started = std::time::Instant::now();
+    let mut results = Vec::new();
+    for device_id in targets {
+        let future = crate::sync_commands::docs_sync_now(app.clone(), device_id.clone());
+        let outcome = match block_on(|| tokio::time::timeout(SYNC_ROUND_TIMEOUT, future)) {
+            Ok(Ok(())) => "ok".to_string(),
+            Ok(Err(e)) => format!("failed: {e}"),
+            Err(_) => "timed out".to_string(),
+        };
+        results.push(serde_json::json!({
+            "deviceId": device_id,
+            "result": outcome,
+        }));
+    }
+
+    let ok_count = results.iter().filter(|r| r["result"] == "ok").count();
+    if output.json {
+        return output.print_json(&serde_json::json!({
+            "elapsedMs": started.elapsed().as_secs_f64() * 1000.0,
+            "devices": results,
+        }));
+    }
+    for r in &results {
+        let status = if r["result"] == "ok" {
+            output.green("ok")
+        } else {
+            output.red(r["result"].as_str().unwrap_or("?"))
+        };
+        println!(
+            "{}  {}",
+            output.dim(r["deviceId"].as_str().unwrap_or("?")),
+            status
+        );
+    }
+    if ok_count == results.len() {
+        0
+    } else {
+        1
+    }
+}
+
+// ── storage / stats / export snapshot ────────────────────────────────────────
+
+fn run_storage(output: &Output, app: &tauri::AppHandle, command: StorageCommand) -> i32 {
+    match command {
+        StorageCommand::Stats => match crate::database::sqlite_get_storage_stats(app.clone()) {
+            Ok(stats) => {
+                if output.json {
+                    output.print_json(&stats)
+                } else {
+                    println!("  {}: {}", output.dim("total books"), stats.total_books);
+                    println!(
+                        "  {}: {} MB",
+                        output.dim("binaries"),
+                        stats.binaries_size / (1024 * 1024)
+                    );
+                    println!(
+                        "  {}: {} MB",
+                        output.dim("covers"),
+                        stats.covers_size / (1024 * 1024)
+                    );
+                    println!(
+                        "  {}: {} ({} MB)",
+                        output.dim("blob entries"),
+                        stats.blob_entries,
+                        stats.blob_size / (1024 * 1024)
+                    );
+                    0
+                }
+            }
+            Err(e) => output.error(&e),
+        },
+        StorageCommand::Cleanup => {
+            let existing_ids: Vec<String> = crate::database::with_connection(app, |conn| {
+                let mut stmt = conn.prepare("SELECT id FROM books")?;
+                let rows = stmt
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .unwrap_or_default();
+            match crate::database::sqlite_cleanup_orphaned_storage(app.clone(), existing_ids) {
+                Ok(result) => {
+                    if output.json {
+                        output.print_json(&result)
+                    } else {
+                        println!(
+                            "{} removed {} books, {} covers, {} metadata rows",
+                            output.green("cleanup"),
+                            result.removed_books,
+                            result.removed_covers,
+                            result.removed_metadata
+                        );
+                        0
+                    }
+                }
+                Err(e) => output.error(&e),
+            }
+        }
+    }
+}
+
+fn run_stats(output: &Output, app: &tauri::AppHandle) -> i32 {
+    let raw =
+        match crate::database::sqlite_get_kv(app.clone(), "zustand:theorem-settings".to_string()) {
+            Ok(raw) => raw,
+            Err(e) => return output.error(&e),
+        };
+    let stats = raw
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .and_then(|envelope| envelope.get("state")?.get("stats").cloned());
+
+    let Some(stats) = stats else {
+        return output.error("no reading statistics found");
+    };
+    if output.json {
+        return output.print_json(&stats);
+    }
+    println!(
+        "  {}: {} min",
+        output.dim("total reading time"),
+        stats
+            .get("totalReadingTime")
+            .and_then(|v| v.as_f64())
+            .map(|m| (m / 60.0).round())
+            .unwrap_or(0.0)
+    );
+    println!(
+        "  {}: {}",
+        output.dim("current streak"),
+        stats
+            .get("currentStreak")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    );
+    println!(
+        "  {}: {}",
+        output.dim("longest streak"),
+        stats
+            .get("longestStreak")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    );
+    println!(
+        "  {}: {}",
+        output.dim("books completed"),
+        stats
+            .get("booksCompleted")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    );
+    println!(
+        "  {}: {}",
+        output.dim("daily goal"),
+        stats.get("dailyGoal").and_then(|v| v.as_i64()).unwrap_or(0)
+    );
+    0
+}
+
+fn run_export_snapshot(output: &Output, app: &tauri::AppHandle, out: Option<PathBuf>) -> i32 {
+    let library =
+        crate::database::sqlite_get_kv(app.clone(), "zustand:theorem-library".to_string())
+            .ok()
+            .flatten()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|envelope| envelope.get("state").cloned())
+            .unwrap_or_else(|| serde_json::json!({}));
+
+    let rss = crate::database::sqlite_get_kv(app.clone(), "zustand:theorem-rss".to_string())
+        .ok()
+        .flatten()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|envelope| envelope.get("state").cloned())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let annotations: Vec<serde_json::Value> = crate::database::with_connection(app, |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT book_id, annotation_json FROM book_annotations ORDER BY book_id, updated_at",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let collected = rows
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(book_id, json)| {
+                serde_json::from_str::<serde_json::Value>(&json)
+                    .ok()
+                    .map(|mut v| {
+                        v["bookId"] = serde_json::Value::String(book_id);
+                        v
+                    })
+            })
+            .collect();
+        Ok(collected)
+    })
+    .unwrap_or_default();
+
+    let snapshot = serde_json::json!({
+        "exportedAt": now_iso(),
+        "version": env!("CARGO_PKG_VERSION"),
+        "books": library.get("books"),
+        "collections": library.get("collections"),
+        "tombstones": library.get("deletionTombstones"),
+        "annotations": annotations,
+        "feeds": rss.get("feeds"),
+        "rssArticles": rss.get("articles"),
+    });
+
+    let text = match serde_json::to_string_pretty(&snapshot) {
+        Ok(text) => text,
+        Err(e) => return output.error(&e.to_string()),
+    };
+    match out {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
+            if let Err(e) = std::fs::write(&path, &text) {
+                return output.error(&format!("Failed to write {}: {e}", path.display()));
+            }
+            if output.json {
+                output.print_json(&serde_json::json!({
+                    "path": path.display().to_string(),
+                    "bytes": text.len(),
+                }))
+            } else {
+                println!(
+                    "{} {} ({} bytes)",
+                    output.green("exported"),
+                    output.bold(&path.display().to_string()),
+                    text.len()
+                );
+                0
+            }
+        }
+        None => {
+            println!("{text}");
+            0
+        }
+    }
+}
+
+// ── open (GUI bridge) ────────────────────────────────────────────────────────
+
+fn run_open(output: &Output, app: &tauri::AppHandle, book_id: &str) -> i32 {
+    if load_kv_book(app, book_id).ok().flatten().is_none() {
+        return output.error(&format!("book '{book_id}' not found in library"));
+    }
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return output.error(&format!("Failed to resolve executable: {e}")),
+    };
+    match std::process::Command::new(exe)
+        .arg(format!("--open-book={book_id}"))
+        .spawn()
+    {
+        Ok(_) => {
+            if output.json {
+                output.print_json(&serde_json::json!({ "opened": book_id }))
+            } else {
+                println!("{} {book_id}", output.green("opening in GUI"));
+                0
+            }
+        }
+        Err(e) => output.error(&format!("Failed to launch GUI: {e}")),
+    }
+}
+
 // ── read ─────────────────────────────────────────────────────────────────────
 
 fn run_read(output: &Output, app: &tauri::AppHandle, book_id: &str, chapter: Option<usize>) -> i32 {
@@ -2262,8 +2735,19 @@ fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String, String> {
     drop(file);
 
     if &magic != b"PK\x03\x04" {
+        // MOBI/AZW: the PDB signature "BOOKMOBI" sits at offset 60.
+        let mut pdb_magic = [0u8; 8];
+        let mut file = std::fs::File::open(path)
+            .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        file.seek(SeekFrom::Start(60))
+            .map_err(|e| format!("Cannot seek {}: {e}", path.display()))?;
+        std::io::Read::read_exact(&mut file, &mut pdb_magic)
+            .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+        if &pdb_magic == b"BOOKMOBI" {
+            return crate::mobi_parser::extract_mobi_text(path);
+        }
         return Err(format!(
-            "read currently supports EPUB files only ({})",
+            "read supports EPUB and MOBI files only ({})",
             path.display()
         ));
     }
@@ -2350,9 +2834,9 @@ fn parse_spine_order(opf: &str) -> Vec<String> {
 // ── extract ──────────────────────────────────────────────────────────────────
 
 fn run_extract(output: &Output, url: &str) -> i32 {
-    let article = match block_on(crate::article_extractor::fetch_and_extract_article_native(
-        url.to_string(),
-    )) {
+    let article = match block_on(|| {
+        crate::article_extractor::fetch_and_extract_article_native(url.to_string())
+    }) {
         Ok(article) => article,
         Err(e) => return output.error(&e),
     };

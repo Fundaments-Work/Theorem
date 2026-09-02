@@ -140,6 +140,74 @@ pub fn parse_mobi_file(path: &Path) -> Result<MobiMetadata, String> {
     })
 }
 
+/// Extract the full plain text of a PalmDOC-compressed MOBI file.
+/// HUFF/CDIC compressed books (compression type 2) are not supported.
+pub fn extract_mobi_text(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path).map_err(|e| format!("Cannot open MOBI file: {e}"))?;
+
+    let mut pdb_header = [0u8; 78];
+    file.read_exact(&mut pdb_header)
+        .map_err(|e| format!("Failed to read PDB header: {e}"))?;
+    let num_records = u16::from_be_bytes([pdb_header[76], pdb_header[77]]) as usize;
+
+    // PDB record offset table: num_records 8-byte entries (offset u32, attrs, uniqueId).
+    let mut offsets = Vec::with_capacity(num_records);
+    for _ in 0..num_records {
+        let mut entry = [0u8; 8];
+        file.read_exact(&mut entry)
+            .map_err(|e| format!("Failed to read record list: {e}"))?;
+        offsets.push(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]));
+    }
+    if offsets.is_empty() {
+        return Err("MOBI file has no records".to_string());
+    }
+    let file_end = file.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
+
+    let rec0_offset = offsets[0] as u64;
+    file.seek(SeekFrom::Start(rec0_offset))
+        .map_err(|e| format!("Failed to seek to record 0: {e}"))?;
+    let mut rec0_buf = [0u8; 256];
+    file.read_exact(&mut rec0_buf)
+        .map_err(|e| format!("Failed to read record 0: {e}"))?;
+    let compression_type = u16::from_be_bytes([rec0_buf[0], rec0_buf[1]]);
+    let text_length =
+        u32::from_be_bytes([rec0_buf[4], rec0_buf[5], rec0_buf[6], rec0_buf[7]]) as usize;
+    let record_count = u16::from_be_bytes([rec0_buf[8], rec0_buf[9]]) as usize;
+
+    if compression_type == 2 {
+        return Err("HUFF/CDIC compressed MOBI is not supported".to_string());
+    }
+    let text_end = (record_count + 1).min(offsets.len());
+
+    let mut out = String::new();
+    for record_index in 1..text_end {
+        let start = offsets[record_index] as u64;
+        let end = if record_index + 1 < offsets.len() {
+            offsets[record_index + 1] as u64
+        } else {
+            file_end
+        };
+        if end <= start {
+            continue;
+        }
+        file.seek(SeekFrom::Start(start))
+            .map_err(|e| format!("Failed to seek to record {record_index}: {e}"))?;
+        let mut record = vec![0u8; (end - start) as usize];
+        file.read_exact(&mut record)
+            .map_err(|e| format!("Failed to read record {record_index}: {e}"))?;
+        let decompressed = decompress_palmdoc(&record)?;
+        out.push_str(&String::from_utf8_lossy(&decompressed));
+    }
+
+    out.truncate(
+        out.char_indices()
+            .nth(text_length)
+            .map(|(i, _)| i)
+            .unwrap_or(out.len()),
+    );
+    Ok(out)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TAURI COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
