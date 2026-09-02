@@ -163,20 +163,19 @@ impl MdxDictionary {
         let record_block_info_size = read_u64_be(&mmap, &mut offset)? as usize;
         let _record_block_size = read_u64_be(&mmap, &mut offset)? as usize;
 
-        // Decompress Record Block Info
+        // Record Block Info is NOT compressed — raw sequential 16-byte entries:
+        // u64 comp_size + u64 decomp_size, one per record block.
         if offset + record_block_info_size > mmap.len() {
             return Err("Truncated record block info in MDX".to_string());
         }
 
-        let rec_info_comp = &mmap[offset..offset + record_block_info_size];
+        let rec_info_raw = &mmap[offset..offset + record_block_info_size];
         offset += record_block_info_size;
-
-        let rec_info_decomp = decompress_zlib_chunk(rec_info_comp, num_record_blocks * 16)?;
 
         // Parse Record Block Metas
         let record_blocks_start = offset;
         let record_blocks =
-            parse_record_block_metas(&rec_info_decomp, num_record_blocks, record_blocks_start)?;
+            parse_record_block_metas(rec_info_raw, num_record_blocks, record_blocks_start)?;
 
         let mut final_header = header;
         final_header.num_entries = num_entries;
@@ -386,19 +385,19 @@ fn read_u64_be(mmap: &[u8], offset: &mut usize) -> Result<u64, String> {
 }
 
 fn parse_mdx_header(raw: &[u8]) -> Result<(MdxHeader, bool), String> {
-    // Try UTF-16LE decode first
+    // MDict v2.0 headers are ALWAYS encoded in UTF-16LE.
+    // Try UTF-16LE decode first; fall back to UTF-8 for older v1.x files.
     let utf16_candidates: Vec<u16> = raw
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     let text_utf16 = String::from_utf16_lossy(&utf16_candidates);
 
-    let (xml_text, is_utf16) =
-        if text_utf16.contains("<Dictionary") || text_utf16.contains("<dictionary") {
-            (text_utf16, true)
-        } else {
-            (String::from_utf8_lossy(raw).to_string(), false)
-        };
+    let xml_text = if text_utf16.contains("<Dictionary") || text_utf16.contains("<dictionary") {
+        text_utf16
+    } else {
+        String::from_utf8_lossy(raw).to_string()
+    };
 
     let title =
         extract_xml_attr(&xml_text, "Title").unwrap_or_else(|| "MDict Dictionary".to_string());
@@ -407,6 +406,11 @@ fn parse_mdx_header(raw: &[u8]) -> Result<(MdxHeader, bool), String> {
         .unwrap_or_else(|| "2.0".to_string());
     let encoding = extract_xml_attr(&xml_text, "Encoding").unwrap_or_else(|| "UTF-8".to_string());
     let format = extract_xml_attr(&xml_text, "Format").unwrap_or_else(|| "Html".to_string());
+
+    // The `utf16` flag controls how CONTENT strings (words + definitions) are encoded.
+    // MDict v2.0 always stores the header XML in UTF-16LE, but content encoding
+    // is determined by the `Encoding` attribute — typically UTF-8 for modern dictionaries.
+    let content_utf16 = encoding.to_uppercase().contains("UTF-16");
 
     Ok((
         MdxHeader {
@@ -417,7 +421,7 @@ fn parse_mdx_header(raw: &[u8]) -> Result<(MdxHeader, bool), String> {
             format,
             num_entries: 0,
         },
-        is_utf16,
+        content_utf16,
     ))
 }
 
@@ -438,6 +442,11 @@ fn parse_key_block_metas(
     let mut metas = Vec::with_capacity(num_blocks);
     let mut offset = 0;
 
+    // In MDict v2.0, each string in the key block info is stored as:
+    // u16 length (NOT counting the null terminator) + raw bytes + null terminator
+    // The null terminator is 2 bytes for UTF-16, 1 byte for UTF-8.
+    let null_size = if utf16 { 2 } else { 1 };
+
     for _ in 0..num_blocks {
         if offset + 8 > info_bytes.len() {
             break;
@@ -446,18 +455,31 @@ fn parse_key_block_metas(
             u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
         offset += 8;
 
-        // First word
+        // First word: u16 length (excl. null) + bytes + null terminator
+        if offset + 2 > info_bytes.len() {
+            break;
+        }
         let first_len =
             u16::from_be_bytes(info_bytes[offset..offset + 2].try_into().unwrap()) as usize;
         offset += 2;
-        let first_word = read_string_with_len(&info_bytes, &mut offset, first_len, utf16);
+        let first_word = read_string_with_len(info_bytes, &mut offset, first_len, utf16);
+        // Skip null terminator not counted in the stored length
+        offset = (offset + null_size).min(info_bytes.len());
 
-        // Last word
+        // Last word: u16 length (excl. null) + bytes + null terminator
+        if offset + 2 > info_bytes.len() {
+            break;
+        }
         let last_len =
             u16::from_be_bytes(info_bytes[offset..offset + 2].try_into().unwrap()) as usize;
         offset += 2;
-        let last_word = read_string_with_len(&info_bytes, &mut offset, last_len, utf16);
+        let last_word = read_string_with_len(info_bytes, &mut offset, last_len, utf16);
+        // Skip null terminator
+        offset = (offset + null_size).min(info_bytes.len());
 
+        if offset + 16 > info_bytes.len() {
+            break;
+        }
         let comp_size =
             u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
         offset += 8;
@@ -728,13 +750,16 @@ mod tests {
 
         let comp_key_block = zlib_compress_with_header(&key_block_raw);
 
-        // Prepare Key Block Info
+        // Prepare Key Block Info (UTF-8 format):
+        // u64 num_entries, u16 first_len (excl null), bytes, \0, u16 last_len (excl null), bytes, \0, u64 comp, u64 decomp
         let mut key_info_raw = Vec::new();
         key_info_raw.extend_from_slice(&3u64.to_be_bytes()); // num_entries in block
-        key_info_raw.extend_from_slice(&9u16.to_be_bytes()); // first word len
+        key_info_raw.extend_from_slice(&9u16.to_be_bytes()); // first word len (excl null)
         key_info_raw.extend_from_slice(b"ephemeral");
-        key_info_raw.extend_from_slice(&8u16.to_be_bytes()); // last word len
+        key_info_raw.push(0u8); // null terminator (NOT counted in length)
+        key_info_raw.extend_from_slice(&8u16.to_be_bytes()); // last word len (excl null)
         key_info_raw.extend_from_slice(b"epiphany");
+        key_info_raw.push(0u8); // null terminator
         key_info_raw.extend_from_slice(&(comp_key_block.len() as u64).to_be_bytes());
         key_info_raw.extend_from_slice(&(key_block_raw.len() as u64).to_be_bytes());
 
@@ -750,18 +775,17 @@ mod tests {
         file_bytes.extend_from_slice(&comp_key_info);
         file_bytes.extend_from_slice(&comp_key_block);
 
-        // Prepare Record Block Info
+        // Record Block Info is RAW (not zlib compressed): sequential u64 comp, u64 decomp per block
         let mut rec_info_raw = Vec::new();
         rec_info_raw.extend_from_slice(&(comp_record_block.len() as u64).to_be_bytes());
         rec_info_raw.extend_from_slice(&(record_raw.len() as u64).to_be_bytes());
-        let comp_rec_info = zlib_compress_with_header(&rec_info_raw);
 
         // Write Record Section Header
         file_bytes.extend_from_slice(&1u64.to_be_bytes()); // num_record_blocks
         file_bytes.extend_from_slice(&3u64.to_be_bytes()); // num_records
-        file_bytes.extend_from_slice(&(comp_rec_info.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&(rec_info_raw.len() as u64).to_be_bytes());
         file_bytes.extend_from_slice(&(comp_record_block.len() as u64).to_be_bytes());
-        file_bytes.extend_from_slice(&comp_rec_info);
+        file_bytes.extend_from_slice(&rec_info_raw); // raw, NOT compressed
         file_bytes.extend_from_slice(&comp_record_block);
 
         std::fs::write(&mdx_path, file_bytes).unwrap();
@@ -790,5 +814,26 @@ mod tests {
         // Unknown word
         let res_none = dict.lookup("nonexistentwordxyz").unwrap();
         assert!(res_none.is_none());
+    }
+
+    #[test]
+    fn test_real_mdx_file_lookup_if_present() {
+        let real_path = std::path::PathBuf::from("/home/sapiens/.local/share/work.fundamentals.theorem/dictionaries/4d500fc1-6d19-4d17-86a0-beaccdd73297/dict-en-en.mdx");
+        if !real_path.exists() {
+            return;
+        }
+        let dict = MdxDictionary::open(&real_path).expect("Failed to open real MDX dictionary");
+        println!("Loaded MDX Title: {}", dict.header.title);
+        println!("Loaded MDX Version: {}", dict.header.version);
+        println!("Loaded MDX Format: {}", dict.header.format);
+        println!("Loaded MDX Num Key Blocks: {}", dict.key_blocks.len());
+        println!("Loaded MDX Num Record Blocks: {}", dict.record_blocks.len());
+
+        let res = dict.lookup("epiphany").expect("Lookup epiphany error");
+        println!("Lookup 'epiphany' result: {:?}", res);
+        assert!(
+            res.is_some(),
+            "Expected 'epiphany' to be found in Wiktionary"
+        );
     }
 }
