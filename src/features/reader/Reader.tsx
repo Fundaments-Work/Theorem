@@ -1689,11 +1689,9 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
     }, [activeDocId, getBookAnnotations]); 
 
-    const handleDefineSelection = useCallback(async () => {
-        const term = selectedText.trim();
-        if (!term) {
-            return;
-        }
+    const handleLookupWord = useCallback(async (word: string) => {
+        const term = word.trim();
+        if (!term) return;
 
         readerRef.current?.clearSelection?.();
         if (typeof window !== "undefined") {
@@ -1725,11 +1723,11 @@ const BookReaderPage = memo(function BookReaderPage() {
         } finally {
             setDictionaryLookupLoading(false);
         }
-    }, [
-        installedDictionaryCount,
-        lookupTerm,
-        selectedText,
-    ]);
+    }, [installedDictionaryCount, lookupTerm]);
+
+    const handleDefineSelection = useCallback(async () => {
+        await handleLookupWord(selectedText);
+    }, [handleLookupWord, selectedText]);
 
     const handleSaveDictionaryResult = useCallback(() => {
         if (!dictionaryLookupResult || !settings.vocabulary.vocabularyEnabled) {
@@ -2551,6 +2549,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                                 canSaveToVocabulary: settings.vocabulary.vocabularyEnabled,
                                 saveDisabledMessage: "Enable Vocabulary Builder in Settings to save terms.",
                                 onSave: handleSaveDictionaryResult,
+                                onLookupTerm: handleLookupWord,
                                 onBack: () => {
                                     setColorPickerMode("actions");
                                 },

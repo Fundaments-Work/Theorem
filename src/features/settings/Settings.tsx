@@ -983,7 +983,7 @@ export const SettingsPage = memo(function SettingsPage() {
                             <SettingRow
                                 key={dictionary.id}
                                 label={dictionary.name}
-                                description={`${dictionary.language} • StarDict • ${formatFileSize(dictionary.sizeBytes)}`}
+                                description={`${dictionary.language.toUpperCase()} • ${dictionary.format === "mdx" || dictionary.name.toLowerCase().includes("mdx") ? "MDict (.mdx)" : "StarDict"} • ${formatFileSize(dictionary.sizeBytes)}`}
                             >
                                 <button
                                     onClick={() => setRemoveDictionaryInfo({ id: dictionary.id, name: dictionary.name })}

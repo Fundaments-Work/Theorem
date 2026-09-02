@@ -496,7 +496,7 @@ export async function lookupInStarDictDictionaries(
         return [];
     }
 
-    // 1. Fast path: Native Rust StarDict engine with zero-copy memory mapping
+    // 1. Fast path: Native Rust MDX & StarDict engine with zero-copy memory mapping
     if (isTauri()) {
         try {
             const { invoke } = await import("@tauri-apps/api/core");
@@ -513,15 +513,31 @@ export async function lookupInStarDictDictionaries(
                 dictionary_name: string;
                 meanings: NativeMeaning[];
             }
+            interface MdxEntryResult {
+                term: string;
+                html: string;
+                dictionary_name: string;
+            }
 
-            const results = await invoke<NativeEntryResult[]>("stardict_lookup", {
-                dictionaryIds,
-                term,
-            });
+            const [mdxRes, stardictRes] = await Promise.allSettled([
+                invoke<MdxEntryResult[]>("mdx_lookup", { dictionaryIds, term }),
+                invoke<NativeEntryResult[]>("stardict_lookup", { dictionaryIds, term }),
+            ]);
 
-            if (results && results.length > 0) {
-                const combined: VocabularyMeaning[] = [];
-                for (const entry of results) {
+            const combined: VocabularyMeaning[] = [];
+
+            if (mdxRes.status === "fulfilled" && mdxRes.value && mdxRes.value.length > 0) {
+                for (const entry of mdxRes.value) {
+                    combined.push({
+                        provider: "stardict" as const,
+                        partOfSpeech: "Definition",
+                        definitions: [entry.html],
+                    });
+                }
+            }
+
+            if (stardictRes.status === "fulfilled" && stardictRes.value && stardictRes.value.length > 0) {
+                for (const entry of stardictRes.value) {
                     for (const m of entry.meanings) {
                         combined.push({
                             provider: "stardict" as const,
@@ -533,12 +549,13 @@ export async function lookupInStarDictDictionaries(
                         });
                     }
                 }
-                if (combined.length > 0) {
-                    return combined;
-                }
+            }
+
+            if (combined.length > 0) {
+                return combined;
             }
         } catch (error) {
-            console.warn("[StarDict] Native lookup error, falling back to JS:", error);
+            console.warn("[Dictionary] Native lookup error, falling back to JS:", error);
         }
     }
 

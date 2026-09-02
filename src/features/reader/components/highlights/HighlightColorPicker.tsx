@@ -24,6 +24,7 @@ interface HighlightDictionaryViewState {
     saveDisabledMessage?: string;
     onSave: () => void;
     onBack?: () => void;
+    onLookupTerm?: (term: string) => void;
 }
 
 interface HighlightColorPickerProps {
@@ -449,7 +450,23 @@ export function HighlightColorPicker({
                                 </p>
                             ) : null}
                         </div>
-                        <div className="max-h-60 overflow-y-auto px-1 py-1 [content-visibility:auto] overscroll-contain">
+                        <div
+                            className="max-h-60 overflow-y-auto px-1 py-1 [content-visibility:auto] overscroll-contain"
+                            onClick={(e) => {
+                                const target = (e.target as HTMLElement).closest("a");
+                                if (target) {
+                                    const href = target.getAttribute("href");
+                                    if (href && (href.startsWith("entry://") || href.startsWith("bword://"))) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const cleanTerm = decodeURIComponent(href.replace(/^(entry|bword):\/\//, ""));
+                                        if (cleanTerm && dictionary.onLookupTerm) {
+                                            dictionary.onLookupTerm(cleanTerm);
+                                        }
+                                    }
+                                }
+                            }}
+                        >
                             {dictionary.loading && (
                                 <div className="flex items-center gap-2 text-sm text-[color:var(--color-text-secondary)]">
                                     <Spinner size="sm" label="Looking up definitions" />

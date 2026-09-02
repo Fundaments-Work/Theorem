@@ -687,6 +687,7 @@
 .dict-definition {
     overflow-wrap: break-word;
     word-break: break-word;
+    color: var(--thm-word, var(--color-text-primary));
 }
 .dict-definition p {
     margin: 0.35em 0;
@@ -705,15 +706,27 @@
     margin: 0.15em 0;
     line-height: 1.5;
 }
-.dict-definition b, .dict-definition strong {
+.dict-definition b, .dict-definition strong, .dict-definition .pos {
     font-weight: 600;
+    color: var(--thm-pos, var(--color-accent));
 }
-.dict-definition i, .dict-definition em {
+.dict-definition i, .dict-definition em, .dict-definition .example {
+    font-style: italic;
+    color: var(--thm-example, var(--color-text-secondary));
+}
+.dict-definition .ipa, .dict-definition .phonetic {
+    color: var(--thm-ipa, var(--color-text-muted));
     font-style: italic;
 }
 .dict-definition a {
-    color: inherit;
-    text-decoration: none;
+    color: var(--thm-pos, var(--color-accent));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+.dict-definition a:hover {
+    opacity: 0.8;
 }
 .dict-definition sup {
     font-size: 0.75em;

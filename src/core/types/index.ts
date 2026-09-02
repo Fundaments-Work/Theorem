@@ -316,7 +316,7 @@ export interface InstalledDictionary {
     id: string;
     name: string;
     language: string;
-    format: "stardict";
+    format: "stardict" | "mdx";
     sizeBytes: number;
     importedAt: Date;
 }

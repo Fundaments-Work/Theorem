@@ -6,6 +6,7 @@ mod epub_parser;
 mod epub_rewriter;
 mod file_transfer;
 mod iroh_sync;
+pub mod mdict;
 pub mod mobi_parser;
 pub mod opds_parser;
 pub mod stardict;
@@ -1165,6 +1166,7 @@ pub fn run() {
             article_extractor::fetch_and_extract_article_native,
             opds_parser::fetch_and_parse_opds_native,
             open_book_in_new_window,
+            mdict::mdx_lookup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1286,6 +1288,44 @@ async fn download_and_extract_stardict(
         }
     }
 
+    let id = uuid::Uuid::new_v4().to_string();
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let dict_dir = app_data.join("dictionaries").join(&id);
+    let _ = std::fs::create_dir_all(&dict_dir);
+
+    if url.ends_with(".mdx") {
+        let size_bytes = body.len() as u64;
+        let mdx_file = dict_dir.join("dict-en-en.mdx");
+        std::fs::write(&mdx_file, &body).map_err(|e| format!("Failed to write MDX file: {e}"))?;
+
+        let name = "English Wiktionary (MDX)".to_string();
+        let lang = "en".to_string();
+
+        let manifest_key = format!("theorem-stardict:{id}:manifest");
+        let manifest = serde_json::json!({
+            "id": id,
+            "name": name,
+            "language": lang,
+            "sizeBytes": size_bytes,
+            "format": "mdx",
+        });
+        database::sqlite_set_kv(
+            app.clone(),
+            manifest_key,
+            serde_json::to_string(&manifest).map_err(|e| e.to_string())?,
+        )?;
+
+        return Ok(serde_json::json!({
+            "id": id,
+            "name": name,
+            "language": lang,
+            "sizeBytes": size_bytes,
+        }));
+    }
+
     let is_zip = url.ends_with(".zip");
 
     let (ifo, idx, dict, syn) = tokio::task::spawn_blocking(move || {
@@ -1316,7 +1356,6 @@ async fn download_and_extract_stardict(
         }
     }
 
-    let id = uuid::Uuid::new_v4().to_string();
     let size_bytes =
         (ifo.len() + idx.len() + dict.len() + syn.as_ref().map_or(0, |s| s.len())) as u64;
 
@@ -1334,12 +1373,6 @@ async fn download_and_extract_stardict(
         serde_json::to_string(&manifest).map_err(|e| e.to_string())?,
     )?;
 
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let dict_dir = app_data.join("dictionaries").join(&id);
-    let _ = std::fs::create_dir_all(&dict_dir);
     let _ = std::fs::write(dict_dir.join("dict.ifo"), &ifo);
     let _ = std::fs::write(dict_dir.join("dict.idx"), &idx);
     let _ = std::fs::write(dict_dir.join("dict.dict.dz"), &dict);
