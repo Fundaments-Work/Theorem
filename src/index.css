@@ -160,11 +160,11 @@ mark.article-temp-selection:hover {
 
 
 /* ── Scrollbars ─────────────────────────────────────────────────────────── */
-/* Thin, theme-aware scrollbars that don't overlap content */
+/* Consistent, theme-aware scrollbars with zero hover position/size shifts */
 
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -172,24 +172,26 @@ mark.article-temp-selection:hover {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+    background: color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+    border: none;
     border-radius: var(--radius-full);
+    transition: background-color 0.15s ease-out;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+    background: color-mix(in srgb, var(--color-text-muted) 65%, transparent);
 }
 
 /* Firefox */
 * {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--color-text-muted) 40%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--color-text-muted) 35%, transparent) transparent;
 }
 
-/* Reader / article scroll containers: even thinner, fades unless hovered */
+/* Reader / article scroll containers: identical 5px geometry for rock-solid alignment */
 .custom-scrollbar::-webkit-scrollbar {
-    width: 3px;
-    height: 3px;
+    width: 5px;
+    height: 5px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -197,18 +199,19 @@ mark.article-temp-selection:hover {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+    background: color-mix(in srgb, var(--color-text-muted) 35%, transparent);
+    border: none;
     border-radius: var(--radius-full);
-    transition: background 0.2s;
+    transition: background-color 0.15s ease-out;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--color-text-muted) 60%, transparent);
+    background: color-mix(in srgb, var(--color-text-muted) 65%, transparent);
 }
 
 .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--color-text-muted) 30%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--color-text-muted) 35%, transparent) transparent;
 }
 
 /* Hide scrollbar entirely for no-scrollbar elements */

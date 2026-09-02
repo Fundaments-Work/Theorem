@@ -561,21 +561,23 @@ export class Paginator extends HTMLElement {
             overflow-y: auto;
             overflow-x: hidden;
             scrollbar-width: thin;
-            scrollbar-color: color-mix(in srgb, currentColor 25%, transparent) transparent;
+            scrollbar-color: color-mix(in srgb, currentColor 30%, transparent) transparent;
         }
         :host([flow="scrolled"]) #container::-webkit-scrollbar {
-            width: 4px;
+            width: 5px;
+            height: 5px;
         }
         :host([flow="scrolled"]) #container::-webkit-scrollbar-track {
             background: transparent;
         }
         :host([flow="scrolled"]) #container::-webkit-scrollbar-thumb {
-            background: color-mix(in srgb, currentColor 25%, transparent);
+            background: color-mix(in srgb, currentColor 30%, transparent);
+            border: none;
             border-radius: 9999px;
-            transition: background 0.2s ease;
+            transition: background-color 0.15s ease-out;
         }
         :host([flow="scrolled"]) #container::-webkit-scrollbar-thumb:hover {
-            background: color-mix(in srgb, currentColor 50%, transparent);
+            background: color-mix(in srgb, currentColor 60%, transparent);
         }
         #header {
             grid-column: 3 / 4;
