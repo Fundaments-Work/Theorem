@@ -7,7 +7,7 @@ import {
     convertMarkdownToHtml,
 } from "../services/RssService";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
-import type { RssFeed, RssArticle } from "../types";
+import type { RssFeed, RssArticle, DeletionTombstone } from "../types";
 import { useLibraryStore } from "./libraryStore";
 import { useUIStore } from "./uiStore";
 
@@ -75,6 +75,7 @@ interface RssStore {
     isLoading: boolean;
     error?: string;
     currentArticle: RssArticle | null;
+    deletionTombstones: DeletionTombstone[];
 
     addFeed: (url: string) => Promise<RssFeed | null>;
     removeFeed: (feedId: string) => void;
@@ -103,6 +104,7 @@ export const useRssStore = create<RssStore>()(
             isLoading: false,
             error: undefined,
             currentArticle: null,
+            deletionTombstones: [],
 
             addFeed: async (url: string) => {
                 set({ isLoading: true, error: undefined });

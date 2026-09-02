@@ -15,6 +15,7 @@ import { prewarmPdfJsRuntime } from "./core/lib/pdfjs-runtime";
 import { prewarmFoliateRuntime } from "./core/lib/foliate-runtime";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
+import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { OnboardingFlow } from "./features/onboarding";
 import { Toaster } from "sonner";
 
@@ -225,6 +226,10 @@ function App() {
         window.addEventListener("popstate", handlePopState);
         return () => window.removeEventListener("popstate", handlePopState);
     }, [setRoute]); 
+
+    useEffect(() => {
+        pruneExpiredTombstones();
+    }, []);
 
     useEffect(() => {
         if (!isTauri() || typeof document === "undefined") return;
