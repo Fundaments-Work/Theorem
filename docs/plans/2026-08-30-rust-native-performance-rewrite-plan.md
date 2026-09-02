@@ -1,22 +1,31 @@
-# Native Rust Performance Roadmap (Remaining Items)
+# Native Rust Performance Roadmap
 
-**Status**: Active Roadmap  
-**Area**: Rust Backend / Core Engines / PDF Pre-Warming / Cover Deduplication  
+**Status**: Partially implemented · remaining items are scoped below
 
----
+## 1. EPUB CFI Locator (`epubcfi.rs`) — core implemented ✅
 
-## 1. Remaining Performance Subsystems
+`src-tauri/src/epubcfi.rs` is a Rust-native CFI parser/resolver (spine path,
+content steps, character offsets, ID assertions, range-to-start) with unit
+tests. Consumed by the CLI (`theorem read <book-id> --cfi "..."`).
 
-| Subsystem | Current State | Proposed Solution | Expected Impact | Priority |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. PDF Background Worker Pre-Warming** | Next page text layers and canvas frames parsed on demand | Background offscreen rasterization worker in Rust/Wasm pre-warming $N+1$ | **0ms flip latency** | 🥇 Next |
-| **2. Rust Native EPUB CFI Locator (`epubcfi.rs`)** | JS DOM tree traversal calculates CFI ranges on selection | Bitwise tree walker indexing element offsets ahead of time | **10x** | 🥈 |
-| **3. Cover Image SQLite Deduplication** | Base64 strings stored in `covers.data_url` | Store content-addressed WebP files directly in app storage | **20–30 MB SQLite savings** | 🥉 |
+- [x] Parser + resolver + minimal XML tree walker (`epubcfi.rs`).
+- [ ] GUI selection-side generation: the reader still computes CFI ranges via
+      JS DOM traversal. Wiring selection -> `epubcfi.rs` requires streaming the
+      spine HTML the pre-parser already fetches into an index — measure whether
+      IPC overhead justifies it before building.
 
----
+## 2. PDF Background Worker Pre-Warming — not started
 
-## 2. Implementation Checklist
+- [ ] Offscreen rasterization of page N+1 (and N+2) while the reader is idle.
+      `prewarmPdfJsRuntime` only warms the worker script, not page frames.
+      Design: a Web Worker pool owning offscreen canvases, driven by the
+      PDF engine's scroll direction. Expected: 0ms flip latency.
 
-- [ ] Implement PDF background worker pre-warming for $N+1$ canvas frames.
-- [ ] Implement Rust native EPUB CFI locator (`epubcfi.rs`).
-- [ ] Implement cover image SQLite to disk deduplication migration.
+## 3. Cover Image SQLite -> Disk Deduplication — measured, deferred
+
+Real-world measurement (234 covers): **14.3 MB** of `covers.data_url` in
+SQLite — far below the plan's 20-30 MB estimate. Moving covers to disk would
+break the sync invariant that `data:` cover paths propagate in sync payloads
+(covers must stay self-contained in SQLite for cross-device merges).
+**Recommendation: keep covers in SQLite.** Revisit only if cover-heavy
+libraries (>1000 books) show real bloat.

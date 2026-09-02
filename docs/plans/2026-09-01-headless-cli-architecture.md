@@ -152,7 +152,7 @@ Settings → Devices & Export → Terminal CLI (Linux desktop):
 - [x] MOBI text extraction (`mobi_parser::extract_mobi_text`, PalmDOC; HUFF/CDIC rejected).
 - [x] Interactive TUI (`theorem tui`).
 - [x] Settings toggle with persistence + startup auto-heal + AppImage-aware symlink.
-- [ ] `--cfi` reading anchor (blocked on the `epubcfi.rs` roadmap item).
+- [x] `--cfi` reading anchor (`epubcfi.rs` parser + `theorem read --cfi`).
 - [ ] Vault markdown export in Rust (deferred — duplication of TS logic not yet worth it).
 - [ ] HUFF/CDIC MOBI decompression (needs the `mobi` crate's Huffman decoder).
 
