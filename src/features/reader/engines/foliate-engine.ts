@@ -96,6 +96,7 @@ export class FoliateEngine {
 
     private _lastCssSettingsKey = '';
     private _lastCssResult: string | null = null;
+    private _lastTapNotifiedAt = 0;
 
     private unsubscribeFromStyles: (() => void) | null = null;
 
@@ -1802,6 +1803,7 @@ export class FoliateEngine {
         if (this.isInteractiveTapTarget(target)) {
             return;
         }
+        this._lastTapNotifiedAt = Date.now();
         this.options.onViewportTap();
     }
 
@@ -2212,14 +2214,38 @@ export class FoliateEngine {
                         return;
                     }
 
-                    // NOTE: tap-to-toggle chrome is handled exclusively via the
-                    // foliate-tap postMessage from the injected selection script.
-                    // We must NOT call notifyViewportTap here — that would cause a
-                    // double-toggle (once from postMessage, once from this handler)
-                    // making a single tap appear to do nothing (show then immediately hide).
                     if (!isTap) {
                         return;
                     }
+
+                    window.setTimeout(() => {
+                        // Dedup: if the injected-script foliate-tap postMessage already
+                        // notified within 150ms, skip. This prevents a double-toggle when
+                        // both paths fire on same-origin iframes. If the postMessage path
+                        // never fires (cross-origin, script injection unavailable, etc.),
+                        // this outer handler is the reliable fallback.
+                        const TAP_DEDUP_MS = 150;
+                        if (Date.now() - this._lastTapNotifiedAt < TAP_DEDUP_MS) {
+                            return;
+                        }
+
+                        const shouldSuppressInteraction =
+                            Date.now() - lastSelectionCapturedAt < SELECTION_INTERACTION_SUPPRESS_MS;
+                        if (shouldSuppressInteraction) {
+                            return;
+                        }
+
+                        const selection = doc.getSelection();
+                        const hasSelection = Boolean(
+                            selection
+                            && !selection.isCollapsed
+                            && selection.toString().trim().length > 0,
+                        );
+                        if (hasSelection && !this.shouldForceViewportTap()) {
+                            return;
+                        }
+                        this.notifyViewportTap(event.target);
+                    }, SELECTION_CAPTURE_DELAY);
                 },
                 true,
             );
