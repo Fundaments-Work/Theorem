@@ -1623,8 +1623,8 @@ export const ArticleViewer = memo(function ArticleViewer({
 
                 <div
                     className={cn(
-                        "absolute inset-0 overflow-hidden transition-[top] duration-300",
-                        shouldShowReaderChrome ? "top-11 sm:top-12" : "top-0",
+                        "absolute inset-x-0 overflow-hidden transition-[top,bottom] duration-300",
+                        shouldShowReaderChrome ? "top-11 sm:top-12 bottom-0" : "top-0 bottom-0",
                     )}
                     onClick={() => {
                         const sel = window.getSelection();

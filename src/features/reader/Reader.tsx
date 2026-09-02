@@ -2314,7 +2314,14 @@ const BookReaderPage = memo(function BookReaderPage() {
                 />
             </div>
 
-            <div className="absolute inset-0 overflow-hidden">
+            <div
+                className={cn(
+                    "absolute inset-x-0 overflow-hidden transition-[top,bottom] duration-300",
+                    shouldShowReaderChrome
+                        ? (isPdfFormat ? "top-11 sm:top-12 bottom-0" : "top-11 sm:top-12 bottom-14 sm:bottom-16")
+                        : "top-0 bottom-0",
+                )}
+            >
                 {isPdfFormat ? (
                     <Suspense fallback={<div className="flex items-center justify-center h-full">Loading PDF...</div>}>
                         <PDFReader
