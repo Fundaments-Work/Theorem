@@ -8,6 +8,7 @@ pub mod cli_tui;
 mod database;
 mod epub_parser;
 mod epub_rewriter;
+pub mod epubcfi;
 mod file_transfer;
 mod iroh_sync;
 pub mod mdict;

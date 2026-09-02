@@ -141,6 +141,9 @@ enum Command {
         /// 1-based chapter index in spine order (default: 1)
         #[arg(long)]
         chapter: Option<usize>,
+        /// EPUB CFI anchor — prints text from the resolved element
+        #[arg(long)]
+        cfi: Option<String>,
     },
     /// Look up a term in installed dictionaries (StarDict + MDict)
     Dict {
@@ -431,7 +434,11 @@ fn run(command: Command, output: &Output) -> i32 {
         Command::Sync { command } => with_app_ex(true, |app| run_sync(output, app, command)),
         other => with_app_ex(false, |app| match other {
             Command::Search { query, book_id } => run_search(output, app, &query, book_id),
-            Command::Read { book_id, chapter } => run_read(output, app, &book_id, chapter),
+            Command::Read {
+                book_id,
+                chapter,
+                cfi,
+            } => run_read(output, app, &book_id, chapter, cfi.as_deref()),
             Command::Dict { term, online } => run_dict(output, app, &term, online),
             Command::Extract { url } => run_extract(output, &url),
             Command::Library { command } => run_library(output, app, command),
@@ -2699,7 +2706,16 @@ fn run_open(output: &Output, app: &tauri::AppHandle, book_id: &str) -> i32 {
 
 // ── read ─────────────────────────────────────────────────────────────────────
 
-fn run_read(output: &Output, app: &tauri::AppHandle, book_id: &str, chapter: Option<usize>) -> i32 {
+fn run_read(
+    output: &Output,
+    app: &tauri::AppHandle,
+    book_id: &str,
+    chapter: Option<usize>,
+    cfi: Option<&str>,
+) -> i32 {
+    if let Some(cfi) = cfi {
+        return run_read_cfi(output, app, book_id, cfi);
+    }
     let chapter = chapter.unwrap_or(1).max(1);
 
     let path = match resolve_book_path(app, book_id) {
@@ -2723,6 +2739,63 @@ fn run_read(output: &Output, app: &tauri::AppHandle, book_id: &str, chapter: Opt
                 let mut out = stdout.lock();
                 let _ = out.write_all(text.as_bytes());
                 let _ = out.write_all(b"\n");
+                0
+            }
+        }
+        Err(e) => output.error(&e),
+    }
+}
+
+/// Resolve an EPUB CFI and print the plain text at the anchored location.
+fn run_read_cfi(output: &Output, app: &tauri::AppHandle, book_id: &str, cfi: &str) -> i32 {
+    let location = match crate::epubcfi::parse(cfi) {
+        Ok(location) => location,
+        Err(e) => return output.error(&format!("invalid CFI: {e}")),
+    };
+
+    let path = match resolve_book_path(app, book_id) {
+        Ok(Some(path)) => path,
+        Ok(None) => return output.error(&format!("book '{book_id}' not found in library")),
+        Err(e) => return output.error(&e),
+    };
+
+    let result = (|| -> Result<String, String> {
+        let file = std::fs::File::open(&path)
+            .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+        let opf_path = crate::epub_parser::read_rootfile_path_inner(&mut archive)
+            .ok_or("Missing OPF rootfile in META-INF/container.xml")?;
+        let opf = crate::epub_parser::read_zip_entry_inner(&mut archive, &opf_path)
+            .ok_or_else(|| format!("Missing OPF file: {opf_path}"))?;
+        let spine_hrefs = parse_spine_order(&opf);
+        let href = spine_hrefs
+            .get(location.spine_index)
+            .ok_or_else(|| format!("CFI spine index {} out of range", location.spine_index))?;
+        let section_path = crate::epub_parser::resolve_relative(&opf_path, href);
+        let html = crate::epub_parser::read_zip_entry_inner(&mut archive, &section_path)
+            .ok_or_else(|| format!("Missing chapter file: {section_path}"))?;
+        let tree = crate::epubcfi::build_tree(&html);
+        let text = crate::epubcfi::resolve_text(&tree, &location)?;
+        if text.is_empty() {
+            // Fall back to the whole chapter so the anchor context is visible.
+            Ok(crate::book_search::html_to_plain_text(&html))
+        } else {
+            Ok(text)
+        }
+    })();
+
+    match result {
+        Ok(text) => {
+            if output.json {
+                output.print_json(&serde_json::json!({
+                    "bookId": book_id,
+                    "cfi": cfi,
+                    "spineIndex": location.spine_index,
+                    "text": text,
+                }))
+            } else {
+                println!("{text}");
                 0
             }
         }
