@@ -995,6 +995,68 @@ fn cli_symlink_target_exe() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("Failed to resolve executable path: {e}"))
 }
 
+/// Tauri command: current CLI symlink status for the Settings UI.
+#[tauri::command]
+fn cli_setup_status() -> Result<CliSetupStatus, String> {
+    cli_setup_status_inner()
+}
+
+#[derive(serde::Serialize)]
+pub struct CliSetupStatus {
+    /// A valid `theorem` symlink exists in ~/.local/bin
+    installed: bool,
+    link_path: String,
+    is_app_image: bool,
+}
+
+fn cli_setup_status_inner() -> Result<CliSetupStatus, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let link = cli_symlink_path()?;
+        let installed = std::fs::symlink_metadata(&link)
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(false);
+        Ok(CliSetupStatus {
+            installed,
+            link_path: link.display().to_string(),
+            is_app_image: std::env::var("APPIMAGE")
+                .map(|v| !v.is_empty())
+                .unwrap_or(false),
+        })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("CLI symlink setup is only supported on Linux".to_string())
+    }
+}
+
+/// Tauri command: remove the ~/.local/bin/theorem symlink (toggle OFF).
+#[tauri::command]
+fn remove_linux_cli_symlink() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let link = cli_symlink_path()?;
+        match std::fs::symlink_metadata(&link) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                std::fs::remove_file(&link)
+                    .map_err(|e| format!("Failed to remove {}: {e}", link.display()))?;
+                Ok(())
+            }
+            Ok(_) => Err(format!(
+                "Refusing to remove {}: not a Theorem symlink",
+                link.display()
+            )),
+            Err(_) => Ok(()),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("CLI symlink setup is only supported on Linux".to_string())
+    }
+}
+
 fn cli_symlink_path() -> Result<PathBuf, String> {
     let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set")?;
     Ok(PathBuf::from(home)
@@ -1181,6 +1243,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             setup_linux_cli_symlink,
+            cli_setup_status,
+            remove_linux_cli_symlink,
             tts_speak,
             tts_stop,
             tts_pause,

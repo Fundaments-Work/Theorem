@@ -181,6 +181,11 @@ export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "pro
 export type LibrarySortOrder = "asc" | "desc";
 export type LibraryStatusFilter = "all" | "unread" | "reading" | "completed";
 
+export interface CliSettings {
+    /** The user wants the `theorem` CLI symlink active in ~/.local/bin */
+    enabled: boolean;
+}
+
 export interface AppSettings {
     sidebarCollapsed: boolean;
     libraryViewMode: LibraryViewMode;
@@ -195,6 +200,7 @@ export interface AppSettings {
     tts: TtsSettings;
     vault: VaultIntegrationSettings;
     deviceSync: DeviceSyncSettings;
+    cli: CliSettings;
     hasCompletedOnboarding: boolean;
     showDailyHighlight: boolean;
     speedReadEnabled: boolean;

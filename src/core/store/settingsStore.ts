@@ -80,6 +80,7 @@ const defaultAppSettings: AppSettings = {
     tts: defaultTtsSettings,
     vault: defaultVaultSettings,
     deviceSync: defaultDeviceSyncSettings,
+    cli: { enabled: false },
     hasCompletedOnboarding: false,
     showDailyHighlight: false,
     speedReadEnabled: false,
@@ -207,7 +208,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: "theorem-settings",
-            version: 10,
+            version: 11,
             storage: createJSONStorage(() => theoremPersistStorage),
             partialize: (state) => ({
                 settings: state.settings,
@@ -279,6 +280,12 @@ export const useSettingsStore = create<SettingsStore>()(
                         if (state.settings.syncNotifications === undefined) {
                             state.settings.syncNotifications = true;
                         }
+                    }
+                }
+
+                if (version < 11) {
+                    if (state.settings && state.settings.cli === undefined) {
+                        state.settings.cli = { enabled: false };
                     }
                 }
 

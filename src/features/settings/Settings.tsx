@@ -364,8 +364,9 @@ export const SettingsPage = memo(function SettingsPage() {
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
     const [updateChecking, setUpdateChecking] = useState(false);
     const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
-    const [cliLinkPath, setCliLinkPath] = useState<string | null>(null);
-    const [cliEnabling, setCliEnabling] = useState(false);
+    const [cliStatus, setCliStatus] = useState<{ installed: boolean; linkPath: string; isAppImage: boolean } | null>(null);
+    const [cliBusy, setCliBusy] = useState(false);
+    const cliEnabled = settings.cli?.enabled ?? false;
 
     useEffect(() => {
         if (!dictionaryRemovedName) return;
@@ -373,18 +374,51 @@ export const SettingsPage = memo(function SettingsPage() {
         return () => clearTimeout(timer);
     }, [dictionaryRemovedName]);
 
-    const handleEnableCli = async () => {
-        setCliEnabling(true);
+    const refreshCliStatus = async () => {
         try {
-            const link = await invoke<string>("setup_linux_cli_symlink");
-            setCliLinkPath(link);
+            setCliStatus(await invoke<{ installed: boolean; linkPath: string; isAppImage: boolean }>("cli_setup_status"));
+        } catch {
+            setCliStatus(null);
+        }
+    };
+
+    useEffect(() => {
+        if (!isLinuxDesktop) return;
+        void refreshCliStatus();
+    }, [isLinuxDesktop]);
+
+    const handleToggleCli = async (enabled: boolean) => {
+        setCliBusy(true);
+        try {
+            if (enabled) {
+                await invoke<string>("setup_linux_cli_symlink");
+            } else {
+                await invoke("remove_linux_cli_symlink");
+            }
+            updateSettings({ cli: { enabled } });
+            void refreshCliStatus();
         } catch (error) {
             setAlertInfo({
-                title: "CLI Setup Failed",
+                title: enabled ? "CLI Setup Failed" : "CLI Removal Failed",
                 message: String(error),
             });
         } finally {
-            setCliEnabling(false);
+            setCliBusy(false);
+        }
+    };
+
+    const handleRepairCli = async () => {
+        setCliBusy(true);
+        try {
+            await invoke<string>("setup_linux_cli_symlink");
+            void refreshCliStatus();
+        } catch (error) {
+            setAlertInfo({
+                title: "CLI Repair Failed",
+                message: String(error),
+            });
+        } finally {
+            setCliBusy(false);
         }
     };
 
@@ -1035,27 +1069,41 @@ export const SettingsPage = memo(function SettingsPage() {
                     {isLinuxDesktop && (
                         <Section
                             title="Terminal CLI"
-                            description="Expose Theorem's native engines (dictionary, search, library, article extraction) to your terminal, scripts, and AI agents via the `theorem` command"
+                            description="Expose Theorem's native engines (dictionary, search, library, article extraction, sync) to your terminal, scripts, and AI agents via the `theorem` command. Includes an interactive TUI (`theorem tui`)."
                             icon={<Terminal className="w-5 h-5" />}
                         >
                             <SettingRow
                                 label="Enable CLI"
                                 description={
-                                    cliLinkPath
-                                        ? `Symlinked: ${cliLinkPath} — run 'theorem help' in any terminal`
-                                        : "Symlink the executable into ~/.local/bin so `theorem` is on your $PATH (no sudo required)"
+                                    cliEnabled
+                                        ? `Active at ${cliStatus?.linkPath ?? "~/.local/bin/theorem"} — run 'theorem help' in any terminal${cliStatus?.isAppImage ? " (AppImage mode: the symlink tracks the AppImage file)" : ""}`
+                                        : "Symlink the executable into ~/.local/bin so `theorem` is on your $PATH (no sudo required). Re-checked automatically at every startup."
                                 }
                             >
-                                <button
-                                    onClick={() => {
-                                        void handleEnableCli();
+                                <Toggle
+                                    checked={cliEnabled}
+                                    onChange={(checked) => {
+                                        void handleToggleCli(checked);
                                     }}
-                                    disabled={cliEnabling}
-                                    className={cn("ui-btn", cliEnabling && "pointer-events-none opacity-50")}
-                                >
-                                    {cliLinkPath ? "Re-run Setup" : "Enable CLI"}
-                                </button>
+                                />
                             </SettingRow>
+
+                            {cliEnabled && cliStatus && !cliStatus.installed && (
+                                <SettingRow
+                                    label="Symlink Missing"
+                                    description={`The symlink at ${cliStatus.linkPath} is gone — it can be recreated now, or automatically at the next app start.`}
+                                >
+                                    <button
+                                        onClick={() => {
+                                            void handleRepairCli();
+                                        }}
+                                        disabled={cliBusy}
+                                        className={cn("ui-btn", cliBusy && "pointer-events-none opacity-50")}
+                                    >
+                                        Repair now
+                                    </button>
+                                </SettingRow>
+                            )}
                         </Section>
                     )}
 

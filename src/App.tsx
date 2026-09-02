@@ -237,6 +237,20 @@ function App() {
 
         document.addEventListener("visibilitychange", handleVisibilityChange);
         return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }, []);
+
+    // CLI auto-heal: if the user enabled the Terminal CLI and the
+    // ~/.local/bin/theorem symlink went missing (e.g. a fresh AppImage mount),
+    // recreate it silently at startup. Linux desktop only.
+    useEffect(() => {
+        if (!isTauriDesktop() || !navigator.userAgent.includes("Linux")) return;
+        const { settings } = useSettingsStore.getState();
+        if (!settings.cli?.enabled) return;
+        void import("@tauri-apps/api/core").then(({ invoke }) =>
+            invoke("setup_linux_cli_symlink").catch(() => {
+                // Silent: the Settings page surfaces status when opened.
+            }),
+        );
     }, []); 
 
     useEffect(() => {
