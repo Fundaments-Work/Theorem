@@ -1,31 +1,28 @@
 # Native Rust Performance Roadmap
 
-**Status**: Partially implemented · remaining items are scoped below
+**Status**: One remaining item · closed items are listed at the bottom so
+they are not re-proposed without new evidence.
 
-## 1. EPUB CFI Locator (`epubcfi.rs`) — core implemented ✅
+## 1. EPUB CFI Locator (`epubcfi.rs`) — ✅ done
 
-`src-tauri/src/epubcfi.rs` is a Rust-native CFI parser/resolver (spine path,
-content steps, character offsets, ID assertions, range-to-start) with unit
-tests. Consumed by the CLI (`theorem read <book-id> --cfi "..."`).
+`src-tauri/src/epubcfi.rs` (parser/resolver + unit tests) is consumed by the
+CLI (`theorem read <book-id> --cfi "..."`). Closed.
 
-- [x] Parser + resolver + minimal XML tree walker (`epubcfi.rs`).
-- [ ] GUI selection-side generation: the reader still computes CFI ranges via
-      JS DOM traversal. Wiring selection -> `epubcfi.rs` requires streaming the
-      spine HTML the pre-parser already fetches into an index — measure whether
-      IPC overhead justifies it before building.
+## 2. PDF Background Worker Pre-Warming — the one remaining item
 
-## 2. PDF Background Worker Pre-Warming — not started
+`prewarmPdfJsRuntime` only warms the worker script; pages still render on
+demand. Implement offscreen rasterization of page N+1 (and N+2) in a Web
+Worker pool driven by scroll direction. Only worth doing if measured flip
+latency on large PDFs exceeds ~100ms — instrument first.
 
-- [ ] Offscreen rasterization of page N+1 (and N+2) while the reader is idle.
-      `prewarmPdfJsRuntime` only warms the worker script, not page frames.
-      Design: a Web Worker pool owning offscreen canvases, driven by the
-      PDF engine's scroll direction. Expected: 0ms flip latency.
+- [ ] Measure current page-flip latency on a large PDF (bench page in dev).
+- [ ] If warranted: worker pool with offscreen canvases, N+1/N+2 pre-render.
 
-## 3. Cover Image SQLite -> Disk Deduplication — measured, deferred
+## Closed (decided against — do not re-add without new evidence)
 
-Real-world measurement (234 covers): **14.3 MB** of `covers.data_url` in
-SQLite — far below the plan's 20-30 MB estimate. Moving covers to disk would
-break the sync invariant that `data:` cover paths propagate in sync payloads
-(covers must stay self-contained in SQLite for cross-device merges).
-**Recommendation: keep covers in SQLite.** Revisit only if cover-heavy
-libraries (>1000 books) show real bloat.
+- **Cover SQLite -> disk dedup**: measured 14.3 MB real data (plan claimed
+  20-30 MB); moving covers to disk breaks the sync invariant that `data:`
+  cover URLs propagate to peers. Keep covers in SQLite.
+- **GUI selection -> Rust CFI generation**: CFI is computed once per human
+  selection; JS DOM traversal is adequate. Rust-side generation gains nothing
+  user-perceivable.

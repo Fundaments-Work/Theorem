@@ -135,7 +135,7 @@ Settings → Devices & Export → Terminal CLI (Linux desktop):
 | OPDS catalogs | `opds` | browse/download/ingest |
 | Device sync | `sync` | pairing by code, sync rounds |
 | TTS / immersion audio | `open` (bridge) | platform TTS is desktop shell — GUI-only UX |
-| Vault markdown export | — | deferred: ~600 lines of TS markdown logic; low agent value |
+| Vault markdown export | — (GUI-only) | agents use `theorem export`; Rust duplication not warranted |
 | Statistics dashboards | `stats` | snapshot data |
 
 ## 9. Implementation Checklist
@@ -153,8 +153,8 @@ Settings → Devices & Export → Terminal CLI (Linux desktop):
 - [x] Interactive TUI (`theorem tui`).
 - [x] Settings toggle with persistence + startup auto-heal + AppImage-aware symlink.
 - [x] `--cfi` reading anchor (`epubcfi.rs` parser + `theorem read --cfi`).
-- [ ] Vault markdown export in Rust (deferred — duplication of TS logic not yet worth it).
-- [ ] HUFF/CDIC MOBI decompression (needs the `mobi` crate's Huffman decoder).
+- [ ] HUFF/CDIC MOBI decompression (PalmDOC works; Huffman-compressed MOBIs
+      need the `mobi` crate's decoder — at least one library book hits this).
 
 ## 10. Known limitations
 

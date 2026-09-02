@@ -1,31 +1,33 @@
-# Unbreakable, High-Performance P2P Sync — Status & Remaining Work
+# Unbreakable, High-Performance P2P Sync — Status
 
-**Date**: 2026-09-01 · Architectural pillars are described in git history
-(2026-09-01 revision) and implemented across `iroh_sync.rs`,
-`sync_commands.rs`, `theorem-sync-core`. This doc tracks what remains.
+**Date**: 2026-09-01 · The sync engine (iroh + iroh-docs + iroh-blobs +
+iroh-gossip) is implemented across `iroh_sync.rs`, `sync_commands.rs`, and
+`theorem-sync-core`. This doc records what was hardened and what was
+explicitly closed.
 
-## Implemented ✅
+## Hardened ✅
 
-- **IPC batching (Pillar 1, step 1)**: remote iroh-docs entries are deduped and
-  batched in `EntryBatcher` (300ms / 64 entries) and emitted as one
-  `docs-entry-batch` event; `sync-orchestrator.ts` consumes batches through the
-  same tombstone/LWW merge logic.
-- **Tombstone compaction (Pillar 4, partial)**: `src/core/lib/tombstone-pruner.ts`
-  prunes `deletionTombstones` older than 90 days from the library and RSS
-  stores at every app startup.
-- **Reconnection backoff (Pillar 5, partial)**: exponential backoff on the doc
-  event stream (`subscribe_doc_events`, caps at 30s) plus the pre-existing
-  auto-sync interval loop.
+- **IPC batching**: remote doc entries are deduped and batched in
+  `EntryBatcher` (300ms / 64 entries) and emitted as one `docs-entry-batch`
+  event; `sync-orchestrator.ts` consumes batches through the same
+  tombstone/LWW merge logic. This removed the per-entry IPC storm the
+  original plan targeted.
+- **Tombstone compaction**: `src/core/lib/tombstone-pruner.ts` prunes
+  tombstones older than 90 days from the library and RSS stores at startup.
+- **Reconnection backoff**: exponential backoff on the doc event stream
+  (caps at 30s) plus the auto-sync interval loop.
 
-## Remaining
+## Explicitly closed (do not re-add without new evidence)
 
-- [ ] **Phase 1 — Native SQLite ingestion**: apply incoming doc entries to
-      SQLite inside Rust and emit only changed IDs (`sync_batch_applied`).
-      Requires moving the merge functions (tombstones/LWW) into
-      `theorem-sync-core` and re-hydrating frontend stores from SQLite.
-- [ ] **Phase 2 — Resumable BLAKE3 byte-range transfers** in `file_transfer.rs`
-      (256KB verified blocks, resume from `<existing_len>`).
-- [ ] **Phase 3 — Hybrid Logical Clocks**: replace wall-clock ISO timestamps in
-      annotation/progress merge keys with HLC `(physical, counter, device_id)`.
-- [ ] **Pillar 3 — LAN fast-path racing**: verify iroh mDNS dial racing is
-      effective in practice; document expected LAN throughput.
+- **Native SQLite ingestion** (apply entries in Rust, emit changed IDs): the
+  batching above already removed the IPC bottleneck; JS merge of batched
+  entries is adequate at realistic library sizes. The re-architecture risk
+  outweighs the residual gain.
+- **Custom byte-range resume in `file_transfer.rs`**: iroh-blobs already
+  streams BLAKE3-verified chunks; a hand-rolled byte-range layer would
+  duplicate the protocol.
+- **Hybrid Logical Clocks**: consumer multi-device sync with NTP-corrected
+  clocks; LWW + tombstones already cover the realistic conflict space, and an
+  HLC migration would touch every sync payload format.
+- **LAN fast-path racing work**: iroh performs direct/relay transport racing
+  (with mDNS lookup) internally; nothing to implement.
