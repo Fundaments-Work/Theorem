@@ -67,17 +67,102 @@ theorem export json --output ~/backup/data.json # Full JSON reading snapshot
 
 ---
 
-## 4. Implementation Checklist
+## 4. Agent Contract (how scripts and AI agents use the CLI)
 
-- [x] Add CLI argument parser in `src-tauri/src/cli.rs` (multi-call dispatch from `src-tauri/src/main.rs` via `theorem_lib::cli::maybe_dispatch`; unknown args fall through to the GUI).
-- [x] Connect CLI commands directly to existing Rust backend modules:
-  - `stardict::lookup_all_installed` (new CLI fast-path over `stardict::lookup_term`) — `theorem dict`
-  - `book_search::search_epub_spine` — `theorem search <book-id> "query"`
-  - `database::sqlite_search_books_inner` (FTS5) — `theorem search "query"`
-  - `article_extractor::fetch_and_extract_article_native` — `theorem extract`
-  - `database::with_connection` — `theorem library list`, `theorem highlights list`
-  - EPUB spine text extraction via `epub_parser` inner helpers + OPF spine-order scan — `theorem read <book-id> [--chapter N]` (EPUB only; `--cfi` pending the epubcfi.rs roadmap item; MOBI read pending)
-- [x] Implement `setup_linux_cli_symlink` Tauri command (also available headless as `theorem setup-cli`).
-- [x] Add 1-click CLI enable toggle in Settings → Devices & Export ("Terminal CLI", Linux desktop only).
-- [ ] `theorem export vault` / `theorem export json` (Vault export subsystem — not yet wired).
-- [ ] `theorem library import` (batch ingestion needs a headless ingest entry point).
+- **One-shot commands only** — the interactive TUI is human sugar; every
+  capability is also a deterministic subcommand.
+- **`--json` (global)** — machine-readable output on stdout for every command,
+  including flag-first invocations (`theorem --json library list`).
+- **TTY detection** — ANSI colors auto-disable when stdout is piped; `--no-color`
+  forces it.
+- **Stable exit codes** — `0` ok, `1` runtime error, `2` usage error; failures
+  print `error: …` on stderr and nothing on stdout.
+- **Fail fast, never hang** — sync commands are timeout-bounded; nothing
+  prompts on stdin.
+
+## 5. Command Surface (implemented)
+
+```
+theorem search "query"                      # FTS5 library search
+theorem search <book-id> "query"            # in-book streaming search
+theorem read <book-id> [--chapter N]        # EPUB spine text / PalmDOC MOBI text
+theorem dict "term" [--online]              # StarDict + MDict (.mdx), optional Free Dictionary API
+theorem extract <url>                       # clean article text (readability)
+theorem library list|info|add|import|remove|favorite|export|edit-meta
+theorem shelf list|create|delete|add|remove
+theorem highlights list|add|delete          # tombstoned, GUI-consistent
+theorem bookmarks list
+theorem feeds list|add|remove|refresh       # RSS 2.0 / Atom, merges into the GUI store
+theorem opds browse|download                # OPDS 1.2; download ingests into the library
+theorem sync status|pair|unpair|now         # headless iroh pairing + sync rounds (timeout-bounded)
+theorem storage stats|cleanup
+theorem stats                               # reading streaks / goals snapshot
+theorem export [--out PATH]                 # full JSON snapshot
+theorem open <book-id>                      # bridge to the GUI (rendering, TTS, page-flip reading)
+theorem tui                                 # interactive terminal UI (see §6)
+theorem setup-cli | help | version
+```
+
+## 6. Interactive TUI (`theorem tui`)
+
+ratatui + crossterm (desktop-gated). Library table with fuzzy filter `/`,
+`enter` opens a read-only plain-text reader (EPUB spine chapters, PalmDOC
+MOBI) with `[`/`]` chapter navigation, `o` bridges to the GUI via
+`--open-book`. The ASCII THEOREM logo heads the app and `help` output.
+The TUI never writes reading progress.
+
+## 7. Settings integration
+
+Settings → Devices & Export → Terminal CLI (Linux desktop):
+- Persisted `cli.enabled` flag (settingsStore v11 migration).
+- Toggle ON/OFF installs/removes the `~/.local/bin/theorem` symlink via
+  `setup_linux_cli_symlink` / `remove_linux_cli_symlink`.
+- `cli_setup_status` surfaces live symlink validity + AppImage mode.
+- Startup auto-heal: when enabled and the symlink is missing (fresh
+  AppImage mount, new install), the GUI recreates it silently.
+
+## 8. Parity matrix
+
+| GUI capability | CLI | Notes |
+| :--- | :--- | :--- |
+| Library mgmt, ingest, metadata, export | `library`/`shelf` | full parity |
+| Search (library + in-book) | `search` | full parity |
+| Text reading (EPUB/MOBI) | `read`, `tui` | plain text; no pagination state |
+| PDF/CBZ rendering, page-flip UI | `open` (bridge) | webview-bound by nature |
+| Dictionaries | `dict` | StarDict + MDX + online |
+| Annotations / bookmarks | `highlights`/`bookmarks` | CRUD + tombstones |
+| RSS feeds | `feeds` | fetch/refresh/merge |
+| OPDS catalogs | `opds` | browse/download/ingest |
+| Device sync | `sync` | pairing by code, sync rounds |
+| TTS / immersion audio | `open` (bridge) | platform TTS is desktop shell — GUI-only UX |
+| Vault markdown export | — | deferred: ~600 lines of TS markdown logic; low agent value |
+| Statistics dashboards | `stats` | snapshot data |
+
+## 9. Implementation Checklist
+
+- [x] clap 4 derive parser (`maybe_dispatch` fall-through keeps GUI file-open paths working).
+- [x] THEOREM logo, TTY-aware colors, global `--json`, consistent exit codes.
+- [x] Library management incl. native parallel ingest (`batch_ingest`) and EPUB metadata rewrite.
+- [x] Shelves/collections on the GUI's `zustand:theorem-library` kv row with deletion tombstones.
+- [x] Highlights add/delete, bookmarks, RSS feeds, OPDS browse/download.
+- [x] Unified dictionary lookup: StarDict + MDict + `--online`.
+- [x] Headless sync (`init_sync` state in the CLI app context, iroh on demand).
+- [x] Storage stats/cleanup, reading stats, full JSON snapshot export.
+- [x] `theorem open` GUI bridge (`--open-book=` in startup args + single-instance callback).
+- [x] MOBI text extraction (`mobi_parser::extract_mobi_text`, PalmDOC; HUFF/CDIC rejected).
+- [x] Interactive TUI (`theorem tui`).
+- [x] Settings toggle with persistence + startup auto-heal + AppImage-aware symlink.
+- [ ] `--cfi` reading anchor (blocked on the `epubcfi.rs` roadmap item).
+- [ ] Vault markdown export in Rust (deferred — duplication of TS logic not yet worth it).
+- [ ] HUFF/CDIC MOBI decompression (needs the `mobi` crate's Huffman decoder).
+
+## 10. Known limitations
+
+- The headless app context initializes GTK (Tauri builds the event loop
+  eagerly), so CLI data commands need a desktop session — cron/SSH without a
+  display will abort with a GTK error. A path-based refactor of
+  `database::with_connection` + stardict/mobi paths would remove this.
+- CLI mutations of GUI store rows (books, feeds, collections) are picked up by
+  the GUI on its next launch; a running GUI instance owns its in-memory copy.
+- `book_metadata` SQL table only updates on metadata edits; the kv books array
+  is authoritative (library list uses it).
