@@ -202,6 +202,8 @@ enum Command {
     },
     /// Open a book in the Theorem GUI (bridge for rendering/TTS features)
     Open { book_id: String },
+    /// Interactive terminal UI: browse the library and read as text
+    Tui,
     /// Install or inspect the `theorem` symlink in ~/.local/bin
     SetupCli,
     /// Print version information
@@ -368,6 +370,7 @@ const SUBCOMMANDS: &[&str] = &[
     "stats",
     "export",
     "open",
+    "tui",
     "setup-cli",
     "help",
     "version",
@@ -441,6 +444,7 @@ fn run(command: Command, output: &Output) -> i32 {
             Command::Stats => run_stats(output, app),
             Command::Export { out } => run_export_snapshot(output, app, out),
             Command::Open { book_id } => run_open(output, app, &book_id),
+            Command::Tui => crate::cli_tui::run_tui(app),
             Command::SetupCli | Command::Version | Command::Sync { .. } => {
                 unreachable!("handled above")
             }
@@ -701,7 +705,10 @@ fn in_book_search(output: &Output, app: &tauri::AppHandle, book_id: &str, query:
     }
 }
 
-fn resolve_book_path(app: &tauri::AppHandle, book_id: &str) -> Result<Option<PathBuf>, String> {
+pub(crate) fn resolve_book_path(
+    app: &tauri::AppHandle,
+    book_id: &str,
+) -> Result<Option<PathBuf>, String> {
     crate::database::sqlite_get_materialized_book_path(app.clone(), book_id.to_string())
         .map(|opt| opt.map(PathBuf::from))
 }
@@ -715,12 +722,12 @@ fn resolve_book_path(app: &tauri::AppHandle, book_id: &str) -> Result<Option<Pat
 const LIBRARY_KV_KEY: &str = "zustand:theorem-library";
 const LIBRARY_KV_VERSION: u64 = 6;
 
-struct LibraryKv {
+pub(crate) struct LibraryKv {
     envelope: serde_json::Value,
 }
 
 impl LibraryKv {
-    fn load(app: &tauri::AppHandle) -> Result<Self, String> {
+    pub(crate) fn load(app: &tauri::AppHandle) -> Result<Self, String> {
         let raw = crate::database::sqlite_get_kv(app.clone(), LIBRARY_KV_KEY.to_string())?;
         let envelope = match raw {
             Some(text) => serde_json::from_str(&text)
@@ -747,7 +754,7 @@ impl LibraryKv {
             .or_insert_with(|| serde_json::json!({}))
     }
 
-    fn books(&mut self) -> &mut Vec<serde_json::Value> {
+    pub(crate) fn books(&mut self) -> &mut Vec<serde_json::Value> {
         self.state()
             .as_object_mut()
             .expect("library state is an object")
@@ -796,19 +803,19 @@ impl LibraryKv {
     }
 }
 
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-fn book_str<'a>(book: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+pub(crate) fn book_str<'a>(book: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     book.get(key).and_then(|v| v.as_str())
 }
 
-fn book_title(book: &serde_json::Value) -> String {
+pub(crate) fn book_title(book: &serde_json::Value) -> String {
     book_str(book, "title").unwrap_or("(untitled)").to_string()
 }
 
-fn book_author(book: &serde_json::Value) -> String {
+pub(crate) fn book_author(book: &serde_json::Value) -> String {
     book_str(book, "author").unwrap_or("").to_string()
 }
 
@@ -2726,7 +2733,7 @@ fn run_read(output: &Output, app: &tauri::AppHandle, book_id: &str, chapter: Opt
 /// Extract the plain text of an EPUB spine chapter in spine order.
 /// The materialized cache file has no extension, so the format is sniffed
 /// from the file magic instead.
-fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String, String> {
+pub(crate) fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String, String> {
     let mut magic = [0u8; 4];
     let mut file =
         std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
@@ -2776,6 +2783,18 @@ fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String, String> {
         .ok_or_else(|| format!("Missing chapter file: {section_path}"))?;
 
     Ok(crate::book_search::html_to_plain_text(&html))
+}
+
+/// Count EPUB spine chapters without loading their content.
+pub(crate) fn epub_chapter_count(path: &PathBuf) -> Result<usize, String> {
+    let file =
+        std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let opf_path = crate::epub_parser::read_rootfile_path_inner(&mut archive)
+        .ok_or("Missing OPF rootfile in META-INF/container.xml")?;
+    let opf = crate::epub_parser::read_zip_entry_inner(&mut archive, &opf_path)
+        .ok_or_else(|| format!("Missing OPF file: {opf_path}"))?;
+    Ok(parse_spine_order(&opf).len().max(1))
 }
 
 /// Minimal OPF scan: returns chapter hrefs in spine order.

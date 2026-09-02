@@ -3,6 +3,8 @@ pub mod batch_ingest;
 pub mod book_search;
 #[cfg(not(target_os = "android"))]
 pub mod cli;
+#[cfg(not(target_os = "android"))]
+pub mod cli_tui;
 mod database;
 mod epub_parser;
 mod epub_rewriter;
