@@ -558,8 +558,7 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             /* scrolled mode keeps real scrolling */
-            overflow-y: auto;
-            overflow-x: hidden;
+            overflow: auto;
             scrollbar-width: thin;
             scrollbar-color: color-mix(in srgb, currentColor 30%, transparent) transparent;
         }

@@ -757,7 +757,13 @@ export class FoliateEngine {
         }
         this.zoom_level = this.clampZoomLevel(currentSettings.zoom / 100, this.flow);
         
-        this.scheduleSettingsUpdate();
+        // Bust the CSS cache so applySettingsAsync always recomputes with new theme/zoom.
+        this._lastCssSettingsKey = '';
+        
+        // Apply sync layout changes first, then push new CSS to the iframe immediately
+        // without waiting for a RAF so theme changes are instant.
+        this.applySettingsSync();
+        this.applySettingsAsync().catch(() => undefined);
     }
 
     private extractMetadata(): DocMetadata {
@@ -2206,28 +2212,14 @@ export class FoliateEngine {
                         return;
                     }
 
+                    // NOTE: tap-to-toggle chrome is handled exclusively via the
+                    // foliate-tap postMessage from the injected selection script.
+                    // We must NOT call notifyViewportTap here — that would cause a
+                    // double-toggle (once from postMessage, once from this handler)
+                    // making a single tap appear to do nothing (show then immediately hide).
                     if (!isTap) {
                         return;
                     }
-
-                    window.setTimeout(() => {
-                        const shouldSuppressInteraction =
-                            Date.now() - lastSelectionCapturedAt < SELECTION_INTERACTION_SUPPRESS_MS;
-                        if (shouldSuppressInteraction) {
-                            return;
-                        }
-
-                        const selection = doc.getSelection();
-                        const hasSelection = Boolean(
-                            selection
-                            && !selection.isCollapsed
-                            && selection.toString().trim().length > 0,
-                        );
-                        if (hasSelection && !this.shouldForceViewportTap()) {
-                            return;
-                        }
-                        this.notifyViewportTap(event.target);
-                    }, SELECTION_CAPTURE_DELAY);
                 },
                 true,
             );
