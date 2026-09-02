@@ -86,6 +86,9 @@ unrar-ng = "0.7.7"
 # Desktop TTS shells (spd-say / say / powershell) need tokio process spawning.
 # Feature sets are additive per-target, so this only applies on desktop.
 tokio = { version = "1", features = ["process"] }
+# Headless CLI: argument parsing + interactive TUI. Desktop-only so the
+# Android APK keeps its 0 MB CLI footprint.
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "derive", "suggestions", "error-context"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"

@@ -1,6 +1,7 @@
 pub mod article_extractor;
 pub mod batch_ingest;
 pub mod book_search;
+#[cfg(not(target_os = "android"))]
 pub mod cli;
 mod database;
 mod epub_parser;
@@ -921,6 +922,79 @@ async fn open_book_in_new_window(
     }
 }
 
+// ── CLI symlink setup (Settings → Terminal CLI + `theorem setup-cli`) ────────
+
+/// Tauri command backing the "Enable CLI" toggle. Creates (or refreshes) a
+/// `theorem` symlink in `~/.local/bin` pointing at the running executable.
+#[tauri::command]
+fn setup_linux_cli_symlink() -> Result<String, String> {
+    setup_linux_cli_symlink_inner()
+}
+
+pub fn setup_linux_cli_symlink_inner() -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let exe = cli_symlink_target_exe()?;
+        let link = cli_symlink_path()?;
+
+        match std::fs::symlink_metadata(&link) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let _ = std::fs::remove_file(&link);
+            }
+            Ok(_) => {
+                let link_target = std::fs::canonicalize(&link).ok();
+                let exe_target = std::fs::canonicalize(&exe).ok();
+                if link_target.is_some() && link_target == exe_target {
+                    return Ok(link.display().to_string());
+                }
+                return Err(format!(
+                    "Refusing to overwrite existing file {} (not a Theorem symlink)",
+                    link.display()
+                ));
+            }
+            Err(_) => {}
+        }
+
+        if let Some(parent) = link.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+        }
+        std::os::unix::fs::symlink(&exe, &link).map_err(|e| {
+            format!(
+                "Failed to symlink {} -> {}: {e}",
+                link.display(),
+                exe.display()
+            )
+        })?;
+        Ok(link.display().to_string())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("CLI symlink setup is only supported on Linux".to_string())
+    }
+}
+
+/// AppImage note: `current_exe` inside an AppImage points into the temporary
+/// squashfs mount, which disappears on reboot — symlink the AppImage file
+/// itself (`$APPIMAGE`) when available so the link survives.
+fn cli_symlink_target_exe() -> Result<PathBuf, String> {
+    if let Ok(appimage) = std::env::var("APPIMAGE") {
+        if !appimage.is_empty() {
+            return Ok(PathBuf::from(appimage));
+        }
+    }
+    std::env::current_exe().map_err(|e| format!("Failed to resolve executable path: {e}"))
+}
+
+fn cli_symlink_path() -> Result<PathBuf, String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set")?;
+    Ok(PathBuf::from(home)
+        .join(".local")
+        .join("bin")
+        .join("theorem"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -1083,7 +1157,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            cli::setup_linux_cli_symlink,
+            setup_linux_cli_symlink,
             tts_speak,
             tts_stop,
             tts_pause,
