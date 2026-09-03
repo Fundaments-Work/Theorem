@@ -106,6 +106,18 @@ class ImmersionPlayer {
 
     init(callbacks: PlaybackCallbacks = {}) { this.callbacks = callbacks; }
 
+    /** Create the AudioContext and resume it synchronously. Must be called
+     *  directly from a user-gesture handler (click) — WebKit only allows
+     *  audio to start from a gesture call stack, and by the time synthesis
+     *  finishes the gesture is long gone. */
+    unlockAudio() {
+        if (!isTauri()) return;
+        const ctx = this.ensureAudioContext();
+        if (ctx.state === 'suspended') {
+            void ctx.resume().catch(() => { /* retried in startSource */ });
+        }
+    }
+
     async speak(text: string, opts: SpeakOptions = {}) {
         this._clearAll();
         if (!text.trim() || !isTauri()) return;
@@ -156,6 +168,14 @@ class ImmersionPlayer {
         const buffer = this.buffer;
         if (!ctx || !buffer) return;
         this.stopSource();
+        if (ctx.state === 'suspended') {
+            // Unlock was missed (no gesture reached unlockAudio) — retry, but
+            // a suspended context would play silence with a frozen clock.
+            void ctx.resume().catch(() => {});
+            if (import.meta.env.DEV) {
+                console.warn("[tts] AudioContext still suspended at playback start");
+            }
+        }
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(ctx.destination);
