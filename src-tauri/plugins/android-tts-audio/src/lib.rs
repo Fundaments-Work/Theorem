@@ -95,3 +95,58 @@ pub fn tts_get_voices<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<serde_json::
 pub fn tts_get_voices<R: Runtime>(_app: &AppHandle<R>) -> Result<Vec<serde_json::Value>, String> {
     Ok(Vec::new())
 }
+
+#[cfg(target_os = "android")]
+pub fn tts_get_engines<R: Runtime>(app: &AppHandle<R>) -> Result<serde_json::Value, String> {
+    let state = get_audio_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin("getEngines", serde_json::json!({}))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn tts_get_engines<R: Runtime>(_app: &AppHandle<R>) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "enginesJson": "[]", "currentEngine": "" }))
+}
+
+#[cfg(target_os = "android")]
+pub fn tts_set_engine<R: Runtime>(app: &AppHandle<R>, engine: String) -> Result<serde_json::Value, String> {
+    let state = get_audio_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin("setEngine", serde_json::json!({ "engine": engine }))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn tts_set_engine<R: Runtime>(_app: &AppHandle<R>, _engine: String) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "engine": "" }))
+}
+
+#[cfg(target_os = "android")]
+pub fn tts_synthesize_to_file<R: Runtime>(
+    app: &AppHandle<R>,
+    text: String,
+    voice: String,
+    file_name: String,
+) -> Result<serde_json::Value, String> {
+    let state = get_audio_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin(
+            "synthesizeToFile",
+            serde_json::json!({ "text": text, "voice": voice, "fileName": file_name }),
+        )
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn tts_synthesize_to_file<R: Runtime>(
+    _app: &AppHandle<R>,
+    _text: String,
+    _voice: String,
+    _file_name: String,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({ "done": false }))
+}

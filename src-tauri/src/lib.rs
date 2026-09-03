@@ -875,6 +875,29 @@ fn tts_resume(_app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
+fn tts_get_engines(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    tauri_plugin_android_tts_audio::tts_get_engines(&app)
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
+fn tts_set_engine(app: tauri::AppHandle, engine: String) -> Result<serde_json::Value, String> {
+    tauri_plugin_android_tts_audio::tts_set_engine(&app, engine)
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
+async fn tts_synthesize_to_file(
+    app: tauri::AppHandle,
+    text: String,
+    voice: String,
+    file_name: String,
+) -> Result<serde_json::Value, String> {
+    tauri_plugin_android_tts_audio::tts_synthesize_to_file(&app, text, voice, file_name)
+}
+
+#[tauri::command]
 #[allow(unused_variables, unreachable_code)]
 fn tts_get_voices(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     #[cfg(target_os = "android")]
@@ -1244,6 +1267,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             setup_linux_cli_symlink,
+            tts_get_engines,
+            tts_set_engine,
+            tts_synthesize_to_file,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,
