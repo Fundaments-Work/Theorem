@@ -36,6 +36,7 @@ pub mod engine {
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     pub struct GenChapter {
         pub id: String,
         pub title: String,
@@ -44,6 +45,7 @@ pub mod engine {
     }
 
     #[derive(Serialize, Clone)]
+    #[serde(rename_all = "camelCase")]
     pub struct GenDonePayload {
         pub book_id: String,
         pub path: Option<String>,

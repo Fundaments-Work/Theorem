@@ -60,6 +60,7 @@ export interface UseDocumentReaderReturn {
     getSelection: () => { text: string; cfi: string } | null;
     clearSelection: () => void;
     getVisibleTextForTts: () => { text: string; startWordId: string } | null;
+    getAllSectionsForAudio: () => Promise<{ id: string; title: string; text: string }[]>;
     getNextPageTextForTts: () => { text: string; startWordId: string } | null;
 
     search: (query: string) => AsyncGenerator<SearchResult | { progress: number } | 'done'>;
@@ -365,6 +366,10 @@ export function useDocumentReader(options: UseDocumentReaderOptions = {}): UseDo
         return engineRef.current?.getVisibleTextForTts() || null;
     }, []);
 
+    const getAllSectionsForAudio = useCallback(async () => {
+        return engineRef.current?.getAllSectionsForAudio() || [];
+    }, []);
+
     const getNextPageTextForTts = useCallback(() => {
         return engineRef.current?.getNextPageTextForTts() || null;
     }, []);
@@ -466,6 +471,7 @@ export function useDocumentReader(options: UseDocumentReaderOptions = {}): UseDo
         getSelection,
         clearSelection,
         getVisibleTextForTts,
+        getAllSectionsForAudio,
         getNextPageTextForTts,
         search,
         clearSearch,
@@ -506,6 +512,7 @@ export function useDocumentReader(options: UseDocumentReaderOptions = {}): UseDo
         getSelection,
         clearSelection,
         getVisibleTextForTts,
+        getAllSectionsForAudio,
         getNextPageTextForTts,
         search,
         clearSearch,

@@ -28,6 +28,7 @@ import {
 } from "../../core/store";
 import { vocabularyTermFromLookup } from "../../core/services/DictionaryService";
 import type { DictionaryLookupResult } from "../../core/services/DictionaryService";
+import type { AudioChapter } from "../../core/types";
 import type {
     Annotation,
     Book,
@@ -60,7 +61,8 @@ import type { PDFJsEngineRef } from "./engines/pdfjs-engine";
 import type { ReaderViewportHandle } from "./components/ReaderViewport";
 import { PDFFloatingToolbar } from "./components/PDFFloatingToolbar";
 import { registerShortcuts } from "../../core/lib/keyboard-shortcuts";
-import { immersionPlayer, getNeuralStatus } from "./audio/ImmersionPlayer";
+import { immersionPlayer, getNeuralStatus, resolveNeuralVoice } from "./audio/ImmersionPlayer";
+import { toast } from "sonner";
 import { AudiobookBar } from "./audio/AudiobookBar";
 import { SpeedReader } from "./components/SpeedReader";
 
@@ -1097,6 +1099,66 @@ const BookReaderPage = memo(function BookReaderPage() {
         setTtsState('idle');
         setRoute("settings");
     }, [setRoute]);
+
+    const [audioGenProgress, setAudioGenProgress] = useState<{ current: number; total: number } | null>(null);
+
+    const handleGenerateAudiobook = useCallback(async () => {
+        if (!currentBookId || audioGenProgress) return;
+        const sections = await readerRef.current?.getAllSectionsForAudio?.();
+        if (!sections || sections.length === 0) {
+            toast.error("No extractable text to narrate");
+            return;
+        }
+        setAudioGenProgress({ current: 0, total: sections.length });
+        const { listen } = await import("@tauri-apps/api/event");
+        const { invoke } = await import("@tauri-apps/api/core");
+        const unlistenProgress = await listen<{ current: number; total: number }>(
+            "audiobook-gen-progress",
+            (e) => setAudioGenProgress(e.payload),
+        );
+        const unlistenDone = await listen<{
+            bookId: string;
+            path: string | null;
+            durationSec: number;
+            chapters: AudioChapter[];
+            error: string | null;
+        }>("audiobook-gen-done", (e) => {
+            unlistenProgress();
+            unlistenDone();
+            setAudioGenProgress(null);
+            if (e.payload.error) {
+                if (e.payload.error !== "cancelled") {
+                    toast.error(`Audiobook generation failed: ${e.payload.error}`);
+                }
+                return;
+            }
+            if (e.payload.path && e.payload.bookId === currentBookId) {
+                useLibraryStore.getState().attachAudiobook(e.payload.bookId, {
+                    filePath: e.payload.path,
+                    format: "opus",
+                    durationSec: e.payload.durationSec,
+                    currentPositionSec: 0,
+                    playbackSpeed: 1,
+                    chapters: e.payload.chapters,
+                });
+                toast.success("Audiobook ready — open immersion mode to listen");
+            }
+        });
+        try {
+            await invoke("generate_audiobook", {
+                bookId: currentBookId,
+                sections,
+                voice: resolveNeuralVoice(settings.tts.voice),
+                speed: settings.tts.speed,
+                lang: ttsSpeakOptions().lang,
+            });
+        } catch (err) {
+            unlistenProgress();
+            unlistenDone();
+            setAudioGenProgress(null);
+            toast.error(`Audiobook generation failed: ${err}`);
+        }
+    }, [currentBookId, audioGenProgress, settings.tts.voice, settings.tts.speed, ttsSpeakOptions]);
 
     useEffect(() => {
         immersionPlayer.init({
@@ -2485,6 +2547,8 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onTtsVoiceChange={handleTtsVoiceChange}
                         onTtsSpeedChange={handleTtsSpeedChange}
                         onOpenNeuralSettings={handleOpenNeuralSettings}
+                        onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
+                        audioGenProgress={audioGenProgress}
                         className={cn(
                             "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-300 backdrop-blur-xl",
                             immersionMode

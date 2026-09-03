@@ -1683,6 +1683,29 @@ export class FoliateEngine {
         return sectionCache;
     }
 
+    /** Full text of every section, for Save-as-Audiobook generation. */
+    public async getAllSectionsForAudio(): Promise<{ id: string; title: string; text: string }[]> {
+        const sections = this.book.sections || [];
+        if (sections.length === 0) return [];
+        const out: { id: string; title: string; text: string }[] = [];
+        for (let i = 0; i < sections.length; i++) {
+            const section = sections[i];
+            try {
+                const doc = await section.createDocument?.();
+                const text = (doc?.body?.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!text) continue;
+                out.push({
+                    id: `section-${i}`,
+                    title: section.title || section.label || `Section ${i + 1}`,
+                    text,
+                });
+            } catch {
+                // Skip unreadable sections; narration continues with the rest.
+            }
+        }
+        return out;
+    }
+
     private createSectionFallbackSearchText(section: any, sectionIndex: number): string {
         const sectionPositionLabel = this.isFixedLayoutFormat
             ? `Page ${sectionIndex + 1}`

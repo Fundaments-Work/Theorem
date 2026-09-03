@@ -40,6 +40,7 @@ export interface ReaderViewportHandle {
     getSectionFractions: () => number[];
     
     getVisibleTextForTts: () => { text: string; startWordId: string } | null;
+    getAllSectionsForAudio: () => Promise<{ id: string; title: string; text: string }[]>;
     getNextPageTextForTts: () => { text: string; startWordId: string } | null;
 }
 
@@ -139,6 +140,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         clearSelection,
         getSelection,
         getVisibleTextForTts,
+        getAllSectionsForAudio,
         getNextPageTextForTts,
     } = useDocumentReader({
         onReady,
@@ -176,9 +178,10 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         loadAnnotations: (annotations: Annotation[]) => loadAnnotations(annotations),
         clearSelection: () => clearSelection(),
         getVisibleTextForTts: () => getVisibleTextForTts(),
+        getAllSectionsForAudio: () => getAllSectionsForAudio(),
         getNextPageTextForTts: () => getNextPageTextForTts(),
         getSectionFractions: () => getEngine()?.getSectionFractions() ?? [],
-    }), [next, prev, goToFraction, goTo, goBack, goForward, canGoBack, canGoForward, search, clearSearch, addHighlight, addAnnotation, removeHighlight, loadAnnotations, clearSelection, getVisibleTextForTts, getNextPageTextForTts, getEngine]);
+    }), [next, prev, goToFraction, goTo, goBack, goForward, canGoBack, canGoForward, search, clearSearch, addHighlight, addAnnotation, removeHighlight, loadAnnotations, clearSelection, getVisibleTextForTts, getAllSectionsForAudio, getNextPageTextForTts, getEngine]);
 
     const onHistoryChangeRef = useRef(onHistoryChange);
     onHistoryChangeRef.current = onHistoryChange;

@@ -1,6 +1,6 @@
 
 import { useCallback, useMemo, useState, useRef, memo } from "react";
-import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal } from "lucide-react";
+import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal, Disc3 } from "lucide-react";
 import { cn } from "../../../../core/lib/utils";
 import { Spinner } from "../../../../ui";
 import type { TocItem, DocLocation } from "../../../../core/types";
@@ -28,6 +28,9 @@ interface ReaderNavbarProps {
     onTtsVoiceChange?: (voice: string) => void;
     onTtsSpeedChange?: (speed: number) => void;
     onOpenNeuralSettings?: () => void;
+    /** Present when the neural engine can narrate and no audiobook is attached. */
+    onGenerateAudiobook?: () => void;
+    audioGenProgress?: { current: number; total: number } | null;
 }
 
 const AVERAGE_WPM = 225;
@@ -82,6 +85,8 @@ export const ReaderNavbar = memo(function ReaderNavbar({
     onTtsVoiceChange,
     onTtsSpeedChange,
     onOpenNeuralSettings,
+    onGenerateAudiobook,
+    audioGenProgress,
 }: ReaderNavbarProps) {
     const [isDragging, setIsDragging] = useState(false);
     const [hoverFraction, setHoverFraction] = useState<number | null>(null);
@@ -322,6 +327,20 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             {ttsState === 'playing' ? 'Reading aloud' : ttsState === 'paused' ? 'Paused' : ttsState === 'loading' ? 'Loading...' : 'Immersion Reading'}
                         </span>
                         <div className="flex items-center gap-1 ml-auto shrink-0">
+                            {audioGenProgress ? (
+                                <span className="text-[10px] font-mono text-[var(--color-text-muted)] shrink-0">
+                                    Generating {audioGenProgress.current}/{audioGenProgress.total}
+                                </span>
+                            ) : onGenerateAudiobook && (
+                                <button
+                                    onClick={onGenerateAudiobook}
+                                    className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] hover:text-[color:var(--color-accent)] active:scale-90 transition-colors"
+                                    title="Save narration as an audiobook (Ogg Opus)"
+                                    aria-label="Generate audiobook"
+                                >
+                                    <Disc3 className="w-3 h-3" />
+                                </button>
+                            )}
                             {showNeuralInstall && onOpenNeuralSettings && (
                                 <button
                                     onClick={onOpenNeuralSettings}

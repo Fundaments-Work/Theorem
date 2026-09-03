@@ -108,7 +108,7 @@ export type BookAudioTrackFormat = BookAudioTrack["format"];
 export interface BookAudioTrack {
     /** Local path to the .m4b/.m4a/.mp3 file */
     filePath: string;
-    format: "m4b" | "mp3" | "aac" | "m4a";
+    format: "m4b" | "mp3" | "aac" | "m4a" | "opus";
     durationSec: number;
     currentPositionSec: number;
     playbackSpeed: number;
