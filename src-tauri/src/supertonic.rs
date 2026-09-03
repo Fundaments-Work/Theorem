@@ -15,117 +15,60 @@
 #[cfg(not(target_os = "android"))]
 pub mod desktop {
     use ndarray::{Array2, Array3};
-    use ort::session::{builder::GraphOptimizationLevel, Session};
+    use ort::session::Session;
     use ort::value::Value;
     use serde::Serialize;
     use sha2::{Digest, Sha256};
-    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
     use unicode_normalization::UnicodeNormalization;
 
     pub const SAMPLE_RATE: f32 = 44_100.0;
-    /// Latent chunking parameter from the reference implementation.
-    const DEFAULT_CHUNK_SIZE: u32 = 108;
-
-    pub struct SupertonicConfig {
-        pub sample_rate: u32,
-        pub t_chunk: u32,
-        pub latent_mask_pad: u32,
-        pub latent_shape: Vec<u32>,
-    }
-
-    impl Default for TtlConfig {
-        fn default() -> Self {
-            TtlConfig {
-                sample_rate: default_sample_rate(),
-                t_chunk: default_t_chunk(),
-                latent_mask_pad: 0,
-                latent_shape: default_latent_shape(),
-            }
-        }
-    }
-
+    /// Subset of tts.json required by the pipeline (reference: py/helper.py).
     #[derive(serde::Deserialize)]
-    struct TtlConfig {
+    struct TtsConfig {
+        #[serde(default)]
+        ttl: TtlSection,
+        #[serde(default)]
+        ae: AeSection,
+    }
+
+    #[derive(serde::Deserialize, Default)]
+    struct TtlSection {
+        #[serde(default = "default_latent_dim")]
+        latent_dim: u32,
+        #[serde(default = "default_chunk_compress_factor")]
+        chunk_compress_factor: u32,
+    }
+
+    fn default_latent_dim() -> u32 {
+        24
+    }
+    fn default_chunk_compress_factor() -> u32 {
+        6
+    }
+
+    #[derive(serde::Deserialize, Default)]
+    struct AeSection {
         #[serde(default = "default_sample_rate")]
         sample_rate: u32,
-        #[serde(default = "default_t_chunk")]
-        t_chunk: u32,
-        #[serde(default)]
-        latent_mask_pad: u32,
-        #[serde(default = "default_latent_shape")]
-        latent_shape: Vec<u32>,
+        #[serde(default = "default_base_chunk_size")]
+        base_chunk_size: u32,
     }
 
     fn default_sample_rate() -> u32 {
         44_100
     }
-    fn default_t_chunk() -> u32 {
-        DEFAULT_CHUNK_SIZE
-    }
-    fn default_latent_shape() -> Vec<u32> {
-        vec![1, 1, 20, 216]
+    fn default_base_chunk_size() -> u32 {
+        512
     }
 
-    impl From<&TtlConfig> for SupertonicConfig {
-        fn from(cfg: &TtlConfig) -> Self {
-            SupertonicConfig {
-                sample_rate: cfg.sample_rate,
-                t_chunk: cfg.t_chunk,
-                latent_mask_pad: cfg.latent_mask_pad,
-                latent_shape: cfg.latent_shape.clone(),
-            }
-        }
-    }
-
+    /// Codepoint → token id table: unicode_indexer.json is a bare JSON list
+    /// of 65536 entries indexed by unicode codepoint.
     #[derive(serde::Deserialize)]
-    struct AeConfig {
-        #[serde(default = "default_encode_rate")]
-        semantic_encode_rate: f32,
-    }
-
-    impl Default for AeConfig {
-        fn default() -> Self {
-            AeConfig {
-                semantic_encode_rate: default_encode_rate(),
-            }
-        }
-    }
-
-    fn default_encode_rate() -> f32 {
-        0.25
-    }
-
-    #[derive(serde::Deserialize)]
-    struct TtsConfig {
-        #[serde(default)]
-        ttl: TtlConfig,
-        #[serde(default)]
-        ae: AeConfig,
-    }
-
-    #[derive(serde::Deserialize)]
+    #[serde(transparent)]
     struct UnicodeIndexer {
-        #[serde(default)]
-        values: HashMap<String, i32>,
-        #[serde(default = "default_start_id")]
-        start_id: i32,
-        #[serde(default = "default_end_id")]
-        end_id: i32,
-        #[serde(default = "default_pad_id")]
-        #[allow(dead_code)] // present in tts.json; kept for schema completeness
-        pad_id: i32,
-    }
-
-    fn default_start_id() -> i32 {
-        2
-    }
-    fn default_end_id() -> i32 {
-        1
-    }
-    fn default_pad_id() -> i32 {
-        0
+        table: Vec<i32>,
     }
 
     pub struct TextToSpeech {
@@ -133,8 +76,7 @@ pub mod desktop {
         text_encoder: Session,
         vector_estimator: Session,
         vocoder: Session,
-        cfg: SupertonicConfig,
-        ae_config: AeConfig,
+        config: TtsConfig,
         unicode_indexer: UnicodeIndexer,
         pub sample_rate: u32,
     }
@@ -146,40 +88,65 @@ pub mod desktop {
     }
 
     fn preprocess_text(text: &str, lang: &str) -> String {
-        let mut processed = text.nfkd().to_string();
-        // Drop emojis/symbols outside basic scripts (reference behavior).
-        processed = processed
-            .chars()
-            .filter(|c| !is_non_speech_symbol(*c))
-            .collect();
-        let replacements: &[(&str, &str)] = &[
-            ("—", " - "),
-            ("–", " - "),
-            ("“", "\""),
-            ("”", "\""),
-            ("‘", "'"),
-            ("’", "'"),
-            ("«", "\""),
-            ("»", "\""),
-            ("(", " ("),
-            (")", ") "),
-            ("[", " ["),
-            ("]", "] "),
+        // Reference: UnicodeProcessor._preprocess_text (py/helper.py).
+        let mut processed: String = text.nfkd().collect();
+        processed = processed.chars().filter(|c| !is_emoji(*c)).collect();
+
+        const REPLACEMENTS: &[(&str, &str)] = &[
+            ("–", "-"),
+            ("‑", "-"),
+            ("—", "-"),
+            ("_", " "),
+            ("\u{201C}", "\""),
+            ("\u{201D}", "\""),
+            ("\u{2018}", "'"),
+            ("\u{2019}", "'"),
+            ("´", "'"),
+            ("`", "'"),
+            ("[", " "),
+            ("]", " "),
+            ("|", " "),
+            ("/", " "),
+            ("#", " "),
+            ("→", " "),
+            ("←", " "),
         ];
-        for (from, to) in replacements {
+        for (from, to) in REPLACEMENTS {
             processed = processed.replace(from, to);
         }
-        // Common symbol expansions.
-        let expansions: &[(&str, &str)] = &[
+        processed = processed.replace(['♥', '☆', '♡', '©', '\\'], "");
+
+        const EXPRESSIONS: &[(&str, &str)] = &[
             ("@", " at "),
-            ("&", " and "),
-            ("%", " percent "),
-            ("+", " plus "),
-            ("=", " equals "),
+            ("e.g.,", "for example, "),
+            ("i.e.,", "that is, "),
         ];
-        for (from, to) in expansions {
+        for (from, to) in EXPRESSIONS {
             processed = processed.replace(from, to);
         }
+
+        // Spacing around punctuation.
+        for (from, to) in [
+            (" ,", ","),
+            (" .", "."),
+            (" !", "!"),
+            (" ?", "?"),
+            (" ;", ";"),
+            (" :", ":"),
+            (" '", "'"),
+        ] {
+            processed = processed.replace(from, to);
+        }
+        while processed.contains("\"\"") {
+            processed = processed.replace("\"\"", "\"");
+        }
+        while processed.contains("''") {
+            processed = processed.replace("''", "'");
+        }
+        while processed.contains("``") {
+            processed = processed.replace("``", "`");
+        }
+
         // Collapse whitespace runs.
         let mut cleaned = String::with_capacity(processed.len());
         let mut last_ws = false;
@@ -195,42 +162,58 @@ pub mod desktop {
             }
         }
         let mut cleaned = cleaned.trim().to_string();
-        if !cleaned.ends_with(['.', '!', '?']) {
+        const END_PUNCT: &str = ".!?;:,'\")]}…。」』】〉》›»";
+        if !cleaned
+            .chars()
+            .last()
+            .map(|c| END_PUNCT.contains(c))
+            .unwrap_or(false)
+        {
             cleaned.push('.');
         }
         format!("<{lang}>{cleaned}</{lang}>")
     }
 
-    fn is_non_speech_symbol(c: char) -> bool {
+    /// Ranges removed by the reference emoji regex.
+    fn is_emoji(c: char) -> bool {
         matches!(c,
-            '\u{1F000}'..='\u{1FAFF}'   // emoji & pictographs
-            | '\u{2600}'..='\u{27BF}'   // misc symbols/dingbats
-            | '\u{FE00}'..='\u{FE0F}'   // variation selectors
-            | '\u{200D}'                // ZWJ
+            '\u{1F300}'..='\u{1F5FF}'
+            | '\u{1F600}'..='\u{1F64F}'
+            | '\u{1F680}'..='\u{1F6FF}'
+            | '\u{1F700}'..='\u{1F77F}'
+            | '\u{1F780}'..='\u{1F7FF}'
+            | '\u{1F800}'..='\u{1F8FF}'
+            | '\u{1F900}'..='\u{1F9FF}'
+            | '\u{1FA00}'..='\u{1FA6F}'
+            | '\u{1FA70}'..='\u{1FAFF}'
+            | '\u{2600}'..='\u{26FF}'
+            | '\u{2700}'..='\u{27BF}'
+            | '\u{1F1E6}'..='\u{1F1FF}'
         )
     }
 
     impl TextToSpeech {
-        fn tokenize(&self, text: &str) -> (Array2<i64>, Array2<f32>, usize) {
-            let mut ids: Vec<i64> = Vec::with_capacity(text.len() + 2);
-            ids.push(self.unicode_indexer.start_id as i64);
+        /// Reference: UnicodeProcessor.__call__ — ids are codepoint-indexed,
+        /// no BOS/EOS; mask is (B, 1, T).
+        fn tokenize(&self, text: &str) -> (Array2<i64>, Array3<f32>, usize) {
+            let mut ids: Vec<i64> = Vec::with_capacity(text.len());
             for ch in text.chars() {
-                let id = self
-                    .unicode_indexer
-                    .values
-                    .get(&ch.to_string())
-                    .copied()
-                    .unwrap_or(-1);
+                let cp = ch as usize;
+                let id = if cp < self.unicode_indexer.table.len() {
+                    self.unicode_indexer.table[cp]
+                } else {
+                    -1
+                };
                 ids.push(id as i64);
             }
-            ids.push(self.unicode_indexer.end_id as i64);
-            let len = ids.len();
+            let len = ids.len().max(1);
             let ids = Array2::from_shape_vec((1, len), ids).expect("ids shape");
-            let mask = Array2::from_elem((1, len), 1.0f32);
+            let mask = Array3::from_elem((1, 1, len), 1.0f32);
             (ids, mask, len)
         }
 
         /// Synthesize one chunk (≤ ~300 chars) to f32 PCM.
+        /// Reference: TextToSpeech._infer (py/helper.py).
         fn infer_chunk(
             &mut self,
             chunk: &str,
@@ -238,11 +221,12 @@ pub mod desktop {
             style: &Style,
             total_step: usize,
             speed: f32,
-        ) -> Result<(Vec<f32>, f32), String> {
+        ) -> Result<Vec<f32>, String> {
             let processed = preprocess_text(chunk, lang);
-            let (text_ids, text_mask, text_len) = self.tokenize(&processed);
+            let (text_ids, text_mask, _text_len) = self.tokenize(&processed);
 
-            // 1. Duration prediction
+            // 1. Duration prediction — the model outputs total seconds;
+            //    speed DIVIDES (higher speed = shorter audio).
             let dp_out = self
                 .dp
                 .run(ort::inputs![
@@ -251,14 +235,14 @@ pub mod desktop {
                     "text_mask" => Value::from_array(text_mask.clone()).map_err(|e| e.to_string())?
                 ])
                 .map_err(|e| format!("duration predictor failed: {e}"))?;
-            let duration: Array2<f32> = dp_out["duration"]
+            // Model output shape is (batch,) — 1-D.
+            let duration: ndarray::Array1<f32> = dp_out["duration"]
                 .try_extract_array::<f32>()
                 .map_err(|e| e.to_string())?
-                .into_dimensionality::<ndarray::Ix2>()
+                .into_dimensionality::<ndarray::Ix1>()
                 .map_err(|e| e.to_string())?
                 .to_owned();
-            let duration = duration * speed;
-            let duration_total: f32 = duration.sum();
+            let duration_total = duration[0] / speed;
 
             // 2. Text embedding
             let te_out = self
@@ -276,31 +260,23 @@ pub mod desktop {
                 .map_err(|e| e.to_string())?
                 .to_owned();
 
-            // 3. Build latent mask from total duration
-            let latent_len = ((duration_total
-                * self.ae_config.semantic_encode_rate
-                * self.cfg.sample_rate as f32
-                / (self.cfg.t_chunk as f32 * self.cfg.sample_rate as f32
-                    / self.cfg.latent_shape[3] as f32))
-                .ceil() as usize)
-                .max(text_len);
-            let mut latent_mask = Array2::<f32>::zeros((1, latent_len));
-            for i in 0..text_len.min(latent_len) {
-                latent_mask[[0, i]] = 1.0;
-            }
+            // 3. Noisy latent + latent mask (reference sample_noisy_latent):
+            //    latent length = ceil(wav_len / (base_chunk * ttl_compress)),
+            //    latent channels = latent_dim * ttl_compress.
+            let wav_len = duration_total * self.sample_rate as f32;
+            let chunk_size =
+                (self.config.ae.base_chunk_size * self.config.ttl.chunk_compress_factor) as f32;
+            let latent_len = ((wav_len + chunk_size - 1.0) / chunk_size).ceil().max(1.0) as usize;
+            let latent_mask = Array3::from_elem((1, 1, latent_len), 1.0f32);
+            let latent_dim_total =
+                (self.config.ttl.latent_dim * self.config.ttl.chunk_compress_factor) as usize;
+            let mut current_latent = sample_noisy_latent(latent_dim_total, latent_len);
+            current_latent *= &latent_mask;
 
-            // 4. Iterative denoising (vector estimator)
-            let mut current_latent = sample_noisy_latent(
-                duration_total,
-                self.cfg.sample_rate,
-                self.ae_config.semantic_encode_rate,
-                &self.cfg.latent_shape,
-                &latent_mask,
-            );
-
+            // 4. Iterative denoising (vector estimator); steps are (B,) f32.
             for step in 0..total_step {
-                let current_step = Array2::from_elem((1, 1), step as f32);
-                let total_step_arr = Array2::from_elem((1, 1), total_step as f32);
+                let current_step = ndarray::Array1::from_vec(vec![step as f32]);
+                let total_step_arr = ndarray::Array1::from_vec(vec![total_step as f32]);
                 let ve_out = self
                     .vector_estimator
                     .run(ort::inputs![
@@ -321,7 +297,7 @@ pub mod desktop {
                     .to_owned();
             }
 
-            // 5. Vocoder
+            // 5. Vocoder → (1, T) waveform, trimmed to the predicted duration.
             let voc_out = self
                 .vocoder
                 .run(ort::inputs![
@@ -335,10 +311,10 @@ pub mod desktop {
                 .map_err(|e| e.to_string())?
                 .to_owned();
 
-            let actual_len = (duration_total * self.cfg.sample_rate as f32) as usize;
             let mut samples: Vec<f32> = wav.iter().copied().collect();
-            samples.truncate(actual_len.min(samples.len()));
-            Ok((samples, duration_total))
+            let trim_len = (duration_total * self.sample_rate as f32) as usize;
+            samples.truncate(trim_len.min(samples.len()));
+            Ok(samples)
         }
 
         /// Synthesize arbitrary text: chunks long input and joins with silence.
@@ -357,9 +333,9 @@ pub mod desktop {
             };
             let chunks = chunk_text(text, max_chars);
             let mut out: Vec<f32> = Vec::new();
-            let silence_len = (0.3 * self.cfg.sample_rate as f32) as usize;
+            let silence_len = (0.3 * self.sample_rate as f32) as usize;
             for (index, chunk) in chunks.iter().enumerate() {
-                let (mut samples, _) = self.infer_chunk(chunk, lang, style, total_step, speed)?;
+                let mut samples = self.infer_chunk(chunk, lang, style, total_step, speed)?;
                 if index + 1 < chunks.len() {
                     samples.extend(std::iter::repeat_n(0.0f32, silence_len));
                 }
@@ -369,37 +345,16 @@ pub mod desktop {
         }
     }
 
-    fn sample_noisy_latent(
-        duration_total: f32,
-        sample_rate: u32,
-        encode_rate: f32,
-        latent_shape: &[u32],
-        latent_mask: &Array2<f32>,
-    ) -> Array3<f32> {
+    /// Standard-normal latent noise (reference uses np.random.randn).
+    fn sample_noisy_latent(dim: usize, len: usize) -> Array3<f32> {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-
-        let t_len = ((duration_total * encode_rate * sample_rate as f32
-            / (latent_shape[3] as f32 * sample_rate as f32 / latent_shape[2] as f32))
-            .ceil() as usize)
-            .max(latent_mask.len());
-
-        let dim0 = latent_shape[0] as usize;
-        let dim1 = latent_shape[1] as usize;
-        let mut latent = Array3::<f32>::zeros((dim0, dim1, t_len.max(1)));
+        let mut latent = Array3::<f32>::zeros((1, dim, len.max(1)));
         for v in latent.iter_mut() {
-            *v = rng.gen_range(-1.0..=1.0);
-        }
-        // Zero out everything beyond the masked region.
-        let masked_len = latent_mask.iter().filter(|v| **v > 0.0).count();
-        if masked_len < t_len {
-            for b in 0..dim0 {
-                for c in 0..dim1 {
-                    for t in masked_len..t_len {
-                        latent[[b, c, t]] = 0.0;
-                    }
-                }
-            }
+            // Box–Muller over two uniforms.
+            let u1: f32 = rng.gen_range(0.0..1.0f32).max(f32::MIN_POSITIVE);
+            let u2: f32 = rng.gen_range(0.0..1.0f32);
+            *v = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
         }
         latent
     }
@@ -589,11 +544,22 @@ pub mod desktop {
     /// Initialize (or reinitialize) the engine: registers the downloaded ORT
     /// library and loads the four sessions. Cheap after the first call.
     pub fn ensure_engine(app: &tauri::AppHandle) -> Result<(), String> {
-        let lib_path = ort_dir(app).join(runtime_lib_name());
+        let mut slot = engine_slot().lock().map_err(|e| e.to_string())?;
+        if slot.is_some() {
+            return Ok(());
+        }
+        let engine = load_engine_at(&crate::tts_model::tts_dir(app))?;
+        *slot = Some(engine);
+        Ok(())
+    }
+
+    /// Load the engine from a tts base dir (`runtime/`, `models/`, `voices/`).
+    pub fn load_engine_at(base: &Path) -> Result<TextToSpeech, String> {
+        let lib_path = base.join("runtime").join(runtime_lib_name());
         if !lib_path.exists() {
             return Err("ONNX Runtime library is not downloaded yet".to_string());
         }
-        let models = models_dir(app);
+        let models = base.join("models");
         for required in [
             "duration_predictor.onnx",
             "text_encoder.onnx",
@@ -607,11 +573,6 @@ pub mod desktop {
             }
         }
 
-        let mut slot = engine_slot().lock().map_err(|e| e.to_string())?;
-        if slot.is_some() {
-            return Ok(());
-        }
-
         // `commit()` returns bool (panics/logs internally on failure).
         if !ort::init_from(&lib_path)
             .map_err(|e| format!("Failed to load ONNX Runtime from {lib_path:?}: {e:?}"))?
@@ -621,9 +582,10 @@ pub mod desktop {
         }
 
         let load_session = |name: &str| -> Result<Session, String> {
+            // Note: no explicit graph-optimization level — the default is
+            // ORT_ENABLE_ALL, and some ort enum values are rejected by the
+            // downloaded runtime ("graph_optimization_level is not valid").
             Session::builder()
-                .map_err(|e| e.to_string())?
-                .with_optimization_level(GraphOptimizationLevel::Level3)
                 .map_err(|e| e.to_string())?
                 .with_intra_threads(4)
                 .map_err(|e| e.to_string())?
@@ -640,21 +602,16 @@ pub mod desktop {
         let unicode_indexer: UnicodeIndexer = serde_json::from_str(&indexer_text)
             .map_err(|e| format!("Invalid unicode_indexer.json: {e}"))?;
 
-        let ttl = SupertonicConfig::from(&tts_config.ttl);
-        let sample_rate = ttl.sample_rate;
-
-        let engine = TextToSpeech {
+        let sample_rate = tts_config.ae.sample_rate;
+        Ok(TextToSpeech {
             dp: load_session("duration_predictor.onnx")?,
             text_encoder: load_session("text_encoder.onnx")?,
             vector_estimator: load_session("vector_estimator.onnx")?,
             vocoder: load_session("vocoder.onnx")?,
-            cfg: ttl,
-            ae_config: tts_config.ae,
+            config: tts_config,
             unicode_indexer,
             sample_rate,
-        };
-        *slot = Some(engine);
-        Ok(())
+        })
     }
 
     pub fn cache_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -811,6 +768,50 @@ pub mod desktop {
             "engineLoaded": loaded,
             "available": runtime && models,
         }))
+    }
+
+    /// Real-inference smoke test against the downloaded models. Run
+    /// explicitly: `cargo test --lib supertonic -- --ignored --nocapture`
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        #[ignore]
+        fn real_synthesis_produces_speech() {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let base = std::env::var("THEOREM_TTS_DIR")
+                .unwrap_or_else(|_| format!("{home}/.local/share/work.fundamentals.theorem/tts"));
+            let base = Path::new(&base);
+            let mut engine = load_engine_at(base).expect("engine load");
+            let style = load_style(&base.join("voices"), "F1").expect("style");
+
+            let samples = engine
+                .synthesize(
+                    "Hello world, this is a test of the neural voice engine.",
+                    "en",
+                    &style,
+                    8,
+                    1.0,
+                )
+                .expect("synthesis");
+
+            let sec = samples.len() as f32 / engine.sample_rate as f32;
+            assert!(sec > 1.0, "output too short: {sec:.2}s");
+            let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
+            assert!(rms > 0.01, "output is silence (rms={rms})");
+            write_wav(
+                Path::new("/tmp/supertonic-test.wav"),
+                &samples,
+                engine.sample_rate,
+            )
+            .expect("write wav");
+            println!("synthesized {sec:.2}s of audio, rms={rms:.4} → /tmp/supertonic-test.wav");
+            // Leak the engine: ORT sessions must outlive the runtime teardown
+            // when the dylib was loaded at runtime (the app keeps it in a
+            // static slot that never drops).
+            std::mem::forget(engine);
+        }
     }
 }
 
