@@ -18,6 +18,7 @@ pub mod stardict;
 mod sync_commands;
 #[cfg(target_os = "linux")]
 mod tts_linux;
+pub mod tts_model;
 
 use reqwest::blocking::Client;
 use serde::Serialize;
@@ -1270,6 +1271,9 @@ pub fn run() {
             tts_get_engines,
             tts_set_engine,
             tts_synthesize_to_file,
+            tts_model::tts_model_status,
+            tts_model::tts_model_download_asset,
+            tts_model::tts_model_remove,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,
