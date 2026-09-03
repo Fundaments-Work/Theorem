@@ -61,6 +61,7 @@ import type { ReaderViewportHandle } from "./components/ReaderViewport";
 import { PDFFloatingToolbar } from "./components/PDFFloatingToolbar";
 import { registerShortcuts } from "../../core/lib/keyboard-shortcuts";
 import { immersionPlayer, getNeuralStatus } from "./audio/ImmersionPlayer";
+import { AudiobookBar } from "./audio/AudiobookBar";
 import { SpeedReader } from "./components/SpeedReader";
 
 const MOBILE_READER_MEDIA_QUERY = '(max-width: 768px)';
@@ -287,6 +288,14 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     // Get current book format
     const currentBook = currentBookId ? getBook(currentBookId) : null;
+    const audioTrack = currentBook?.audioTrack;
+    // Pause platform/neural narration while the human-narrated player is active.
+    useEffect(() => {
+        if (immersionMode && audioTrack) {
+            immersionPlayer.stop();
+        }
+    }, [immersionMode, audioTrack]);
+
     const isPdfFormat = currentBook?.format === 'pdf';
 
     const effectiveReaderSettings = useMemo<ReaderSettingsState>(() => {
@@ -2464,7 +2473,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onSeek={handleSeek}
                         totalPages={location?.pageInfo?.totalPages}
                         onToggleToc={() => togglePanel('toc')}
-                        immersionMode={immersionMode}
+                        immersionMode={immersionMode && !audioTrack}
                         ttsState={ttsState}
                         onTtsPlay={handleTtsPlay}
                         onTtsPause={handleTtsPause}
@@ -2483,6 +2492,17 @@ const BookReaderPage = memo(function BookReaderPage() {
                                 : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
                         )}
                     />
+
+                    {immersionMode && audioTrack && (
+                        <AudiobookBar
+                            bookId={currentBook.id}
+                            bookTitle={currentBook.title}
+                            bookAuthor={currentBook.author}
+                            audioTrack={audioTrack}
+                            visible={shouldShowReaderChrome}
+                            onClose={() => setImmersionMode(false)}
+                        />
+                    )}
                 </>
             )}
 

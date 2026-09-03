@@ -18,6 +18,7 @@ import { isTauri } from "../lib/env";
 import type {
     Annotation,
     Book,
+    BookAudioTrack,
     Collection,
     DeletionTombstone,
     HighlightColor,
@@ -492,6 +493,9 @@ interface LibraryStore {
     updatePdfReadingState: (bookId: string, state: PdfViewState) => void;
     toggleFavorite: (bookId: string) => void;
     updateBookMetadata: (bookId: string, metadata: Partial<Book>) => void;
+    attachAudiobook: (bookId: string, track: BookAudioTrack) => void;
+    updateAudiobookProgress: (bookId: string, updates: Partial<Pick<BookAudioTrack, "currentPositionSec" | "playbackSpeed" | "lastListenedAt">>) => void;
+    removeAudiobook: (bookId: string) => void;
     saveBookLocations: (bookId: string, locations: string) => void;
 
     addReadingTime: (bookId: string, minutes: number) => void;
@@ -862,6 +866,52 @@ export const useLibraryStore = create<LibraryStore>()(
                     sqliteIndexBookFts(bookId, updatedBook.title, updatedBook.author).catch(e => console.error("[catch]", e));
                 }
 
+                const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
+                set({ books, recentBooksCache: newCache });
+                scheduleMutationSync();
+            },
+
+            attachAudiobook: (bookId, track) => {
+                const state = get();
+                const { books, updatedBook } = updateBookById(state.books, bookId, (book) => ({
+                    ...book,
+                    audioTrack: track,
+                }));
+                if (!updatedBook) {
+                    if (books !== state.books) set({ books });
+                    return;
+                }
+                const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
+                set({ books, recentBooksCache: newCache });
+                scheduleMutationSync();
+            },
+
+            updateAudiobookProgress: (bookId, updates) => {
+                const state = get();
+                const { books, updatedBook } = updateBookById(state.books, bookId, (book) =>
+                    book.audioTrack
+                        ? { ...book, audioTrack: { ...book.audioTrack, ...updates } }
+                        : book,
+                );
+                if (!updatedBook) {
+                    if (books !== state.books) set({ books });
+                    return;
+                }
+                const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
+                set({ books, recentBooksCache: newCache });
+                scheduleMutationSync();
+            },
+
+            removeAudiobook: (bookId) => {
+                const state = get();
+                const { books, updatedBook } = updateBookById(state.books, bookId, (book) => ({
+                    ...book,
+                    audioTrack: undefined,
+                }));
+                if (!updatedBook) {
+                    if (books !== state.books) set({ books });
+                    return;
+                }
                 const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
                 set({ books, recentBooksCache: newCache });
                 scheduleMutationSync();

@@ -87,10 +87,33 @@ export interface Book {
     completedAt?: Date; 
     
     syncedWithoutFile?: boolean;
-    
+
     blobHash?: string;
-    
+
     coverBlobHash?: string;
+
+    /** Companion human-narrated audiobook (attachable to any book). */
+    audioTrack?: BookAudioTrack;
+}
+
+export interface AudioChapter {
+    id: string;
+    title: string;
+    startSec: number;
+    endSec: number;
+}
+
+export type BookAudioTrackFormat = BookAudioTrack["format"];
+
+export interface BookAudioTrack {
+    /** Local path to the .m4b/.m4a/.mp3 file */
+    filePath: string;
+    format: "m4b" | "mp3" | "aac" | "m4a";
+    durationSec: number;
+    currentPositionSec: number;
+    playbackSpeed: number;
+    chapters: AudioChapter[];
+    lastListenedAt?: string;
 }
 
 export interface ReadingProgress {
