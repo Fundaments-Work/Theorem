@@ -117,7 +117,7 @@ fn model_assets() -> Vec<TtsAsset> {
             "9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f",
         ),
         TtsAsset::new(
-            "LICENSE-Supertonic",
+            "LICENSE",
             "LICENSE-Supertonic",
             15007,
             "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f",
@@ -266,7 +266,11 @@ pub async fn tts_model_download_asset(
         .map_err(|e| format!("Download failed: {e}"))?;
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("Server returned HTTP {}", status.as_u16()));
+        return Err(format!(
+            "Server returned HTTP {} for {}",
+            status.as_u16(),
+            asset.remote
+        ));
     }
 
     let total_size = response.content_length().unwrap_or(asset.size_bytes);
