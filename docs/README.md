@@ -30,7 +30,8 @@ pnpm dev:tauri    # desktop (full experience)
 | [vault-sync.md](vault-sync.md) | Markdown export to Obsidian/Logseq |
 | [settings.md](settings.md) | App configuration, storage management |
 | [statistics.md](statistics.md) | Reading stats and goals |
-| [tts.md](tts.md) | Text-to-speech (immersion reading) |
+| [tts.md](tts.md) | Text-to-speech: platform voices + Supertonic neural voice (immersion reading) |
+| [audiobook.md](audiobook.md) | Companion audiobooks: attach .m4b/.mp3, in-reader player, Save-as-Audiobook |
 | [persistence.md](persistence.md) | SQLite schema, Zustand stores, data lifecycle |
 
 ## Reference & Strategy

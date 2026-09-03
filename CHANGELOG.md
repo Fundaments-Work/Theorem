@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Neural Voice (Supertonic 3, desktop)** — Full offline fp32 neural TTS. The fp32 ONNX models, voice styles, and the ONNX Runtime dylib (~400MB) are downloaded on first use from the `supertonic-assets` GitHub releases with SHA-256 verification — nothing ships in the app. Rust inference via `ort` (`load-dynamic`) with sentence-aware chunking, a 1GB content-hash WAV cache, and next-chunk prefetch. Ten voices (F1–M5), 31 languages, speed control. Playback runs through Web Audio with real pause/resume/seek. Managed in Settings → General → Neural Voice.
+- **Companion Audiobooks** — Attach a DRM-free `.m4b`/`.m4a`/`.mp3` to any book from its context menu; the reader's immersion mode upgrades into a human-narrated player (scrubber over the real duration, ±15s skips, speed chips, chapter menu, sleep timer, lock-screen media controls, synced playback position). Chapters, duration and cover are parsed natively in Rust (including a QuickTime chapter-track walker for M4B).
+- **Save as Audiobook (desktop)** — Generate a complete audiobook from an open book with the neural voice: one click narrates every section and encodes a single Ogg Opus file (~16MB/hour at 36kbps mono) with chapter marks, then attaches it to the book. Background task with progress and cancel.
+- **Headless CLI & TUI** — `theorem <command>` gives agents and terminals full app parity: library, shelves, search, read, dict, extract, annotations, bookmarks, RSS, OPDS, sync, storage, stats, export, and open. JSON output (`--json`) for scripting, TTY-aware colored output with the THEOREM logo, and an interactive ratatui TUI (`theorem tui`). Enable/disable from Settings → General with startup auto-heal.
+- **Android TTS engine selection** — Enumerate and switch system TTS engines from Settings (fixing silent engine-switch failures), with real word-boundary events for the immersion reader and `synthesizeToFile` support. Neural narration on Android uses the installable Theorem Neural Voice companion engine app.
+
+### Improved
+
+- **P2P sync** — Remote doc entries are batched into single IPC events for faster sync; deletion tombstones older than 90 days are pruned at startup.
+- **Android footprint** — Panic=abort, `opt-level=z`, cmap pruning, and locale filtering reduce APK size.
+- **Reader immersion player** — Replaced the estimated completion timer with real audio playback (`AudioContext`) when the neural voice is installed; Android pause/resume now resumes from the engine's actual word position.
+
 ## [1.3.0] - 2026-08-30
 
 ### Added

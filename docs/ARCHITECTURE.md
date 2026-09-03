@@ -174,7 +174,7 @@ Reader.tsx orchestrates:
   ├─ Book loading (detect format → choose engine)
   ├─ Annotation sync (store ↔ engine ↔ panel)
   ├─ Search (engine-native or PDF.js)
-  ├─ TTS/immersion reading (ImmersionPlayer)
+  ├─ Narration (ImmersionPlayer: neural/platform TTS · AudiobookBar: companion audio)
   └─ Navigation state (pagination, position tracking)
 
 Non-PDF path:

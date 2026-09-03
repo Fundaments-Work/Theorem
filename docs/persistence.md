@@ -76,6 +76,7 @@ The persist adapter wraps Tauri's SQLite KV store for desktop, and `localStorage
 | Data | Storage | Why |
 |------|---------|-----|
 | Book metadata (title, author, progress) | Zustand `libraryStore` | Needs reactivity for library UI |
+| Companion audiobook (`audioTrack`: file path, position, speed, chapters) | Zustand `libraryStore` (optional `Book` field) | Synced with the book record; generated audiobooks live at `app_data_dir()/audiobooks/<id>.ogg` |
 | Book binary | SQLite `books` + filesystem cache | Binary, not reactive |
 | Book cover (as data URL) | SQLite `covers` | Binary-ish, not reactive |
 | Foliate locations | SQLite `blob_store` | Too large for Zustand |

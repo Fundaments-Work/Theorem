@@ -1,8 +1,14 @@
 # Text-to-Speech (Immersion Reading)
 
-## Why Platform-Specific Backends
+Theorem has two narration paths: **platform TTS** (always available, zero
+download) and the **Neural Voice** engine (Supertonic 3, fp32, downloaded on
+demand on desktop). A third path — attached human-narrated audiobooks — is
+covered in [audiobook.md](audiobook.md).
 
-TTS requires native OS speech synthesis. There is no cross-platform Rust library that provides consistent quality across Linux, macOS, Windows, and Android. Each platform has its own system:
+## Platform-Specific Backends (fallback path)
+
+Platform TTS requires native OS speech synthesis; there is no cross-platform
+Rust library with consistent quality. Each platform has its own backend:
 
 | Platform | Backend | Why |
 |----------|---------|-----|
@@ -11,29 +17,64 @@ TTS requires native OS speech synthesis. There is no cross-platform Rust library
 | Windows | PowerShell `System.Speech` | .NET speech synthesis |
 | Android | Native TTS plugin | Android's TextToSpeech API |
 
-## How It Works
+Backend wiring: `tts_speak` / `tts_stop` in `src-tauri/src/lib.rs` dispatch to
+the platform implementation (`src-tauri/src/tts_linux.rs` on Linux, the
+`tauri-plugin-android-tts-audio` plugin on Android). Desktop OS voices report
+no completion signal, so completion falls back to a duration estimate; Android
+reports real completion.
 
-**Frontend** (`ImmersionPlayer.ts`):
-- Manages playback state (playing, paused, stopped)
-- Tracks the current word position for visual highlighting
-- Sends the current sentence/chunk to the Rust backend via `invoke('tts_speak', { text, voice })`
+**Android engine selection**: the plugin supports `tts_get_engines` /
+`tts_set_engine` (re-initializes `TextToSpeech` with the chosen engine
+package and persists the choice). Settings → General → Text-to-Speech Engine
+lists installed engines and recommends **Theorem Neural Voice**, the
+companion TTS engine app used for neural narration on Android. Android also
+reports real word boundaries (`UtteranceProgressListener.onRangeStart`,
+API 26+) forwarded as `tts-utterance-range` events, and supports
+`tts_synthesize_to_file` for offline audio export.
 
-**Backend** (Rust):
-- `tts_speak` invokes the platform-specific command/API
-- `tts_stop` kills the speech process or calls the platform stop API
-- `tts_pause` and `tts_resume` are macOS-only concepts — on other platforms, pause is stop (resume restarts from the last synced position)
+## Neural Voice (Supertonic 3, desktop)
 
-**Immersion Reading UI** (`ImmersionBar.tsx`, lazy loaded):
-- Shows the current sentence with the active word highlighted
-- Speed control slider
-- Play/pause/stop controls
-- Voice selector (from `tts_get_voices`)
+A full offline neural TTS engine using the Supertonic 3 multilingual model
+(31 languages, one shared model). **Nothing ships in the app** — the fp32
+ONNX models, voice style files, and the ONNX Runtime dylib are downloaded at
+first use (~400MB total) from the `fundaments-work/supertonic-assets` GitHub
+releases and verified against a SHA-256 manifest compiled into the app.
 
-## Word Tracking
+- **Download layer** (`src-tauri/src/tts_model.rs`): streaming downloads to
+  `.part` files, SHA-256 verification (pinned per asset), throttled
+  `tts-download-progress` events, status/remove commands. Storage:
+  `app_data_dir()/tts/{runtime,models,voices}`.
+- **Inference** (`src-tauri/src/supertonic.rs`): the `ort` crate with
+  `load-dynamic` runs the pipeline — preprocess (NFKD, symbol expansion,
+  `<lang>` wrap) → unicode indexing → duration predictor → text encoder →
+  8-step vector-estimator denoising → vocoder → 44.1kHz mono PCM.
+  Sentence-aware chunking (<300 chars) with abbreviation-aware splitting and
+  0.3s silence joins.
+- **Cache + prefetch**: synthesized audio is cached as WAV keyed by
+  SHA-256(text + voice + speed) with a 1GB LRU cap — replays are instant and
+  `tts_prefetch` warms the next chunk while the current one plays.
+- **Voices**: F1–F5 / M1–M5 (per-voice style files, 292KB each). Selected
+  from the reader playback bar; speed chips (0.75–1.5×) re-synthesize.
 
-The frontend splits text into sentences, sends them one at a time, and estimates word timing based on the configured speed. The currently spoken word is highlighted in the reader viewport by:
-1. Maintaining a word offset within the current sentence
-2. Calculating approximate timing from the configured WPM (words per minute)
-3. Sending word position updates to the foliate iframe for visual synchronization
+Settings → General → Neural Voice shows install status, downloads all
+missing assets with per-file progress, and removes the install (including
+cache).
 
-This is approximate — exact word-level timing would require audio waveform analysis on each platform. The approximation works well enough for immersion reading (following along visually while listening).
+## Immersion Player
+
+`src/features/reader/audio/ImmersionPlayer.ts` chooses the path per
+utterance: desktop neural (when installed) → real audio; otherwise platform
+TTS.
+
+- **Neural**: `tts_synthesize` produces a cached WAV which is played through
+  an `AudioContext` `AudioBufferSourceNode` — pause, resume, and seek are
+  real audio operations with progress reported from the buffer position
+  (no estimated timers).
+- **Platform**: `tts_speak` as before; Android completion arrives via the
+  `tts-utterance-done` event and pause resumes from the last real word
+  boundary.
+- **UI**: the reader bottom navbar swaps to the immersion row (state,
+  play/pause/stop, voice & speed popover when neural is installed, and a
+  neural-install shortcut when it is not). Toggling immersion mode on a book
+  with an attached audiobook opens the audiobook player instead
+  ([audiobook.md](audiobook.md)).

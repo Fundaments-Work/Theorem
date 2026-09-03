@@ -17,7 +17,7 @@ The `AppSettings` type is also used as the Zod schema (`AppSettingsSchema`) for 
 
 ## Settings Page Tabs
 
-The Settings page (`Settings.tsx`, 1221 lines) has 5 tabs:
+The Settings page (`Settings.tsx`) has 6 tabs:
 
 ### General
 - Theme: Light, Dark, System
@@ -26,6 +26,10 @@ The Settings page (`Settings.tsx`, 1221 lines) has 5 tabs:
 - Reading goals: Daily minutes, yearly books
 - Library: View mode default, sort order
 - Sidebar: Collapsed by default
+- Text-to-Speech toggle
+- Neural Voice (desktop): Supertonic install status, one-click download of the ~400MB model/runtime/voice bundle with per-file progress, installed size/path, removal — see [tts.md](tts.md)
+- Text-to-Speech Engine (Android): pick the engine Theorem narrates through; recommends the Theorem Neural Voice companion app
+- CLI Setup: enable/disable the headless `theorem` CLI with auto-heal — see [plans/2026-09-01-headless-cli-architecture.md](plans/2026-09-01-headless-cli-architecture.md)
 
 ### Dictionary
 - Installed StarDict dictionaries

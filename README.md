@@ -85,7 +85,7 @@ EPUB, MOBI, AZW, AZW3, FB2, CBZ, CBR, PDF, TXT, and RSS articles. Native Rust pr
 Browse curated storefronts and search over 75,000+ public domain classics from Project Gutenberg and Standard Ebooks with 1-click EPUB downloads. Connect custom OPDS 1.2 feeds from your personal Calibre, Kavita, or Komga server. Clean, deterministic clothbound covers for books without bundled artwork.
 
 ### Reading Customization
-Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-serif, monospace). Font size (12–36), line height (1.0–2.5), margins (0–35%). Letter spacing, word spacing, paragraph spacing. Text alignment, hyphenation toggle. Page animation styles (slide, fade, instant). Page layout (single, double, auto). Reading flow (paged, scroll, auto). Brightness slider. Zoom for fixed-layout formats. Full-screen mode. Auto-hide toolbar with configurable delay. Prefetch distance, animations toggle, virtual scrolling. Per-word highlighting during TTS immersion reading.
+Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-serif, monospace). Font size (12–36), line height (1.0–2.5), margins (0–35%). Letter spacing, word spacing, paragraph spacing. Text alignment, hyphenation toggle. Page animation styles (slide, fade, instant). Page layout (single, double, auto). Reading flow (paged, scroll, auto). Brightness slider. Zoom for fixed-layout formats. Full-screen mode. Auto-hide toolbar with configurable delay. Prefetch distance, animations toggle, virtual scrolling.
 
 ### Highlights & Annotations
 Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Notes on any highlight. Bookmarks. Overlayer drawing styles: highlight, underline, strikethrough, squiggly, outline. Annotation panel with quick navigation, editing, and deletion. Works across all formats including PDF and RSS articles.
@@ -100,8 +100,8 @@ Freehand drawing with configurable stroke width. Text notes placed anywhere on t
 ### Highlight Sharing
 Generate polished share-card images from any highlight. Multiple formats: Square (1080×1080) and Story (1080×1920). Multiple visual themes: match, dark, tinted, sepia. Download as PNG, copy to clipboard, native share via Web Share API, share to X (Twitter). Android: saves to MediaStore gallery.
 
-### Text-to-Speech (Immersion Reading)
-Uses your platform's native TTS engine — no external models or cloud APIs. Android: Android TextToSpeech. Linux: speech-dispatcher (spd-say). macOS: `say`. Windows: PowerShell System.Speech. Per-word highlighting synchronized with audio. Voice selection depends on system-installed voices.
+### Text-to-Speech & Neural Voice (Immersion Reading)
+Platform-native TTS with zero setup — Android TextToSpeech, Linux speech-dispatcher (spd-say), macOS `say`, Windows PowerShell System.Speech — plus an optional offline **neural voice** (Supertonic 3, fp32) on desktop: ~400MB of ONNX models downloaded on demand and SHA-256-verified (nothing ships in the app), 10 voices, 31 languages, with cached synthesis and next-chunk prefetch for a continuous audiobook feel. On Android, neural narration comes from the installable Theorem Neural Voice companion TTS engine. Attach a human-narrated `.m4b`/`.mp3` to any book to upgrade immersion mode into a full audiobook player (chapters, speed, sleep timer, lock-screen controls), or generate an audiobook from an open book in one click (Ogg Opus, desktop).
 
 ### Vocabulary Builder & Native StarDict Engine
 Look up words while reading with instant sub-millisecond definitions. Native memory-mapped (`memmap2`) StarDict engine queries 800,000+ word dictionaries in **< 1ms** directly from disk with DictZip auto-inflation and part-of-speech structuring. Download English Wiktionary with 1-click from settings or import custom `.ifo`/`.idx`/`.dict.dz` files. Online API fallback with audio pronunciations. Dedicated vocabulary capture and review workspace.
@@ -156,7 +156,7 @@ Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.
 | Mobile | Tauri 2 Android |
 | PDF | PDF.js 6 |
 | Ebook | Foliate.js (vendored) |
-| TTS | Platform native (Android TTS, spd-say, say, System.Speech) |
+| TTS | Platform native (Android TTS, spd-say, say, System.Speech) + optional Supertonic 3 neural voice on desktop (ONNX via ort, downloaded on demand) |
 | Dictionary | StarDict |
 | RSS | Mozilla Readability |
 | Archive | zip.js, unrar-ng (Rust, bundled C source) |
@@ -189,7 +189,7 @@ Yes. Local-first reading, annotation, and Markdown export without a paid subscri
 
 **Is there device sync?** — Yes. Encrypted LAN pairing between Theorem installs, no cloud relay.
 
-**Does TTS work offline?** — Yes. It uses your system's built-in TTS engine. No downloads needed.
+**Does TTS work offline?** — Yes. Platform TTS uses your system's built-in engine with no downloads. The optional desktop neural voice is also fully offline after its one-time model download. Audiobook playback and Save-as-Audiobook (desktop) are offline too.
 
 **What formats are supported?** — EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, TXT, and RSS feeds.
 

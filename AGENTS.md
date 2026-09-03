@@ -67,14 +67,10 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 **Sync**: P2P via iroh stack (iroh + iroh-docs + iroh-blobs + iroh-gossip). 18 Tauri commands in `sync_commands.rs`. Iroh is always compiled (no feature gate). See `docs/PERFORMANCE_SYNC_AUDIT.md`.
 
-**TTS (Immersion Reading)**: Platform-native TTS — no external models or cloud APIs. Four backends:
-- **Android**: Custom `tauri-plugin-android-tts-audio` using Android's `TextToSpeech` engine
-- **Linux**: `spd-say` via speech-dispatcher (`src-tauri/src/tts_linux.rs`)
-- **macOS**: `say` shell command
-- **Windows**: PowerShell `System.Speech` API
-- **Frontend**: `src/features/reader/audio/ImmersionPlayer.ts` orchestrates audio, voice selection, per-word highlighting via Web Audio API
-- **UI**: `src/features/reader/audio/ImmersionBar.tsx`
-- Voice availability depends on the user's system TTS configuration
+**TTS (Immersion Reading)**: two narration paths, orchestrated by `src/features/reader/audio/ImmersionPlayer.ts` (UI lives in the reader navbar's immersion row — there is no separate ImmersionBar component):
+- **Platform TTS (fallback, always available)**: Android `TextToSpeech` (custom `tauri-plugin-android-tts-audio`), Linux `spd-say` (`src-tauri/src/tts_linux.rs`), macOS `say`, Windows PowerShell `System.Speech`. Android supports engine selection (`tts_get_engines`/`tts_set_engine`), real word boundaries (`tts-utterance-range` events), and `tts_synthesize_to_file`.
+- **Neural Voice (desktop)**: Supertonic 3 fp32 ONNX pipeline — `src-tauri/src/tts_model.rs` (on-demand download of models/runtime/voices from `fundaments-work/supertonic-assets` releases with SHA-256 verification; nothing ships in the app) + `src-tauri/src/supertonic.rs` (ort `load-dynamic`, sentence chunking, 1GB WAV cache keyed by SHA-256(text+voice+speed), `tts_synthesize`/`tts_prefetch`/`tts_neural_status`). Playback via `AudioContext` — real pause/resume/seek, no estimated timers. Settings → General → Neural Voice manages the install; on Android neural narration requires the Theorem Neural Voice companion TTS engine app (Settings picks it via engine selection).
+- Docs: `docs/tts.md`.
 
 **Notifications**: Reading goal + sync completion notifications active:
 - Rust: `tauri-plugin-notification` registered in `lib.rs:851`; `sqlite_check_goal_reminder` reads daily stats from `kv_store`
@@ -101,7 +97,9 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 ## Tauri backend
 
-85 commands across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion and SIMD cover extraction), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), and `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
+**Companion Audiobooks**: attach human-narrated audio to any book. `src-tauri/src/audiobook.rs` (`extract_audiobook_metadata`) parses `.m4b/.m4a/.mp3` duration, tags, cover and chapters (M4B chapters via a hand-rolled QuickTime chapter-track walker — no crate exposes them). Optional `Book.audioTrack` (`BookAudioTrack` in types) lives in the library store and syncs; attach/detach via the library context menu. Playback: `src/features/reader/audio/AudiobookBar.tsx` (HTMLAudioElement via asset protocol, chapters, speed, sleep timer, mediaSession, position auto-save). Generation: `src-tauri/src/audiobook_gen.rs` (`generate_audiobook`, desktop only) narrates EPUB sections through Supertonic and encodes one Ogg Opus per book (36kbps mono, hand-rolled Ogg muxer + `audiopus`/libopus static) with chapter marks, then attaches it as the book's `audioTrack` (format `opus`). Docs: `docs/audiobook.md`.
+
+104 commands across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion and SIMD cover extraction), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
 
 ## Persistence
 

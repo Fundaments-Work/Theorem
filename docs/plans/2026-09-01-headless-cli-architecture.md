@@ -1,14 +1,14 @@
 # Technical Design: Theorem Headless CLI & Local-First Universal Knowledge Base
 
 **Date**: 2026-09-01  
-**Status**: Proposal / Architecture Plan  
+**Status**: ✅ Implemented — `src-tauri/src/cli.rs` + `cli_tui.rs` (see commit history; Settings → General → CLI Setup)  
 **Area**: Headless CLI / Linux Tooling / AI Agent Integration / Vault Export  
 
 ---
 
 ## 1. Executive Summary
 
-Theorem contains high-performance Rust engines for EPUB/PDF reading, full-text in-book search, StarDict dictionary lookup, web article extraction, and SQLite library management. However, these engines currently execute exclusively through the GUI webview.
+Theorem contains high-performance Rust engines for EPUB/PDF reading, full-text in-book search, StarDict dictionary lookup, web article extraction, and SQLite library management. These engines previously executed exclusively through the GUI webview; the CLI now exposes them natively (implemented as described below — commands, flags and JSON output match the parity matrix in §6).
 
 This blueprint defines **Theorem CLI (`theorem`)** — a native, zero-overhead command-line interface that turns Theorem into a **Universal Knowledge Base** accessible by terminal users, shell scripts, cron automation, and AI agents (Antigravity, Cursor, Claude Code, Aider) with **0 MB additional binary bloat**.
 
