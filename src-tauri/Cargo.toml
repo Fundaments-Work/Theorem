@@ -90,6 +90,13 @@ tokio = { version = "1", features = ["process"] }
 # Android APK keeps its 0 MB CLI footprint.
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "derive", "suggestions", "error-context"] }
 ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
+# Neural TTS (Supertonic) inference — desktop only; the ORT shared library
+# itself is downloaded at runtime (load-dynamic), so nothing ships here either.
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["load-dynamic", "ndarray"] }
+ndarray = "0.17"
+hound = "3.5"
+unicode-normalization = "0.1"
+rand = "0.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"

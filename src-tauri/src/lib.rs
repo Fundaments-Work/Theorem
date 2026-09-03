@@ -15,6 +15,7 @@ pub mod mdict;
 pub mod mobi_parser;
 pub mod opds_parser;
 pub mod stardict;
+pub mod supertonic;
 mod sync_commands;
 #[cfg(target_os = "linux")]
 mod tts_linux;
@@ -1274,6 +1275,9 @@ pub fn run() {
             tts_model::tts_model_status,
             tts_model::tts_model_download_asset,
             tts_model::tts_model_remove,
+            supertonic::tts_synthesize,
+            supertonic::tts_prefetch,
+            supertonic::tts_neural_status,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,
