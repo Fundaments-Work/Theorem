@@ -1,5 +1,7 @@
 pub mod article_extractor;
 pub mod audiobook;
+#[cfg(not(target_os = "android"))]
+pub mod audiobook_gen;
 pub mod batch_ingest;
 pub mod book_search;
 #[cfg(not(target_os = "android"))]
@@ -1278,6 +1280,8 @@ pub fn run() {
             tts_model::tts_model_remove,
             supertonic::tts_synthesize,
             audiobook::extract_audiobook_metadata,
+            audiobook_gen::generate_audiobook,
+            audiobook_gen::generate_audiobook_cancel,
             supertonic::tts_prefetch,
             supertonic::tts_neural_status,
             cli_setup_status,

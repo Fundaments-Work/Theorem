@@ -24,7 +24,7 @@ pub mod desktop {
     use std::sync::{Mutex, OnceLock};
     use unicode_normalization::UnicodeNormalization;
 
-    const SAMPLE_RATE: f32 = 44_100.0;
+    pub const SAMPLE_RATE: f32 = 44_100.0;
     /// Latent chunking parameter from the reference implementation.
     const DEFAULT_CHUNK_SIZE: u32 = 108;
 
