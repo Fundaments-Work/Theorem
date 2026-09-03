@@ -109,14 +109,31 @@ Android keeps the current platform voice.
 - Pin SHA-256s in the Rust manifest; CI check that `ort` crate version and the
   hosted ORT runtime version stay compatible.
 
-### 0.6 Phase ordering
+### 0.6 Phase ordering — IMPLEMENTED
 
-1. **Phase 1 — Engine**: desktop download + inference; Android engine
-   selection in the tts plugin; ImmersionPlayer/Bar rewrite on real audio
-   (voice picker, speed control, download/engine prompts in ImmersionBar).
-2. **Phase 2 — Companion playback**: sections 1-5 below, unchanged.
-3. **Phase 3 — Generation**: Save as Audiobook integrated with the
-   `BookAudioTrack` schema.
+1. **Phase 1 — Engine (done)**: desktop download (`tts_model.rs`, SHA-256
+   pinned manifest, progress events) + inference (`supertonic.rs`, ort
+   load-dynamic, sentence chunking, 1GB WAV cache, prefetch); Android engine
+   selection + `onRangeStart` + `synthesizeToFile` in the tts plugin;
+   ImmersionPlayer on real audio via `AudioContext` (real pause/resume/seek,
+   Android completion via `tts-utterance-done`, resume from last word
+   boundary); voice picker + speed chips + neural-install prompt in the
+   reader navbar; Neural Voice settings section (desktop) and TTS engine
+   picker (Android).
+2. **Phase 2 — Companion playback (done)**: `audiobook.rs` parses .m4b/.m4a/
+   .mp3 duration, tags, cover and chapters (hand-rolled QuickTime chapter-
+   track walker — no crate exposes them); books carry an optional synced
+   `audioTrack`; attach/detach from the library context menu; the reader's
+   immersion bar upgrades to a human-narrated player (scrubber, ±15s, speed,
+   chapters, sleep timer, mediaSession, auto-save) — `AudiobookBar.tsx`
+   replaced the unused ImmersionBar as the single player UI.
+3. **Phase 3 — Generation (done, desktop)**: `audiobook_gen.rs` batch-
+   synthesizes sections via the Supertonic engine and encodes one Ogg Opus
+   per book (36kbps mono ≈ 16MB/hour) with chapter marks, then attaches it
+   as the book's `audioTrack` (format `opus`). Hand-rolled Ogg muxer +
+   audiopus/libopus (static vendored build, desktop-gated). Triggered from
+   the reader's immersion bar for EPUBs; Android generation (via
+   `synthesizeToFile`) deferred until the companion engine app ships.
 
 ---
 
