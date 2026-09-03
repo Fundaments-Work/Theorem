@@ -17,7 +17,7 @@ import {
     shouldUseExtractedAuthor,
 } from "../../core/lib/cover-extractor";
 import { extractFilenameFromPath, ensureFilenameForFormat } from "../../core/lib/import";
-import { isTauri, useAndroidBackButton } from "../../core/lib/env";
+import { isTauri, isTauriDesktop, useAndroidBackButton } from "../../core/lib/env";
 import { sqliteShrinkMemory } from "../../core/lib/sqlite-storage";
 import {
     useVocabularyStore,
@@ -60,7 +60,7 @@ import type { PDFJsEngineRef } from "./engines/pdfjs-engine";
 import type { ReaderViewportHandle } from "./components/ReaderViewport";
 import { PDFFloatingToolbar } from "./components/PDFFloatingToolbar";
 import { registerShortcuts } from "../../core/lib/keyboard-shortcuts";
-import { immersionPlayer } from "./audio/ImmersionPlayer";
+import { immersionPlayer, getNeuralStatus } from "./audio/ImmersionPlayer";
 import { SpeedReader } from "./components/SpeedReader";
 
 const MOBILE_READER_MEDIA_QUERY = '(max-width: 768px)';
@@ -1028,6 +1028,15 @@ const BookReaderPage = memo(function BookReaderPage() {
         };
     }, [location?.cfi, isPdfFormat]);
 
+    const ttsSpeakOptions = useCallback(
+        () => ({
+            voice: settings.tts.voice,
+            speed: settings.tts.speed,
+            lang: useLibraryStore.getState().getBook(currentBookId || "")?.language?.slice(0, 2) || "en",
+        }),
+        [settings.tts.voice, settings.tts.speed, currentBookId],
+    );
+
     const handleTtsComplete = useCallback(async () => {
         if (isPdfFormat || !ttsEnabled || !immersionMode) return;
         await readerRef.current?.next();
@@ -1035,15 +1044,15 @@ const BookReaderPage = memo(function BookReaderPage() {
         const newData = readerRef.current?.getVisibleTextForTts?.();
         if (!newData?.text) return;
         setTtsData(newData);
-        
-        immersionPlayer.speak(newData.text, settings.tts.voice);
-    }, [isPdfFormat, ttsEnabled, immersionMode, settings.tts.voice]);
+
+        immersionPlayer.speak(newData.text, ttsSpeakOptions());
+    }, [isPdfFormat, ttsEnabled, immersionMode, ttsSpeakOptions]);
 
     const handleTtsPlay = useCallback(() => {
         const text = ttsData?.text?.trim();
         if (!text) return;
-        immersionPlayer.speak(text, settings.tts.voice);
-    }, [ttsData, settings.tts.voice]);
+        immersionPlayer.speak(text, ttsSpeakOptions());
+    }, [ttsData, ttsSpeakOptions]);
 
     const handleTtsPause = useCallback(() => {
         immersionPlayer.pause();
@@ -1053,6 +1062,32 @@ const BookReaderPage = memo(function BookReaderPage() {
         immersionPlayer.stop();
         setTtsState('idle');
     }, []);
+
+    // Desktop only: probe once whether the Supertonic neural engine is installed.
+    const [neuralReady, setNeuralReady] = useState(false);
+    const showNeuralInstall = isTauriDesktop() && !neuralReady;
+    useEffect(() => {
+        if (!isTauriDesktop()) return;
+        let cancelled = false;
+        getNeuralStatus().then((status) => {
+            if (!cancelled) setNeuralReady(status.available);
+        });
+        return () => { cancelled = true; };
+    }, []);
+
+    const handleTtsVoiceChange = useCallback((voice: string) => {
+        useSettingsStore.getState().updateTtsSettings({ voice });
+    }, []);
+
+    const handleTtsSpeedChange = useCallback((speed: number) => {
+        useSettingsStore.getState().updateTtsSettings({ speed });
+    }, []);
+
+    const handleOpenNeuralSettings = useCallback(() => {
+        immersionPlayer.stop();
+        setTtsState('idle');
+        setRoute("settings");
+    }, [setRoute]);
 
     useEffect(() => {
         immersionPlayer.init({
@@ -2434,6 +2469,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onTtsPlay={handleTtsPlay}
                         onTtsPause={handleTtsPause}
                         onTtsStop={handleTtsStop}
+                        neuralReady={neuralReady}
+                        showNeuralInstall={showNeuralInstall}
+                        ttsVoice={settings.tts.voice}
+                        ttsSpeed={settings.tts.speed}
+                        onTtsVoiceChange={handleTtsVoiceChange}
+                        onTtsSpeedChange={handleTtsSpeedChange}
+                        onOpenNeuralSettings={handleOpenNeuralSettings}
                         className={cn(
                             "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-300 backdrop-blur-xl",
                             immersionMode

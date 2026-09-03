@@ -1,9 +1,10 @@
 
 import { useCallback, useMemo, useState, useRef, memo } from "react";
-import { List, Play, Pause, Square, Headphones } from "lucide-react";
+import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal } from "lucide-react";
 import { cn } from "../../../../core/lib/utils";
 import { Spinner } from "../../../../ui";
 import type { TocItem, DocLocation } from "../../../../core/types";
+import { NEURAL_VOICES, NEURAL_VOICE_LABELS, resolveNeuralVoice, type NeuralVoice } from "../../audio/ImmersionPlayer";
 
 interface ReaderNavbarProps {
     location: DocLocation | null;
@@ -18,6 +19,15 @@ interface ReaderNavbarProps {
     onTtsPlay?: () => void;
     onTtsPause?: () => void;
     onTtsStop?: () => void;
+    /** Neural voice engine is installed (desktop). Enables voice/speed controls. */
+    neuralReady?: boolean;
+    /** Desktop without the neural engine — offer the one-time download. */
+    showNeuralInstall?: boolean;
+    ttsVoice?: string;
+    ttsSpeed?: number;
+    onTtsVoiceChange?: (voice: string) => void;
+    onTtsSpeedChange?: (speed: number) => void;
+    onOpenNeuralSettings?: () => void;
 }
 
 const AVERAGE_WPM = 225;
@@ -65,11 +75,20 @@ export const ReaderNavbar = memo(function ReaderNavbar({
     onTtsPlay,
     onTtsPause,
     onTtsStop,
+    neuralReady,
+    showNeuralInstall,
+    ttsVoice,
+    ttsSpeed,
+    onTtsVoiceChange,
+    onTtsSpeedChange,
+    onOpenNeuralSettings,
 }: ReaderNavbarProps) {
     const [isDragging, setIsDragging] = useState(false);
     const [hoverFraction, setHoverFraction] = useState<number | null>(null);
     const [dragFraction, setDragFraction] = useState<number | null>(null);
+    const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
     const trackRef = useRef<HTMLDivElement>(null);
+    const activeVoice: NeuralVoice = resolveNeuralVoice(ttsVoice);
 
     const normalizedSectionFractions = useMemo(() => {
         if (sectionFractions.length === 0) {
@@ -303,6 +322,75 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             {ttsState === 'playing' ? 'Reading aloud' : ttsState === 'paused' ? 'Paused' : ttsState === 'loading' ? 'Loading...' : 'Immersion Reading'}
                         </span>
                         <div className="flex items-center gap-1 ml-auto shrink-0">
+                            {showNeuralInstall && onOpenNeuralSettings && (
+                                <button
+                                    onClick={onOpenNeuralSettings}
+                                    className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] hover:text-[color:var(--color-accent)] active:scale-90 transition-colors"
+                                    title="Install Neural Voice for natural offline reading"
+                                    aria-label="Install Neural Voice"
+                                >
+                                    <Download className="w-3 h-3" />
+                                </button>
+                            )}
+                            {neuralReady && onTtsVoiceChange && (
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setVoiceMenuOpen(v => !v)}
+                                        className={cn(
+                                            "flex items-center justify-center w-7 h-7 rounded-full transition-colors active:scale-90",
+                                            voiceMenuOpen
+                                                ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
+                                        )}
+                                        title="Voice & speed"
+                                        aria-label="Voice and speed settings"
+                                    >
+                                        <SlidersHorizontal className="w-3 h-3" />
+                                    </button>
+                                    {voiceMenuOpen && (
+                                        <>
+                                            <div className="fixed inset-0 z-[141]" onClick={() => setVoiceMenuOpen(false)} />
+                                            <div className="absolute bottom-9 right-0 z-[142] w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mb-1.5">Voice</div>
+                                                <div className="grid grid-cols-5 gap-1">
+                                                    {NEURAL_VOICES.map((v) => (
+                                                        <button
+                                                            key={v}
+                                                            title={NEURAL_VOICE_LABELS[v]}
+                                                            onClick={() => onTtsVoiceChange(v)}
+                                                            className={cn(
+                                                                "h-7 rounded-md text-[10px] font-medium transition-colors",
+                                                                activeVoice === v
+                                                                    ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                    : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
+                                                            )}
+                                                        >
+                                                            {v}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mt-2.5 mb-1.5">Speed</div>
+                                                <div className="flex gap-1">
+                                                    {[0.75, 1, 1.25, 1.5].map((s) => (
+                                                        <button
+                                                            key={s}
+                                                            onClick={() => onTtsSpeedChange?.(s)}
+                                                            className={cn(
+                                                                "flex-1 h-7 rounded-md text-[10px] font-medium transition-colors",
+                                                                ttsSpeed === s
+                                                                    ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                    : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
+                                                            )}
+                                                        >
+                                                            {s}×
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                             {ttsState === 'playing' ? (
                                 <>
                                     <button onClick={onTtsPause}
