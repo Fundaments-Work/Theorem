@@ -102,12 +102,17 @@ Android keeps the current platform voice.
   `BookAudioTrack` schema (section 2) → immediately playable by the companion
   player. Background task with progress events, cancel, and pause/resume.
 
-### 0.5 Hosting checklist (manual)
+### 0.5 Hosting checklist — DONE
 
-- Create `fundaments-work/supertonic-assets` releases: fp32 model bundle,
-  voice files, per-OS onnxruntime dylibs (desktop), OpenRAIL-M license.
-- Pin SHA-256s in the Rust manifest; CI check that `ort` crate version and the
-  hosted ORT runtime version stay compatible.
+Published as [`sapienskid/supertonic-assets`](https://github.com/sapienskid/supertonic-assets)
+release `v1` (21 assets): fp32 ONNX models + configs and voice styles
+F1–M5 from `Supertone/supertonic-3`, per-OS ONNX Runtime 1.22.0 dylibs,
+the OpenRAIL-M `LICENSE`, and a `SHA256SUMS` file. All SHA-256s are pinned
+in `tts_model.rs`; release asset names are flat (GitHub limitation), mapped
+to on-disk layout via each asset's `dest`. When bumping the bundle: upload
+new assets under a new tag and update `ASSETS_TAG`, sizes and hashes in
+`tts_model.rs` together (the ORT runtime version must stay compatible with
+the `ort` crate).
 
 ### 0.6 Phase ordering — IMPLEMENTED
 

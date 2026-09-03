@@ -959,7 +959,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         </SettingRow>
                     </Section>
 
-                    {isTauri() && (
+                    {isTauri() && settings.tts.enabled && (
                         <Suspense fallback={null}>
                             <NeuralVoiceSection />
                         </Suspense>

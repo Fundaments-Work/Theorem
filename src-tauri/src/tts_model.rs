@@ -2,8 +2,9 @@
 //!
 //! Nothing ships with the app: the fp32 ONNX models, voice styles, and (on
 //! desktop) the ONNX Runtime dylib are downloaded at first use from
-//! `fundaments-work/supertonic-assets` GitHub releases and verified against
-//! the pinned manifest below. Android uses a companion TTS engine app instead
+//! the `sapienskid/supertonic-assets` GitHub release (tag `v1`) and verified
+//! against the pinned SHA-256 manifest below. Weights: Supertone/supertonic-3
+//! (OpenRAIL-M, shipped alongside as LICENSE). Android uses a companion TTS engine app instead
 //! (see the audiobook plan, section 0.3).
 
 use serde::Serialize;
@@ -12,29 +13,28 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Asset bundle version tag in the supertonic-assets repo.
 const ASSETS_TAG: &str = "v1";
-const ASSETS_BASE: &str = "https://github.com/fundaments-work/supertonic-assets/releases/download";
+const ASSETS_BASE: &str = "https://github.com/sapienskid/supertonic-assets/releases/download";
 
-/// One downloadable asset. `sha256` left empty means "not yet pinned" —
-/// verification is skipped (logged loudly). MUST be pinned before release.
+/// One downloadable asset. GitHub release assets are flat filenames, so
+/// `remote` carries no path separators; `dest` defines the on-disk layout.
 struct TtsAsset {
     /// File name in the release
     remote: String,
     /// Destination path relative to the tts dir
     dest: String,
-    /// Approximate size in bytes (status display only)
+    /// Exact size in bytes (status display + progress fallback)
     size_bytes: u64,
-    /// Pinned SHA-256 (hex). Empty = unpinned, verification skipped.
-    #[allow(dead_code)]
+    /// Pinned SHA-256 (hex), computed from the published release asset.
     sha256: String,
 }
 
 impl TtsAsset {
-    fn new(remote: &str, dest: &str, size_bytes: u64) -> TtsAsset {
+    fn new(remote: &str, dest: &str, size_bytes: u64, sha256: &str) -> TtsAsset {
         TtsAsset {
             remote: remote.to_string(),
             dest: dest.to_string(),
             size_bytes,
-            sha256: String::new(),
+            sha256: sha256.to_string(),
         }
     }
 }
@@ -43,25 +43,28 @@ impl TtsAsset {
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn runtime_asset() -> TtsAsset {
     TtsAsset::new(
-        "onnxruntime-linux-x64-1.22.0/libonnxruntime.so",
+        "libonnxruntime-linux-x64-1.22.0.so",
         "runtime/libonnxruntime.so",
-        18_000_000,
+        21042416,
+        "3da6146e14e7b8aaec625dde11d6114c7457c87a5f93d744897da8781e35c673",
     )
 }
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn runtime_asset() -> TtsAsset {
     TtsAsset::new(
-        "onnxruntime-macos-arm64-1.22.0/libonnxruntime.dylib",
+        "libonnxruntime-osx-arm64-1.22.0.dylib",
         "runtime/libonnxruntime.dylib",
-        18_000_000,
+        33481272,
+        "2b885992d3d6fa4130d39ec84a80d7504ff52750027c547bb22c86165f19406a",
     )
 }
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 fn runtime_asset() -> TtsAsset {
     TtsAsset::new(
-        "onnxruntime-windows-x64-1.22.0/onnxruntime.dll",
+        "onnxruntime-win-x64-1.22.0.dll",
         "runtime/onnxruntime.dll",
-        18_000_000,
+        12418080,
+        "579b636403983254346a5c1d80bd28f1519cd1e284cd204f8d4ff41f8d711559",
     )
 }
 #[cfg(not(any(
@@ -70,33 +73,54 @@ fn runtime_asset() -> TtsAsset {
     all(target_os = "windows", target_arch = "x86_64")
 )))]
 fn runtime_asset() -> TtsAsset {
-    TtsAsset::new("unsupported", "runtime/unsupported", 0)
+    TtsAsset::new("unsupported", "runtime/unsupported", 0, "")
 }
 
-/// Models + config + voices (shared across desktop OSes).
+/// Models + config + license (shared across desktop OSes). SHA-256s are of
+/// the published release assets (upstream Supertone/supertonic-3 files).
 fn model_assets() -> Vec<TtsAsset> {
     vec![
         TtsAsset::new(
-            "onnx/duration_predictor.onnx",
+            "duration_predictor.onnx",
             "models/duration_predictor.onnx",
-            3_700_000,
+            3700147,
+            "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db",
         ),
         TtsAsset::new(
-            "onnx/text_encoder.onnx",
+            "text_encoder.onnx",
             "models/text_encoder.onnx",
-            36_400_000,
+            36416150,
+            "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff",
         ),
         TtsAsset::new(
-            "onnx/vector_estimator.onnx",
+            "vector_estimator.onnx",
             "models/vector_estimator.onnx",
-            257_000_000,
+            256534781,
+            "883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c",
         ),
-        TtsAsset::new("onnx/vocoder.onnx", "models/vocoder.onnx", 101_000_000),
-        TtsAsset::new("onnx/tts.json", "models/tts.json", 8_250),
         TtsAsset::new(
-            "onnx/unicode_indexer.json",
+            "vocoder.onnx",
+            "models/vocoder.onnx",
+            101424195,
+            "085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba",
+        ),
+        TtsAsset::new(
+            "tts.json",
+            "models/tts.json",
+            8253,
+            "42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09",
+        ),
+        TtsAsset::new(
+            "unicode_indexer.json",
             "models/unicode_indexer.json",
-            278_000,
+            277676,
+            "9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f",
+        ),
+        TtsAsset::new(
+            "LICENSE-Supertonic",
+            "LICENSE-Supertonic",
+            15007,
+            "0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f",
         ),
     ]
 }
@@ -104,10 +128,24 @@ fn model_assets() -> Vec<TtsAsset> {
 const VOICE_NAMES: &[&str] = &["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"];
 
 fn voice_asset(name: &str) -> TtsAsset {
+    let sha = match name {
+        "F1" => "bbdec6ee00231c2c742ad05483df5334cab3b52fda3ba38e6a07059c4563dbc2",
+        "F2" => "7c722c6a72707b1a77f035d67f0d1351ba187738e06f7683e8c72b1df3477fc6",
+        "F3" => "12f6ef2573baa2defa1128069cb59f203e3ab67c92af77b42df8a0e3a2f7c6ab",
+        "F4" => "c2fa764c1225a76dfc3e2c73e8aa4f70d9ee48793860eb34c295fff01c2e032b",
+        "F5" => "45966e73316415626cf41a7d1c6f3b4c70dbc1ba2bee5c1978ef0ce33244fc8d",
+        "M1" => "e35604687f5d23694b8e91593a93eec0e4eca6c0b02bb8ed69139ab2ea6b0a5b",
+        "M2" => "b76cbf62bac707c710cf0ae5aba5e31eea1a6339a9734bfae33ab98499534a50",
+        "M3" => "ea1ac35ccb91b0d7ecad533a2fbd0eec10c91513d8951e3b25fbba99954e159b",
+        "M4" => "ca8eefad4fcd989c9379032ff3e50738adc547eeb5e221b82593a6d7b3bac303",
+        "M5" => "dd22b92740314321f8ae11c5e87f8dd60d060f15dd3a632b5adf77f471f77af2",
+        _ => "",
+    };
     TtsAsset::new(
-        &format!("voice_styles/{name}.json"),
+        &format!("{name}.json"),
         &format!("voices/{name}.json"),
         292_000,
+        sha,
     )
 }
 
