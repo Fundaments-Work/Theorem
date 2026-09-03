@@ -111,7 +111,10 @@ pub fn tts_get_engines<R: Runtime>(_app: &AppHandle<R>) -> Result<serde_json::Va
 }
 
 #[cfg(target_os = "android")]
-pub fn tts_set_engine<R: Runtime>(app: &AppHandle<R>, engine: String) -> Result<serde_json::Value, String> {
+pub fn tts_set_engine<R: Runtime>(
+    app: &AppHandle<R>,
+    engine: String,
+) -> Result<serde_json::Value, String> {
     let state = get_audio_state(app)?;
     state
         .handle
@@ -120,7 +123,10 @@ pub fn tts_set_engine<R: Runtime>(app: &AppHandle<R>, engine: String) -> Result<
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn tts_set_engine<R: Runtime>(_app: &AppHandle<R>, _engine: String) -> Result<serde_json::Value, String> {
+pub fn tts_set_engine<R: Runtime>(
+    _app: &AppHandle<R>,
+    _engine: String,
+) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "engine": "" }))
 }
 
