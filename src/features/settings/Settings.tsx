@@ -22,6 +22,7 @@ import {
 } from "../../core/store";
 import { clearAllApplicationStorage, getRssStorageStats } from "../../core/lib/storage-manager";
 const DeviceSyncSection = lazy(() => import("./DeviceSync").then(m => ({ default: m.DeviceSyncSection })));
+const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => ({ default: m.NeuralVoiceSection })));
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
 import {
     Database,
@@ -957,6 +958,12 @@ export const SettingsPage = memo(function SettingsPage() {
                             />
                         </SettingRow>
                     </Section>
+
+                    {isTauri() && (
+                        <Suspense fallback={null}>
+                            <NeuralVoiceSection />
+                        </Suspense>
+                    )}
 
                     <div className="flex items-center justify-end mb-8">
                         <button
