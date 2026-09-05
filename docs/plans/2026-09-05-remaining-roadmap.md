@@ -23,6 +23,10 @@
 
 ## 3. New plan A — Android neural & audiobook parity (utmost required)
 
+> The companion app itself gets its own plan:
+> [2026-09-05-companion-app-slimdown.md](2026-09-05-companion-app-slimdown.md)
+> (feature strip + Theorem icons/branding, no UI redesign).
+
 Everything is built but unverified end-to-end on a real device, and
 generation is desktop-only. Goal: neural narration + audiobooks work on
 Android exactly as on desktop.

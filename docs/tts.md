@@ -66,10 +66,13 @@ cache).
 utterance: desktop neural (when installed) → real audio; otherwise platform
 TTS.
 
-- **Neural**: `tts_synthesize` produces a cached WAV which is played through
-  an `AudioContext` `AudioBufferSourceNode` — pause, resume, and seek are
-  real audio operations with progress reported from the buffer position
-  (no estimated timers).
+- **Neural**: `tts_synthesize` produces a cached WAV which plays through the
+  **native Rust player** (`audio_player.rs`, rodio/cpal) — pause, resume and
+  seek are real output-device operations, not webview audio. Playback
+  **streams**: only the first sentence chunk is synthesized before audio
+  starts (`tts_text_chunks`), the rest are queued as they finish
+  (`tts_audio_append`), and the engine is pre-warmed in the background when
+  the reader opens (`tts_engine_preload`).
 - **Platform**: `tts_speak` as before; Android completion arrives via the
   `tts-utterance-done` event and pause resumes from the last real word
   boundary.
