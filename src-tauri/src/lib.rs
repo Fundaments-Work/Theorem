@@ -187,6 +187,22 @@ fn take_pending_open_files(state: tauri::State<PendingOpenFiles>) -> Vec<String>
     guard.drain(..).collect()
 }
 
+/// Compile-time build stamp (emitted by build.rs) so a stale release binary —
+/// which embeds the UI at build time — is visible in Settings → About.
+#[derive(Serialize)]
+struct BuildInfo {
+    build_date: String,
+    git_hash: String,
+}
+
+#[tauri::command]
+fn app_build_info() -> BuildInfo {
+    BuildInfo {
+        build_date: env!("THEOREM_BUILD_DATE").to_string(),
+        git_hash: env!("THEOREM_GIT_HASH").to_string(),
+    }
+}
+
 #[derive(Serialize)]
 struct PdfMetadata {
     title: Option<String>,
@@ -1333,6 +1349,7 @@ pub fn run() {
             read_pdf_range,
             get_pdf_metadata,
             take_pending_open_files,
+            app_build_info,
             fetch_rss_feed,
             fetch_url_content,
             fetch_binary_content,

@@ -368,6 +368,16 @@ export const SettingsPage = memo(function SettingsPage() {
     const [cliStatus, setCliStatus] = useState<{ installed: boolean; linkPath: string; isAppImage: boolean } | null>(null);
     const [cliBusy, setCliBusy] = useState(false);
     const cliEnabled = settings.cli?.enabled ?? false;
+    // Compile-time stamp of the binary (build.rs) — makes a stale release
+    // build (UI embedded at compile time) visible at a glance.
+    const [buildInfo, setBuildInfo] = useState<{ buildDate: string; gitHash: string } | null>(null);
+
+    useEffect(() => {
+        if (!isTauri()) return;
+        invoke<{ build_date: string; git_hash: string }>("app_build_info")
+            .then((info) => setBuildInfo({ buildDate: info.build_date, gitHash: info.git_hash }))
+            .catch(() => { /* non-Tauri or older binary without the stamp */ });
+    }, []);
 
     useEffect(() => {
         if (!dictionaryRemovedName) return;
@@ -1283,6 +1293,14 @@ export const SettingsPage = memo(function SettingsPage() {
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">Version</span>
                                     <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]">{__APP_VERSION__}</span>
                                 </div>
+                                {buildInfo && (
+                                    <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
+                                        <span className="text-[12px] text-[color:var(--color-text-secondary)]">Build</span>
+                                        <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]" title="Source commit this binary was built from">
+                                            {buildInfo.gitHash} · {buildInfo.buildDate}
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">License</span>
                                     <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]">MIT</span>

@@ -50,6 +50,14 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 
 ### About
 - Version info, repository link, license
+- **Build stamp** (`<git hash> · <commit date>`), baked into the binary by
+  `src-tauri/build.rs` (`THEOREM_GIT_HASH` / `THEOREM_BUILD_DATE`, exposed via
+  the `app_build_info` command). Desktop release binaries embed the web UI at
+  compile time, so a binary can silently go stale after frontend changes —
+  this stamp makes that visible at a glance.
+- **Refreshing a locally built binary**: `pnpm build && (cd src-tauri && cargo
+  build --release)` re-embeds the current UI into the release binary. CI
+  release artifacts remain the canonical install.
 
 ## Migration Strategy
 
