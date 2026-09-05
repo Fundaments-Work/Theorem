@@ -155,7 +155,10 @@ class ImmersionPlayer {
         }
     }
 
-    /** Synthesize the remaining chunks one by one and append to the queue. */
+    /** Synthesize the remaining chunks one by one and append to the queue.
+     *  The engine serializes synthesis behind a mutex, so this loop already
+     *  keeps it saturated; if playback outpaces it, the native player's
+     *  append-on-drain resumes seamlessly (see the underrun handling above). */
     private async streamChunks(
         text: string,
         chunks: string[],
@@ -191,7 +194,15 @@ class ImmersionPlayer {
                 this.lastPosSec = pos;
                 this.callbacks.onProgress?.(pos, this.durationSec);
                 const finished = await invoke<boolean>("tts_audio_finished");
-                if (finished && this.streamDone && this._state === 'playing' && this.nativeSession) {
+                if (finished && !this.streamDone && this._state === 'playing' && this.nativeSession) {
+                    // Underrun: the queue drained while later chunks are still
+                    // synthesizing. Not a completion — hold the playing state;
+                    // the native player reports the end of synthesized audio as
+                    // the position, and appending the next chunk resumes it.
+                    if (import.meta.env.DEV) {
+                        console.debug("[tts] queue underrun, waiting for synthesis");
+                    }
+                } else if (finished && this.streamDone && this._state === 'playing' && this.nativeSession) {
                     this._onDone();
                 }
             } catch { /* transient IPC error; next tick retries */ }
@@ -321,17 +332,24 @@ class ImmersionPlayer {
         this.setState('idle');
     }
 
-    /** Fire-and-forget synthesis of the next page so it plays back instantly. */
+    /** Fire-and-forget synthesis of the next page so it plays back instantly.
+     *  Streaming consumes sentence chunks and the synthesis cache is keyed per
+     *  chunk, so prefetch the first chunks of the next page — not the whole
+     *  page text, which would never be a cache hit. */
     async prefetch(text: string, opts: SpeakOptions = {}) {
         if (!isTauri() || !text.trim()) return;
         const neural = await getNeuralStatus();
         if (!neural.available) return;
-        invoke("tts_prefetch", {
-            text,
-            voice: resolveNeuralVoice(opts.voice),
-            speed: opts.speed && opts.speed > 0 ? opts.speed : 1,
-            lang: opts.lang || "en",
-        }).catch(() => { /* prefetch is best-effort */ });
+        const voice = resolveNeuralVoice(opts.voice);
+        const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
+        const lang = opts.lang || "en";
+        try {
+            const chunks = await invoke<string[]>("tts_text_chunks", { text, lang });
+            for (const chunk of chunks.slice(0, 2)) {
+                // tts_prefetch returns immediately; synthesis runs in Rust.
+                await invoke("tts_prefetch", { text: chunk, voice, speed, lang });
+            }
+        } catch { /* prefetch is best-effort */ }
     }
 
     private _clearAll() {

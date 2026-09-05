@@ -1179,6 +1179,14 @@ const BookReaderPage = memo(function BookReaderPage() {
         return () => immersionPlayer.destroy();
     }, [handleTtsComplete]);
 
+    // Neural voice: warm the next page's first synthesized chunks while the
+    // current page reads, so turning the page doesn't wait on synthesis.
+    useEffect(() => {
+        if (isPdfFormat || !ttsEnabled || !immersionMode || !ttsData) return;
+        const next = readerRef.current?.getNextPageTextForTts?.();
+        if (next?.text) void immersionPlayer.prefetch(next.text, ttsSpeakOptions());
+    }, [ttsData, isPdfFormat, ttsEnabled, immersionMode, ttsSpeakOptions]);
+
     useEffect(() => {
         if (!isPdfFormat || !currentBookId || pdfTotalPages <= 0) {
             return;
