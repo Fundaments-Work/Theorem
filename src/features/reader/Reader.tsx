@@ -1062,10 +1062,6 @@ const BookReaderPage = memo(function BookReaderPage() {
     const handleTtsPlay = useCallback(() => {
         const text = ttsData?.text?.trim();
         if (!text) return;
-        // Unlock Web Audio synchronously inside the click gesture — synthesis
-        // completes long after the gesture, and WebKit only starts audio
-        // from a gesture call stack.
-        immersionPlayer.unlockAudio();
         immersionPlayer.speak(text, ttsSpeakOptions());
     }, [ttsData, ttsSpeakOptions]);
 

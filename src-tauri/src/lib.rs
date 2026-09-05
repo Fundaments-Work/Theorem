@@ -1,4 +1,5 @@
 pub mod article_extractor;
+pub mod audio_player;
 pub mod audiobook;
 #[cfg(not(target_os = "android"))]
 pub mod audiobook_gen;
@@ -1280,6 +1281,13 @@ pub fn run() {
             tts_model::tts_model_remove,
             supertonic::tts_synthesize,
             audiobook::extract_audiobook_metadata,
+            audio_player::tts_audio_play,
+            audio_player::tts_audio_pause,
+            audio_player::tts_audio_resume,
+            audio_player::tts_audio_stop,
+            audio_player::tts_audio_seek,
+            audio_player::tts_audio_position,
+            audio_player::tts_audio_finished,
             audiobook_gen::generate_audiobook,
             audiobook_gen::generate_audiobook_cancel,
             supertonic::tts_prefetch,

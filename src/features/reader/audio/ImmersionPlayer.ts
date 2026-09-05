@@ -1,5 +1,5 @@
 
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 let _isAndroid: boolean | null = null;
@@ -78,12 +78,10 @@ class ImmersionPlayer {
     private callbacks: PlaybackCallbacks = {};
     private _state: PlaybackState = 'idle';
 
-    // ── Neural session (desktop Supertonic, real audio) ─────────────────────
-    private audioCtx: AudioContext | null = null;
-    private source: AudioBufferSourceNode | null = null;
-    private buffer: AudioBuffer | null = null;
-    private offsetSec = 0;
-    private startedAt = 0;
+    // ── Neural session (desktop Supertonic, native Rust playback) ───────────
+    private nativeSession = false;
+    private durationSec = 0;
+    private lastPosSec = 0;
     private progressTimer: ReturnType<typeof setInterval> | null = null;
     private currentText = '';
 
@@ -106,18 +104,6 @@ class ImmersionPlayer {
 
     init(callbacks: PlaybackCallbacks = {}) { this.callbacks = callbacks; }
 
-    /** Create the AudioContext and resume it synchronously. Must be called
-     *  directly from a user-gesture handler (click) — WebKit only allows
-     *  audio to start from a gesture call stack, and by the time synthesis
-     *  finishes the gesture is long gone. */
-    unlockAudio() {
-        if (!isTauri()) return;
-        const ctx = this.ensureAudioContext();
-        if (ctx.state === 'suspended') {
-            void ctx.resume().catch(() => { /* retried in startSource */ });
-        }
-    }
-
     async speak(text: string, opts: SpeakOptions = {}) {
         this._clearAll();
         if (!text.trim() || !isTauri()) return;
@@ -133,7 +119,7 @@ class ImmersionPlayer {
         }
     }
 
-    // ── Neural: synthesize to WAV, decode, play real audio ──────────────────
+    // ── Neural: synthesize to WAV, play through the native Rust player ──────
 
     private async speakNeural(text: string, opts: SpeakOptions) {
         const voice = resolveNeuralVoice(opts.voice);
@@ -144,77 +130,34 @@ class ImmersionPlayer {
             const result = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
                 "tts_synthesize", { text, voice, speed, lang },
             );
-            const resp = await fetch(convertFileSrc(result.path));
-            const bytes = await resp.arrayBuffer();
-            const ctx = this.ensureAudioContext();
-            const buffer = await ctx.decodeAudioData(bytes);
             if (text !== this.currentText || this._state !== 'loading') return;
-            this.buffer = buffer;
-            this.offsetSec = 0;
-            this.startSource();
+            // Native playback (rodio/cpal in Rust) — bypasses webview audio,
+            // which could stay silently suspended outside a gesture stack.
+            await invoke("tts_audio_play", { path: result.path });
+            if (text !== this.currentText || this._state !== 'loading') return;
+            this.nativeSession = true;
+            this.durationSec = result.duration_sec;
+            this.lastPosSec = 0;
+            this.startProgressTimer();
+            this.setState('playing');
         } catch (err: unknown) {
             this._onError(err instanceof Error ? err.message : String(err));
         }
     }
 
-    private ensureAudioContext(): AudioContext {
-        if (!this.audioCtx) this.audioCtx = new AudioContext();
-        if (this.audioCtx.state === 'suspended') void this.audioCtx.resume();
-        return this.audioCtx;
-    }
-
-    private startSource() {
-        const ctx = this.audioCtx;
-        const buffer = this.buffer;
-        if (!ctx || !buffer) return;
-        this.stopSource();
-        if (ctx.state === 'suspended') {
-            // Unlock was missed (no gesture reached unlockAudio) — retry, but
-            // a suspended context would play silence with a frozen clock.
-            void ctx.resume().catch(() => {});
-            if (import.meta.env.DEV) {
-                console.warn("[tts] AudioContext still suspended at playback start");
-            }
-        }
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.onended = () => {
-            if (this.source === source) {
-                this.source = null;
-                this._onDone();
-            }
-        };
-        this.source = source;
-        this.startedAt = ctx.currentTime;
-        source.start(0, this.offsetSec);
-        this.startProgressTimer();
-        this.setState('playing');
-    }
-
-    private stopSource() {
-        if (this.source) {
-            const s = this.source;
-            this.source = null;
-            s.onended = null;
-            try { s.stop(); } catch { /* already stopped */ }
-            s.disconnect();
-        }
-        this.stopProgressTimer();
-    }
-
-    private currentPosition(): number {
-        if (!this.audioCtx || !this.buffer) return this.offsetSec;
-        if (this._state !== 'playing') return this.offsetSec;
-        return Math.min(this.offsetSec + this.audioCtx.currentTime - this.startedAt, this.buffer.duration);
-    }
-
     private startProgressTimer() {
         this.stopProgressTimer();
-        this.progressTimer = setInterval(() => {
-            if (this._state === 'playing' && this.buffer) {
-                this.callbacks.onProgress?.(this.currentPosition(), this.buffer.duration);
-            }
+        this.progressTimer = setInterval(async () => {
+            if (this._state !== 'playing' || !this.nativeSession) return;
+            try {
+                const pos = await invoke<number>("tts_audio_position");
+                this.lastPosSec = pos;
+                this.callbacks.onProgress?.(pos, this.durationSec);
+                const finished = await invoke<boolean>("tts_audio_finished");
+                if (finished && this._state === 'playing' && this.nativeSession) {
+                    this._onDone();
+                }
+            } catch { /* transient IPC error; next tick retries */ }
         }, 250);
     }
 
@@ -225,17 +168,17 @@ class ImmersionPlayer {
         }
     }
 
-    /** Real seek over the neural buffer (seconds from the start of the page). */
-    seek(seconds: number) {
-        if (!this.buffer) return;
-        const target = Math.max(0, Math.min(seconds, this.buffer.duration - 0.05));
-        if (this._state === 'playing') {
-            this.offsetSec = target;
-            this.startSource();
-        } else if (this._state === 'paused') {
-            this.offsetSec = target;
-            this.callbacks.onProgress?.(target, this.buffer.duration);
-        }
+    /** Real seek over the native player (seconds from the start of the page). */
+    async seek(seconds: number) {
+        if (!this.nativeSession) return;
+        const target = Math.max(0, Math.min(seconds, this.durationSec - 0.05));
+        try {
+            await invoke("tts_audio_seek", { seconds: target });
+            this.lastPosSec = target;
+            if (this._state === 'paused') {
+                this.callbacks.onProgress?.(target, this.durationSec);
+            }
+        } catch { /* seek unsupported for the current source */ }
     }
 
     // ── Platform: OS/engine voice with estimated or event-driven timing ─────
@@ -272,10 +215,10 @@ class ImmersionPlayer {
         if (this.platformEventsBound || !isTauri()) return;
         this.platformEventsBound = true;
         await listen("tts-utterance-done", () => {
-            if (this._state === 'playing' && !this.buffer) this._onDone();
+            if (this._state === 'playing' && !this.nativeSession) this._onDone();
         });
         await listen("tts-utterance-error", () => {
-            if (!this.buffer && (this._state === 'playing' || this._state === 'loading')) {
+            if (!this.nativeSession && (this._state === 'playing' || this._state === 'loading')) {
                 this._onError("Speech engine error");
             }
         });
@@ -288,10 +231,12 @@ class ImmersionPlayer {
 
     async pause() {
         if (this._state !== 'playing') return;
-        if (this.buffer) {
-            const pos = this.currentPosition();
-            this.stopSource();
-            this.offsetSec = pos;
+        if (this.nativeSession) {
+            await invoke("tts_audio_pause").catch(e => console.error("[catch]", e));
+            if (import.meta.env.DEV) {
+                console.debug("[tts] paused at", this.lastPosSec.toFixed(1), "s");
+            }
+            this.stopProgressTimer();
             this.setState('paused');
             return;
         }
@@ -322,7 +267,12 @@ class ImmersionPlayer {
 
     async resume() {
         if (this._state !== 'paused' || !isTauri()) return;
-        if (this.buffer) { this.startSource(); return; }
+        if (this.nativeSession) {
+            await invoke("tts_audio_resume").catch(e => console.error("[catch]", e));
+            this.startProgressTimer();
+            this.setState('playing');
+            return;
+        }
         const remaining = this.fullText.trim();
         if (!remaining) { this._onDone(); return; }
         await this.speakPlatform(remaining, this.voice);
@@ -349,9 +299,13 @@ class ImmersionPlayer {
 
     private _clearAll() {
         this.currentText = '';
-        this.stopSource();
-        this.buffer = null;
-        this.offsetSec = 0;
+        if (this.nativeSession) {
+            invoke("tts_audio_stop").catch(() => { /* already stopped */ });
+        }
+        this.nativeSession = false;
+        this.stopProgressTimer();
+        this.durationSec = 0;
+        this.lastPosSec = 0;
         if (this.completeTimer) { clearTimeout(this.completeTimer); this.completeTimer = null; }
         this.fullText = ''; this.fullWords = []; this.voice = null; this.lastRangeEnd = 0;
     }
