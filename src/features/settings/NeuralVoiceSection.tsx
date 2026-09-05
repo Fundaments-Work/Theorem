@@ -35,7 +35,7 @@ interface TtsEngine {
 }
 
 const COMPANION_APP_URL =
-    "https://github.com/sapienskid/supertonic-android/releases/tag/v3.2.7-theorem.1";
+    "https://github.com/sapienskid/supertonic-android/releases/tag/v3.2.7-theorem.2";
 
 function formatBytes(bytes: number): string {
     if (bytes >= 1024 * 1024 * 1024) {

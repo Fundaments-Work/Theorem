@@ -112,3 +112,4 @@ src-tauri/models/
 # AppImage extraction artifacts
 *.AppImage
 squashfs-root/
+companion-app/
