@@ -1,6 +1,6 @@
 # Theorem Neural Voice — Companion App Slim-Down & Branding Plan
 
-**Date**: 2026-09-05 · **Status**: Proposed · **Repo**: `sapienskid/supertonic-android`
+**Date**: 2026-09-05 · **Status**: ✅ Implemented (release `v3.2.7-theorem.2`; APK 110MB → 61MB) · **Repo**: `sapienskid/supertonic-android`
 (GPL-3.0 fork of `DevGitPit/supertonic-android`; rebrand + model-mirror changes
 already published as release `v3.2.7-theorem.1`)
 
