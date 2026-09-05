@@ -40,6 +40,17 @@ mod imp {
         Ok(f(p))
     }
 
+    /// Append to the queue without clearing — used for streamed chunks.
+    pub fn append(path: String) -> Result<(), String> {
+        let file = File::open(&path).map_err(|e| format!("Cannot open {path}: {e}"))?;
+        let source =
+            Decoder::new(BufReader::new(file)).map_err(|e| format!("Cannot decode {path}: {e}"))?;
+        with_player(|p| {
+            p.player.append(source);
+            p.player.play();
+        })
+    }
+
     pub fn play(path: String) -> Result<(), String> {
         let file = File::open(&path).map_err(|e| format!("Cannot open {path}: {e}"))?;
         let source =
@@ -90,6 +101,12 @@ pub fn tts_audio_play(path: String) -> Result<(), String> {
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
+pub fn tts_audio_append(path: String) -> Result<(), String> {
+    imp::append(path)
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
 pub fn tts_audio_pause() -> Result<(), String> {
     imp::pause()
 }
@@ -127,6 +144,12 @@ pub fn tts_audio_finished() -> Result<bool, String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub fn tts_audio_play(_path: String) -> Result<(), String> {
+    Err("Native playback is desktop-only".to_string())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn tts_audio_append(_path: String) -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 

@@ -1081,7 +1081,15 @@ const BookReaderPage = memo(function BookReaderPage() {
         if (!isTauriDesktop()) return;
         let cancelled = false;
         getNeuralStatus().then((status) => {
-            if (!cancelled) setNeuralReady(status.available);
+            if (cancelled) return;
+            setNeuralReady(status.available);
+            // Warm the engine (ORT init + model loads) in the background so
+            // the first Play starts audio in a couple of seconds, not 20+.
+            if (status.available) {
+                import("@tauri-apps/api/core").then(({ invoke }) =>
+                    invoke("tts_engine_preload").catch(() => { /* best effort */ }),
+                );
+            }
         });
         return () => { cancelled = true; };
     }, []);

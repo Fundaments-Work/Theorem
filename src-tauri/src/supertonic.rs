@@ -581,13 +581,16 @@ pub mod desktop {
             return Err("Failed to initialize ONNX Runtime".to_string());
         }
 
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get().min(8))
+            .unwrap_or(4);
         let load_session = |name: &str| -> Result<Session, String> {
             // Note: no explicit graph-optimization level — the default is
             // ORT_ENABLE_ALL, and some ort enum values are rejected by the
             // downloaded runtime ("graph_optimization_level is not valid").
             Session::builder()
                 .map_err(|e| e.to_string())?
-                .with_intra_threads(4)
+                .with_intra_threads(threads)
                 .map_err(|e| e.to_string())?
                 .commit_from_file(models.join(name))
                 .map_err(|e| format!("Failed to load {name}: {e}"))
@@ -752,6 +755,24 @@ pub mod desktop {
     }
 
     /// Engine readiness for the frontend.
+    /// Warm up the engine (ORT init + session loads) so the first speak
+    /// doesn't pay the ~seconds of model loading.
+    pub fn tts_engine_preload_impl(app: tauri::AppHandle) -> Result<(), String> {
+        ensure_engine(&app)
+    }
+
+    /// Sentence-aware chunk list for streaming synthesis (frontend feeds
+    /// chunks one by one so audio starts after the first one is ready).
+    pub fn tts_text_chunks_impl(text: String, lang: String) -> Result<Vec<String>, String> {
+        let max_chars = if lang == "ko" || lang == "ja" {
+            120
+        } else {
+            300
+        };
+        Ok(chunk_text(&text, max_chars))
+    }
+
+    /// Engine readiness for the frontend.
     pub fn tts_neural_status_impl(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
         let runtime = ort_dir(&app).join(runtime_lib_name()).exists();
         let models = models_dir(&app).join("vector_estimator.onnx").exists()
@@ -883,4 +904,30 @@ pub fn tts_neural_status(_app: tauri::AppHandle) -> Result<serde_json::Value, St
         "engineLoaded": false,
         "available": false,
     }))
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn tts_engine_preload(app: tauri::AppHandle) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || desktop::tts_engine_preload_impl(app))
+        .await
+        .map_err(|e| format!("Preload task failed: {e}"))?
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn tts_engine_preload(_app: tauri::AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub fn tts_text_chunks(text: String, lang: String) -> Result<Vec<String>, String> {
+    desktop::tts_text_chunks_impl(text, lang)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn tts_text_chunks(_text: String, _lang: String) -> Result<Vec<String>, String> {
+    Ok(Vec::new())
 }

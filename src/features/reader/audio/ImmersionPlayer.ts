@@ -82,6 +82,7 @@ class ImmersionPlayer {
     private nativeSession = false;
     private durationSec = 0;
     private lastPosSec = 0;
+    private streamDone = false;
     private progressTimer: ReturnType<typeof setInterval> | null = null;
     private currentText = '';
 
@@ -127,22 +128,58 @@ class ImmersionPlayer {
         const lang = opts.lang || "en";
         this.setState('loading');
         try {
-            const result = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
-                "tts_synthesize", { text, voice, speed, lang },
+            // Streaming: synthesize only the first sentence chunk, start
+            // playback, then synthesize and queue the rest while audio plays.
+            const chunks = await invoke<string[]>("tts_text_chunks", { text, lang });
+            if (text !== this.currentText) return;
+            const first = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
+                "tts_synthesize", { text: chunks[0], voice, speed, lang },
             );
             if (text !== this.currentText || this._state !== 'loading') return;
             // Native playback (rodio/cpal in Rust) — bypasses webview audio,
             // which could stay silently suspended outside a gesture stack.
-            await invoke("tts_audio_play", { path: result.path });
+            await invoke("tts_audio_play", { path: first.path });
             if (text !== this.currentText || this._state !== 'loading') return;
             this.nativeSession = true;
-            this.durationSec = result.duration_sec;
+            this.durationSec = first.duration_sec;
             this.lastPosSec = 0;
+            this.streamDone = chunks.length <= 1;
             this.startProgressTimer();
             this.setState('playing');
+
+            if (chunks.length > 1) {
+                void this.streamChunks(text, chunks.slice(1), voice, speed, lang);
+            }
         } catch (err: unknown) {
             this._onError(err instanceof Error ? err.message : String(err));
         }
+    }
+
+    /** Synthesize the remaining chunks one by one and append to the queue. */
+    private async streamChunks(
+        text: string,
+        chunks: string[],
+        voice: NeuralVoice,
+        speed: number,
+        lang: string,
+    ) {
+        for (const chunk of chunks) {
+            if (text !== this.currentText || !this.nativeSession) return;
+            try {
+                const result = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
+                    "tts_synthesize", { text: chunk, voice, speed, lang },
+                );
+                if (text !== this.currentText || !this.nativeSession) return;
+                await invoke("tts_audio_append", { path: result.path });
+                this.durationSec += result.duration_sec;
+            } catch (err: unknown) {
+                if (text === this.currentText && this.nativeSession) {
+                    this._onError(err instanceof Error ? err.message : String(err));
+                }
+                return;
+            }
+        }
+        this.streamDone = true;
     }
 
     private startProgressTimer() {
@@ -154,7 +191,7 @@ class ImmersionPlayer {
                 this.lastPosSec = pos;
                 this.callbacks.onProgress?.(pos, this.durationSec);
                 const finished = await invoke<boolean>("tts_audio_finished");
-                if (finished && this._state === 'playing' && this.nativeSession) {
+                if (finished && this.streamDone && this._state === 'playing' && this.nativeSession) {
                     this._onDone();
                 }
             } catch { /* transient IPC error; next tick retries */ }
@@ -303,6 +340,7 @@ class ImmersionPlayer {
             invoke("tts_audio_stop").catch(() => { /* already stopped */ });
         }
         this.nativeSession = false;
+        this.streamDone = false;
         this.stopProgressTimer();
         this.durationSec = 0;
         this.lastPosSec = 0;
