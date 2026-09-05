@@ -7,6 +7,7 @@
 //! emitting `audiobook-gen-progress` / `audiobook-gen-done` events, cancellable
 //! per book via [`generate_audiobook_cancel`].
 
+#[cfg(not(target_os = "android"))]
 pub mod engine {
     use crate::supertonic::desktop;
     use audiopus::{Application, Bitrate, Channels, SampleRate};

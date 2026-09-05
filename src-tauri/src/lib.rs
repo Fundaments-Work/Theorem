@@ -1,7 +1,6 @@
 pub mod article_extractor;
 pub mod audio_player;
 pub mod audiobook;
-#[cfg(not(target_os = "android"))]
 pub mod audiobook_gen;
 pub mod batch_ingest;
 pub mod book_search;
