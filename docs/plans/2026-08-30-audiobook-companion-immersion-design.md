@@ -138,7 +138,10 @@ the `ort` crate).
    as the book's `audioTrack` (format `opus`). Hand-rolled Ogg muxer +
    audiopus/libopus (static vendored build, desktop-gated). Triggered from
    the reader's immersion bar for EPUBs; Android generation (via
-   `synthesizeToFile`) deferred until the companion engine app ships.
+   `synthesizeToFile`) deferred until the companion engine app ships —
+   the app now exists (sapienskid/supertonic-android, release
+   v3.2.7-theorem.1), so this is the main open item (see
+   2026-09-05-remaining-roadmap.md).
 
 ---
 
@@ -254,9 +257,13 @@ Readers often switch between reading text and listening to audiobooks. Currently
 Allow users to attach `.m4b` or `.mp3` files directly to existing library books as a companion track. When reading, Theorem's Immersion Bar provides native playback with speed controls, chapter navigation, sleep timers, and cross-device sync.
 
 #### Acceptance Criteria
-- [ ] "Attach Audiobook..." action on Book Card and Edit Metadata modal.
-- [ ] Fast Rust metadata & chapter parser for M4B and MP3 files.
-- [ ] In-reader audio player integrated into `ImmersionBar` with speed controls (0.75x–2.0x), ±15s skip, scrubber, and sleep timer.
-- [ ] OS `MediaSession` lock screen & headphone controls.
-- [ ] Sync playback position across devices via Iroh P2P.
+- [x] "Attach Audiobook..." action on Book Card (Edit Metadata modal not needed).
+- [x] Fast Rust metadata & chapter parser for M4B and MP3 files.
+- [x] In-reader audio player (`AudiobookBar`) with speed controls (0.75x–2.0x), ±15s skip, scrubber, and sleep timer.
+- [x] OS `MediaSession` lock screen & headphone controls.
+- [x] Sync playback position across devices via Iroh P2P.
+
+**Still open (tracked in 2026-09-05-remaining-roadmap.md):** Android
+audiobook generation, standalone audiobook ingestion as a library book,
+streaming gap handling when synthesis lags playback.
 ```
