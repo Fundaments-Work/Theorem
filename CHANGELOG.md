@@ -14,12 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Save as Audiobook (desktop)** — Generate a complete audiobook from an open book with the neural voice: one click narrates every section and encodes a single Ogg Opus file (~16MB/hour at 36kbps mono) with chapter marks, then attaches it to the book. Background task with progress and cancel.
 - **Headless CLI & TUI** — `theorem <command>` gives agents and terminals full app parity: library, shelves, search, read, dict, extract, annotations, bookmarks, RSS, OPDS, sync, storage, stats, export, and open. JSON output (`--json`) for scripting, TTY-aware colored output with the THEOREM logo, and an interactive ratatui TUI (`theorem tui`). Enable/disable from Settings → General with startup auto-heal.
 - **Android TTS engine selection** — Enumerate and switch system TTS engines from Settings (fixing silent engine-switch failures), with real word-boundary events for the immersion reader and `synthesizeToFile` support. Neural narration on Android uses the installable Theorem Neural Voice companion engine app.
+- **Build stamp** — Settings → About shows the git hash and source commit date the binary was built from, making a stale locally built release binary visible at a glance.
 
 ### Improved
 
 - **P2P sync** — Remote doc entries are batched into single IPC events for faster sync; deletion tombstones older than 90 days are pruned at startup.
 - **Android footprint** — Panic=abort, `opt-level=z`, cmap pruning, and locale filtering reduce APK size.
 - **Reader immersion player** — Replaced the estimated completion timer with real audio playback (`AudioContext`) when the neural voice is installed; Android pause/resume now resumes from the engine's actual word position.
+- **Desktop neural narration streaming** — Playback position and seek now span the entire streamed page (previously the position reset per sentence chunk and seeking only worked inside the first chunk); queue underruns while later chunks synthesize no longer stall playback or jump the scrubber; the next page's first chunks are synthesized in the background while the current page reads.
+
+### Fixed
+
+- **MOBI text extraction** — Added native HUFF/CDIC (Huffman) decompression for compression-type-2 MOBI files, and corrected the PalmDOC LZ77 distance layout (11-bit, was misread as 9-bit) so compressed MOBI books extract clean text instead of garbled fragments. Books that mislabel themselves as compression 2 without HUFF/CDIC records fall back to PalmDOC decoding.
 
 ## [1.3.0] - 2026-08-30
 
