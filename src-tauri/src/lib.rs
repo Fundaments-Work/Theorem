@@ -1022,30 +1022,7 @@ fn cli_symlink_target_exe() -> Result<PathBuf, String> {
             return Ok(PathBuf::from(appimage));
         }
     }
-    let exe =
-        std::env::current_exe().map_err(|e| format!("Failed to resolve executable path: {e}"))?;
-    // Dev builds load the UI from the Vite dev server (localhost:1420) and
-    // break for normal use the moment `pnpm dev:tauri` stops. Never symlink
-    // one: fall back to the workspace's release binary, if it exists.
-    if exe.parent().is_some_and(|p| p.ends_with("debug")) {
-        if let Some(name) = exe.file_name() {
-            if let Some(release) = exe
-                .parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("release").join(name))
-            {
-                if release.exists() {
-                    return Ok(release);
-                }
-            }
-        }
-        return Err(
-            "Refusing to symlink a debug build (it loads the UI from the dev \
-             server). Build a release binary first: `pnpm tauri build`."
-                .to_string(),
-        );
-    }
-    Ok(exe)
+    std::env::current_exe().map_err(|e| format!("Failed to resolve executable path: {e}"))
 }
 
 /// Tauri command: current CLI symlink status for the Settings UI.
