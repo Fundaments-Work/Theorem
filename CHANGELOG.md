@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-09-07
+
+### Fixed
+
+- **Android TTS companion app visibility** ([#71](https://github.com/Fundaments-Work/Theorem/issues/71)) — Declared `<queries>` for `android.intent.action.TTS_SERVICE` in both the app manifest and the Android TTS plugin manifest, resolving Android 11+ package visibility restrictions and allowing Theorem to discover and select the Theorem Neural Voice companion engine (`work.fundamentals.theorem.neuralvoice`).
+- **Instant highlight creation and tap responsiveness** ([#72](https://github.com/Fundaments-Work/Theorem/issues/72)) — Synchronized `this.annotationLocations` during `addHighlight()`, `addAnnotation()`, and `removeHighlight()`. Tapping newly created highlights now hits the fast-path immediately (<16ms) without falling back to DOM traversals or swallowing tap events. Added 300ms event deduplication across `pointerup`, `touchend`, and `click`.
+- **CLI top-level help and version routing** — Fixed argument inspection in `maybe_dispatch` so running `theorem --help`, `theorem -h`, `theorem --version`, or `theorem -V` executes directly in the terminal instead of launching the GUI window.
+
+### Improved & Performance
+
+- **Bundle code-splitting & footprint** — Extracted `lucide-react` and `@sentry` into dedicated vendor chunks via `manualChunks`, reducing the main frontend bundle from 553 kB to 282 kB (~50% reduction) and eliminating Vite chunk size warnings.
+- **Dynamic import optimization** — Converted `html-to-image` in `ShareCardModal` to load dynamically on demand, removing the `[INEFFECTIVE_DYNAMIC_IMPORT]` bundler warning.
+
 ## [1.4.0] - 2026-09-07
 
 ### Added

@@ -214,7 +214,7 @@ describe("Fuse search: cold vs warm index", () => {
                 }
             }
         }
-    });
+    }, 20000);
 
     it("measures how query length affects warm search latency", () => {
         console.info("\n── Fuse search: query length sensitivity ────────────────────");

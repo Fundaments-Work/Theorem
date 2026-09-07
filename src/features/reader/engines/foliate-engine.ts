@@ -648,12 +648,26 @@ export class FoliateEngine {
                         g.appendChild(el);
                     }
                     
+                    let lastActivateTime = 0;
                     const activateHighlight = (e: Event) => {
+                        const now = Date.now();
+                        if (now - lastActivateTime < 300) {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            return;
+                        }
+                        lastActivateTime = now;
                         const sourceEvent = e as MouseEvent;
                         e.stopPropagation();
                         e.preventDefault();
                         
-                        const clickedAnnotation = this.annotationLocations.get(annotationValue) ?? null;
+                        let clickedAnnotation = this.annotationLocations.get(annotationValue) ?? null;
+                        if (!clickedAnnotation) {
+                            clickedAnnotation = Array.from(this.annotations.values()).find(a => a.location === annotationValue) ?? null;
+                            if (clickedAnnotation) {
+                                this.annotationLocations.set(annotationValue, clickedAnnotation);
+                            }
+                        }
                         
                         if (clickedAnnotation && this.options.onTextSelected) {
                             
@@ -695,8 +709,14 @@ export class FoliateEngine {
         this.view.addEventListener('show-annotation', (e: any) => {
             const { value, range } = e.detail;
             
-            let annotation = Array.from(this.annotations.values())
-                .find(a => a.location === value);
+            let annotation = this.annotationLocations.get(value);
+            if (!annotation) {
+                annotation = Array.from(this.annotations.values())
+                    .find(a => a.location === value);
+                if (annotation) {
+                    this.annotationLocations.set(value, annotation);
+                }
+            }
             
             if (!annotation && value) {
                 annotation = Array.from(this.annotations.values())
@@ -1340,6 +1360,7 @@ export class FoliateEngine {
         };
 
         this.annotations.set(annotation.id, annotation);
+        this.annotationLocations.set(annotation.location, annotation);
         
         try {
             await this.view?.addAnnotation?.({
@@ -1354,6 +1375,9 @@ export class FoliateEngine {
 
     async addAnnotation(annotation: Annotation): Promise<void> {
         this.annotations.set(annotation.id, annotation);
+        if (annotation.location) {
+            this.annotationLocations.set(annotation.location, annotation);
+        }
         
         if ((annotation.type === 'highlight' || annotation.type === 'note') && annotation.location) {
             try {
@@ -1367,12 +1391,18 @@ export class FoliateEngine {
     }
 
     async removeHighlight(id: string): Promise<void> {
-        const annotation = this.annotations.get(id);
+        let annotation = this.annotations.get(id);
+        if (!annotation) {
+            annotation = this.annotationLocations.get(id);
+        }
         if (!annotation) {
             return;
         }
         
-        this.annotations.delete(id);
+        this.annotations.delete(annotation.id);
+        if (annotation.location) {
+            this.annotationLocations.delete(annotation.location);
+        }
         
         try {
             if (this.view?.deleteAnnotation) {
@@ -2469,6 +2499,8 @@ export class FoliateEngine {
             this.view.remove?.();
             this.view = null;
         }
+        this.annotations.clear();
+        this.annotationLocations.clear();
         this.searchSectionCache = null;
         this.searchCacheBookRef = null;
         if (this.book) {

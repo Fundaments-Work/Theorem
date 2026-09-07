@@ -56,6 +56,9 @@ export default defineConfig(async () => ({
                 manualChunks(id: string) {
                     // Separate PDF.js into its own chunk for better caching
                     if (id.includes("pdfjs-dist")) return "pdfjs";
+                    // Separate icon library and error reporting to keep main app chunk lean
+                    if (id.includes("lucide-react")) return "lucide";
+                    if (id.includes("@sentry")) return "sentry";
                 },
             },
         },

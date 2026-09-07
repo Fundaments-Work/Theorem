@@ -380,6 +380,17 @@ const SUBCOMMANDS: &[&str] = &[
 ];
 
 pub fn maybe_dispatch(args: &[String]) -> Option<i32> {
+    if args.is_empty() {
+        return None;
+    }
+    // Top-level flags: `--help`, `-h`, `--version`, `-V` must stay in the CLI
+    // and print help/version text rather than launching the GUI window.
+    if args
+        .iter()
+        .any(|a| a == "--help" || a == "-h" || a == "--version" || a == "-V")
+    {
+        return Some(dispatch(args));
+    }
     // Find the first positional argument, skipping global flags (`--json`,
     // `--no-color` — none take values). That argument must be a known
     // subcommand; anything else (notably file paths handed to the GUI by the

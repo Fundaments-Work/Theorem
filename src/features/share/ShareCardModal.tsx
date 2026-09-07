@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { toBlob } from "html-to-image";
 import { Modal, ModalHeader, ModalBody, ModalFooter } from "../../ui";
 import { Download, Share2, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { downloadImage, shareImageNative, buildImageFilename, shareOnX, buildShareText } from "../../core/lib/share";
@@ -75,6 +74,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
         setIsGenerating(true);
         try {
             await document.fonts.ready;
+            const { toBlob } = await import("html-to-image");
             const blob = await toBlob(cardRef.current, {
                 quality: 0.95,
                 pixelRatio: 2,
