@@ -198,7 +198,7 @@ describe("Dictionary lookup performance", () => {
     });
 
 describe("Dictionary integration with real download", () => {
-    const DICT_URL = "https://github.com/sapienskid/wiktionary-stardict/releases/download/en-latest/dict-en-en.zip";
+    const DICT_URL = "https://github.com/fundaments-work/wiktionary-stardict/releases/download/en-latest/dict-en-en.zip";
 
     it("downloads, extracts and lookups return definitions for common words", async () => {
         let response: Response;

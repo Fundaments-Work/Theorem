@@ -2,7 +2,7 @@
 //!
 //! Nothing ships with the app: the fp32 ONNX models, voice styles, and (on
 //! desktop) the ONNX Runtime dylib are downloaded at first use from
-//! the `sapienskid/supertonic-assets` GitHub release (tag `v1`) and verified
+//! the `fundaments-work/supertonic-assets` GitHub release (tag `v1`) and verified
 //! against the pinned SHA-256 manifest below. Weights: Supertone/supertonic-3
 //! (OpenRAIL-M, shipped alongside as LICENSE). Android uses a companion TTS engine app instead
 //! (see the audiobook plan, section 0.3).
@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Asset bundle version tag in the supertonic-assets repo.
 const ASSETS_TAG: &str = "v1";
-const ASSETS_BASE: &str = "https://github.com/sapienskid/supertonic-assets/releases/download";
+const ASSETS_BASE: &str = "https://github.com/fundaments-work/supertonic-assets/releases/download";
 
 /// One downloadable asset. GitHub release assets are flat filenames, so
 /// `remote` carries no path separators; `dest` defines the on-disk layout.

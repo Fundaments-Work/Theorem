@@ -104,7 +104,7 @@ Android keeps the current platform voice.
 
 ### 0.5 Hosting checklist — DONE
 
-Published as [`sapienskid/supertonic-assets`](https://github.com/sapienskid/supertonic-assets)
+Published as [`fundaments-work/supertonic-assets`](https://github.com/fundaments-work/supertonic-assets)
 release `v1` (21 assets): fp32 ONNX models + configs and voice styles
 F1–M5 from `Supertone/supertonic-3`, per-OS ONNX Runtime 1.22.0 dylibs,
 the OpenRAIL-M `LICENSE`, and a `SHA256SUMS` file. All SHA-256s are pinned
@@ -139,7 +139,7 @@ the `ort` crate).
    audiopus/libopus (static vendored build, desktop-gated). Triggered from
    the reader's immersion bar for EPUBs; Android generation (via
    `synthesizeToFile`) deferred until the companion engine app ships —
-   the app now exists (sapienskid/supertonic-android, release
+   the app now exists (fundaments-work/supertonic-android, release
    v3.2.7-theorem.1), so this is the main open item (see
    2026-09-05-remaining-roadmap.md).
 

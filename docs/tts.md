@@ -37,7 +37,7 @@ API 26+) forwarded as `tts-utterance-range` events, and supports
 A full offline neural TTS engine using the Supertonic 3 multilingual model
 (31 languages, one shared model). **Nothing ships in the app** — the fp32
 ONNX models, voice style files, and the ONNX Runtime dylib are downloaded at
-first use (~400MB total) from the `sapienskid/supertonic-assets` GitHub
+first use (~400MB total) from the `fundaments-work/supertonic-assets` GitHub
 releases and verified against a SHA-256 manifest compiled into the app.
 
 - **Download layer** (`src-tauri/src/tts_model.rs`): streaming downloads to

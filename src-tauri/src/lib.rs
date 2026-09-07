@@ -1041,8 +1041,19 @@ fn cli_symlink_target_exe() -> Result<PathBuf, String> {
         std::env::current_exe().map_err(|e| format!("Failed to resolve executable path: {e}"))?;
     // Dev builds load the UI from the Vite dev server (localhost:1420) and
     // break for normal use the moment `pnpm dev:tauri` stops. Never symlink
-    // one: fall back to the workspace's release binary, if it exists.
+    // one: prefer the installed AppImage if present, or fall back to the workspace's
+    // release binary if it exists.
     if exe.parent().is_some_and(|p| p.ends_with("debug")) {
+        if let Ok(home) = std::env::var("HOME") {
+            let appimage = PathBuf::from(home)
+                .join(".local")
+                .join("lib")
+                .join("theorem")
+                .join("Theorem.AppImage");
+            if appimage.exists() {
+                return Ok(appimage);
+            }
+        }
         if let Some(name) = exe.file_name() {
             if let Some(release) = exe
                 .parent()
