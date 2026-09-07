@@ -118,8 +118,7 @@ jni = { version = "0.21", default-features = false, features = ["invocation"] }
 [profile.release]
 opt-level = "z"         # Aggressive size optimization (smaller than "s")
 strip = "symbols"       # Strip all symbols
-lto = true              # Enable Link Time Optimization
-codegen-units = 1       # Maximize optimization (takes longer to compile)
+lto = "thin"            # Fast parallel Thin LTO
 panic = "abort"         # Drop unwinding landing pads / .eh_frame tables (~3-4 MB on iroh/tokio)
 
 # Dev profile: keep debug builds fast

@@ -201,8 +201,19 @@ jobs:
         with:
           targets: x86_64-apple-darwin
 
-      - name: Install macOS build dependencies
-        run: brew install autoconf automake libtool
+      - name: Build static libopus for x86_64
+        run: |
+          git clone --depth 1 --branch v1.4 https://github.com/xiph/opus.git /tmp/opus-intel
+          cmake -S /tmp/opus-intel -B /tmp/opus-intel/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DOPUS_BUILD_TESTING=OFF \
+            -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build /tmp/opus-intel/build --config Release -j
+          mkdir -p /tmp/libopus-x86_64
+          cp /tmp/opus-intel/build/libopus.a /tmp/libopus-x86_64/
+          lipo -info /tmp/libopus-x86_64/libopus.a
 
       - name: Cache cargo
         uses: actions/cache@v5
@@ -249,6 +260,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          LIBOPUS_LIB_DIR: /tmp/libopus-x86_64
+          OPUS_LIB_DIR: /tmp/libopus-x86_64
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
@@ -265,6 +278,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "-"
+          LIBOPUS_LIB_DIR: /tmp/libopus-x86_64
+          OPUS_LIB_DIR: /tmp/libopus-x86_64
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
@@ -298,8 +313,19 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
-      - name: Install macOS build dependencies
-        run: brew install autoconf automake libtool
+      - name: Build static libopus for arm64
+        run: |
+          git clone --depth 1 --branch v1.4 https://github.com/xiph/opus.git /tmp/opus-arm
+          cmake -S /tmp/opus-arm -B /tmp/opus-arm/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DOPUS_BUILD_TESTING=OFF \
+            -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build /tmp/opus-arm/build --config Release -j
+          mkdir -p /tmp/libopus-arm64
+          cp /tmp/opus-arm/build/libopus.a /tmp/libopus-arm64/
+          lipo -info /tmp/libopus-arm64/libopus.a
 
       - name: Cache cargo
         uses: actions/cache@v5
@@ -346,6 +372,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          LIBOPUS_LIB_DIR: /tmp/libopus-arm64
+          OPUS_LIB_DIR: /tmp/libopus-arm64
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
@@ -362,6 +390,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "-"
+          LIBOPUS_LIB_DIR: /tmp/libopus-arm64
+          OPUS_LIB_DIR: /tmp/libopus-arm64
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
