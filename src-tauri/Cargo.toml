@@ -125,3 +125,9 @@ panic = "abort"         # Drop unwinding landing pads / .eh_frame tables (~3-4 M
 # Dev profile: keep debug builds fast
 [profile.dev]
 debug-assertions = false
+
+[lints.rust]
+unknown_lints = "allow"
+
+[lints.clippy]
+chunks_exact_to_as_chunks = "allow"

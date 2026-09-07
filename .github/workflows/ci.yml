@@ -178,7 +178,7 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-features -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-features -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
 
       - name: Check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-features

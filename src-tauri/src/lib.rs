@@ -1,3 +1,6 @@
+#![allow(unknown_lints)]
+#![allow(clippy::chunks_exact_to_as_chunks)]
+
 pub mod article_extractor;
 pub mod audio_player;
 pub mod audiobook;

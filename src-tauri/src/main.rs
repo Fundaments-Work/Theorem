@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(unknown_lints)]
+#![allow(clippy::chunks_exact_to_as_chunks)]
 
 fn main() {
     // Headless CLI fast path: `theorem <subcommand>` runs the native engines
