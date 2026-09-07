@@ -943,10 +943,15 @@ export class Paginator extends HTMLElement {
         }
 
         // Bail immediately if user has active text selection (highlight drag)
-        if (Date.now() < this.#selectionActiveUntil) return
         const sel = this.#view?.document?.getSelection?.()
-        if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        const hasSelection = (sel && !sel.isCollapsed && sel.toString().trim().length > 0)
+            || Date.now() < this.#selectionActiveUntil
+        if (hasSelection) {
             this.#selectionActiveUntil = Date.now() + 1500
+            if (this.#touchScrolled) {
+                this.#touchScrolled = false
+                this.#scrollToPage(this.page, 'snap')
+            }
             return
         }
 
@@ -955,20 +960,26 @@ export class Paginator extends HTMLElement {
         const dx = state.x - x, dy = state.y - y
         const dt = e.timeStamp - state.t
 
-        // Determine axis lock on first movement past 8px
+        // If finger was held for >180ms before moving, it is a long-press / text selection hold
+        if (!state.axis && dt > 180) {
+            state.axis = 'hold'
+            return
+        }
+        if (state.axis === 'hold') return
+
+        // Determine axis lock on intentional movement past 20px with horizontal dominance
         if (!state.axis) {
             const absDx = Math.abs(state.startX - x)
             const absDy = Math.abs(state.startY - y)
-            if (absDx > 8 || absDy > 8) {
-                state.axis = absDx > absDy ? 'h' : 'v'
+            if (absDx > 20 && absDx > absDy * 1.5) {
+                state.axis = 'h'
+            } else if (absDy > 20 && absDy > absDx * 1.5) {
+                state.axis = 'v'
             }
         }
 
-        // If scrolled mode or vertical axis gesture, don't intercept
-        if (this.scrolled || state.axis === 'v') return
-
-        // Only act on horizontal swipe
-        if (state.axis !== 'h') return
+        // If scrolled mode or non-horizontal gesture, don't intercept
+        if (this.scrolled || state.axis !== 'h') return
 
         e.preventDefault()
 
@@ -1001,20 +1012,29 @@ export class Paginator extends HTMLElement {
         this.#touchScrolled = true
     }
     #onTouchEnd() {
+        const wasScrolled = this.#touchScrolled
         this.#touchScrolled = false
         if (this.scrolled) return
         if (!this.#touchState) return
 
-        // Don't snap if user had an active text selection
-        if (Date.now() < this.#selectionActiveUntil) return
+        // If user had active text selection, restore page position if it was touched
         const sel = this.#view?.document?.getSelection?.()
-        if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
-            this.#selectionActiveUntil = Date.now() + 1500
+        const hasSelection = (sel && !sel.isCollapsed && sel.toString().trim().length > 0)
+            || Date.now() < this.#selectionActiveUntil
+        if (hasSelection) {
+            if (wasScrolled) {
+                this.#scrollToPage(this.page, 'snap')
+            }
             return
         }
 
-        // Only snap on horizontal swipes
-        if (this.#touchState.axis !== 'h') return
+        // If gesture was not a horizontal swipe, snap back to current page if scrolled
+        if (this.#touchState.axis !== 'h') {
+            if (wasScrolled) {
+                this.#scrollToPage(this.page, 'snap')
+            }
+            return
+        }
 
         requestAnimationFrame(() => {
             if (globalThis.visualViewport.scale !== 1) return

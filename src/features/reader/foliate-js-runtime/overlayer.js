@@ -38,7 +38,10 @@ export class Overlayer {
             obj.rects = rects
         }
     }
-    hitTest({ x, y }) {
+    hitTest(point) {
+        const x = point?.x ?? point?.clientX
+        const y = point?.y ?? point?.clientY
+        if (typeof x !== 'number' || typeof y !== 'number') return []
         const arr = Array.from(this.#map.entries())
         
         for (let i = arr.length - 1; i >= 0; i--) {

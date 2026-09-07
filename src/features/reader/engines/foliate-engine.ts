@@ -625,18 +625,13 @@ export class FoliateEngine {
             
             try {
                 
-                const annotationValue = annotation.value;
-                
                 draw((rects: DOMRectList) => {
                     const g = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
                     g.setAttribute('fill', color);
                     g.setAttribute('data-highlight', 'true');
                     g.style.opacity = '0.4';
                     g.style.mixBlendMode = 'multiply';
-                    
-                    g.style.pointerEvents = 'all';
-                    g.style.cursor = 'pointer';
-                    g.style.touchAction = 'manipulation';
+                    g.style.pointerEvents = 'none';
                     
                     for (const rect of rects) {
                         const el = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -647,58 +642,6 @@ export class FoliateEngine {
                         el.setAttribute('rx', '2');
                         g.appendChild(el);
                     }
-                    
-                    let lastActivateTime = 0;
-                    const activateHighlight = (e: Event) => {
-                        const now = Date.now();
-                        if (now - lastActivateTime < 300) {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            return;
-                        }
-                        lastActivateTime = now;
-                        const sourceEvent = e as MouseEvent;
-                        e.stopPropagation();
-                        e.preventDefault();
-                        
-                        let clickedAnnotation = this.annotationLocations.get(annotationValue) ?? null;
-                        if (!clickedAnnotation) {
-                            clickedAnnotation = Array.from(this.annotations.values()).find(a => a.location === annotationValue) ?? null;
-                            if (clickedAnnotation) {
-                                this.annotationLocations.set(annotationValue, clickedAnnotation);
-                            }
-                        }
-                        
-                        if (clickedAnnotation && this.options.onTextSelected) {
-                            
-                            const firstRect = rects[0];
-                            const frameElement = doc.defaultView?.frameElement;
-                            const frameRect = frameElement instanceof HTMLElement
-                                ? frameElement.getBoundingClientRect()
-                                : null;
-                            const frameOffsetX = frameRect?.left ?? 0;
-                            const frameOffsetY = frameRect?.top ?? 0;
-                            const syntheticEvent = new MouseEvent('click', {
-                                clientX: firstRect
-                                    ? frameOffsetX + firstRect.left + firstRect.width / 2
-                                    : frameOffsetX + sourceEvent.clientX,
-                                clientY: firstRect
-                                    ? frameOffsetY + firstRect.top
-                                    : frameOffsetY + sourceEvent.clientY,
-                                bubbles: true
-                            });
-                            
-                            this.options.onTextSelected(clickedAnnotation.location, clickedAnnotation.selectedText || '', syntheticEvent);
-                        }
-                    };
-
-                    g.addEventListener('click', activateHighlight);
-                    g.addEventListener('touchend', activateHighlight, { passive: false });
-                    g.addEventListener('pointerup', (event: PointerEvent) => {
-                        if (event.pointerType === 'touch' || event.pointerType === 'pen') {
-                            activateHighlight(event);
-                        }
-                    });
                     
                     return g;
                 }, annotation);
@@ -1996,12 +1939,6 @@ export class FoliateEngine {
             const SELECTION_INTERACTION_SUPPRESS_MS = 420;
             const TAP_MAX_DISTANCE = 12;
             const TAP_MAX_DURATION = 350;
-            const SWIPE_MIN_DISTANCE = 56;
-            const SWIPE_MAX_VERTICAL_DISTANCE = 80;
-            const SWIPE_MAX_DURATION = 650;
-            let touchStartX = 0;
-            let touchStartY = 0;
-            let touchStartAt = 0;
             let selectionCaptureTimeout: number | null = null;
             let lastSelectionCapturedAt = 0;
 
@@ -2139,90 +2076,11 @@ export class FoliateEngine {
             );
 
             win.addEventListener(
-                'touchstart',
-                (event: TouchEvent) => {
-                    if (event.touches.length !== 1) {
-                        touchStartAt = 0;
-                        return;
-                    }
-
-                    const touch = event.touches[0];
-                    touchStartX = touch.clientX;
-                    touchStartY = touch.clientY;
-                    touchStartAt = Date.now();
-                },
-                { capture: true, passive: true },
-            );
-
-            win.addEventListener(
-                'touchmove',
-                (event: TouchEvent) => {
-                    if (touchStartAt === 0 || event.touches.length !== 1) {
-                        return;
-                    }
-                },
-                { capture: true, passive: true },
-            );
-
-            win.addEventListener(
                 'touchend',
                 (event: TouchEvent) => {
-                    if (touchStartAt === 0 || event.changedTouches.length !== 1) {
-                        touchStartAt = 0;
-                        return;
-                    }
-                    const touch = event.changedTouches[0];
-                    const deltaX = touch.clientX - touchStartX;
-                    const deltaY = touch.clientY - touchStartY;
-                    const elapsed = Date.now() - touchStartAt;
-                    const absX = Math.abs(deltaX);
-                    const absY = Math.abs(deltaY);
-
-                    touchStartAt = 0;
-
                     scheduleSelectionCapture(event);
-
-                    if (this.flow === 'scroll') return;
-
-                    if (this.isInteractiveTapTarget(event.target)) return;
-
-                    if (event.target instanceof Element && event.target.closest('g[data-highlight]')) return;
-
-                    if (
-                        elapsed > SWIPE_MAX_DURATION
-                        || absX < SWIPE_MIN_DISTANCE
-                        || absX <= absY
-                        || absY > SWIPE_MAX_VERTICAL_DISTANCE
-                    ) {
-                        return;
-                    }
-
-                    event.preventDefault();
-                    
-                    window.setTimeout(() => {
-                        const shouldSuppressInteraction =
-                            Date.now() - lastSelectionCapturedAt < SELECTION_INTERACTION_SUPPRESS_MS;
-                        if (shouldSuppressInteraction) {
-                            return;
-                        }
-
-                        const selection = doc.getSelection();
-                        const hasSelection = Boolean(
-                            selection
-                            && !selection.isCollapsed
-                            && selection.toString().trim().length > 0,
-                        );
-                        if (hasSelection) {
-                            return;
-                        }
-                        if (deltaX > 0) {
-                            void this.prev();
-                        } else {
-                            void this.next();
-                        }
-                    }, SELECTION_CAPTURE_DELAY + 50);
                 },
-                { capture: true, passive: false },
+                { capture: true, passive: true },
             );
 
             doc.addEventListener('selectionchange', () => {

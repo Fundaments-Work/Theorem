@@ -1,6 +1,6 @@
 {
     "name": "theorem",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "description": "Local-first desktop reader for PDFs, EPUBs, MOBI, and RSS with neural TTS, highlights, vocabulary building, and Markdown export.",
     "private": true,
     "author": "Fundamentals",
