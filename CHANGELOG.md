@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-09-07
+
+### Fixed
+
+- **Settings panel hidden by bottom bar on mobile** — The `FloatingPanel` (used for reader settings, bookmarks, TOC, etc.) was rendered with `z-[var(--z-dropdown)]` (z-50) while the reader's bottom navigation bar uses `z-[140]`. On mobile, where the panel slides up as a full-width bottom sheet, the navbar was painting on top of it, cropping off the bottom portion. Raised `FloatingPanel` to `z-[150]` to ensure it always appears above the reader chrome.
+- **Touch highlight toolbar flash / selection glitch** — When dragging to extend a text selection on touch devices, `selectionchange` was firing continuously mid-drag, causing the `HighlightColorPicker` toolbar to appear and disappear repeatedly (visible flicker). The selection capture is now deferred: `touchstart` sets an `isTouchActive` flag and `selectionchange` only updates the navigation lock during an active touch gesture; the actual callback is processed exactly once on `touchend`. This eliminates the mid-drag toolbar flash. Based on the same deferred-popup pattern used by Readest.
+- **iOS native callout menu obscuring highlight toolbar** — Added `-webkit-touch-callout: none` to the reader iframe CSS. On iOS, this suppresses the system "Look Up / Copy / Share" bubble that appeared over Theorem's own `HighlightColorPicker` toolbar after text selection. Native selection handles and the magnifying loupe remain fully functional.
+
 ## [1.4.2] - 2026-09-07
 
 ### Fixed

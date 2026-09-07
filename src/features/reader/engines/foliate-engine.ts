@@ -989,6 +989,13 @@ export class FoliateEngine {
                         background: color-mix(in srgb, ${colors.fg} 20%, transparent) !important;
                         color: ${colors.fg} !important;
                     }
+
+                    /* Suppress iOS native callout menu so Theorem's toolbar
+                       is not obscured by the system Look Up / Copy / Share popup.
+                       Native selection handles and the magnifying loupe still work. */
+                    html, body {
+                        -webkit-touch-callout: none;
+                    }
                 }
             `;
             
@@ -1941,6 +1948,11 @@ export class FoliateEngine {
             const TAP_MAX_DURATION = 350;
             let selectionCaptureTimeout: number | null = null;
             let lastSelectionCapturedAt = 0;
+            // Track whether a touch gesture is active so the selection callback
+            // is deferred to touchend rather than fired on every selectionchange
+            // mid-drag (which caused the toolbar to flash while extending selection).
+            let isTouchActive = false;
+            let pendingTouchSelection = false;
 
             const getEventPoint = (event?: MouseEvent | PointerEvent | TouchEvent): { x: number; y: number } | null => {
                 if (!event) {
@@ -2076,18 +2088,49 @@ export class FoliateEngine {
             );
 
             win.addEventListener(
+                'touchstart',
+                () => {
+                    isTouchActive = true;
+                    pendingTouchSelection = false;
+                },
+                { capture: true, passive: true },
+            );
+
+            win.addEventListener(
                 'touchend',
                 (event: TouchEvent) => {
+                    isTouchActive = false;
+                    if (pendingTouchSelection) {
+                        // Touch is finishing — process the deferred selection exactly once
+                        // at gesture end rather than once per selectionchange event mid-drag.
+                        pendingTouchSelection = false;
+                    }
                     scheduleSelectionCapture(event);
                 },
                 { capture: true, passive: true },
             );
 
+            win.addEventListener(
+                'touchcancel',
+                () => {
+                    isTouchActive = false;
+                    pendingTouchSelection = false;
+                },
+                { capture: true, passive: true },
+            );
+
             doc.addEventListener('selectionchange', () => {
-                
                 const sel = doc.getSelection();
+                // Always maintain the nav lock while selection is non-empty.
                 if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
                     this.selectionNavLockUntil = Date.now() + 2000;
+                }
+                // While a touch gesture is active, defer the selection callback to
+                // touchend to prevent the toolbar from flashing during drag-to-select.
+                // Mouse/keyboard selections process immediately as before.
+                if (isTouchActive) {
+                    pendingTouchSelection = true;
+                    return;
                 }
                 scheduleSelectionCapture();
             }, true);

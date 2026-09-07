@@ -72,7 +72,7 @@ export function FloatingPanel({
             role="dialog"
             aria-modal="true"
             className={cn(
-                'fixed z-[var(--z-dropdown)] flex flex-col reader-sheet border-2',
+                'fixed z-[150] flex flex-col reader-sheet border-2',
                 
                 'left-0 right-0 bottom-0 max-h-[var(--layout-floating-panel-max-height)]',
                 
