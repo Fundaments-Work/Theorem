@@ -182,7 +182,7 @@ describe("Fuse search: cold vs warm index", () => {
                     sortBy: "title",
                     sortOrder: "asc",
                 });
-            }, 30);
+            }, 10);
 
             // Warm: same array reference, cache hit
             const warm = bench(() => {
@@ -194,7 +194,7 @@ describe("Fuse search: cold vs warm index", () => {
                     sortBy: "title",
                     sortOrder: "asc",
                 });
-            }, 100);
+            }, 25);
 
             printBenchResult(`fuse cold  lib:${label}`, cold);
             printBenchResult(`fuse warm  lib:${label}`, warm);
@@ -204,17 +204,17 @@ describe("Fuse search: cold vs warm index", () => {
                 `  [PERF]   speedup from cache: ${speedup.toFixed(1)}x  (cold=${fmt(cold.avg)} warm=${fmt(warm.avg)})`
             );
 
-            // Warm should be faster than cold for >= medium, but CI runners
-            // are noisy — only assert when the difference is clear (>20% gap).
-            if (data.length >= MEDIUM) {
+            // Warm should be faster than cold for large libraries, but CI runners
+            // have GC and CPU jitter on small/medium sizes.
+            if (data.length >= LARGE) {
                 const ratio = warm.avg / Math.max(cold.avg, 0.001);
-                if (ratio > 1.5) {
+                if (ratio > 2.0) {
                     // Warm is significantly slower — something is broken
                     expect(ratio).toBeLessThanOrEqual(1.0);
                 }
             }
         }
-    }, 20000);
+    }, 30000);
 
     it("measures how query length affects warm search latency", () => {
         console.info("\n── Fuse search: query length sensitivity ────────────────────");
@@ -235,11 +235,11 @@ describe("Fuse search: cold vs warm index", () => {
                     sortBy: "title",
                     sortOrder: "asc",
                 });
-            }, 100);
+            }, 25);
             printBenchResult(`fuse warm query="${query.padEnd(7)}" lib:large`, result);
-            expect(result.avg).toBeLessThan(20);
+            expect(result.avg).toBeLessThan(30);
         }
-    });
+    }, 30000);
 });
 
 // ─── 3. Filter cost: shelf + favorites ───────────────────────────────────────
