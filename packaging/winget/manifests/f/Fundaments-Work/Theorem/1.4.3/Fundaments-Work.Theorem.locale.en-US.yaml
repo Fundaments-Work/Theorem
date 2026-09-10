@@ -1,0 +1,34 @@
+PackageIdentifier: Fundaments-Work.Theorem
+PackageVersion: 1.4.3
+PackageLocale: en-US
+Publisher: Fundaments
+PublisherUrl: https://github.com/Fundaments-Work
+PublisherSupportUrl: https://github.com/Fundaments-Work/Theorem/issues
+Author: Fundaments
+PackageName: Theorem
+PackageUrl: https://github.com/Fundaments-Work/Theorem
+License: MIT
+LicenseUrl: https://github.com/Fundaments-Work/Theorem/blob/main/LICENSE
+Copyright: Copyright (c) Fundaments
+ShortDescription: Local-first EPUB, PDF, MOBI and RSS reader with highlights, TTS and Markdown export.
+Description: >-
+  Theorem is a free, open-source, local-first reading app for Windows, macOS,
+  Linux and Android. Read EPUB, PDF, MOBI, FB2, CBZ/CBR and RSS; highlight and
+  annotate with six colors; look up words offline; listen with text-to-speech or
+  a neural voice; and export everything to Markdown for Obsidian/Logseq. Sync
+  between devices over encrypted peer-to-peer LAN without a cloud account.
+Moniker: theorem
+Tags:
+  - ebook
+  - ebook-reader
+  - epub
+  - pdf
+  - mobi
+  - reader
+  - markdown
+  - obsidian
+  - text-to-speech
+  - local-first
+  - privacy
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
