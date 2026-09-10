@@ -1,7 +1,7 @@
 # Technical Design: Companion Audiobook & Immersion Player Integration
 
-**Document:** `docs/plans/2026-08-30-audiobook-companion-immersion-design.md`
-**Status:** Planned
+**Document:** `docs/plans/done/2026-08-30-audiobook-companion-immersion-design.md`
+**Status:** ✅ Implemented (shipped in v1.4.0 — see [audiobook.md](../../audiobook.md))
 **Target Milestone:** v1.4.0
 
 ---

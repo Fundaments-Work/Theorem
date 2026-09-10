@@ -1,6 +1,7 @@
 # Native Rust Performance Roadmap
 
-**Status**: One remaining item · closed items are listed at the bottom so
+**Status**: ✅ Mostly done — one item deliberately deferred (PDF pre-warming,
+pending a latency measurement). Closed items are listed at the bottom so
 they are not re-proposed without new evidence.
 
 ## 1. EPUB CFI Locator (`epubcfi.rs`) — ✅ done
