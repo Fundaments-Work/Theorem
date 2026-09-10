@@ -22,7 +22,6 @@ coverage
 
 # Rust / Tauri build artifacts
 target
-src-tauri/target
 
 # Cargo local configuration (machine-specific)
 .cargo/
@@ -95,16 +94,6 @@ __pycache__/
 .envrc
 .direnv/
 
-# PDFium integration documentation (temporary)
-ANNOTATIONS_IMPLEMENTATION.md
-PDF_ENCODING_SUMMARY.md
-PDF_IMAGE_ENCODING_GUIDE.md
-PDFIUM_IMPLEMENTATION_STATUS.md
-PDFIUM_INTEGRATION_GUIDE.md
-QUICK_FIX.md
-setup-pdfium.sh
-src/features/reader/foliate-js/vendor/pdfjs/
-
 # TTS model files (large binaries, not tracked in git)
 src-tauri/models/
 *.wav
@@ -112,7 +101,6 @@ src-tauri/models/
 # AppImage extraction artifacts
 *.AppImage
 squashfs-root/
-companion-app/
 
 # design-sync (Claude Design) — staged scripts, build output, machine state
 .ds-sync/
