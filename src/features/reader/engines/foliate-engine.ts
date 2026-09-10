@@ -97,6 +97,7 @@ export class FoliateEngine {
     private _lastCssSettingsKey = '';
     private _lastCssResult: string | null = null;
     private _lastTapNotifiedAt = 0;
+    private _lastAnnotationActivatedAt = 0;
 
     private unsubscribeFromStyles: (() => void) | null = null;
 
@@ -669,6 +670,10 @@ export class FoliateEngine {
             if (annotation) {
                 
                 if (this.options.onTextSelected) {
+                    // Mark this activation so the viewport-tap handler does not
+                    // immediately close the annotation/action popover that the
+                    // selection callback is about to open.
+                    this._lastAnnotationActivatedAt = Date.now();
                     if (range && typeof range.cloneRange === 'function') {
                         this.options.onTextSelected(annotation.location, annotation.selectedText || '', range.cloneRange());
                     } else {
@@ -1803,6 +1808,13 @@ export class FoliateEngine {
         if (!this.options.onViewportTap) {
             return;
         }
+        // A tap that just activated a highlight must not also toggle the
+        // viewport chrome / close the annotation popover it opened. The
+        // highlight overlay uses pointer-events:none, so event.target cannot
+        // tell us this; use the activation timestamp instead.
+        if (Date.now() - this._lastAnnotationActivatedAt < 420) {
+            return;
+        }
         if (this.isInteractiveTapTarget(target)) {
             return;
         }
@@ -2162,11 +2174,6 @@ export class FoliateEngine {
                     pointerDownAt = 0;
                     pointerMoved = false;
                     scheduleSelectionCapture(event);
-
-                    const pointerTarget = event.target;
-                    if (pointerTarget instanceof Element && pointerTarget.closest('g[data-highlight]')) {
-                        return;
-                    }
 
                     if (!isTap) {
                         return;

@@ -1742,14 +1742,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                 debug('[Reader] Matched annotation by exact CFI:', a.id);
                 return true;
             }
-            
-            if (a.location && cfi && (a.type === 'highlight' || a.type === 'note')) {
-                const isPrefixMatch = cfi.startsWith(a.location) || a.location.startsWith(cfi);
-                if (isPrefixMatch) {
-                    debug('[Reader] Matched annotation by partial CFI:', a.id, { cfi: cfi.substring(0, 40), stored: a.location.substring(0, 40) });
-                    return true;
-                }
-            }
+
+            // Note: do NOT match on prefix CFIs here. A new selection that
+            // merely overlaps an existing highlight (e.g. selecting a word
+            // inside it) must be treated as a fresh selection, not as an edit
+            // of the highlight — otherwise highlighted text cannot be selected.
+            // A genuine tap on a highlight is delivered as an exact CFI match
+            // above (see FoliateEngine's `show-annotation`).
             
             if (text && text.length > 3 && a.selectedText &&
                 a.type !== 'bookmark' &&

@@ -509,7 +509,40 @@ export class View extends HTMLElement {
     }
     #createOverlayer({ doc, index }) {
         const overlayer = new Overlayer()
+        // Distinguish a genuine tap on a highlight from a drag-select that
+        // happens to end over one. Without this, dragging a selection across
+        // highlighted text fires `click` and is mistaken for an annotation
+        // activation, which blocks selecting highlighted words.
+        let tapDownX = 0
+        let tapDownY = 0
+        let tapDownAt = 0
+        let tapMoved = false
+        const TAP_MAX_DISTANCE = 10
+        const TAP_MAX_DURATION = 400
+        const readPoint = e => e.changedTouches?.[0] ?? e.touches?.[0] ?? e
+        doc.addEventListener('pointerdown', e => {
+            if (e.button !== undefined && e.button !== 0) return
+            const p = readPoint(e)
+            tapDownX = p.clientX
+            tapDownY = p.clientY
+            tapDownAt = Date.now()
+            tapMoved = false
+        }, true)
+        doc.addEventListener('pointermove', e => {
+            if (!tapDownAt) return
+            const p = readPoint(e)
+            if (Math.hypot(p.clientX - tapDownX, p.clientY - tapDownY) > TAP_MAX_DISTANCE) {
+                tapMoved = true
+            }
+        }, true)
         doc.addEventListener('click', e => {
+            const selection = doc.getSelection()
+            // A live selection means the user was selecting, not tapping a
+            // highlight — let the selection pipeline handle it.
+            if (selection && !selection.isCollapsed && selection.toString().trim()) return
+            // Reject the tail end of a drag / long press.
+            if (tapMoved) return
+            if (tapDownAt && Date.now() - tapDownAt > TAP_MAX_DURATION) return
             const [value, range] = overlayer.hitTest(e)
             if (value && !value.startsWith(SEARCH_PREFIX)) {
                 this.#emit('show-annotation', { value, index, range })
