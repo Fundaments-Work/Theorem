@@ -1088,17 +1088,13 @@ export class Paginator extends HTMLElement {
     async #scrollTo(offset, reason, smooth) {
         const { size } = this
         const scrolled = this.scrolled
-        const animated = this.hasAttribute('animated')
         
         const cur = () => scrolled
             ? this.#container[this.scrollProp]
             : this.#pageOffset
-        // The CSS transform transition is the smooth default. It must be
-        // disabled only while the JS animation loop drives the movement,
-        // otherwise the two animations fight each other (stutter/over-run).
-        const apply = (x, animate = true) => scrolled
+        const apply = x => scrolled
             ? this.#container[this.scrollProp] = x
-            : this.#setViewPosition(x, animate)
+            : this.#setViewPosition(x)
         if (cur() === offset) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
@@ -1108,9 +1104,9 @@ export class Paginator extends HTMLElement {
         }
         
         if (scrolled && this.#vertical) offset = -offset
-        if ((reason === 'snap' || smooth) && animated) return animate(
+        if ((reason === 'snap' || smooth) && this.hasAttribute('animated')) return animate(
             cur(), offset, 300, easeOutQuad,
-            x => apply(x, false),
+            apply,
         ).then(() => {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
@@ -1320,38 +1316,20 @@ export class Paginator extends HTMLElement {
         return []
     }
     setStyles(styles) {
-        const previous = this.#styles
         this.#styles = styles
         const $$styles = this.#styleMap.get(this.#view?.document)
         if (!$$styles) return
         const [$beforeStyle, $style] = $$styles
-        let changed = false
         if (Array.isArray(styles)) {
             const [beforeStyle, style] = styles
-            if ($beforeStyle.textContent !== beforeStyle) {
-                $beforeStyle.textContent = beforeStyle
-                changed = true
-            }
-            if ($style.textContent !== style) {
-                $style.textContent = style
-                changed = true
-            }
-        } else if ($style.textContent !== styles) {
-            $style.textContent = styles
-            changed = true
-        }
+            $beforeStyle.textContent = beforeStyle
+            $style.textContent = style
+        } else $style.textContent = styles
 
-        // Only re-read the background / force a re-layout when the stylesheet
-        // actually changed (or on the very first application). The engine
-        // re-applies the cached styles on every page turn; without this guard
-        // each turn triggered a redundant background paint plus an iframe style
-        // recalc + expand() (forced layout) mid-animation, which caused visible
-        // page-turn glitching.
-        if (changed || previous === undefined) {
-            requestAnimationFrame(() =>
-                this.#background.style.background = getBackground(this.#view.document))
-            this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
-        }
+        requestAnimationFrame(() =>
+            this.#background.style.background = getBackground(this.#view.document))
+
+        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
     }
     focusView() {
         this.#view.document.defaultView.focus()
