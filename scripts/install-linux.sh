@@ -87,16 +87,12 @@ download_release() {
 
 # ── Distro detection ──
 detect_bundle() {
-    # pacman-based (Arch, Manjaro, EndeavourOS) — use AppImage
-    if command -v pacman >/dev/null 2>&1; then
-        printf "appimage\n"
-    # rpm-based (Fedora, RHEL, SUSE)
-    elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1 || command -v rpm >/dev/null 2>&1; then
-        printf "rpm\n"
     # deb-based (Debian, Ubuntu, Pop, Mint)
-    elif command -v apt >/dev/null 2>&1 || command -v dpkg >/dev/null 2>&1; then
+    if command -v apt >/dev/null 2>&1 || command -v dpkg >/dev/null 2>&1; then
         printf "deb\n"
     else
+        # AppImage runs on any distribution. Note: no .rpm is currently
+        # published, so rpm-based distros fall back to the AppImage.
         printf "appimage\n"
     fi
 }
@@ -193,9 +189,12 @@ If --version is omitted, auto-detects the latest release.
 
 Options:
     --version VERSION   Install a specific version (default: latest)
-    --bundle TYPE       Package format: deb, rpm, appimage (default: auto-detect)
+    --bundle TYPE       Package format: deb, appimage (default: auto-detect)
     --print-latest      Print the latest available version and exit
     -h, --help          Show this help
+
+Note: only .deb and .AppImage are published. rpm-based distros
+(Fedora, RHEL, SUSE) install the AppImage.
 EOF
     exit "${1:-0}"
 }
