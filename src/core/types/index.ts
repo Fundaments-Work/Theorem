@@ -421,6 +421,10 @@ export interface UIState {
     deviceSyncAt?: string;
     
     downloadingBookId?: string;
+
+    /** One-shot target for the reader: set when navigating to a bookmark or
+     *  annotation from a list, consumed by the reader when the book opens. */
+    pendingReaderLocation?: string;
     
     hasHydrated: boolean;
 }

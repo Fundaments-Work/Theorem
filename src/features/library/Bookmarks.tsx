@@ -112,6 +112,7 @@ export function BookmarksPage() {
     const books = useLibraryStore((state) => state.books);
     const removeAnnotation = useLibraryStore((state) => state.removeAnnotation);
     const setRoute = useUIStore((state) => state.setRoute);
+    const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
     const bookLookup = useMemo(
@@ -194,7 +195,8 @@ export function BookmarksPage() {
         }
     };
 
-    const handleGoToBookmark = (bookId: string, _location: string) => {
+    const handleGoToBookmark = (bookId: string, location: string) => {
+        setPendingReaderLocation(location);
         setRoute("reader", bookId);
     };
 

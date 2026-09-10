@@ -681,8 +681,15 @@ const BookReaderPage = memo(function BookReaderPage() {
             setToc([]);
             setLocation(null);
             setIsBookReady(false);
+            // A one-shot target set when opening a bookmark/annotation from a
+            // list. Consume it so we land on the exact location instead of the
+            // book's last-read position.
+            const pendingLocation = useUIStore.getState().pendingReaderLocation;
+            if (pendingLocation) {
+                useUIStore.getState().setPendingReaderLocation(undefined);
+            }
             if (book.format === 'pdf') {
-                const fallbackPage = resolvePdfTargetPage(book.currentLocation || '') ?? 1;
+                const fallbackPage = resolvePdfTargetPage(pendingLocation || book.currentLocation || '') ?? 1;
                 const savedPdfState = book.pdfViewState;
                 const nextInitialPage = Math.max(
                     1,
@@ -712,7 +719,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 resumeTargetRef.current = null;
                 hasAppliedInitialLocationRef.current = true;
             } else {
-                const nextLocation = normalizeInitialReaderLocation(book.currentLocation);
+                const nextLocation = normalizeInitialReaderLocation(pendingLocation || book.currentLocation);
                 setInitialLocation(nextLocation);
                 
                 const progressFallback = book.progress !== undefined && book.progress < 0.95 ? book.progress : undefined;

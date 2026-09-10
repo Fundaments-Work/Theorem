@@ -97,7 +97,7 @@ interface AnnotationCardProps {
     shareId: string | null;
     onDelete: (id: string) => void;
     onEdit: (id: string) => void;
-    onGoToBook: (bookId: string) => void;
+    onGoToBook: (bookId: string, location?: string) => void;
     onShare: (id: string | null) => void;
 }
 
@@ -229,6 +229,7 @@ export function AnnotationsPage() {
     const updateAnnotation = useLibraryStore((state) => state.updateAnnotation);
     const currentBookId = useUIStore((state) => state.currentBookId);
     const setRoute = useUIStore((state) => state.setRoute);
+    const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const vocabularyTerms = useVocabularyStore((state) => state.vocabularyTerms);
     const deleteVocabularyTerm = useVocabularyStore((state) => state.deleteVocabularyTerm);
@@ -465,7 +466,8 @@ export function AnnotationsPage() {
         }
     };
 
-    const handleGoToBook = (bookId: string) => {
+    const handleGoToBook = (bookId: string, location?: string) => {
+        if (location) setPendingReaderLocation(location);
         setRoute("reader", bookId);
     };
 
@@ -798,7 +800,7 @@ export function AnnotationsPage() {
                                                     <span className="hidden sm:inline">Edit</span>
                                                 </button>
                                                 <button
-                                                    onClick={() => handleGoToBook(ann.bookId)}
+                                                    onClick={() => handleGoToBook(ann.bookId, ann.location)}
                                                     className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider transition-colors touch-manipulation"
                                                     aria-label="Open book"
                                                 >

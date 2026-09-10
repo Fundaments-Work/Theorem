@@ -1083,7 +1083,9 @@ export class Paginator extends HTMLElement {
             return this.#scrollTo(offset, reason)
         }
         const offset = this.#getRectMapper()(rect).left
-        return this.#scrollToPage(Math.floor(offset / this.size) + (this.#rtl ? -1 : 1), reason)
+        const rawPage = Math.floor(offset / (this.size || 1)) + (this.#rtl ? -1 : 1)
+        const targetPage = Math.max(1, rawPage)
+        return this.#scrollToPage(targetPage, reason)
     }
     async #scrollTo(offset, reason, smooth) {
         const { size } = this
@@ -1126,27 +1128,39 @@ export class Paginator extends HTMLElement {
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
         this.#anchor = anchor
-        const rects = uncollapse(anchor)?.getClientRects?.()
+        const resolvedAnchor = typeof anchor === 'function' && this.#view?.document
+            ? anchor(this.#view.document)
+            : anchor
+        const rects = uncollapse(resolvedAnchor)?.getClientRects?.()
         // if anchor is an element or a range
         if (rects) {
             // when the start of the range is immediately after a hyphen in the
             // previous column, there is an extra zero width rect in that column
             const rect = Array.from(rects)
                 .find(r => r.width > 0 && r.height > 0) || rects[0]
-            if (!rect) return
-            await this.#scrollToRect(rect, reason)
-            return
+            if (rect) {
+                await this.#scrollToRect(rect, reason)
+                return
+            }
+            // No measurable rect (freshly loaded section / collapsed range):
+            // fall through to the fraction path instead of returning early,
+            // which left the view unpositioned and showed a blank page.
         }
         // if anchor is a fraction
         if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason)
+            const numAnchor = typeof resolvedAnchor === 'number' ? resolvedAnchor : 0
+            await this.#scrollTo(numAnchor * this.viewSize, reason)
             return
         }
         const { pages } = this
-        if (!pages) return
+        const numAnchor = typeof resolvedAnchor === 'number' ? resolvedAnchor : 0
+        if (!pages || pages < 3) {
+            await this.#scrollToPage(1, reason)
+            return
+        }
         const textPages = pages - 2
-        const newPage = Math.round(anchor * (textPages - 1))
-        await this.#scrollToPage(newPage + 1, reason)
+        const newPage = textPages > 1 ? Math.round(numAnchor * (textPages - 1)) : 0
+        await this.#scrollToPage(Math.max(1, Math.min(newPage + 1, pages - 2)), reason)
     }
     #getVisibleRange() {
         if (this.scrolled) return getVisibleRange(this.#view.document,
