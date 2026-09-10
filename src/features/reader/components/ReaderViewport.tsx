@@ -658,7 +658,11 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
                 style={{ 
                     touchAction: settings.flow === 'scroll' ? 'pan-y pinch-zoom' : 'manipulation',
                     overflow: settings.flow === 'scroll' ? 'auto' : 'hidden',
-                    filter: `brightness(${settings.brightness}%)`,
+                    // Only apply a filter when it changes anything: an identity
+                    // filter (brightness 100%) still forces the whole iframe
+                    // subtree through a filtered compositing layer, which
+                    // flickers during page-turn transform animations on WebKitGTK.
+                    filter: settings.brightness !== 100 ? `brightness(${settings.brightness}%)` : undefined,
                 }}
             />
             
