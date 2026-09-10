@@ -103,6 +103,32 @@ jobs:
               Path('release_notes.md').write_text('Release notes for ' + '$VERSION')
           "
 
+      - name: Append download & install instructions
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version-display.outputs.VERSION }}"
+          TAG="${{ steps.resolve-tag.outputs.tag }}"
+          BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          cat >> release_notes.md <<EOF
+
+          ---
+
+          ## Download & install
+
+          | Platform | Download |
+          |----------|----------|
+          | Windows (x64) | [\`Theorem_${VERSION}_x64-setup.exe\`](${BASE}/Theorem_${VERSION}_x64-setup.exe) |
+          | macOS (Apple Silicon) | [\`Theorem_${VERSION}_aarch64.dmg\`](${BASE}/Theorem_${VERSION}_aarch64.dmg) |
+          | macOS (Intel) | [\`Theorem_${VERSION}_x64.dmg\`](${BASE}/Theorem_${VERSION}_x64.dmg) |
+          | Linux (Debian/Ubuntu) | [\`Theorem_${VERSION}_amd64.deb\`](${BASE}/Theorem_${VERSION}_amd64.deb) |
+          | Linux (any) | [\`Theorem_${VERSION}_amd64.AppImage\`](${BASE}/Theorem_${VERSION}_amd64.AppImage) |
+          | Android (arm64) | [\`app-arm64-release.apk\`](${BASE}/app-arm64-release.apk) |
+
+          **Linux one-liner:** \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install-linux.sh | bash\`
+
+          > Desktop builds **auto-update** in place (Settings → About → Check for Updates). Android updates are manual unless installed via F-Droid.
+          EOF
+
       - name: Create or Update Release
         id: create-release
         uses: softprops/action-gh-release@v3
