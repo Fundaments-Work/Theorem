@@ -1093,13 +1093,12 @@ export class Paginator extends HTMLElement {
         const cur = () => scrolled
             ? this.#container[this.scrollProp]
             : this.#pageOffset
-        // When the JS animation loop drives the movement, disable the CSS
-        // transform transition so the two animations do not fight each other
-        // (which stuttered and over-ran). When animations are off, keep the
-        // CSS transition so page turns stay smooth.
-        const apply = x => scrolled
+        // The CSS transform transition is the smooth default. It must be
+        // disabled only while the JS animation loop drives the movement,
+        // otherwise the two animations fight each other (stutter/over-run).
+        const apply = (x, animate = true) => scrolled
             ? this.#container[this.scrollProp] = x
-            : this.#setViewPosition(x, !animated)
+            : this.#setViewPosition(x, animate)
         if (cur() === offset) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
@@ -1111,7 +1110,7 @@ export class Paginator extends HTMLElement {
         if (scrolled && this.#vertical) offset = -offset
         if ((reason === 'snap' || smooth) && animated) return animate(
             cur(), offset, 300, easeOutQuad,
-            apply,
+            x => apply(x, false),
         ).then(() => {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
