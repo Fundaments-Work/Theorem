@@ -321,7 +321,7 @@ pub async fn tts_model_download_asset(
     drop(file);
 
     if !asset.sha256.is_empty() {
-        let digest = format!("{:x}", hasher.finalize());
+        let digest = hex::encode(hasher.finalize());
         if digest != asset.sha256.to_ascii_lowercase() {
             let _ = std::fs::remove_file(&tmp_dest);
             return Err(format!(
