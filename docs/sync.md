@@ -7,7 +7,7 @@ Theorem syncs books, annotations, settings, vocabulary, and RSS data between dev
 - **iroh-docs** provides CRDT-based document sync — both sides can write concurrently, and the documents converge to the same state. This is essential for a local-first app where both devices may modify the same book's metadata while offline.
 - **iroh-gossip** propagates presence and sync events between connected peers. Each paired device's doc joins a gossip mesh — when one peer syncs, data propagates to all mesh members automatically.
 - **iroh-blobs** is used internally by iroh-docs for CRDT entry content. (Book files use a separate custom QUIC protocol, not iroh-blobs.)
-- **iroh-mdns** discovers peers on the same LAN without configuration.
+- **iroh-mdns-address-lookup** discovers peers on the same LAN without configuration.
 
 Sync is always compiled (no feature gate). It's a core product feature.
 
@@ -139,7 +139,7 @@ The `FileTransferHandler` struct (in `file_transfer.rs`) implements `iroh::proto
 3. Falls back to reading from SQLite `books` table if not in `book-cache` (locally-imported books)
 4. Responds with `OK {size}\n{data}` or `ERR {msg}\n`
 
-Cover images use `cover:{bookId}` prefix — read from SQLite `blob_store` table.
+Cover images travel as `data:` URLs inside the synced book metadata (downsampled to ≤200×300 webp), not through the file-transfer protocol.
 
 ### Requesting (`download_book_file`)
 
@@ -151,7 +151,7 @@ On the requesting device:
 5. Emits `download-progress` Tauri events as percentage changes (throttled to ~100 events max)
 6. On success: marks `syncedWithoutFile: false`, updates `filePath`/`storagePath`
 
-The `request_book_file` command (returns data through IPC) is kept only for small payloads like cover images.
+The `request_book_file` command (returns data through IPC) exists but has no callers; all real downloads use `download_book_file`.
 
 ### Progress UI
 

@@ -45,7 +45,7 @@ Key architectural decisions:
 - `main` is the stable release branch. All PRs target `main`.
 - Feature branches use `feature/` prefix (e.g., `feature/dark-mode-toggle`)
 - Bug fix branches use `fix/` prefix (e.g., `fix/reader-crash-on-mobile`)
-- Release branches use `release/` prefix (e.g., `release/1.0.8`)
+- Release branches use `release/` prefix (e.g., `release/1.4.3`)
 
 ### Code Style
 
@@ -111,23 +111,25 @@ Releases are automated via GitHub Actions. A maintainer:
 
 1. Bumps version in `package.json`, `Cargo.toml`, `tauri.conf.json`, and `theorem-sync-core/Cargo.toml`
 2. Updates `CHANGELOG.md`
-3. Registers icons from `theorem.svg`
+3. Registers icons from `public/favicon.svg`
 4. Tags `v<version>` and pushes — CI builds all targets and publishes
 
 The full procedure is documented in [AGENTS.md](./AGENTS.md) under the Release section.
 
 ## TTS / Immersion Reading Development
 
-The text-to-speech system uses the platform's native TTS engine — no external models or cloud APIs:
+The text-to-speech system has two narration paths:
 
-- **Android**: Custom `tauri-plugin-android-tts-audio` plugin using Android's built-in `TextToSpeech` engine
-- **Linux**: `spd-say` via speech-dispatcher (`tts_linux.rs`)
-- **macOS**: `say` shell command
-- **Windows**: PowerShell `System.Speech` API
-- **Frontend** (`src/features/reader/audio/ImmersionPlayer.ts`) — orchestration, voice selection, per-word highlighting
-- **UI** (`src/features/reader/audio/ImmersionBar.tsx`) — floating playback controls
+- **Platform TTS (always available)** — no external models or cloud APIs:
+  - **Android**: Custom `tauri-plugin-android-tts-audio` plugin using Android's built-in `TextToSpeech` engine
+  - **Linux**: `spd-say` via speech-dispatcher (`tts_linux.rs`)
+  - **macOS**: `say` shell command
+  - **Windows**: PowerShell `System.Speech` API
+- **Neural Voice (optional, desktop)** — Supertonic 3 fp32 ONNX models downloaded on demand and SHA-256-verified (`tts_model.rs`, `supertonic.rs`), played natively in Rust (`audio_player.rs`). On Android, neural narration comes from the installable Theorem Neural Voice companion TTS engine.
+- **Frontend** (`src/features/reader/audio/ImmersionPlayer.ts`) — orchestration and voice selection.
+- **UI** — the reader navbar's immersion row (`src/features/reader/components/progress/ReaderNavbar.tsx`); there is no separate `ImmersionBar` component.
 
-No model download or cloud dependency required. Voices available depend on the user's system TTS configuration.
+Platform voices available depend on the user's system TTS configuration.
 
 ## Testing
 

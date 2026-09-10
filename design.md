@@ -2,6 +2,12 @@
 
 v1.0 · fundaments.work · 2026
 
+> **Note**: This is the original brand/design-language spec. The shipped
+> implementation is defined by `src/core/styles/design-tokens.css`
+> (`--color-*`, `--font-*`, `--duration-*` tokens and `.ui-btn*` classes) and
+> documented in `.design-sync/conventions.md`. Where the two differ, the code
+> is authoritative; the concrete token/class names below are aligned with it.
+
 ## Concept
 
 The mark is a constructed turnstile (⊢) — the logical notation for "derives" or "therefore." It is never the literal Unicode ⊢ character; it's always built from two rectangles per the anatomy spec below, so it renders identically across every platform, weight, and rasterizer.
@@ -28,23 +34,13 @@ A theorem is a statement derived from axioms through valid steps. The symbol tha
 | Inline (buttons, lists) | 20px |
 | Minimum (favicon, dense UI) | 14px |
 
-### Construction (CSS)
+### Construction (SVG)
 
-```css
-.mark {
-  position: relative;
-  width: 32px;
-  height: 32px;
-}
-.mark::before,
-.mark::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  background: var(--ink);
-}
-.mark::before { width: 4px;  height: 32px; top: 0; }   /* vertical bar */
-.mark::after  { width: 20px; height: 4px;  top: 14px; } /* midbar, 44% from top */
+The mark is authored as inline SVG (`theorem.svg`, `public/favicon.svg`) and rendered in `src/ui/TheoremBookCover.tsx`. There is no `.mark` CSS class in the codebase; the values below describe the SVG geometry.
+
+```text
+Vertical bar:   ~12.5% of mark height
+Midbar:         same weight as the vertical bar, 44% from top, 62% of total width
 ```
 
 ### Never
@@ -55,7 +51,7 @@ A theorem is a statement derived from axioms through valid steps. The symbol tha
 
 ## Lockups
 
-- **Horizontal** — mark + "Theorem" (DM Sans 300) + "fundaments.work" credit beneath, in DM Mono, smaller and muted.
+- **Horizontal** — mark + "Theorem" + "fundaments.work" credit beneath, in the mono stack, smaller and muted.
 - **Stacked** — mark above, wordmark + credit below, left-aligned.
 - **Reversed** — same lockup with ink/paper swapped, for dark surfaces (splash screen, dock icon background).
 
@@ -67,33 +63,40 @@ A theorem is a statement derived from axioms through valid steps. The symbol tha
 
 | Token | Hex | Use |
 |---|---|---|
-| `--ink` | `#0a0a0a` | primary text, mark fill |
-| `--ink-60` | `#666666` | secondary text, captions |
-| `--ink-30` | `#b8b8b8` | tertiary text, disabled states |
-| `--ink-10` | `#e8e8e8` | borders, dividers |
-| `--paper-2` | `#f2f1ee` | secondary surface, hover background |
-| `--paper` | `#fafaf8` | primary background |
+| `--color-text-primary` | `#1a1a1a` | primary text, mark fill |
+| `--color-text-secondary` | `#666666` | secondary text, captions |
+| `--color-text-muted` | `#666666` | tertiary text, disabled states |
+| `--color-border` | `#e5e5e5` | borders, dividers |
+| `--color-surface-muted` | `#fafafa` | secondary surface, hover background |
+| `--color-surface` | `#ffffff` | primary background |
 
-### Accent — reading state only
+### Accent
 
-| Token | Hex | Use |
+| Token | Default | Use |
 |---|---|---|
-| `--stone` | `#c8b89a` | reading-progress fill, highlights, current-chapter marker |
+| `--color-accent` | `#1a1a1a` | interactive emphasis; user-selectable (8 presets) |
+| `--color-accent-hover` | `#000000` | hover state |
+| `--color-accent-contrast` | `#ffffff` | text on accent surfaces |
 
-The accent is reserved **exclusively** for reading-state feedback. It never appears in navigation, buttons, or structural chrome. If everything is accented, nothing signals state.
+Reading surfaces use the separate `--reader-*` tokens (`--reader-bg`, `--reader-fg`, `--reader-link`), which change per reader theme.
 
 ## Typography
 
-Font stack: **DM Sans** (UI, body) + **DM Mono** (metadata, labels, code). Two weights only — 300 and 400 in each family. No 500, 600, or 700; weight contrast comes from size and color, never boldness.
+Font stack (`--font-*` tokens in `src/core/styles/design-tokens.css`):
+- `--font-sans`: Helvetica Neue → Helvetica → Arial → sans-serif
+- `--font-serif`: EB Garamond → Lora → Georgia → serif
+- `--font-mono`: SF Mono → Cascadia Code → JetBrains Mono → Consolas → monospace
+
+Weight contrast comes from size and color, not boldness.
 
 | Style | Font / weight | Size | Letter-spacing | Use |
 |---|---|---|---|---|
-| Display | DM Sans 300 | 32px | −3% | Marketing headlines |
-| Headline | DM Sans 300 | 20px | −2% | Section headers |
-| Body | DM Sans 400 | 14px | −1% | Reading UI, descriptions |
-| Caption | DM Sans 300 | 12px | 0% | Secondary descriptions |
-| Label | DM Mono 400 | 11px | +8%, uppercase | Format tags, metadata |
-| Micro | DM Mono 300 | 10px | +4% | Version strings, timestamps |
+| Display | Sans 300 | 32px | −3% | Marketing headlines |
+| Headline | Sans 300 | 20px | −2% | Section headers |
+| Body | Sans 400 | 14px | −1% | Reading UI, descriptions |
+| Caption | Sans 300 | 12px | 0% | Secondary descriptions |
+| Label | Mono 400 | 11px | +8%, uppercase | Format tags, metadata |
+| Micro | Mono 300 | 10px | +4% | Version strings, timestamps |
 
 ## Spacing
 
@@ -108,37 +111,28 @@ Base unit: **4px**. All spacing is a multiple of 4 — `4, 8, 12, 16, 24, 32, 48
 
 ### Buttons
 
-```css
-.btn-primary { background: var(--ink); color: var(--paper); border: none; padding: 8px 16px; border-radius: 0; }
-.btn-ghost   { background: transparent; color: var(--ink); border: 0.5px solid var(--ink); border-radius: 0; }
-.btn-muted   { background: var(--paper-2); color: var(--ink-60); border: none; border-radius: 0; }
-```
+The kit ships `.ui-btn` (base), `.ui-btn-primary`, `.ui-btn-ghost`, and `.ui-btn-danger`. All use square corners (`--radius-*` tokens are `0`). Primary buttons use `--color-accent`; ghost/danger use transparent backgrounds with a hairline border.
 
-No rounded corners anywhere, on any element.
+No rounded corners on UI chrome, cards, or controls.
 
 ### Reading progress
 
-```css
-.progress-track { height: 2px; background: var(--ink-10); width: 100%; }
-.progress-fill  { height: 2px; background: var(--stone); }
-```
-
-This is the only place the accent color appears in the interface.
+Progress is rendered with the reader's `--reader-*` / `--color-accent` tokens. There are no `.progress-track` / `.progress-fill` utility classes.
 
 ### Tags
 
-DM Mono, 10px. Used for format (`epub` / `pdf`), status (`reading` / `finished`), and version metadata. Only the `reading` status tag may use the stone accent as an outline; all others stay neutral.
+Mono, 10px. Used for format (`epub` / `pdf`), status (`reading` / `finished`), and version metadata. Status tags use `--color-accent` as an outline; all others stay neutral.
 
 ### Library list item
 
-Cover placeholder (monochrome rect with monogram initials if no cover art) + title (DM Sans 400) + author (DM Mono, muted, uppercase) + inline progress bar + status tag.
+Cover placeholder (monochrome rect with monogram initials if no cover art) + title (sans 400) + author (mono, muted, uppercase) + inline progress bar + status tag.
 
 ## Motion
 
 | | |
 |---|---|
-| Durations | 80ms micro · 160ms standard · 240ms page · 400ms reveal — never exceed 400ms |
-| Easing | Enter `cubic-bezier(.2,0,0,1)` · Exit `cubic-bezier(.4,0,1,1)` — no bounce, no spring |
+| Durations | `--duration-fast: 150ms` · `--duration-normal: 220ms` · `--duration-slow: 320ms` |
+| Easing | `cubic-bezier(0.22, 1, 0.36, 1)` (`--transition-fast` / `--transition-normal` / `--transition-slow`) — no bounce, no spring |
 | Principle | Motion confirms a reading-state change (page turned, book opened, progress updated). It never decorates. |
 
 ## Icon contexts
@@ -154,17 +148,16 @@ Cover placeholder (monochrome rect with monogram initials if no cover art) + tit
 
 **Do**
 - Use the mark alone wherever space is tight (favicon, dock icon, tab)
-- Use DM Mono for every piece of metadata — page count, file format, file size, progress percentage
-- Reserve the stone accent strictly for reading-state feedback
+- Use the mono stack for every piece of metadata — page count, file format, file size, progress percentage
+- Use `--color-accent` for interactive emphasis
 - Keep "Theorem" at weight 300 everywhere
 - Maintain 1× mark-height clear space around the mark
 
 **Don't**
 - Rotate, skew, or outline the mark
-- Introduce a second accent color
 - Bold the wordmark for emphasis — use size, not weight
 - Place the mark on a photographic or patterned background
-- Round any corner, anywhere
+- Round corners on UI chrome, cards, or controls
 
 ---
 

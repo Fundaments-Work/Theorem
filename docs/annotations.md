@@ -46,7 +46,7 @@ Bidirectional sync:
 
 ## Cross-Book Annotations
 
-The `AnnotationsPage` (`src/features/library/Annotations.tsx`) aggregates all annotations across all books. It groups by book and provides filtering by type, color, and book.
+The `AnnotationsPage` (`src/features/library/Annotations.tsx`) aggregates all annotations across all books. It groups by book and filters by type (highlights / notes / vocabulary), with sort options newest / oldest / book.
 
 ## Markdown Export
 
@@ -55,7 +55,8 @@ Annotations are exported to Markdown via `vault-sync.ts`:
 - Highlights are rendered as `<mark>` elements with the highlight color mapped to a CSS variable
 - Block quotes contain the highlighted text
 - Notes are attached below their parent highlight
-- Bookmarks become headings in the per-book page
+
+Only highlights and notes are exported; bookmarks are not written to the Markdown pages.
 
 ## Storage Details
 
@@ -77,8 +78,8 @@ The `annotation_json` column stores the full annotation object because the annot
 
 | Aspect | Foliate (non-PDF) | PDF.js (PDF) |
 |--------|-------------------|--------------|
-| Highlight placement | CSS background-color on text nodes in iframe | Canvas overlay with SVG rects |
+| Highlight placement | SVG rects in an overlay layer above the iframe | Absolutely-positioned HTML `<div>` overlay |
 | Location format | EPUB CFI | Page number + rect coordinates |
-| Drawing/underline | Not supported | Supported via SVG path data |
+| Drawing/underline | Not supported | Pen drawing supported (SVG); underline not supported |
 | Text selection | Provided by browser in iframe | Custom text layer overlay |
 | Re-rendering on reload | Foliate auto-renders from CFI data | Rect data deserialized and re-drawn |

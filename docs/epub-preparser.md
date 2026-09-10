@@ -8,7 +8,7 @@ Opening an EPUB in JavaScript normally requires:
 3. Parsing XML manifests and spine reading order
 4. Inflating CSS stylesheets and the first chapter XHTML in JavaScript workers
 
-The Tauri backend (`src-tauri/src/epub_parser.rs`) performs all metadata extraction, CSS stylesheet decompression, and initial chapter pre-inflation in parallel native worker threads. When the reader UI mounts, page 1 and all styles are already present in memory, rendering **instantly in < 50ms**.
+The Tauri backend (`src-tauri/src/epub_parser.rs`) performs all metadata extraction, CSS stylesheet decompression, and initial chapter pre-inflation in parallel native worker threads. When the reader UI mounts, page 1 and all styles are already present in memory, rendering in tens of milliseconds (see benchmarks below).
 
 ## How It Works
 
@@ -28,7 +28,10 @@ JS (makeZipLoader)                         Rust (prefetch_zip_metadata)
   │    opf: "xml...",                           │
   │    opf_path: "OPS/content.opf",             │
   │    nav: "html...",                          │
+  │    nav_path: "OPS/nav.xhtml",               │
   │    ncx: "xml...",                           │
+  │    ncx_path: "OPS/toc.ncx",                 │
+  │    encryption: "xml...",                    │
   │    sections: {                              │
   │      "OPS/style.css": "body { ... }",       │
   │      "OPS/ch01.xhtml": "<html>...</html>",  │
@@ -37,7 +40,7 @@ JS (makeZipLoader)                         Rust (prefetch_zip_metadata)
   │    sizes: { "OPS/ch01.xhtml": 12345, ... }  │
   │  }                                          │
   │                                             │
-  ├─ Page 1 Render → 100% served from memory (< 50ms, zero zip.js inflate)
+  ├─ Page 1 Render → 100% served from memory (zero zip.js inflate)
   │
   └─ Later sections (ch 6+) → loaded lazily on demand via cached ZIP index
 ```
@@ -63,7 +66,8 @@ The `ZipPrefetch` struct is shared between 3 files. When changing it, all 3 must
 
 ## Benchmarks & Performance
 
-Tested directly against real user libraries on Linux:
-- **96 MB EPUB**: Parsed & pre-inflated initial 6 chapters in **52.59 ms**.
-- **69 MB EPUB**: Parsed & pre-inflated initial 8 chapters in **20.80 ms**.
-- **56 MB EPUB**: Parsed & pre-inflated initial 7 chapters in **24.51 ms**.
+Tested directly against real user libraries on Linux. The figures below count pre-inflated **sections** (chapters plus CSS/nav documents); the parser caps pre-inflated chapters at the first 5:
+
+- **96 MB EPUB**: Parsed & pre-inflated 6 initial sections in **52.59 ms**.
+- **69 MB EPUB**: Parsed & pre-inflated 8 initial sections in **20.80 ms**.
+- **56 MB EPUB**: Parsed & pre-inflated 7 initial sections in **24.51 ms**.

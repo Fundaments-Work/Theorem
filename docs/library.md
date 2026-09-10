@@ -12,22 +12,24 @@ The `BookCard` component is wrapped in `React.memo` with a custom comparator tha
 User action (drop file / pick dialog / scan folder)
   │
   ▼
-read_file (Tauri) → ArrayBuffer
-  │
-  ▼
 importBooksIncremental()
-  ├─ contentHash = SHA-256(buffer) → dedup check against existing books
-  ├─ Detect format from extension
-  ├─ CBR → read_cbr_as_cbz (Rust unrar-ng → zip conversion)
-  ├─ Extract metadata via cover-extractor.ts (per-format strategy)
-  ├─ Extract cover image
-  ├─ addBook() → libraryStore mutation (batched for multi-import)
-  ├─ sqlite_save_book_data → writes to book-cache/ + DB BLOB
-  └─ sqlite_index_book_fts → FTS5 index update
+  ├─ Desktop (Tauri): invoke ingest_books_native
+  │    └─ Rust batch ingest: parallel read, SHA-256 dedup, per-format
+  │       metadata + SIMD cover extraction → book-cache/ + books row + FTS
+  └─ Mobile / web: JS path
+       ├─ read_file (Tauri) → ArrayBuffer
+       ├─ contentHash = SHA-256(buffer) → dedup check against existing books
+       ├─ Detect format from extension
+       ├─ CBR → read_cbr_as_cbz (Rust unrar-ng → zip conversion; Tauri only)
+       ├─ Extract metadata via cover-extractor.ts (per-format strategy)
+       ├─ Extract cover image
+       ├─ addBook() → libraryStore mutation (batched for multi-import)
+       ├─ sqlite_save_book_data → writes to book-cache/ (books.data is a stub)
+       └─ sqlite_index_book_fts → FTS5 index update
 
 Web fallback (non-Tauri):
   ├─ IndexedDB via idb-keyval
-  └─ CBR conversion not available (format rejected)
+  └─ CBR → CBZ conversion unavailable (imported as .cbr)
 ```
 
 **Dedup logic:**
@@ -43,9 +45,9 @@ LibraryPage
        ├─ scrollRef (scrollable container div)
        ├─ Virtual row → MemoizedBookCard (custom memo comparator)
        └─ Three view modes: grid / list / compact
-            ├─ grid: 2-5 columns depending on container width
+            ├─ grid: 2-8 columns depending on container width
             ├─ list: 1 column with full metadata
-            └─ compact: 2-4 columns, minimal metadata
+            └─ compact: 3-6 columns, minimal metadata
 ```
 
 The virtualizer calculates rows based on container width (column count) and estimated row height. After render, actual row heights are measured and the virtualizer adjusts. This means initial render might show a flash before heights stabilize, but it avoids measuring every item upfront.
@@ -54,7 +56,7 @@ The virtualizer calculates rows based on container width (column count) and esti
 
 Two-tier search:
 1. **FTS5** (SQLite): Fast, indexed search via `sqlite_search_books(query, limit)`. Used for committed search queries (when user presses Enter). Returns matching book IDs and titles.
-2. **Client-side** (`filtering.ts`): Additional filter/sort on the already-loaded `books` array. Supports sorting by title, author, date added, last read, progress, rating. Combined with FTS results for full-text + metadata filtering.
+2. **Client-side** (`filtering.ts`): Fuse.js fuzzy search over title, author, tags, and format, plus filter/sort on the already-loaded `books` array. Supports sorting by title, author, date added, last read, progress, rating. Combined with FTS results for full-text + metadata filtering.
 
 The `useLibraryStore` has result caches (`WeakMap`-based) for search results, recent books, favorites, and categories. These are invalidated when the `books` array reference changes (Zustand immutability).
 

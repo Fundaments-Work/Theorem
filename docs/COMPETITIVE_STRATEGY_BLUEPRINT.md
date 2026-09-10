@@ -31,7 +31,7 @@ The digital reading and knowledge landscape in 2026 is divided into three polari
 ```
 
 ### Theorem's Strategic Positioning
-**Theorem bridges all three worlds**: an open-source, local-first, zero-subscription reading environment built on high-performance native technologies (**React 19 + Tauri 2 + Rust + SQLite**) that unifies **consumer aesthetic polish**, **power-reader workflows (PKM/Obsidian)**, and **the superpowers of the open-source ecosystem (manga, audiobooks, academic PDF portals, StarDict, and spaced repetition)**.
+**Theorem bridges all three worlds**: an open-source, local-first, zero-subscription reading environment built on high-performance native technologies (**React 19 + Tauri 2 + Rust + SQLite**) that unifies **consumer aesthetic polish**, **power-reader workflows (PKM/Obsidian)**, and **the superpowers of the open-source ecosystem (manga, audiobooks, academic PDF portals, and StarDict)**.
 
 ---
 
@@ -57,7 +57,7 @@ The digital reading and knowledge landscape in 2026 is divided into three polari
 
 1. **The "Peek Portal" from Sioyek** *(Academic PDF & EPUB Footnotes)*: When reading complex technical books or academic papers, references like `[Figure 3]`, `[Theorem 2.1]`, or `[Footnote 14]` open a floating portal popover showing the destination content without losing your reading scroll position. (Implemented as **Theorem Lens**).
 2. **The Manga & Webtoon Engine from Kavita & Komga**: Native handling of `.cbz`/`.cbr` archives with Right-to-Left (RTL) Japanese manga page navigation and continuous seamless vertical image stacking (Webtoon mode).
-3. **Capturing the Omnivore Void (Web Clipper & Read-It-Later)**: When Omnivore shut down after its acquisition, thousands of power readers lost their open-source read-it-later app. Theorem's browser extension web clipper directly captures this user base.
+3. **Capturing the Omnivore Void (Web Clipper & Read-It-Later)**: When Omnivore shut down after its acquisition, thousands of power readers lost their open-source read-it-later app. Theorem plans a browser-extension web clipper to capture this user base (not yet shipped; in-app article extraction is available today).
 4. **The Audiobook Companion from Audiobookshelf**: Plays DRM-free `.m4b` and `.mp3` audiobooks with embedded chapter navigation, variable speed playback, and sleep timers attached directly to books.
 5. **Spaced Repetition Flashcards from Lute & Anki**: Converts looked-up vocabulary words and book highlights into an automated spaced repetition review queue using the **FSRS-5 algorithm**.
 6. **Deep-Link URI Scheme (`theorem://`) & Split Workbench from Zotero 7**: Clicking a note or citation in Obsidian opens Theorem and jumps directly to the exact page/CFI (`theorem://open?bookId=...&cfi=...`).
@@ -74,7 +74,7 @@ The digital reading and knowledge landscape in 2026 is divided into three polari
 - [ ] **FSRS Spaced Repetition Vocabulary Engine**: 5-minute daily flashcard review queue.
 
 ### Phase 2: Category Parity (Power Tools)
-- [ ] **Companion Audiobook Player (M4B/MP3)**: Attached audio track with speed controls and chapter marks.
+- [x] **Companion Audiobook Player (M4B/MP3)**: Attached audio track with speed controls and chapter marks. See [audiobook.md](audiobook.md).
 - [ ] **Browser Web Clipper (Send to Theorem)**: Save cleaned articles directly to SQLite.
 - [ ] **Split-Screen Reading & Notes Workbench**: Read on the left while taking Markdown notes on the right.
 - [ ] **Local LLM Ghostreader (Ollama & Llama.cpp)**: Zero-cloud AI reading assistant.

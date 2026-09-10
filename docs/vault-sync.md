@@ -22,21 +22,43 @@ type: theorem-book-highlights
 author: "Author Name"
 format: epub
 source_path: "/path/to/book.epub"
-source_added: "2025-01-15"
-source_last_read: "2025-03-20"
-tags: [reading]
+generated_at: "2025-03-20T10:00:00.000Z"
+annotations_total: 2
+highlights_total: 2
+notes_total: 0
+tags:
+  - theorem
+  - highlights
+  - notes
 ---
 
-> This is a highlighted passage — it appears as a block quote.
+# Book Title
 
-- **Page**: 42
-- **Color**: yellow
+- Author: Author Name
+- Format: epub
+- Exported at: 2025-03-20T10:00:00.000Z
 
-This is a note attached to the highlight above.
+## Highlights and Notes
+
+### 1. Highlight
+- Created: 2025-01-15T00:00:00.000Z
+- Color: yellow
+
+**Quote**
+
+> This is a highlighted passage.
 
 ---
+
+### 2. Highlight
+- Created: 2025-03-20T00:00:00.000Z
+- Color: green
+
+**Quote**
 
 > Another highlight from a different location.
+
+---
 ```
 
 ### Vocabulary File
@@ -47,37 +69,61 @@ A single vocabulary file aggregates all saved terms:
 ---
 title: Theorem Vocabulary
 type: theorem-vocabulary
-source_last_updated: "2025-03-20"
+generated_at: "2025-03-20T10:00:00.000Z"
+terms_total: 2
+languages:
+  - "en"
+tags:
+  - theorem
+  - vocabulary
 ---
 
-## serendipity
-*/ser-en-dip-i-tee/*
-the occurrence and development of events by chance in a happy or beneficial way
+# Theorem Vocabulary
 
-> "She discovered the book by serendipity"
+- Exported at: 2025-03-20T10:00:00.000Z
+- Terms: 2
+
+## 1. epiphany
+- Term ID: `...`
+- Language: en
+- Phonetic: /e-piph-a-ny/
+- Created: 2025-01-15T00:00:00.000Z
+- Providers: stardict
+
+### Definitions
+
+1. a moment of sudden revelation or insight
 
 ---
 
-## epiphany
-*/e-piph-a-ny/*
-a moment of sudden revelation or insight
+## 2. serendipity
+- Term ID: `...`
+- Language: en
+- Phonetic: /ser-en-dip-i-tee/
+- Created: 2025-01-15T00:00:00.000Z
+
+### Definitions
+
+1. the occurrence and development of events by chance in a happy or beneficial way
+
+---
 ```
 
 ## Configuration
 
-Vault sync is configured in Settings → Integrations:
+Vault sync is configured in Settings → Devices & Export → Markdown Export:
 
 | Setting | Purpose |
 |---------|---------|
 | Vault path | Root directory of your Obsidian vault |
 | Auto-export highlights | Export on every annotation change (default: on) |
-| Highlights filename | Prefix for per-book files (default: "Highlights") |
-| Vocabulary filename | Filename for vocabulary export (default: "Vocabulary") |
+| Highlights filename | Prefix for per-book files (default: `theorem-highlights`) |
+| Vocabulary filename | Filename for vocabulary export (default: `theorem-vocabulary.md`) |
 
 ## When Export Happens
 
 - **Auto**: After every annotation mutation (add/delete/edit highlight or note). Debounced to avoid excessive writes during bulk operations.
-- **Manual**: From Settings → Integrations → "Export now" button.
+- **Manual**: From Settings → Devices & Export → Markdown Export → "Export now" button.
 
 The export function (`syncVaultMarkdownSnapshot`) writes all files atomically: it generates all content in memory, then writes files one by one. If any write fails, the error is reported but previously written files are not rolled back (partial export is recoverable).
 
@@ -90,13 +136,13 @@ The core function is `syncVaultMarkdownSnapshot()` in `src/core/lib/vault-sync.t
 3. For each book: generates Markdown with YAML frontmatter
 4. Generates vocabulary file with all terms from `vocabularyStore`
 5. Writes files to `{vaultPath}/{highlightsFileName}-books/{book-slug}.md`
-6. Writes vocabulary to `{vaultPath}/{vocabularyFileName}.md`
-7. Removes book files for deleted books (stale cleanup)
+6. Writes vocabulary to `{vaultPath}/{vocabularyFileName}`
+7. Removes the legacy highlights index file, if present
 
 File writes use Tauri's `writeTextFile` via `@tauri-apps/plugin-fs`. On web, the export is not available (no filesystem access).
 
-In the **Headless CLI**, vault exports and JSON dumps can be triggered headlessly by shell scripts and AI agents:
+In the **Headless CLI**, a JSON snapshot can be exported headlessly:
 ```bash
-theorem export vault --path ~/Obsidian/Reading
-theorem export json --output ~/backup/reading_data.json
+theorem export --out ~/backup/reading_data.json
 ```
+Markdown/vault export is GUI-only — there is no headless `vault` subcommand.

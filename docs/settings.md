@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Settings live in `settingsStore` (Zustand, version 9, persisted). A single `AppSettings` type holds all user preferences, divided into sub-stores for logical grouping:
+Settings live in `settingsStore` (Zustand, version 11, persisted). A single `AppSettings` type holds all user preferences, divided into sub-stores for logical grouping:
 
 | Sub-store | What it controls |
 |-----------|-----------------|
@@ -22,28 +22,26 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 ### General
 - Theme: Light, Dark, System
 - Accent color: 8 preset colors
-- Language: English, Spanish, French
 - Reading goals: Daily minutes, yearly books
-- Library: View mode default, sort order
 - Sidebar: Collapsed by default
 - Text-to-Speech toggle
 - Neural Voice (desktop): Supertonic install status, one-click download of the ~400MB model/runtime/voice bundle with per-file progress, installed size/path, removal — see [tts.md](tts.md)
 - Text-to-Speech Engine (Android): pick the engine Theorem narrates through; recommends the Theorem Neural Voice companion app
-- CLI Setup: enable/disable the headless `theorem` CLI with auto-heal — see [plans/2026-09-01-headless-cli-architecture.md](plans/2026-09-01-headless-cli-architecture.md)
 
 ### Dictionary
 - Installed StarDict dictionaries
 - Download dictionaries from GitHub releases
 - Dictionary size and import status
 
-### Integrations
+### Devices & Export (id: `integrations`)
 - **Vault sync**: Path to Obsidian/Logseq vault, auto-export toggle, filenames
 - **Device sync**: Device identity, QR pair, paired devices list, unpair, auto-sync toggle
+- **CLI Setup**: enable/disable the headless `theorem` CLI with auto-heal — see [plans/done/2026-09-01-headless-cli-architecture.md](plans/done/2026-09-01-headless-cli-architecture.md)
 
-### Storage
-- Storage statistics (total books, covers, blobs, file cache sizes)
+### Data & Storage (id: `storage`)
+- Storage statistics (Books, Highlights & Notes, RSS Articles, Offline Dictionaries)
 - Clear all data (with warning dialog)
-- Export/import sync bundle (portable JSON backup)
+- Export sync bundle (portable JSON backup)
 
 ### Shortcuts
 - Reference list of all keyboard shortcuts (read-only)
@@ -61,7 +59,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 
 ## Migration Strategy
 
-Settings have the longest migration chain (v0 → v9). Each migration maps the previous schema to the next. The pattern:
+Settings have the longest migration chain (v0 → v11). Each migration maps the previous schema to the next. The pattern:
 
 ```typescript
 migrate: (persisted, version) => {
@@ -75,28 +73,32 @@ migrate: (persisted, version) => {
 
 Key migrations in history:
 - **v0→v1**: Initial structured settings
-- **v3→v4**: Added device sync settings
-- **v5→v6**: Added vault integration settings
-- **v7→v8**: Folded reading stats into settings store
-- **v8→v9**: Added accent color and language
+- **v0→v4**: Added TTS defaults
+- **v4→v5**: Added TTS `speed` default
+- **v5→v6**: Added TTS `enabled` default
+- **v6→v7**: Added `accentColor`
+- **v7→v8**: Added `showDailyHighlight`
+- **v8→v9**: Added `speedReadEnabled`
 - **v9→v10**: Added goal notifications, reminder times, and sync notification toggles
+- **v10→v11**: Added CLI settings (`cli`)
 
 When adding a new setting, the current version should be bumped and a migration written. Old migrations should not be removed — they may be needed if a user upgrades from a very old version.
 
 ## Storage Tab
 
-The Storage tab provides insight into what's using disk space:
+The Data & Storage tab provides insight into what's using disk space. The UI shows rows for:
 
 | Component | Location | How Sized |
 |-----------|----------|-----------|
-| Book files | `book-cache/` directory | `sqlite_get_storage_stats()` walks the directory |
-| Covers | SQLite `covers` table | `SUM(length(data_url))` |
-| Blobs | SQLite `blob_store` | `SUM(length(data))` |
-| Total | All combined | Sum of above |
+| Books | `book-cache/` directory | `sqlite_get_storage_stats()` walks the directory |
+| Highlights & Notes | SQLite `book_annotations` | Row counts / JSON sizes |
+| RSS Articles | SQLite / persisted store | Article bodies |
+| Offline Dictionaries | `dictionaries/` directory | Directory size |
+
+The underlying `sqlite_get_storage_stats()` also returns `covers` and `blob_store` sizes, but these are not shown in the tab.
 
 The "Clear All Data" button:
 1. Shows a confirmation dialog ("This will delete all your books, annotations, settings...")
-2. Calls `sqlite_clear_all_storage` (deletes all SQLite rows + removes `book-cache/`)
-3. Calls `clearAllZustandStores()` (resets all 5 stores to initial state)
-4. Calls `clear_sync_databases` (if paired devices exist)
-5. Reloads the app
+2. Calls `clearAllApplicationStorage()`, which invokes `sqlite_clear_all_storage` (deletes all SQLite rows + removes `book-cache/`) and `clear_sync_databases` (unconditionally on Tauri)
+3. Clears the persisted storage for the settings, library, vocabulary, and rss stores
+4. Reloads the app

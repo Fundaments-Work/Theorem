@@ -37,15 +37,15 @@ Theorem speaks **OPDS 1.2 (Open Publication Distribution System)**, an Atom XML-
 ## 2. Ingestion & Download Pipeline
 
 ```
-DiscoverBookCard ("Get Book" click)
+DiscoverBookCard ("Add to Library" click)
   │
   ▼
-DiscoverService.downloadCatalogBook(book)
+DiscoverService.downloadBook(entry, onProgress)
   │
   ├─ 1. Stream EPUB bytes via Tauri fetch or browser fetch
-  ├─ 2. Pass ArrayBuffer to importBooksIncremental()
-  ├─ 3. Compute contentHash (SHA-256) & extract metadata/cover
-  ├─ 4. Save to SQLite database & book-cache/
+  ├─ 2. saveBookData() → materialize the file
+  ├─ 3. saveCoverImage() + useLibraryStore.addBook(book)
+  ├─ 4. Persist to SQLite database & book-cache/
   └─ 5. Show toast notification & update Library view
 ```
 
@@ -53,10 +53,10 @@ DiscoverService.downloadCatalogBook(book)
 
 ## 3. Fallback Clothbound Cover System
 
-For catalog books lacking bundled high-resolution cover artwork, Theorem renders deterministic, publication-grade clothbound covers using `TheoremBookCover.tsx`:
-* **7 Curated Cloth Palettes**: `oxford-navy`, `terracotta`, `sage`, `crimson`, `obsidian`, `plum`, and `parchment`.
-* **Deterministic Palette Hashing**: A book title/author hash consistently maps to the same cloth palette across all devices.
-* **Typographic Foil Stamping**: Title and author are rendered in elegant serif typography with subtle gold/silver foil debossing effects.
+For catalog books lacking bundled high-resolution cover artwork, Theorem renders a deterministic clothbound fallback cover using `TheoremBookCover.tsx`:
+* **Single dark cloth design**: a dark (`#0e0e11`) cloth cover with a serif title and author.
+* **Deterministic**: the same book always renders the same cover across devices.
+* **Typographic styling**: title and author rendered in serif typography.
 
 ---
 

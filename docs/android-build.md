@@ -48,7 +48,7 @@ The Android project is NOT committed to the repository. It must be regenerated o
 ```bash
 pnpm install
 pnpm tauri android init --ci
-pnpm tauri icon theorem.svg
+pnpm tauri icon public/favicon.svg
 ```
 
 This creates `src-tauri/gen/android/` with the Android Studio project.
@@ -96,24 +96,15 @@ keytool -genkeypair -keystore theorem-release.jks -storetype PKCS12 -storepass "
 
 ### Configure Signing
 
-Create `src-tauri/gen/android/app/tauri.properties`:
+Tauri v2 reads signing config from `src-tauri/gen/android/keystore.properties`:
 
 ```properties
-tauri.android.signing.config=release
-tauri.android.signing.storeFile=../../../theorem-release.jks
-tauri.android.signing.storePassword=YOUR_STORE_PASSWORD
-tauri.android.signing.keyAlias=theorem
-tauri.android.signing.keyPassword=YOUR_KEY_PASSWORD
+keyAlias=theorem
+password=YOUR_KEYSTORE_PASSWORD
+storeFile=/absolute/path/to/theorem-release.jks
 ```
 
-Or set environment variables:
-
-```bash
-export ANDROID_KEYSTORE_PATH=/path/to/theorem-release.jks
-export ANDROID_KEYSTORE_PASSWORD=your_store_password
-export ANDROID_KEY_ALIAS=theorem
-export ANDROID_KEY_PASSWORD=your_key_password
-```
+The generated Gradle project must load it in a `signingConfigs` block — the release workflow patches `app/build.gradle.kts` to read `rootProject.file("keystore.properties")`. Note that `tauri.properties` (in `app/`) only carries `tauri.android.versionName` / `versionCode`, and the Tauri CLI does **not** read `ANDROID_KEYSTORE_PATH` or similar environment variables.
 
 ### Build Signed APK
 

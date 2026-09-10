@@ -13,7 +13,7 @@ pnpm dev:tauri    # desktop (full experience)
 
 | Document | What it covers |
 |----------|----------------|
-| [CONTEXT.md](../context.md) | Project context, stack choices, design rationale |
+| [context.md](../context.md) | Project context, stack choices, design rationale |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, module relationships |
 
 ## Features
@@ -42,4 +42,8 @@ pnpm dev:tauri    # desktop (full experience)
 | [epub-preparser.md](epub-preparser.md) | Rust EPUB ZIP pre-parser |
 | [keyboard-shortcuts.md](keyboard-shortcuts.md) | All keyboard shortcuts |
 | [onboarding.md](onboarding.md) | First-run flow |
+| [android-build.md](android-build.md) | Android build, signing, and CI |
+| [DISTRIBUTION.md](DISTRIBUTION.md) | Packaging and distribution |
+| [SIGNING-KEYS.md](SIGNING-KEYS.md) | Updater and Android signing keys |
+| [PKGBUILD](PKGBUILD) | Arch Linux PKGBUILD (unofficial) |
 | [plans/](plans/) | Technical design plans & roadmaps |

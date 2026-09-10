@@ -13,9 +13,9 @@
 | `Ctrl+,` | Go to Settings |
 | `Ctrl+F` | Focus search bar |
 | `Ctrl+B` | Toggle sidebar |
-| `Ctrl+A` | Select all (Library/Shelves/Bookmarks) |
+| `Ctrl+A` | Toggle select mode (Library/Shelves/Bookmarks) — currently a no-op; targets a missing `data-action="toggle-select-mode"` element |
 | `Shift+?` | Show shortcuts help modal |
-| `Escape` | Close panels / popovers / dialogs |
+| `Escape` | Handled per-component (Theorem Lens, editors, fullscreen), not globally |
 
 ## Reader
 
@@ -23,27 +23,21 @@
 |----------|--------|
 | `Left` / `Right` | Previous / Next page |
 | `Space` | Next page |
-| `+` / `-` | Zoom in / Zoom out |
+| `+` / `-` | Zoom in / Zoom out (PDF only) |
 | `Ctrl+F` | Find in book |
 | `Ctrl+D` | Bookmark current page |
 | `Ctrl+T` | Toggle table of contents |
 | `Ctrl+S` | Open reader settings |
 | `Ctrl+A` | Open annotations panel |
-| `F` | Toggle fullscreen |
-| `Escape` | Exit fullscreen / close Theorem Lens / close panels |
+| `F11` | Toggle fullscreen |
+| `Escape` | Exit fullscreen / close Theorem Lens / close panels (component-local) |
 
 ## Library
 
-| Shortcut | Action |
-|----------|--------|
-| `/` | Focus search |
-| `g` | Toggle grid/list view |
-| `a` | Select all (multi-select mode) |
-| `Ctrl+A` | Select all books |
-| `Delete` | Delete selected books |
+There are currently no library-specific keyboard shortcuts. Library view mode and sort are changed from the Library page toolbar.
 
 ## Implementation
 
-Shortcuts are registered via `registerShortcuts()` in `src/core/lib/keyboard-shortcuts.ts`. The system is route-scoped — shortcuts only fire when their route is active. Global shortcuts (navigation, help) always work.
+Shortcut groups are registered via `registerShortcuts()` in `src/core/lib/keyboard-shortcuts.ts`. The system is route-scoped — shortcuts only fire when their route is active. Global shortcuts (navigation, help) always work.
 
-The `useKeyboardShortcuts()` hook registers/unregisters shortcuts on mount/unmount, using `useEffect` cleanup. This prevents shortcuts from leaking across routes.
+The `useKeyboardShortcuts()` hook attaches/detaches the single global `keydown` listener on mount/unmount, using `useEffect` cleanup. This prevents shortcuts from leaking across routes.

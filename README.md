@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 | Linux | `.deb` or `.AppImage` |
 | macOS (Intel) | `.dmg` |
 | macOS (Apple Silicon) | `.dmg` |
-| Windows | `.msi` or `.exe` |
+| Windows | `.exe` (NSIS) |
 | Android | `.apk` |
 
 All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://app.theorem.fundaments.work) without installing.
@@ -75,7 +75,7 @@ See [AGENTS.md](./AGENTS.md) for the full repository map, conventions, and archi
 ## Features
 
 ### Multi-Format Reader & Instant Opening
-EPUB, MOBI, AZW, AZW3, FB2, CBZ, CBR, PDF, TXT, and RSS articles. Native Rust pre-parser pre-inflates stylesheets and initial spine chapters in parallel threads, delivering **instant book opening (< 50ms)** even on 100MB+ titles. Multi-threaded streaming in-book search crawls 1,000+ page books in ~10–30ms with zero UI lag. Foliate-based reflowable rendering with paged and scroll modes. PDF.js engine with zoom (50–200%), page-fit/width-fit modes, and outline navigation. **Theorem Lens** (in-place footnote, citation, and figure peek portals without losing your reading place). Full table of contents with section progress. Estimated reading time per page and chapter. Reading progress saved per-book across sessions (page-accurate + CFI). File association — open ebooks directly from your file manager.
+EPUB, MOBI, AZW, AZW3, FB2, CBZ, CBR, PDF, and RSS articles. Native Rust pre-parser pre-inflates stylesheets and initial spine chapters in parallel threads, delivering **instant book opening (< 50ms)** even on 100MB+ titles. Multi-threaded streaming in-book search crawls 1,000+ page books in ~10–30ms with zero UI lag. Foliate-based reflowable rendering with paged and scroll modes. PDF.js engine with zoom (50–200%), page-fit/width-fit modes, and outline navigation. **Theorem Lens** (in-place footnote, citation, and figure peek portals without losing your reading place). Full table of contents with section progress. Estimated reading time per page and chapter. Reading progress saved per-book across sessions (page-accurate + CFI). File association — open ebooks directly from your file manager.
 
 <p align="center">
   <img src="./Screenshots/reader_screen.png" alt="Theorem reader with highlights and annotations in dark theme" width="700">
@@ -85,7 +85,7 @@ EPUB, MOBI, AZW, AZW3, FB2, CBZ, CBR, PDF, TXT, and RSS articles. Native Rust pr
 Browse curated storefronts and search over 75,000+ public domain classics from Project Gutenberg and Standard Ebooks with 1-click EPUB downloads. Connect custom OPDS 1.2 feeds from your personal Calibre, Kavita, or Komga server. Clean, deterministic clothbound covers for books without bundled artwork.
 
 ### Reading Customization
-Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-serif, monospace). Font size (12–36), line height (1.0–2.5), margins (0–35%). Letter spacing, word spacing, paragraph spacing. Text alignment, hyphenation toggle. Page animation styles (slide, fade, instant). Page layout (single, double, auto). Reading flow (paged, scroll, auto). Brightness slider. Zoom for fixed-layout formats. Full-screen mode. Auto-hide toolbar with configurable delay. Prefetch distance, animations toggle, virtual scrolling.
+Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-serif, monospace). Font size (12–32), line height (1.0–2.2). Text alignment, hyphenation toggle. Reading flow (paged, scroll). Brightness slider. Zoom for fixed-layout formats. Full-screen mode. Auto-hide toolbar with configurable delay and an animations toggle.
 
 ### Highlights & Annotations
 Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Notes on any highlight. Bookmarks. Overlayer drawing styles: highlight, underline, strikethrough, squiggly, outline. Annotation panel with quick navigation, editing, and deletion. Works across all formats including PDF and RSS articles.
@@ -95,7 +95,7 @@ Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Note
 </p>
 
 ### PDF Annotations
-Freehand drawing with configurable stroke width. Text notes placed anywhere on the page. Multi-line rectangular highlights. Per-page annotation rendering. PDF view state persistence (page, zoom, mode per-session).
+Freehand drawing with configurable stroke width. Text notes placed anywhere on the page. Multi-line rectangular highlights. Per-page annotation rendering. PDF view state persistence (page, zoom, mode per-book).
 
 ### Highlight Sharing
 Generate polished share-card images from any highlight. Multiple formats: Square (1080×1080) and Story (1080×1920). Multiple visual themes: match, dark, tinted, sepia. Download as PNG, copy to clipboard, native share via Web Share API, share to X (Twitter). Android: saves to MediaStore gallery.
@@ -124,20 +124,20 @@ Multi-threaded Rust batch ingestion pipeline (`rayon` + `quick-xml` + `image` SI
 </p>
 
 ### Reading Statistics
-Reading time tracking (total and per-book). Books finished. Reading streaks: current + longest. Reading speed: average WPM. Daily activity log with 12-week heatmap. Reading goals: daily minutes and yearly books. Achievement badges. Book completion tracking.
+Reading time tracking (total and per-book). Books finished. Reading streaks: current + longest. Daily activity log with 12-week heatmap. Reading goals: daily minutes and yearly books. Book completion tracking.
 
 ### LAN Device Sync
 Encrypted peer-to-peer sync between Theorem installs on local network. Syncs books, reading progress, annotations, collections, settings, and vocabulary. QR-based device pairing. Device identity management with public-key encryption. Auto-sync on peer discovery. Periodic background sync. No cloud relay — fully local and private.
 
 ### Backup & Data Management
-Full backup bundle export: books (with binary data), annotations, collections, settings, statistics, vocabulary, dictionaries, RSS feeds. Storage usage breakdown. Cache size configuration.
+Backup bundle export: library (book metadata, collections, annotations), settings, statistics, vocabulary, and RSS feeds. Storage usage breakdown. Cache size configuration.
 
 <p align="center">
   <img src="./Screenshots/settings_page.png" alt="Settings and data management" width="700">
 </p>
 
 ### Cross-Platform
-Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.msi, .exe). Mobile: Android (.apk). Web: browser fallback for development. All from a single TypeScript + Rust codebase.
+Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.exe NSIS). Mobile: Android (.apk). Web: browser fallback for development. All from a single TypeScript + Rust codebase.
 
 <p align="center">
   <img src="./Screenshots/phone-screens.png" alt="Theorem mobile" width="700">
@@ -158,7 +158,7 @@ Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.
 | Ebook | Foliate.js (vendored) |
 | TTS | Platform native (Android TTS, spd-say, say, System.Speech) + optional Supertonic 3 neural voice on desktop (ONNX via ort, downloaded on demand) |
 | Dictionary | StarDict |
-| RSS | Mozilla Readability |
+| RSS | Native Rust extractor (Mozilla Readability browser fallback) |
 | Archive | zip.js, unrar-ng (Rust, bundled C source) |
 | Testing | Vitest + jsdom |
 
@@ -191,7 +191,7 @@ Yes. Local-first reading, annotation, and Markdown export without a paid subscri
 
 **Does TTS work offline?** — Yes. Platform TTS uses your system's built-in engine with no downloads. The optional desktop neural voice is also fully offline after its one-time model download. Audiobook playback and Save-as-Audiobook (desktop) are offline too.
 
-**What formats are supported?** — EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, TXT, and RSS feeds.
+**What formats are supported?** — EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, and RSS feeds.
 
 **Can I try it without installing?** — Yes. The [web demo](https://app.theorem.fundaments.work) runs in your browser.
 

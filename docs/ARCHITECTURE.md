@@ -128,7 +128,7 @@ Reader.tsx
 All state lives in 6 Zustand stores. Each persisted store saves to SQLite via Tauri commands (`sqlite_set_kv` / `sqlite_get_kv` from `database.rs`).
 
 ```
-uiStore (ephemeral, version 1)
+uiStore (persisted, version 1; partialize: route/book/sidebar)
   ├─ currentRoute, currentBookId
   ├─ sidebarOpen, searchQuery
   ├─ vaultSyncStatus, deviceSyncStatus
@@ -140,7 +140,7 @@ libraryStore (persisted, version 6)
   ├─ collections: Collection[]
   └─ deletionTombstones: DeletionTombstone[]
 
-settingsStore (persisted, version 10)
+settingsStore (persisted, version 11)
   ├─ settings: AppSettings
   ├─ stats: ReadingStats
   └─ settingsLastModifiedAt: string
@@ -154,15 +154,16 @@ rssStore (persisted, version 1)
   └─ articles: RssArticle[]
 
 opdsStore (persisted, version 2)
-  ├─ customFeeds: OPDSFeedConfig[]
-  ├─ activeFeedUrl: string | null
-  └─ cachedFeeds: Record<string, OPDSCatalog>
+  ├─ catalogs: OpdsCatalog[]
+  ├─ activeCatalogId: string | null
+  ├─ currentFeedUrl: string | null
+  └─ feedHistory: string[]
 ```
 
 **Non-persisted data lives in SQLite directly:**
 - `book.locations` — foliate position snapshots (BLOB column, prefix `locations:{bookId}`)
 - Book binary data and covers (materialized to `book-cache/`)
-- StarDict dictionary files (blob_store, prefix `theorem-stardict:{id}:`)
+- StarDict/MDict dictionary files (on disk under `dictionaries/{id}/`; legacy `blob_store` entries auto-migrated)
 - Book metadata and annotations (separate tables with FK to books)
 
 ## Reader Architecture

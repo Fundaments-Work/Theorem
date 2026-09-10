@@ -2,9 +2,9 @@
 
 ## Two-Tier Architecture
 
-Vocabulary lookups operate on a high-speed, local-first two-tier pipeline:
+Vocabulary lookups operate on a high-speed, local-first pipeline:
 
-1. **Native StarDict Offline Fast-Path (< 1ms)** — Lookups check local StarDict dictionaries via native Rust memory-mapping (`stardict_lookup`). If definitions exist, the UI renders immediately without waiting for network timeouts.
+1. **Native offline fast-path (< 1ms)** — Lookups check local dictionaries in parallel via native Rust memory-mapping: **StarDict** (`stardict_lookup`, `src-tauri/src/stardict.rs`) and **MDict `.mdx`** (`mdx_lookup`, `src-tauri/src/mdict.rs`). If definitions exist, the UI renders immediately without waiting for network timeouts.
 
 2. **Online Fallback API** (`https://api.dictionaryapi.dev/`) — If no offline definitions are installed or matched, Theorem fetches from the online dictionary API with automatic fallback.
 
@@ -46,8 +46,8 @@ interface VocabularyTerm {
     phonetic?: string;                   // Pronunciation string
     audioUrl?: string;                   // TTS audio URL (online API)
     meanings: VocabularyMeaning[];       // Part-of-speech → definitions
-    providerHistory: ("stardict" | "free-dictionary-api")[];
-    lookupCount: number;                 // Incremented on each lookup
+    providerHistory: ("stardict" | "mdx" | "free-dictionary-api")[];
+    lookupCount?: number;                // Synced metadata field (not incremented locally)
     contexts: string[];                  // Surrounding text (from reader)
     // ...
 }
@@ -60,17 +60,18 @@ The `vocabularyStore` (Zustand, version 5, persisted) holds:
 - `installedDictionaries: InstalledDictionary[]` — StarDict dictionary manifests
 
 The store provides:
-- `lookupTerm`: Queries all available providers, merges results, saves if not already saved
+- `lookupTerm`: Queries all available providers and caches the result (does not save)
+- `lookupAndSaveTerm`: Queries providers and saves the term
 - `saveVocabularyTerm`: Direct save (for manual entries)
 - `deleteVocabularyTerm`: Remove a term
-- `importDictionary` / `removeDictionary`: Manage StarDict dictionaries
+- `importStarDict` / `removeDictionary`: Manage dictionaries
 
 ## UI
 
-The Vocabulary page (`src/features/vocabulary/Vocabulary.tsx`) shows:
+The Vocabulary workspace lives in the Workbench (`src/features/library/Annotations.tsx`, the **Vocabulary** filter) and shows:
 - A searchable, filterable list of saved terms
 - Each term card shows the word, phonetic, and primary definition
-- Tapping opens a detail panel with all definitions, examples, and context sentences
+- Tapping opens a detail panel with the phonetic and all definitions
 - Terms can be deleted individually
 
 Lookups can also be triggered from the reader — selecting text shows a "Define" option that opens a popover with the definition and a "Save to Vocabulary" button.

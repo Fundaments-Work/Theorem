@@ -2,20 +2,21 @@
 
 ## Why Two Engines
 
-Reflowable formats (EPUB, MOBI, FB2, CBZ) are fundamentally different from PDF. PDF is a fixed-layout print format — pages are predefined canvases. Reflowable formats are documents where text and images flow into columns of whatever size the viewport provides. One engine cannot do both well.
+Reflowable formats (EPUB, MOBI, FB2) are fundamentally different from PDF. PDF is a fixed-layout print format — pages are predefined canvases. Reflowable formats are documents where text and images flow into columns of whatever size the viewport provides. Comic archives (CBZ/CBR) are also fixed-layout. One engine cannot do both well.
 
-- **Foliate-js** handles all reflowable formats. It's a mature library that knows how to parse EPUB spines, MOBI headers, FB2 XML, and comic book archives, then render them into an iframe with CSS column layout.
+- **Foliate-js** handles all reflowable formats. It's a mature library that knows how to parse EPUB spines, MOBI headers, and FB2 XML, then render them into an iframe with CSS column layout. Fixed-layout comics (CBZ/CBR) go through `fixed-layout.js`/`comic-book.js`.
 - **PDF.js** handles PDF. It renders each page to a canvas, overlays a text layer for selection, and an annotation layer for highlights.
 
 ## Entry Points
 
 | Component | File | Loaded |
 |-----------|------|--------|
-| `ReaderPage` | `src/features/reader/Reader.tsx` | Lazy (prewarmed on library mount) |
+| `ReaderPage` | `src/features/reader/Reader.tsx` | Lazy (prewarmed in `App.tsx` after hydration) |
 | `ReaderViewport` | `src/features/reader/components/ReaderViewport.tsx` | Eager |
 | `PDFReader` | `src/features/reader/components/PDFReader.tsx` | Lazy (on first PDF) |
-| `ImmersionBar` | `src/features/reader/audio/ImmersionBar.tsx` | Lazy (on first TTS) |
-| `ArticleViewer` | `src/features/reader/article-reader/ArticleViewer.tsx` | Eager |
+| `ReaderNavbar` (immersion row) | `src/features/reader/components/progress/ReaderNavbar.tsx` | Eager (reader chunk) |
+
+> RSS articles are converted to a synthetic EPUB (`convertArticleToEpubBlob`) and rendered through the normal foliate engine. `ArticleViewer.tsx` is exported but unused.
 
 ## Non-PDF Rendering Path
 
@@ -41,7 +42,7 @@ Reader.tsx
    - **Metadata** (container.xml, OPF, nav, NCX, encryption) → served from Rust pre-parser cache
    - **Sections** (chapter HTML, CSS, images, fonts) → loaded lazily via zip.js `getLazyZip()` → `getEntries()` → `entry.getData()`
 8. `foliate-js view.js` creates a `FoliateView` web component in an iframe
-9. The iframe is mounted inside `ReaderViewport`'s shadow DOM
+9. The iframe is mounted inside the `foliate-view` element's shadow DOM
 10. `paginator.js` measures `#container` (grid-determined, no layout settle needed) and columnizes
 
 **Zoom:** Applied to the iframe document before column calculation. `applyZoomToDocument()` runs inside the `load` event handler, before `beforeRender()` and `columnize()`. After navigation, `applyZoomSync()` re-applies zoom as a safety net (harmless redundancy).
@@ -68,11 +69,11 @@ Reader.tsx
 PDF.js is prewarmed on app start via `prewarmPdfJsRuntime()`. To prevent memory bloat on large documents:
 1. **Thread Worker Lifecycle**: `PDFDocumentLoadingTask` worker instance is retained and explicitly destroyed via `loadingTask.destroy()` on reader unmount and book change.
 2. **On-Demand Page Streaming**: `disableAutoFetch: true` and `disableStream: true` ensure the worker only fetches byte ranges for visible pages.
-3. **GPU Canvas Backing Store Reclamation**: Whenever a page leaves the viewport window, `canvas.width = 0; canvas.height = 0;` is executed immediately, freeing GPU framebuffer memory in Skia/Direct2D/Metal.
+3. **GPU Canvas Backing Store Reclamation**: When a page leaves the viewport window, `canvas.width = 0; canvas.height = 0;` runs after the inactive-release delay, freeing GPU framebuffer memory in Skia/Direct2D/Metal.
 4. **Operator List Garbage Collection**: `page.cleanup()` is invoked on non-visible page proxies to release deserialized vector operators and image bitmaps.
 5. **Presentation Modes**:
    - **Continuous (`scroll`)**: Virtualized DOM window with automatic layout measurement and smooth anchor restoration.
-   - **Single Page (`paged`)**: Auto-fits page to screen (`page-fit`), centers using `m-auto` layout to prevent flex data-loss clipping, and keeps adjacent pages (`page - 1`, `page + 1`) pre-loaded for 0ms instant page turns.
+   - **Single Page (`paged`)**: Auto-fits page to screen (`page-fit`), centers using `m-auto` layout to prevent flex data-loss clipping, and keeps a ±2-page window pre-loaded for 0ms instant page turns.
 6. **Settings Persistence**: Zoom level, zoom mode, and presentation mode are saved per-book in `PdfViewState` within SQLite.
 
 ## Annotations
@@ -86,12 +87,12 @@ The sync is bi-directional:
 - User highlights in iframe → engine event → store mutation → panel re-render
 - User deletes in panel → store mutation → engine re-renders (removes highlight)
 
-Annotations are persisted per-book in the `book_annotations` SQLite table, not in the shared Zustand annotations array. The shared array (`libraryStore.annotations`) is loaded on app start and kept in memory for sync and cross-book operations.
+Annotations are persisted both per-book in the `book_annotations` SQLite table and as part of the persisted Zustand state (`libraryStore.annotations`, which is included in the store's `partialize`). The shared array is loaded on app start and kept in memory for sync and cross-book operations.
 
 ## Full-Text Search
 
 - Non-PDF: foliate-js's built-in search via `search.js`
-- PDF: PDF.js's built-in text layer search
+- PDF: a custom generator that extracts per-page text (`getTextContent`) and ranks matches with fuzzy search
 - Both iterate matches and scroll to the selected result
 
 ## TTS / Immersion Reading
@@ -102,5 +103,5 @@ Platform-specific TTS commands in Rust:
 - **Windows**: PowerShell `System.Speech`
 - **Android**: Native TTS plugin
 
-The Rust commands are synchronous shell commands, but the JS side (`ImmersionPlayer.ts`) manages playback state, highlighting the currently spoken word in the reader viewport. Companion audiobook tracks (`.m4b`/`.mp3`) upgrade this player into a human-narrated player with speed controls.
+The Rust commands are synchronous shell commands, but the JS side (`ImmersionPlayer.ts`) manages playback state and, on Android, resumes from the last reported word boundary. Sentence/word highlighting synced to narration is not yet implemented. Companion audiobook tracks (`.m4b`/`.mp3`) upgrade this player into a human-narrated player with speed controls.
 
