@@ -991,7 +991,7 @@ export class FoliateEngine {
                     }
                     
                     ::selection {
-                        background: color-mix(in srgb, ${colors.fg} 20%, transparent) !important;
+                        background: color-mix(in srgb, ${colors.fg} 35%, transparent) !important;
                         color: ${colors.fg} !important;
                     }
 

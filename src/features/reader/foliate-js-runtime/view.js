@@ -492,9 +492,20 @@ export class View extends HTMLElement {
             const { overlayer, doc } = obj
             overlayer.remove(value)
             if (!remove) {
-                const range = doc ? anchor(doc) : anchor
-                const draw = (func, opts) => overlayer.add(value, range, func, opts)
-                this.#emit('draw-annotation', { draw, annotation, doc, range })
+                let range
+                try {
+                    range = doc ? anchor(doc) : anchor
+                } catch (err) {
+                    // A CFI that no longer resolves against the current DOM
+                    // (e.g. a stale or partially-matching range) must not break
+                    // the whole annotation render.
+                    console.warn('[foliate] could not resolve annotation range', value, err)
+                    range = null
+                }
+                if (range) {
+                    const draw = (func, opts) => overlayer.add(value, range, func, opts)
+                    this.#emit('draw-annotation', { draw, annotation, doc, range })
+                }
             }
         }
         const label = this.#tocProgress.getProgress(index)?.label ?? ''
