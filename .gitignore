@@ -113,3 +113,10 @@ src-tauri/models/
 *.AppImage
 squashfs-root/
 companion-app/
+
+# design-sync (Claude Design) — staged scripts, build output, machine state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
