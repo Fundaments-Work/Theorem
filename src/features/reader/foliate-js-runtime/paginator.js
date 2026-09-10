@@ -1226,8 +1226,19 @@ export class Paginator extends HTMLElement {
             }))
             this.#view = view
         }
-        await this.scrollToAnchor((typeof anchor === 'function'
-            ? anchor(this.#view.document) : anchor) ?? 0, select)
+        // Resolve the anchor defensively: a stale/unresolvable CFI (e.g. from
+        // annotations created before the TTS word-wrapping was removed) must
+        // not throw — fall back to the start of the section instead of leaving
+        // the view unpositioned (blank) and rejecting goTo.
+        let resolvedAnchor = 0
+        try {
+            resolvedAnchor = (typeof anchor === 'function'
+                ? anchor(this.#view.document) : anchor) ?? 0
+        } catch (err) {
+            console.warn('[foliate] could not resolve anchor; showing section start', err)
+            resolvedAnchor = 0
+        }
+        await this.scrollToAnchor(resolvedAnchor, select)
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {

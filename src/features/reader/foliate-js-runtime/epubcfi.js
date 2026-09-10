@@ -231,16 +231,29 @@ const partsToNode = (node, parts, filter) => {
         if (el) return { node: el, offset: 0 }
     }
     for (const { index } of parts) {
-        const newNode = node ? indexChildNodes(node, filter)[index] : null
+        if (!node) break
+        const newNode = indexChildNodes(node, filter)[index]
         
         if (newNode === 'first') return { node: node.firstChild ?? node }
         if (newNode === 'last') return { node: node.lastChild ?? node }
         if (newNode === 'before') return { node, before: true }
         if (newNode === 'after') return { node, after: true }
+        // A stale CFI (e.g. an annotation created before the TTS word-wrapping
+        // was removed) can reference nodes that no longer exist. Stop at the
+        // nearest resolvable ancestor instead of returning an invalid node,
+        // which made toRange throw and navigation fail.
+        if (!newNode) break
         node = newNode
     }
     const { offset } = parts[parts.length - 1]
-    if (!Array.isArray(node)) return { node, offset }
+    if (!Array.isArray(node)) {
+        // Clamp a stale offset so Range.setStart/setEnd can't throw
+        // "Offset out of bound." for a partially-resolved (stale) CFI.
+        const isText = node && (node.nodeType === 3 || node.nodeType === 4)
+        const max = isText ? node.nodeValue.length : 0
+        const safe = Math.max(0, Math.min(offset ?? 0, max))
+        return { node, offset: safe }
+    }
     
     let sum = 0
     for (const n of node) {

@@ -571,9 +571,17 @@ export class View extends HTMLElement {
         const resolved = await this.goTo(value)
         if (resolved) {
             const { index, anchor } = resolved
-            const { doc } =  this.#getOverlayer(index)
-            const range = anchor(doc)
-            this.#emit('show-annotation', { value, index, range })
+            const obj = this.#getOverlayer(index)
+            if (!obj) return
+            const { doc } = obj
+            let range
+            try {
+                range = anchor(doc)
+            } catch (err) {
+                console.warn('[foliate] could not resolve annotation range', value, err)
+                return
+            }
+            if (range) this.#emit('show-annotation', { value, index, range })
         }
     }
     getCFI(index, range) {
