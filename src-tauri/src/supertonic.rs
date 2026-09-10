@@ -655,7 +655,7 @@ pub mod desktop {
         hasher.update(text.as_bytes());
         hasher.update(voice.as_bytes());
         hasher.update(speed.to_le_bytes());
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     #[derive(Serialize)]
