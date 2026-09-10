@@ -436,7 +436,7 @@ fn parse_m4b(path: &str) -> Result<AudiobookMetadata, String> {
     let tagged = mp4ameta::Tag::read_from_path(path)
         .map_err(|e| format!("Failed to read M4B atoms: {e}"))?;
 
-    let duration_sec = tagged.duration().map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let duration_sec = tagged.duration().as_secs_f64();
     let cover_data_url = tagged.artwork().map(|img| {
         let mime = if img.fmt.is_png() {
             "image/png"
