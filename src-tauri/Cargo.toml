@@ -78,7 +78,7 @@ tempfile = "3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 # EPUB pre-parser: streaming XML (replaces regex) + percent-encoded path fallback
-quick-xml = "0.36"
+quick-xml = "0.42"
 percent-encoding = "2"
 iroh = "1.0.2"
 iroh-docs = "0.101.0"
