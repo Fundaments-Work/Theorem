@@ -4,9 +4,9 @@ v1.0 · fundaments.work · 2026
 
 > **Note**: This is the original brand/design-language spec. The shipped
 > implementation is defined by `src/core/styles/design-tokens.css`
-> (`--color-*`, `--font-*`, `--duration-*` tokens and `.ui-btn*` classes) and
-> documented in `.design-sync/conventions.md`. Where the two differ, the code
-> is authoritative; the concrete token/class names below are aligned with it.
+> (`--color-*`, `--font-*`, `--duration-*` tokens and `.ui-btn*` classes).
+> Where the two differ, the code is authoritative; the concrete token/class
+> names below are aligned with it.
 
 ## Concept
 
