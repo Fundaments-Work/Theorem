@@ -16,6 +16,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
   create-release:
@@ -212,6 +213,7 @@ jobs:
       CFLAGS: "-arch x86_64"
       CXXFLAGS: "-arch x86_64"
       LDFLAGS: "-arch x86_64"
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -309,6 +311,7 @@ jobs:
     needs: create-release
     env:
       RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
         with:

@@ -24,7 +24,10 @@ coverage
 target
 
 # Cargo local configuration (machine-specific)
-.cargo/
+.cargo/*
+!.cargo/config.toml
+src-tauri/.cargo/*
+!src-tauri/.cargo/config.toml
 
 # Rust analyzer files
 *.rs.bk

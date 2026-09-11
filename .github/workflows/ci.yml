@@ -125,6 +125,7 @@ jobs:
       CARGO_NET_RETRY: 5
       CARGO_HTTP_TIMEOUT: 120
       CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
         with:
