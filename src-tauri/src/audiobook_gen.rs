@@ -431,7 +431,7 @@ pub mod engine {
             ogg.add_packet(b"OpusHead-xxxxxxxxxxxxxxxxxxxx", 0);
             ogg.flush_page(false).unwrap();
             let pcm = vec![0.1f32; FRAME_SAMPLES * 2];
-            let mut encoder = audiopus::coder::Encoder::new(
+            let encoder = audiopus::coder::Encoder::new(
                 SampleRate::Hz48000,
                 Channels::Mono,
                 Application::Audio,

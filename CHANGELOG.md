@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-09-11
+
+### Added
+
+- **Adaptive Reading Time Estimation** — Pure mathematical calculation engine for reading speed and progress (`src/features/reader/lib/reading-time.ts`). Tracks organic dwell time on each page turn, filtering out rapid skimming (<5s) and idle periods (>180s), clamped between 80 and 800 WPM, and smoothed with exponential moving average ($\alpha = 0.15$). The reader navbar now displays both chapter and book remaining time (e.g. `"14 min in chapter · 2 hr left"`), intelligently omitting redundant chapter time on the final chapter.
+- **Immersion Reading Pace Lock** — When Text-to-Speech narration is active, reading time estimates automatically lock to the true machine speaking cadence ($160 \times \text{speed}$ WPM) without polluting the reader's human reading average.
+- **Audiobook-Grade Text Normalization** — Added automated text pre-processing for natural speech synthesis (`src/features/reader/audio/text-normalization.ts`), expanding cardinal integers into words, ordinal numbers (`1st` $\rightarrow$ "first"), 4-digit years (`1984` $\rightarrow$ "nineteen eighty-four"), Roman numerals in titles and names (`Chapter IV`, `Henry VIII`), currencies (`$12.50`), percentages, fractions, and common abbreviations (`Dr.`, `Mr.`, `e.g.`, `etc.`).
+
+### Improved & Performance
+
+- **Fast Streaming TTS & Reduced Latency** — Reduced intra-sentence silence from 300ms to 80ms for seamless audio playback across sentence chunks without jarring acoustic gaps.
+- **Dynamic ONNX Memory Management** — Supertonic neural sessions are automatically unloaded after 60 seconds of idle inactivity, freeing ~400MB of RAM. Memory is also immediately released on reader exit.
+- **Idempotent ORT Initialization** — Wrapped dynamic ONNX Runtime initialization in a process-wide `OnceLock`, enabling fast and reliable session recreation whenever narration resumes after an idle unload.
+- **Disk Cache Cap & Background Eviction** — Lowered the local WAV audio cache limit from 1GB to a lean 150MB, moving LRU cache trimming to a background thread to prevent disk I/O from stalling the audio synthesis pipeline.
+- **Optimized Prefetching** — Aligned prefetch cache keys with streaming chunk normalization, caching only the leading chunk of the upcoming page to eliminate redundant background computation.
+
+### Fixed
+
+- **Highlight Navigation Context Popup** — Navigating to an existing highlight or bookmark from the sidebar or annotations panel no longer falsely triggers text selection or pops open the highlight context menu.
+- **TTS Auto-Play on Pause Bug** — Added explicit `paused` state tracking in Rust's `NativePlayer` (`audio_player.rs`), preventing background chunks appended during pause from resuming audio unexpectedly.
+- **Initial TTS Premature Page Turn** — Eliminated an errant boundary check that triggered an immediate page-turn when clicking Play for the first time.
+- **Instant Playback Resume** — Clicking Play while paused immediately unpauses the active native player instead of restarting speech synthesis from scratch.
+- **Fallback Text Extraction on Play** — If page text extraction has not finished caching when Play is clicked, the player extracts visible text on-demand rather than failing silently.
+- **Sentence Highlighting Cleanup** — Removed sentence-level overlay DOM mutations during TTS playback, preventing layout shifts and scrolling disruptions.
+
 ## [1.4.3] - 2026-09-07
 
 ### Fixed
