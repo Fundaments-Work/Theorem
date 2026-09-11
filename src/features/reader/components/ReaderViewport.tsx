@@ -24,6 +24,7 @@ export interface ReaderViewportHandle {
     prev: () => void;
     goToFraction: (fraction: number) => void;
     goTo: (location: string) => Promise<void>;
+    goToAnnotation: (annotation: Annotation) => Promise<void>;
     goBack: () => void;
     goForward: () => void;
     canGoBack: boolean;
@@ -120,6 +121,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         next,
         prev,
         goTo,
+        goToAnnotation,
         goToFraction,
         goBack,
         goForward,
@@ -166,6 +168,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         prev: () => prev(),
         goToFraction: (fraction) => goToFraction(fraction),
         goTo: async (location) => { await goTo(location); },
+        goToAnnotation: async (annotation) => { await goToAnnotation(annotation); },
         goBack: () => goBack(),
         goForward: () => goForward(),
         canGoBack,
@@ -181,7 +184,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         getAllSectionsForAudio: () => getAllSectionsForAudio(),
         getNextPageTextForTts: () => getNextPageTextForTts(),
         getSectionFractions: () => getEngine()?.getSectionFractions() ?? [],
-    }), [next, prev, goToFraction, goTo, goBack, goForward, canGoBack, canGoForward, search, clearSearch, addHighlight, addAnnotation, removeHighlight, loadAnnotations, clearSelection, getVisibleTextForTts, getAllSectionsForAudio, getNextPageTextForTts, getEngine]);
+    }), [next, prev, goToFraction, goTo, goToAnnotation, goBack, goForward, canGoBack, canGoForward, search, clearSearch, addHighlight, addAnnotation, removeHighlight, loadAnnotations, clearSelection, getVisibleTextForTts, getAllSectionsForAudio, getNextPageTextForTts, getEngine]);
 
     const onHistoryChangeRef = useRef(onHistoryChange);
     onHistoryChangeRef.current = onHistoryChange;

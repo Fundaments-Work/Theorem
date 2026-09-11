@@ -37,16 +37,30 @@ const animate = (a, b, duration, ease, render) => new Promise(resolve => {
 })
 
 const uncollapse = range => {
-    if (!range?.collapsed) return range
+    if (!range || !('collapsed' in range) || !range.collapsed || !range.endContainer) return range
     const { endOffset, endContainer } = range
     if (endContainer.nodeType === 1) {
         const node = endContainer.childNodes[endOffset]
         if (node?.nodeType === 1) return node
+        if ((node?.nodeType === 3 || node?.nodeType === 4) && node.length > 0) {
+            const r = range.cloneRange()
+            r.selectNodeContents(node)
+            return r
+        }
         return endContainer
     }
-    if (endOffset + 1 < endContainer.length) range.setEnd(endContainer, endOffset + 1)
-    else if (endOffset > 1) range.setStart(endContainer, endOffset - 1)
-    else return endContainer.parentNode
+    if (endContainer.nodeType === 3 || endContainer.nodeType === 4) {
+        const r = range.cloneRange()
+        if (endOffset < endContainer.length) {
+            r.setEnd(endContainer, endOffset + 1)
+            return r
+        }
+        if (endOffset > 0) {
+            r.setStart(endContainer, endOffset - 1)
+            return r
+        }
+        return endContainer.parentNode
+    }
     return range
 }
 
@@ -226,7 +240,8 @@ class View {
         Object.assign(this.#iframe.style, {
             overflow: 'hidden',
             border: '0',
-            display: 'none',
+            display: 'block',
+            visibility: 'hidden',
             width: '100%', height: '100%',
             background: 'transparent',
             backgroundColor: 'transparent',
@@ -276,11 +291,16 @@ class View {
                 Promise.race([
                     Promise.allSettled(decodeAll),
                     timeout,
-                ]).then(() => {
-                    this.render(layout)
+                ]).then(async () => {
+                    this.#iframe.style.visibility = 'hidden'
                     this.#iframe.style.display = 'block'
+                    this.render(layout)
                     this.#observer.observe(doc.body)
-                    doc.fonts.ready.then(() => this.expand())
+                    try {
+                        await Promise.race([doc.fonts.ready, wait(120)])
+                        this.expand()
+                    } catch {}
+                    this.#iframe.style.visibility = 'visible'
                     resolve()
                 })
             }, { once: true })
@@ -1084,7 +1104,8 @@ export class Paginator extends HTMLElement {
         }
         const offset = this.#getRectMapper()(rect).left
         const rawPage = Math.floor(offset / (this.size || 1)) + (this.#rtl ? -1 : 1)
-        const targetPage = Math.max(1, rawPage)
+        const maxPage = Math.max(1, this.pages > 2 ? this.pages - 2 : 1)
+        const targetPage = Math.max(1, Math.min(rawPage, maxPage))
         return this.#scrollToPage(targetPage, reason)
     }
     async #scrollTo(offset, reason, smooth) {
@@ -1127,40 +1148,53 @@ export class Paginator extends HTMLElement {
         return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
     }
     async #scrollToAnchor(anchor, reason = 'anchor') {
-        this.#anchor = anchor
+        if (typeof anchor === 'function') this.#anchor = anchor
+        else if (typeof this.#anchor !== 'function') this.#anchor = anchor
         const resolvedAnchor = typeof anchor === 'function' && this.#view?.document
             ? anchor(this.#view.document)
             : anchor
-        const rects = uncollapse(resolvedAnchor)?.getClientRects?.()
+        const target = uncollapse(resolvedAnchor)
+        const rects = target?.getClientRects?.()
         // if anchor is an element or a range
         if (rects) {
             // when the start of the range is immediately after a hyphen in the
             // previous column, there is an extra zero width rect in that column
-            const rect = Array.from(rects)
+            let rect = Array.from(rects)
                 .find(r => r.width > 0 && r.height > 0) || rects[0]
+            if (!rect && resolvedAnchor) {
+                const el = resolvedAnchor.nodeType === 1
+                    ? resolvedAnchor
+                    : resolvedAnchor.commonAncestorContainer?.nodeType === 1
+                        ? resolvedAnchor.commonAncestorContainer
+                        : resolvedAnchor.commonAncestorContainer?.parentElement
+                if (el) {
+                    const elRects = el.getClientRects()
+                    rect = Array.from(elRects).find(r => r.width > 0 && r.height > 0) || elRects[0]
+                }
+            }
             if (rect) {
                 await this.#scrollToRect(rect, reason)
                 return
             }
-            // No measurable rect (freshly loaded section / collapsed range):
-            // fall through to the fraction path instead of returning early,
-            // which left the view unpositioned and showed a blank page.
         }
         // if anchor is a fraction
-        if (this.scrolled) {
-            const numAnchor = typeof resolvedAnchor === 'number' ? resolvedAnchor : 0
-            await this.#scrollTo(numAnchor * this.viewSize, reason)
+        if (typeof resolvedAnchor === 'number') {
+            if (this.scrolled) {
+                await this.#scrollTo(resolvedAnchor * this.viewSize, reason)
+                return
+            }
+            const { pages } = this
+            if (!pages || pages < 3) {
+                await this.#scrollToPage(1, reason)
+                return
+            }
+            const textPages = pages - 2
+            const newPage = textPages > 1 ? Math.round(resolvedAnchor * (textPages - 1)) : 0
+            await this.#scrollToPage(Math.max(1, Math.min(newPage + 1, pages - 2)), reason)
             return
         }
-        const { pages } = this
-        const numAnchor = typeof resolvedAnchor === 'number' ? resolvedAnchor : 0
-        if (!pages || pages < 3) {
-            await this.#scrollToPage(1, reason)
-            return
-        }
-        const textPages = pages - 2
-        const newPage = textPages > 1 ? Math.round(numAnchor * (textPages - 1)) : 0
-        await this.#scrollToPage(Math.max(1, Math.min(newPage + 1, pages - 2)), reason)
+        // Fallback for unmeasurable range/element anchor: show first page of section
+        await this.#scrollToPage(1, reason)
     }
     #getVisibleRange() {
         if (this.scrolled) return getVisibleRange(this.#view.document,
@@ -1239,6 +1273,7 @@ export class Paginator extends HTMLElement {
             resolvedAnchor = 0
         }
         await this.scrollToAnchor(resolvedAnchor, select)
+        if (typeof anchor === 'function') this.#anchor = anchor
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {

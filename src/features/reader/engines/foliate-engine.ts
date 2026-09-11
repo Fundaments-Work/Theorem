@@ -1448,9 +1448,98 @@ export class FoliateEngine {
         }
     }
 
+    findRangeByText(doc: Document, text: string): Range | null {
+        if (!text || !doc.body) return null;
+        const target = text.trim();
+        if (!target) return null;
+
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+        let node: Text | null;
+        const textNodes: Text[] = [];
+        let fullText = '';
+        while ((node = walker.nextNode() as Text | null)) {
+            textNodes.push(node);
+            fullText += node.nodeValue || '';
+        }
+        const index = fullText.indexOf(target);
+        if (index === -1) return null;
+
+        let cur = 0;
+        let startNode: Text | null = null;
+        let startOffset = 0;
+        let endNode: Text | null = null;
+        let endOffset = 0;
+        const endIndex = index + target.length;
+
+        for (const tn of textNodes) {
+            const len = tn.nodeValue?.length || 0;
+            if (!startNode && cur + len > index) {
+                startNode = tn;
+                startOffset = index - cur;
+            }
+            if (startNode && cur + len >= endIndex) {
+                endNode = tn;
+                endOffset = endIndex - cur;
+                break;
+            }
+            cur += len;
+        }
+
+        if (startNode && endNode) {
+            try {
+                const range = doc.createRange();
+                range.setStart(startNode, startOffset);
+                range.setEnd(endNode, endOffset);
+                return range;
+            } catch {
+                return null;
+            }
+        }
+        return null;
+    }
+
     async goToAnnotation(annotation: Annotation): Promise<void> {
-        if (annotation.location) {
-            await this.goTo(annotation.location);
+        if (!annotation.location || !this.view) return;
+        this._navigationInProgress = true;
+        try {
+            await this.view.goTo(annotation.location);
+            this.applyZoomSync();
+            this.scheduleSettingsUpdate();
+
+            const contents = this.view.renderer?.getContents?.() || [];
+            for (const content of contents) {
+                const doc = content?.doc;
+                if (!doc) continue;
+
+                let exactRange: Range | null = null;
+
+                try {
+                    const resolved = this.view.resolveNavigation(annotation.location);
+                    if (resolved?.anchor) {
+                        const candidate = resolved.anchor(doc);
+                        if (candidate instanceof Range) {
+                            if (!annotation.selectedText || candidate.toString().trim() === annotation.selectedText.trim()) {
+                                exactRange = candidate;
+                            }
+                        }
+                    }
+                } catch {}
+
+                if (!exactRange && annotation.selectedText) {
+                    exactRange = this.findRangeByText(doc, annotation.selectedText);
+                }
+
+                if (exactRange) {
+                    await this.view.renderer?.scrollToAnchor?.(exactRange, 'selection');
+                    this._lastAnnotationActivatedAt = Date.now();
+                    if (this.options.onTextSelected) {
+                        this.options.onTextSelected(annotation.location, annotation.selectedText || '', exactRange.cloneRange());
+                    }
+                    break;
+                }
+            }
+        } finally {
+            this._navigationInProgress = false;
         }
     }
 

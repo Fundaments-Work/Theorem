@@ -14,7 +14,7 @@ interface ReaderAnnotationsPanelProps {
     bookId: string;
     visible: boolean;
     onClose: () => void;
-    onNavigate: (location: string) => void;
+    onNavigate: (location: string, annotation?: Annotation) => void;
     onDelete?: (id: string) => void;
     className?: string;
 }
@@ -60,7 +60,7 @@ export function ReaderAnnotationsPanel({
     }[vaultSyncStatus];
 
     const handleNavigate = (annotation: Annotation) => {
-        onNavigate(annotation.location);
+        onNavigate(annotation.location, annotation);
         onClose();
     };
 

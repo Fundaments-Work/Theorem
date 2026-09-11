@@ -1278,6 +1278,22 @@ const BookReaderPage = memo(function BookReaderPage() {
         setActivePanel(null);
     }, [isPdfFormat]);
 
+    const goToAnnotation = useCallback(async (annotation: Annotation) => {
+        if (isPdfFormat) {
+            const pageNumber = annotation.pageNumber ?? resolvePdfTargetPage(annotation.location);
+            if (pageNumber) {
+                pdfReaderRef.current?.goToPage(pageNumber);
+            }
+            setActivePanel(null);
+            return;
+        }
+
+        if (readerRef.current) {
+            await readerRef.current.goToAnnotation(annotation);
+        }
+        setActivePanel(null);
+    }, [isPdfFormat]);
+
     const handleSeek = useCallback((fraction: number) => {
         lastClickFractionRef.current = fraction;
         if (readerRef.current) {
@@ -1684,6 +1700,10 @@ const BookReaderPage = memo(function BookReaderPage() {
         if (initialLocation) {
             debug('[Reader] CFI was provided, engine should have navigated');
             hasAppliedInitialLocationRef.current = true;
+            const ann = annotations.find(a => a.location === initialLocation);
+            if (ann) {
+                readerRef.current?.goToAnnotation(ann);
+            }
             return;
         }
 
@@ -2606,7 +2626,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                 bookId={activeDocId || ''}
                 visible={activePanel === 'bookmarks'}
                 onClose={() => setActivePanel(null)}
-                onNavigate={goTo}
+                onNavigate={(location, annotation) => {
+                    if (annotation) {
+                        goToAnnotation(annotation);
+                    } else {
+                        goTo(location);
+                    }
+                }}
                 onDelete={(id) => {
                     if (isPdfFormat) {
                         handlePdfAnnotationRemove(id);

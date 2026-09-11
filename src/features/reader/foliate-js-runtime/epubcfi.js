@@ -225,42 +225,68 @@ const indexChildNodes = (node, filter) => {
 }
 
 const partsToNode = (node, parts, filter) => {
-    const { id } = parts[parts.length - 1]
-    if (id) {
-        const el = node.ownerDocument.getElementById(id)
-        if (el) return { node: el, offset: 0 }
+    if (!node || !parts || !parts.length) return { node: node ?? null, offset: 0 }
+
+    // Fast-forward to the most specific matching element ID in parts if available
+    for (let i = parts.length - 1; i >= 0; i--) {
+        const id = parts[i].id
+        if (id) {
+            const el = node.ownerDocument?.getElementById(id)
+            if (el) {
+                if (i === parts.length - 1) return { node: el, offset: 0 }
+                node = el
+                parts = parts.slice(i + 1)
+                break
+            }
+        }
     }
-    for (const { index } of parts) {
+
+    for (let pIdx = 0; pIdx < parts.length; pIdx++) {
         if (!node) break
-        const newNode = indexChildNodes(node, filter)[index]
-        
-        if (newNode === 'first') return { node: node.firstChild ?? node }
-        if (newNode === 'last') return { node: node.lastChild ?? node }
+        const part = parts[pIdx]
+        const { index, id } = part
+        const indexed = indexChildNodes(node, filter)
+        let newNode = indexed[index]
+
+        // If the step is a synthetic word wrapper (e.g. w_N from removed TTS wrapping)
+        // that no longer exists in DOM, skip it and continue inside current container
+        if (!newNode && id && /^w_\d+$/.test(id)) {
+            continue
+        }
+
+        if (newNode === 'first') return { node: node.firstChild ?? node, offset: 0 }
+        if (newNode === 'last') return { node: node.lastChild ?? node, offset: 0 }
         if (newNode === 'before') return { node, before: true }
         if (newNode === 'after') return { node, after: true }
-        // A stale CFI (e.g. an annotation created before the TTS word-wrapping
-        // was removed) can reference nodes that no longer exist. Stop at the
-        // nearest resolvable ancestor instead of returning an invalid node,
-        // which made toRange throw and navigation fail.
-        if (!newNode) break
+        
+        if (!newNode) {
+            // If child node at index does not exist, stop at current container
+            break
+        }
         node = newNode
     }
-    const { offset } = parts[parts.length - 1]
+
+    const lastPart = parts[parts.length - 1]
+    const offset = lastPart?.offset ?? 0
+
+    if (!node) return { node: null, offset: 0 }
+
     if (!Array.isArray(node)) {
-        // Clamp a stale offset so Range.setStart/setEnd can't throw
-        // "Offset out of bound." for a partially-resolved (stale) CFI.
-        const isText = node && (node.nodeType === 3 || node.nodeType === 4)
-        const max = isText ? node.nodeValue.length : 0
-        const safe = Math.max(0, Math.min(offset ?? 0, max))
+        // Clamp offset so Range.setStart/setEnd can't throw for partially-resolved CFI
+        const isText = node.nodeType === 3 || node.nodeType === 4
+        const max = isText ? node.nodeValue.length : (node.childNodes?.length ?? 0)
+        const safe = Math.max(0, Math.min(offset, max))
         return { node, offset: safe }
     }
-    
+
     let sum = 0
     for (const n of node) {
-        const { length } = n.nodeValue
-        if (sum + length >= offset) return { node: n, offset: offset - sum }
+        const length = n.nodeValue?.length ?? 0
+        if (sum + length >= offset) return { node: n, offset: Math.max(0, offset - sum) }
         sum += length
     }
+    const lastNode = node[node.length - 1]
+    return { node: lastNode, offset: lastNode?.nodeValue?.length ?? 0 }
 }
 
 const nodeToParts = (node, offset, filter) => {
@@ -307,15 +333,19 @@ export const toRange = (doc, parts, filter) => {
     const start = partsToNode(root, startParts[0], filter)
     const end = partsToNode(root, endParts[0], filter)
 
+    const fallbackNode = doc.body ?? doc.documentElement
+    const startNode = start?.node ?? fallbackNode
+    const endNode = end?.node ?? fallbackNode
+
     const range = doc.createRange()
 
-    if (start.before) range.setStartBefore(start.node)
-    else if (start.after) range.setStartAfter(start.node)
-    else range.setStart(start.node, start.offset)
+    if (start?.before) range.setStartBefore(startNode)
+    else if (start?.after) range.setStartAfter(startNode)
+    else range.setStart(startNode, start?.offset ?? 0)
 
-    if (end.before) range.setEndBefore(end.node)
-    else if (end.after) range.setEndAfter(end.node)
-    else range.setEnd(end.node, end.offset)
+    if (end?.before) range.setEndBefore(endNode)
+    else if (end?.after) range.setEndAfter(endNode)
+    else range.setEnd(endNode, end?.offset ?? 0)
     return range
 }
 
