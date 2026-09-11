@@ -333,7 +333,7 @@ pub mod desktop {
             };
             let chunks = chunk_text(text, max_chars);
             let mut out: Vec<f32> = Vec::new();
-            let silence_len = (0.3 * self.sample_rate as f32) as usize;
+            let silence_len = (0.08 * self.sample_rate as f32) as usize;
             for (index, chunk) in chunks.iter().enumerate() {
                 let mut samples = self.infer_chunk(chunk, lang, style, total_step, speed)?;
                 if index + 1 < chunks.len() {
@@ -514,6 +514,12 @@ pub mod desktop {
         ENGINE.get_or_init(|| Mutex::new(None))
     }
 
+    pub fn unload_engine() -> Result<(), String> {
+        let mut slot = engine_slot().lock().map_err(|e| e.to_string())?;
+        *slot = None;
+        Ok(())
+    }
+
     pub fn ort_dir(app: &tauri::AppHandle) -> PathBuf {
         crate::tts_model::tts_dir(app).join("runtime")
     }
@@ -573,12 +579,15 @@ pub mod desktop {
             }
         }
 
-        // `commit()` returns bool (panics/logs internally on failure).
-        if !ort::init_from(&lib_path)
-            .map_err(|e| format!("Failed to load ONNX Runtime from {lib_path:?}: {e:?}"))?
-            .commit()
-        {
-            return Err("Failed to initialize ONNX Runtime".to_string());
+        static ORT_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+        let init_result = ORT_INIT.get_or_init(|| {
+            let _ = ort::init_from(&lib_path)
+                .map_err(|e| format!("Failed to load ONNX Runtime from {lib_path:?}: {e:?}"))?
+                .commit();
+            Ok(())
+        });
+        if let Err(err) = init_result {
+            return Err(err.clone());
         }
 
         let threads = std::thread::available_parallelism()
@@ -621,7 +630,7 @@ pub mod desktop {
         crate::tts_model::tts_dir(app).join("cache")
     }
 
-    const CACHE_LIMIT_BYTES: u64 = 1_000_000_000; // 1GB LRU cap
+    const CACHE_LIMIT_BYTES: u64 = 150_000_000; // 150MB LRU cap
 
     pub fn trim_cache(dir: &Path, limit: u64) {
         let mut files: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
@@ -723,7 +732,10 @@ pub mod desktop {
             let duration_sec = samples.len() as f32 / engine.sample_rate as f32;
 
             write_wav(&out_path, &samples, engine.sample_rate)?;
-            trim_cache(&dir, CACHE_LIMIT_BYTES);
+            let dir_clone = dir.clone();
+            std::thread::spawn(move || {
+                trim_cache(&dir_clone, CACHE_LIMIT_BYTES);
+            });
 
             Ok(SynthesisResult {
                 path: out_path.display().to_string(),
@@ -833,6 +845,32 @@ pub mod desktop {
             // static slot that never drops).
             std::mem::forget(engine);
         }
+
+        #[test]
+        #[ignore]
+        fn reload_engine_and_synthesize() {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let base = std::env::var("THEOREM_TTS_DIR")
+                .unwrap_or_else(|_| format!("{home}/.local/share/work.fundamentals.theorem/tts"));
+            let base = Path::new(&base);
+            {
+                let mut engine = load_engine_at(base).expect("first engine load");
+                let style = load_style(&base.join("voices"), "F1").expect("style");
+                let samples = engine
+                    .synthesize("First test.", "en", &style, 8, 1.0)
+                    .expect("first synthesis");
+                assert!(!samples.is_empty());
+            }
+            {
+                let mut engine2 = load_engine_at(base).expect("second engine load after drop");
+                let style2 = load_style(&base.join("voices"), "F1").expect("style");
+                let samples2 = engine2
+                    .synthesize("Second test after reload.", "en", &style2, 8, 1.0)
+                    .expect("second synthesis");
+                assert!(!samples2.is_empty());
+                std::mem::forget(engine2);
+            }
+        }
     }
 }
 
@@ -930,4 +968,16 @@ pub fn tts_text_chunks(text: String, lang: String) -> Result<Vec<String>, String
 #[tauri::command]
 pub fn tts_text_chunks(_text: String, _lang: String) -> Result<Vec<String>, String> {
     Ok(Vec::new())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub fn tts_engine_unload() -> Result<(), String> {
+    desktop::unload_engine()
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn tts_engine_unload() -> Result<(), String> {
+    Ok(())
 }

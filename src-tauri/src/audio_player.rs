@@ -10,8 +10,17 @@
 //! keeps position/seek absolute over the whole page: the number of finished
 //! sources is `appended - queued`, and seek re-queues from the target chunk.
 
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct AudioPlayerStatus {
+    pub position: f64,
+    pub duration: f64,
+    pub chunk_index: usize,
+    pub finished: bool,
+}
+
 #[cfg(not(target_os = "android"))]
 mod imp {
+    use super::AudioPlayerStatus;
     use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
     use std::fs::File;
     use std::io::{BufReader, Read};
@@ -58,6 +67,7 @@ mod imp {
         durations: Vec<f64>,
         /// Chunk file paths in append order (seek re-queues from the target).
         paths: Vec<String>,
+        paused: bool,
     }
 
     impl NativePlayer {
@@ -81,6 +91,14 @@ mod imp {
             let base: f64 = self.durations.iter().take(finished).sum();
             (base + self.player.get_pos().as_secs_f64()).min(total)
         }
+
+        fn chunk_index(&self) -> usize {
+            if self.durations.is_empty() || self.player.empty() {
+                self.durations.len().saturating_sub(1)
+            } else {
+                self.durations.len().saturating_sub(self.player.len())
+            }
+        }
     }
 
     static PLAYER: OnceLock<Mutex<Option<NativePlayer>>> = OnceLock::new();
@@ -100,6 +118,7 @@ mod imp {
                 player,
                 durations: Vec::new(),
                 paths: Vec::new(),
+                paused: false,
             });
         }
         let p = guard.as_mut().ok_or("player unavailable")?;
@@ -116,7 +135,9 @@ mod imp {
             p.durations.push(duration);
             p.paths.push(path);
             p.player.append(source);
-            p.player.play();
+            if !p.paused {
+                p.player.play();
+            }
         })
     }
 
@@ -124,6 +145,7 @@ mod imp {
         let duration = wav_duration(&path);
         let source = open_source(&path)?;
         with_player(|p| {
+            p.paused = false;
             p.player.clear();
             p.durations.clear();
             p.durations.push(duration);
@@ -135,15 +157,22 @@ mod imp {
     }
 
     pub fn pause() -> Result<(), String> {
-        with_player(|p| p.player.pause())
+        with_player(|p| {
+            p.paused = true;
+            p.player.pause();
+        })
     }
 
     pub fn resume() -> Result<(), String> {
-        with_player(|p| p.player.play())
+        with_player(|p| {
+            p.paused = false;
+            p.player.play();
+        })
     }
 
     pub fn stop() -> Result<(), String> {
         with_player(|p| {
+            p.paused = false;
             p.player.clear();
             p.durations.clear();
             p.paths.clear();
@@ -169,7 +198,7 @@ mod imp {
                 chunk_start += *duration;
             }
             let offset = (target - chunk_start).max(0.0);
-            let was_paused = p.player.is_paused();
+            let was_paused = p.paused;
             p.player.clear();
             for path in &p.paths[idx..] {
                 let source = open_source(path)?;
@@ -194,6 +223,21 @@ mod imp {
     pub fn finished() -> Result<bool, String> {
         with_player(|p| p.player.empty())
     }
+
+    pub fn status() -> Result<AudioPlayerStatus, String> {
+        with_player(|p| AudioPlayerStatus {
+            position: p.absolute_position(),
+            duration: p.total_duration(),
+            chunk_index: p.chunk_index(),
+            finished: p.player.empty(),
+        })
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub fn tts_audio_status() -> Result<AudioPlayerStatus, String> {
+    imp::status()
 }
 
 #[cfg(not(target_os = "android"))]
@@ -289,5 +333,11 @@ pub fn tts_audio_position() -> Result<f64, String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub fn tts_audio_finished() -> Result<bool, String> {
+    Err("Native playback is desktop-only".to_string())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn tts_audio_status() -> Result<AudioPlayerStatus, String> {
     Err("Native playback is desktop-only".to_string())
 }
