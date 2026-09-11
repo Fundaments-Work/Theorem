@@ -1034,6 +1034,7 @@ pub fn setup_linux_cli_symlink_inner() -> Result<String, String> {
 /// AppImage note: `current_exe` inside an AppImage points into the temporary
 /// squashfs mount, which disappears on reboot — symlink the AppImage file
 /// itself (`$APPIMAGE`) when available so the link survives.
+#[cfg(all(target_os = "linux", not(target_os = "android")))]
 fn cli_symlink_target_exe() -> Result<PathBuf, String> {
     if let Ok(appimage) = std::env::var("APPIMAGE") {
         if !appimage.is_empty() {
@@ -1139,6 +1140,7 @@ fn remove_linux_cli_symlink() -> Result<(), String> {
     }
 }
 
+#[cfg(all(target_os = "linux", not(target_os = "android")))]
 fn cli_symlink_path() -> Result<PathBuf, String> {
     let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set")?;
     Ok(PathBuf::from(home)
