@@ -1,62 +1,60 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { isTauri } from "../../../core/lib/env";
 import { useSettingsStore } from "../../../core/store";
 
-async function sendReminder(shortfall: number) {
+async function sendReminder(shortfall: number, totalGoal: number) {
     const { notifyIfGranted } = await import("../../../core/lib/notifications");
-    await notifyIfGranted(
-        "Reading Goal Reminder",
-        `You're ${shortfall} min short of your daily reading goal — keep going!`,
-    );
+    const msg = shortfall >= totalGoal
+        ? `Time for your daily reading! Your goal is ${totalGoal} minutes today.`
+        : `You're ${shortfall} min short of your daily reading goal — keep going!`;
+    await notifyIfGranted("Reading Goal Reminder", msg);
     const { toast } = await import("sonner");
-    toast(`${shortfall} min to go to reach your daily goal`);
+    toast(msg);
 }
 
-function isReminderTime(reminderSetting: string): boolean {
-    const now = new Date();
+export function isReminderTime(reminderSetting: string, now = new Date()): boolean {
+    if (!reminderSetting) return false;
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const [h, m] = reminderSetting.split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return false;
     const targetMinutes = h * 60 + m;
-    const diff = Math.abs(currentMinutes - targetMinutes);
-    return diff <= 5;
+    // Trigger if within 30 minutes after target time, or within 5 minutes before
+    return currentMinutes >= targetMinutes - 5 && currentMinutes <= targetMinutes + 30;
 }
 
 export function useDailyGoalReminder() {
-    const remindedDateRef = useRef<string>("");
-
     useEffect(() => {
         if (!isTauri()) return;
 
-        const intervalId = setInterval(async () => {
+        const checkReminder = async () => {
             try {
-                const settings = useSettingsStore.getState().settings;
+                const { settings, stats, updateStats } = useSettingsStore.getState();
                 if (!settings.goalNotifications) return;
 
                 const today = new Date().toISOString().split("T")[0];
-                if (remindedDateRef.current === today) return;
+                if (stats.lastDailyReminderDate === today) return;
 
                 if (!isReminderTime(settings.dailyReminderTime)) return;
 
-                const { invoke } = await import("@tauri-apps/api/core");
-                const result = await invoke<{
-                    today_minutes: number;
-                    daily_goal: number;
-                } | null>("sqlite_check_goal_reminder");
+                const todayActivity = stats.dailyActivity.find((a) => a.date === today);
+                const todayMinutes = todayActivity?.minutes ?? 0;
+                const dailyGoal = stats.dailyGoal || 30;
 
-                if (!result) return;
-
-                if (
-                    result.today_minutes > 0 &&
-                    result.today_minutes < result.daily_goal
-                ) {
-                    remindedDateRef.current = today;
-                    const shortfall = result.daily_goal - result.today_minutes;
-                    sendReminder(shortfall);
+                if (todayMinutes < dailyGoal) {
+                    updateStats({ lastDailyReminderDate: today });
+                    const shortfall = dailyGoal - todayMinutes;
+                    await sendReminder(shortfall, dailyGoal);
                 }
             } catch {
-                // Silently ignore (plugin not available, etc.)
+                // Silently ignore errors
             }
-        }, 5 * 60 * 1000);
+        };
+
+        // Check immediately on mount and then every 60 seconds
+        void checkReminder();
+        const intervalId = setInterval(() => {
+            void checkReminder();
+        }, 60 * 1000);
 
         return () => clearInterval(intervalId);
     }, []);

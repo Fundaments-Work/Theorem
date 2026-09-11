@@ -19,16 +19,6 @@ async function notifyGoalMet(minutes: number) {
     toast.success("Daily goal met!");
 }
 
-async function notifyGoalShortfall(shortfall: number) {
-    const { notifyIfGranted } = await import("../../../core/lib/notifications");
-    await notifyIfGranted(
-        "Keep Going!",
-        `You're ${shortfall} min short of your daily reading goal — keep going!`,
-    );
-    const { toast } = await import("sonner");
-    toast(`${shortfall} min to go to reach your daily goal`);
-}
-
 export function useReadingTime({
     currentBookId,
     addReadingTime,
@@ -40,7 +30,6 @@ export function useReadingTime({
     const accumulatedMsRef = useRef(0);
     const readingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const statsRef = useRef(stats);
-    const notifiedGoalDateRef = useRef<string>("");
     statsRef.current = stats;
 
     const lastPageTurnTimeRef = useRef<number | null>(Date.now());
@@ -148,9 +137,9 @@ export function useReadingTime({
             if (
                 todayMinutes >= currentStats.dailyGoal &&
                 useSettingsStore.getState().settings.goalNotifications &&
-                notifiedGoalDateRef.current !== today
+                currentStats.lastGoalNotifiedDate !== today
             ) {
-                notifiedGoalDateRef.current = today;
+                updateStats({ lastGoalNotifiedDate: today });
                 notifyGoalMet(currentStats.dailyGoal);
             }
         };
@@ -225,19 +214,6 @@ export function useReadingTime({
             tauriUnlisten.forEach((fn) => fn());
 
             flushReadingTime();
-
-            const today = new Date().toISOString().split('T')[0];
-            const todayActivity = useSettingsStore.getState().stats.dailyActivity.find(a => a.date === today);
-            const todayMinutes = todayActivity?.minutes ?? 0;
-            if (
-                todayMinutes > 0 &&
-                todayMinutes < useSettingsStore.getState().stats.dailyGoal &&
-                useSettingsStore.getState().settings.goalNotifications &&
-                notifiedGoalDateRef.current !== today
-            ) {
-                notifiedGoalDateRef.current = today;
-                notifyGoalShortfall(useSettingsStore.getState().stats.dailyGoal - todayMinutes);
-            }
         };
     }, [currentBookId, addReadingTime, updateStats]);
 

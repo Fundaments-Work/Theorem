@@ -17,6 +17,7 @@ import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { OnboardingFlow } from "./features/onboarding";
+import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
 import { Toaster } from "sonner";
 
 const LibraryPage = lazy(() =>
@@ -81,6 +82,8 @@ function App() {
     const updateSettings = useSettingsStore((state) => state.updateSettings);
     const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
+
+    useDailyGoalReminder();
 
     const [storesHydrated, setStoresHydrated] = useState(() =>
         useSettingsStore.persist.hasHydrated(),

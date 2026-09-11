@@ -367,6 +367,8 @@ export interface ReadingStats {
     booksReadThisYear: number;
     dailyActivity: DailyReadingActivity[]; 
     lastReadDate?: string; 
+    lastGoalNotifiedDate?: string;
+    lastDailyReminderDate?: string;
 }
 
 export interface RssFeed {

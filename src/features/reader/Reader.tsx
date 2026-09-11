@@ -43,7 +43,6 @@ import type {
 import { List } from "lucide-react";
 
 import { useReadingTime } from "./hooks/useReadingTime";
-import { useDailyGoalReminder } from "./hooks/useDailyGoalReminder";
 import { WindowTitlebar } from "./components/WindowTitlebar";
 import { TableOfContents } from "./components/TableOfContents";
 import { ReaderSettings } from "./components/ReaderSettings";
@@ -823,7 +822,6 @@ const BookReaderPage = memo(function BookReaderPage() {
         updateStats,
         isTtsActive: ttsState === 'playing',
     });
-    useDailyGoalReminder();
 
     useEffect(() => {
         return () => {
