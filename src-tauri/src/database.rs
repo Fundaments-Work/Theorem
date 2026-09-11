@@ -121,8 +121,8 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     }
 
     // StarDict dictionaries are now loaded directly from disk files via mmap in stardict.rs.
-    // Clear any legacy multi-megabyte dictionary BLOBs from blob_store.
-    let reclaimed_dicts = reclaim_legacy_stardict_blobs(&conn)?;
+    // Ensure any unmaterialized dictionary BLOBs are extracted to disk before reclaiming.
+    let reclaimed_dicts = reclaim_legacy_stardict_blobs(&conn, &app_data_dir)?;
     if reclaimed_dicts > 0 {
         eprintln!("[database] Reclaimed legacy StarDict BLOBs ({reclaimed_dicts} entries)");
     }
@@ -136,13 +136,107 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn reclaim_legacy_stardict_blobs(connection: &Connection) -> Result<usize, String> {
-    connection
-        .execute(
-            "DELETE FROM blob_store WHERE key LIKE 'theorem-stardict:%'",
-            [],
-        )
-        .map_err(|e| format!("Failed to reclaim legacy StarDict blobs: {e}"))
+fn reclaim_legacy_stardict_blobs(
+    connection: &Connection,
+    app_data_dir: &Path,
+) -> Result<usize, String> {
+    let ifo_keys: Vec<String> = {
+        let mut statement = connection
+            .prepare("SELECT key FROM blob_store WHERE key LIKE 'theorem-stardict:%:ifo'")
+            .map_err(|e| format!("Failed to prepare stardict query: {e}"))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query stardict keys: {e}"))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| format!("Failed to read stardict keys: {e}"))?
+    };
+
+    let mut reclaimed = 0;
+    for ifo_key in ifo_keys {
+        let parts: Vec<&str> = ifo_key.split(':').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let dict_id = parts[1];
+        let dict_dir = app_data_dir.join("dictionaries").join(dict_id);
+
+        if !crate::stardict::is_valid_stardict_dir(&dict_dir) {
+            let idx_key = format!("theorem-stardict:{dict_id}:idx");
+            let dict_key = format!("theorem-stardict:{dict_id}:dict");
+            let syn_key = format!("theorem-stardict:{dict_id}:syn");
+
+            let ifo_blob: Option<Vec<u8>> = connection
+                .query_row(
+                    "SELECT value FROM blob_store WHERE key = ?1",
+                    params![&ifo_key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to read ifo blob: {e}"))?;
+            let idx_blob: Option<Vec<u8>> = connection
+                .query_row(
+                    "SELECT value FROM blob_store WHERE key = ?1",
+                    params![&idx_key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to read idx blob: {e}"))?;
+            let dict_blob: Option<Vec<u8>> = connection
+                .query_row(
+                    "SELECT value FROM blob_store WHERE key = ?1",
+                    params![&dict_key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to read dict blob: {e}"))?;
+            let syn_blob: Option<Vec<u8>> = connection
+                .query_row(
+                    "SELECT value FROM blob_store WHERE key = ?1",
+                    params![&syn_key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to read syn blob: {e}"))?;
+
+            let (Some(ifo), Some(idx), Some(dict)) = (ifo_blob, idx_blob, dict_blob) else {
+                eprintln!("[database] StarDict dictionary {dict_id} has incomplete blobs, skipping reclaim");
+                continue;
+            };
+
+            if let Err(e) = fs::create_dir_all(&dict_dir) {
+                eprintln!("[database] Failed to create dictionary dir for {dict_id}: {e}");
+                continue;
+            }
+
+            if let Err(e) = fs::write(dict_dir.join("dict.ifo"), &ifo) {
+                eprintln!("[database] Failed to write dict.ifo for {dict_id}: {e}");
+                continue;
+            }
+            if let Err(e) = fs::write(dict_dir.join("dict.idx"), &idx) {
+                eprintln!("[database] Failed to write dict.idx for {dict_id}: {e}");
+                continue;
+            }
+            if let Err(e) = fs::write(dict_dir.join("dict.dict.dz"), &dict) {
+                eprintln!("[database] Failed to write dict.dict.dz for {dict_id}: {e}");
+                continue;
+            }
+            if let Some(syn) = syn_blob {
+                let _ = fs::write(dict_dir.join("dict.syn"), &syn);
+            }
+        }
+
+        if crate::stardict::is_valid_stardict_dir(&dict_dir) {
+            let deleted = connection
+                .execute(
+                    "DELETE FROM blob_store WHERE key LIKE ?1",
+                    params![format!("theorem-stardict:{dict_id}:%")],
+                )
+                .map_err(|e| format!("Failed to delete blobs for {dict_id}: {e}"))?;
+            reclaimed += deleted;
+        }
+    }
+
+    Ok(reclaimed)
 }
 
 fn reclaim_legacy_book_blobs(

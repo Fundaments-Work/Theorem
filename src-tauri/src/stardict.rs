@@ -854,6 +854,37 @@ fn get_dict_dir(app: &AppHandle, dict_id: &str) -> PathBuf {
     app_data.join("dictionaries").join(dict_id)
 }
 
+/// Check whether a directory contains all required StarDict files (.ifo, .idx, and .dict/.dict.dz)
+pub fn is_valid_stardict_dir(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let mut has_ifo = false;
+    let mut has_idx = false;
+    let mut has_dict = false;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+            let ext_lower = ext.to_lowercase();
+            let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if ext_lower == "ifo" {
+                has_ifo = true;
+            } else if ext_lower == "idx" || ext_lower == "index" {
+                has_idx = true;
+            } else if ext_lower == "dict"
+                || filename.ends_with(".dict.dz")
+                || filename.ends_with(".dz")
+            {
+                has_dict = true;
+            }
+        }
+    }
+    has_ifo && has_idx && has_dict
+}
+
 /// Ensure dictionary is loaded into memory map cache
 fn get_or_load_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<StarDict>, String> {
     {
@@ -864,12 +895,24 @@ fn get_or_load_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<StarDict
     }
 
     let dir = get_dict_dir(app, dict_id);
-    if !dir.exists() {
+    if !is_valid_stardict_dir(&dir) {
         // Check if dictionary exists in SQLite blobs and export it to disk
         export_stardict_from_sqlite(app, dict_id, &dir)?;
     }
 
-    let dict = Arc::new(StarDict::open(&dir)?);
+    let dict = match StarDict::open(&dir) {
+        Ok(d) => Arc::new(d),
+        Err(open_err) => {
+            // If opening failed (e.g. corrupted files), attempt re-exporting from SQLite blobs if available
+            if export_stardict_from_sqlite(app, dict_id, &dir).is_ok() {
+                Arc::new(StarDict::open(&dir).map_err(|e| {
+                    format!("Failed to open StarDict dictionary after recovery: {e}")
+                })?)
+            } else {
+                return Err(open_err);
+            }
+        }
+    };
 
     let mut cache = dict_cache().write().unwrap();
     cache.insert(dict_id.to_string(), dict.clone());
@@ -920,13 +963,13 @@ fn export_stardict_from_sqlite(
     let dict_key = format!("theorem-stardict:{dict_id}:dict");
     let syn_key = format!("theorem-stardict:{dict_id}:syn");
 
-    let ifo_blob = crate::database::sqlite_get_blob(app.clone(), ifo_key)?
+    let ifo_blob = crate::database::sqlite_get_blob(app.clone(), ifo_key.clone())?
         .ok_or_else(|| format!("Dictionary {dict_id} not found in storage"))?;
-    let idx_blob = crate::database::sqlite_get_blob(app.clone(), idx_key)?
+    let idx_blob = crate::database::sqlite_get_blob(app.clone(), idx_key.clone())?
         .ok_or_else(|| format!("Dictionary {dict_id} missing index"))?;
-    let dict_blob = crate::database::sqlite_get_blob(app.clone(), dict_key)?
+    let dict_blob = crate::database::sqlite_get_blob(app.clone(), dict_key.clone())?
         .ok_or_else(|| format!("Dictionary {dict_id} missing data"))?;
-    let syn_blob = crate::database::sqlite_get_blob(app.clone(), syn_key)
+    let syn_blob = crate::database::sqlite_get_blob(app.clone(), syn_key.clone())
         .ok()
         .flatten();
 
@@ -957,6 +1000,13 @@ fn export_stardict_from_sqlite(
         let _ = std::fs::write(target_dir.join(format!("{base_name}.syn")), syn);
     }
 
+    // Now that files are successfully written to disk and verified, safely delete
+    // the heavy SQLite blobs to conserve database size.
+    let _ = crate::database::sqlite_delete_blob(app.clone(), ifo_key);
+    let _ = crate::database::sqlite_delete_blob(app.clone(), idx_key);
+    let _ = crate::database::sqlite_delete_blob(app.clone(), dict_key);
+    let _ = crate::database::sqlite_delete_blob(app.clone(), syn_key);
+
     Ok(())
 }
 
@@ -970,9 +1020,14 @@ pub async fn stardict_lookup(
     tokio::task::spawn_blocking(move || {
         let mut results = Vec::new();
         for id in dictionary_ids {
-            if let Ok(dict) = get_or_load_dictionary(&app, &id) {
-                if let Ok(Some(entry)) = dict.lookup(&term) {
-                    results.push(entry);
+            match get_or_load_dictionary(&app, &id) {
+                Ok(dict) => {
+                    if let Ok(Some(entry)) = dict.lookup(&term) {
+                        results.push(entry);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[stardict] Failed to load dictionary {id}: {e}");
                 }
             }
         }

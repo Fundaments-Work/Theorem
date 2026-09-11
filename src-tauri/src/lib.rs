@@ -1562,7 +1562,12 @@ async fn download_and_extract_stardict(
         .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."));
     let dict_dir = app_data.join("dictionaries").join(&id);
-    let _ = std::fs::create_dir_all(&dict_dir);
+    std::fs::create_dir_all(&dict_dir).map_err(|e| {
+        format!(
+            "Failed to create dictionary directory {}: {e}",
+            dict_dir.display()
+        )
+    })?;
 
     if url.ends_with(".mdx") {
         let size_bytes = body.len() as u64;
@@ -1641,18 +1646,15 @@ async fn download_and_extract_stardict(
         serde_json::to_string(&manifest).map_err(|e| e.to_string())?,
     )?;
 
-    let _ = std::fs::write(dict_dir.join("dict.ifo"), &ifo);
-    let _ = std::fs::write(dict_dir.join("dict.idx"), &idx);
-    let _ = std::fs::write(dict_dir.join("dict.dict.dz"), &dict);
+    std::fs::write(dict_dir.join("dict.ifo"), &ifo)
+        .map_err(|e| format!("Failed to write dict.ifo: {e}"))?;
+    std::fs::write(dict_dir.join("dict.idx"), &idx)
+        .map_err(|e| format!("Failed to write dict.idx: {e}"))?;
+    std::fs::write(dict_dir.join("dict.dict.dz"), &dict)
+        .map_err(|e| format!("Failed to write dict.dict.dz: {e}"))?;
     if let Some(ref syn_data) = syn {
-        let _ = std::fs::write(dict_dir.join("dict.syn"), syn_data);
-    }
-
-    database::sqlite_set_blob(app.clone(), format!("theorem-stardict:{id}:ifo"), ifo)?;
-    database::sqlite_set_blob(app.clone(), format!("theorem-stardict:{id}:idx"), idx)?;
-    database::sqlite_set_blob(app.clone(), format!("theorem-stardict:{id}:dict"), dict)?;
-    if let Some(syn_data) = syn {
-        database::sqlite_set_blob(app, format!("theorem-stardict:{id}:syn"), syn_data)?;
+        std::fs::write(dict_dir.join("dict.syn"), syn_data)
+            .map_err(|e| format!("Failed to write dict.syn: {e}"))?;
     }
 
     Ok(serde_json::json!({
