@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-09-11
+
+### Added
+
+- **Set-and-Forget Obsidian Vault Auto-Sync** — Automatically synchronizes markdown notes to your Obsidian vault without needing manual clicks. Sync triggers immediately upon choosing an export folder and runs seamlessly in the background with a 2-second debounce on any highlight, note, or vocabulary change.
+- **Lemma Spaced-Repetition (FSRS) Deck Export** — Vocabulary exports to `<VaultRoot>/Theorem/Vocabulary.md` structured as a native flashcard deck for the Lemma Obsidian plugin. Frontmatter includes `tags: [flashcards]` for automatic deck indexing, while cards use standard `---card---` delimiters, pronunciation, context quotes, and stable `^fsrs-vocab-<id>` block IDs to preserve FSRS review history and scheduling across exports.
+- **Idiomatic Obsidian Book Highlights** — Book notes are now organized under `<VaultRoot>/Theorem/Books/` using native Obsidian `> ==highlight==` markdown formatting instead of raw HTML `<mark>` tags. Removed dead/unregistered deep links in favor of portable, clean markdown.
+
+### Fixed
+
+- **Silent Reader Exit** — Eliminated nagging "You're X min short" toast notifications whenever closing a book or navigating away from the reader. Exiting the reader now flushes reading stats completely silently.
+- **Deduplicated Goal Met Celebrations** — Enforced daily celebration deduplication via `stats.lastGoalNotifiedDate`, guaranteeing that achieving your daily reading goal only triggers a celebration notification strictly once per calendar day.
+- **Global Daily Goal Reminder (8 PM)** — Moved the daily goal reminder hook to the global application root (`App.tsx`) and removed the restriction requiring >0 minutes read today, ensuring that users who haven't yet opened the app or read are reliably reminded to read at their scheduled reminder time.
+
 ## [1.5.0] - 2026-09-11
 
 ### Added
