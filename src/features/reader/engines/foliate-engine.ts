@@ -2069,7 +2069,10 @@ export class FoliateEngine {
                 return null;
             };
 
-            const scheduleSelectionCapture = (event?: MouseEvent | PointerEvent | TouchEvent) => {
+            const scheduleSelectionCapture = (
+                event?: MouseEvent | PointerEvent | TouchEvent,
+                delay: number = SELECTION_CAPTURE_DELAY,
+            ) => {
                 if (selectionCaptureTimeout !== null) {
                     window.clearTimeout(selectionCaptureTimeout);
                 }
@@ -2120,7 +2123,7 @@ export class FoliateEngine {
                         }
                     } catch (err) {
                     }
-                }, SELECTION_CAPTURE_DELAY);
+                }, delay);
             };
 
             doc.addEventListener(
@@ -2181,9 +2184,17 @@ export class FoliateEngine {
 
             win.addEventListener(
                 'pointercancel',
-                () => {
+                (event: PointerEvent) => {
                     pointerDownAt = 0;
                     pointerMoved = false;
+                    isTouchActive = false;
+                    pendingTouchSelection = false;
+                    // On mobile (Android), long-press triggers the native selection layer
+                    // and cancels DOM pointer/touch events. Process the pending selection.
+                    scheduleSelectionCapture(event, 30);
+                    window.setTimeout(() => {
+                        scheduleSelectionCapture(undefined, 0);
+                    }, 80);
                 },
                 true,
             );
@@ -2213,9 +2224,17 @@ export class FoliateEngine {
 
             win.addEventListener(
                 'touchcancel',
-                () => {
+                (event: TouchEvent) => {
                     isTouchActive = false;
                     pendingTouchSelection = false;
+                    pointerDownAt = 0;
+                    pointerMoved = false;
+                    // On mobile (Android), long-press triggers the native selection layer
+                    // and dispatches touchcancel. Capture the committed single-word selection.
+                    scheduleSelectionCapture(event, 30);
+                    window.setTimeout(() => {
+                        scheduleSelectionCapture(undefined, 0);
+                    }, 80);
                 },
                 { capture: true, passive: true },
             );
@@ -2324,6 +2343,7 @@ export class FoliateEngine {
                 function postSelection(clientX, clientY) {
                     var selection = document.getSelection();
                     if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+                        lastSelection = '';
                         return false;
                     }
 
@@ -2371,10 +2391,24 @@ export class FoliateEngine {
                     }
                 });
 
-                document.addEventListener('pointercancel', function() {
+                function handleCancel(e) {
                     pointerDownAt = 0;
                     pointerMoved = false;
-                });
+                    var touch = e && e.changedTouches && e.changedTouches.length > 0
+                        ? e.changedTouches[0]
+                        : null;
+                    var clientX = touch ? touch.clientX : (e && typeof e.clientX === 'number' ? e.clientX : undefined);
+                    var clientY = touch ? touch.clientY : (e && typeof e.clientY === 'number' ? e.clientY : undefined);
+                    setTimeout(function() {
+                        postSelection(clientX, clientY);
+                    }, 30);
+                    setTimeout(function() {
+                        postSelection();
+                    }, 80);
+                }
+
+                document.addEventListener('pointercancel', handleCancel, true);
+                document.addEventListener('touchcancel', handleCancel, { passive: true });
 
                 document.addEventListener('contextmenu', function(e) {
                     e.preventDefault();
@@ -2413,6 +2447,12 @@ export class FoliateEngine {
                         postSelection(touch ? touch.clientX : undefined, touch ? touch.clientY : undefined);
                     }, SELECTION_CAPTURE_DELAY);
                 }, { passive: true });
+
+                document.addEventListener('selectionchange', function() {
+                    setTimeout(function() {
+                        postSelection();
+                    }, SELECTION_CAPTURE_DELAY);
+                });
             })();
         `;
         
