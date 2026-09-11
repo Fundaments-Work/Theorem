@@ -11,6 +11,7 @@ import {
     removeStarDictDictionary,
 } from "../services/StarDictService";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
+import { triggerVaultAutoSync } from "../lib/vault-sync";
 import type {
     DeletionTombstone,
     InstalledDictionary,
@@ -122,6 +123,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     set((state) => ({
                         vocabularyTerms: [...state.vocabularyTerms, termToSave],
                     }));
+                    triggerVaultAutoSync();
                     scheduleMutationSync();
                     return termToSave;
                 }
@@ -162,6 +164,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
                         term.id === existing.id ? mergedTerm : term
                     )),
                 }));
+                triggerVaultAutoSync();
                 scheduleMutationSync();
                 return mergedTerm;
             },
@@ -178,6 +181,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
                 useLibraryStore.setState((s) => ({
                     deletionTombstones: [...s.deletionTombstones, tombstone],
                 }));
+                triggerVaultAutoSync();
                 scheduleMutationSync();
             },
 

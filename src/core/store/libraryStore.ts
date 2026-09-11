@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { syncVaultMarkdownSnapshot } from "../lib/vault-sync";
+import { triggerVaultAutoSync } from "../lib/vault-sync";
 import { theoremPersistStorage } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import { deleteBookStorage } from "../lib/storage-manager";
@@ -24,10 +24,6 @@ import type {
     HighlightColor,
     PdfViewState,
 } from "../types";
-import { useSettingsStore } from "./settingsStore";
-import { useUIStore } from "./uiStore";
-import { useRssStore } from "./rssStore";
-import { useVocabularyStore } from "./vocabularyStore";
 
 interface CachedBookMetadata {
     id: string;
@@ -428,48 +424,8 @@ function normalizeCollectionKind(collection: LegacyCollection): Collection | nul
     };
 }
 
-let vaultSyncQueue: Promise<void> = Promise.resolve();
-
-function queueVaultSync(annotation: Annotation): void {
-    const { settings } = useSettingsStore.getState();
-    const { setVaultSyncStatus } = useUIStore.getState();
-
-    if (!settings.vault.enabled || !settings.vault.autoExportHighlights) {
-        return;
-    }
-
-    if (annotation.type !== "highlight" && annotation.type !== "note") {
-        return;
-    }
-
-    setVaultSyncStatus("syncing", "STATUS: SYNCING_MARKDOWN_EXPORT");
-
-    vaultSyncQueue = vaultSyncQueue
-        .catch(() => undefined)
-        .then(async () => {
-            const { books, annotations } = useLibraryStore.getState();
-            const { articles } = useRssStore.getState();
-            const { vocabularyTerms } = useVocabularyStore.getState();
-            const result = await syncVaultMarkdownSnapshot({
-                books,
-                annotations,
-                rssArticles: articles,
-                vocabularyTerms,
-                settings: settings.vault,
-            });
-
-            if (result.status === "synced") {
-                setVaultSyncStatus("synced", result.message, new Date().toISOString());
-                return;
-            }
-
-            if (result.status === "error") {
-                setVaultSyncStatus("error", result.message);
-                return;
-            }
-
-            setVaultSyncStatus("idle", result.message);
-        });
+function queueVaultSync(): void {
+    triggerVaultAutoSync();
 }
 
 interface LibraryStore {
@@ -722,6 +678,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     })),
                     deletionTombstones: [...state.deletionTombstones, ...newTombstones],
                 }));
+                queueVaultSync();
                 scheduleMutationSync();
             },
 
@@ -1113,7 +1070,7 @@ export const useLibraryStore = create<LibraryStore>()(
 
             addAnnotation: (annotation) => {
                 set((state) => ({ annotations: [...state.annotations, annotation] }));
-                queueVaultSync(annotation);
+                queueVaultSync();
                 scheduleMutationSync();
                 if (isTauri()) {
                     sqliteSaveBookAnnotations(
@@ -1137,7 +1094,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     createdAt: new Date(),
                 };
                 set((state) => ({ annotations: [...state.annotations, annotation] }));
-                queueVaultSync(annotation);
+                queueVaultSync();
                 scheduleMutationSync();
                 return annotation;
             },
@@ -1153,11 +1110,8 @@ export const useLibraryStore = create<LibraryStore>()(
                     )),
                 }));
 
-                const syncedAnnotation = get().annotations.find((annotation) => annotation.id === annotationId);
-                if (syncedAnnotation) {
-                    queueVaultSync(syncedAnnotation);
-                    scheduleMutationSync();
-                }
+                queueVaultSync();
+                scheduleMutationSync();
             },
 
             removeAnnotation: (annotationId) => {
@@ -1168,6 +1122,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         { entityId: annotationId, entityType: "annotation" as const, deletedAt: new Date().toISOString() },
                     ],
                 }));
+                queueVaultSync();
                 scheduleMutationSync();
             },
 

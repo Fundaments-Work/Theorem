@@ -1,26 +1,23 @@
 import { isTauri } from "./env";
+import {
+    useLibraryStore,
+    useRssStore,
+    useSettingsStore,
+    useUIStore,
+    useVocabularyStore,
+} from "../store";
 import type {
     Annotation,
     Book,
-    HighlightColor,
     RssArticle,
     VaultIntegrationSettings,
     VocabularyTerm,
 } from "../types";
 
-const DEFAULT_HIGHLIGHTS_FILE_NAME = "theorem-highlights.md";
-const DEFAULT_VOCABULARY_FILE_NAME = "theorem-vocabulary.md";
-const BOOK_PAGES_FOLDER_SUFFIX = "-books";
+const DEFAULT_HIGHLIGHTS_FOLDER_NAME = "Books";
+const DEFAULT_VOCABULARY_FILE_NAME = "Vocabulary.md";
 const MAX_BOOK_PAGE_FILE_NAME_LENGTH = 180;
 let tauriFs: typeof import("@tauri-apps/plugin-fs") | null = null;
-const FALLBACK_HIGHLIGHT_COLORS: Record<HighlightColor, string> = {
-    yellow: "#f4b400",
-    green: "#2e7d32",
-    blue: "#1976d2",
-    red: "#d32f2f",
-    orange: "#f57c00",
-    purple: "#7b1fa2",
-};
 
 export type VaultSyncResult =
     | { status: "synced"; message: string; filePaths: string[] }
@@ -224,63 +221,14 @@ function joinPath(basePath: string, part: string): string {
     return `${trimmedBase}${separator}${part}`;
 }
 
-function toBlockQuote(value: string): string {
-    return value
+
+function toHighlightedQuote(quote: string): string {
+    const trimmed = quote.trim();
+    if (!trimmed) return "";
+    return trimmed
         .split("\n")
-        .map((line) => `> ${line}`)
+        .map((line) => line ? `> ==${line}==` : ">")
         .join("\n");
-}
-
-function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function isHighlightColor(value: string | undefined): value is HighlightColor {
-    if (!value) {
-        return false;
-    }
-    return value in FALLBACK_HIGHLIGHT_COLORS;
-}
-
-const highlightColorCache = new Map<string, string | null>();
-
-function readRootCssVariable(variableName: string): string | null {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-        return null;
-    }
-    const resolved = window.getComputedStyle(document.documentElement)
-        .getPropertyValue(variableName)
-        .trim();
-    return resolved || null;
-}
-
-function getAnnotationHighlightColor(annotation: Annotation): string | null {
-    if (!isHighlightColor(annotation.color)) {
-        return null;
-    }
-
-    const key = annotation.color;
-    if (highlightColorCache.has(key)) {
-        return highlightColorCache.get(key) ?? FALLBACK_HIGHLIGHT_COLORS[key];
-    }
-    const resolved = readRootCssVariable(`--highlight-${key}`)
-        ?? FALLBACK_HIGHLIGHT_COLORS[key];
-    highlightColorCache.set(key, resolved);
-    return resolved;
-}
-
-function toHighlightedQuote(quote: string, color: string | null): string {
-    if (!color) {
-        return toBlockQuote(quote);
-    }
-
-    const escaped = escapeHtml(quote).replace(/\n/g, "<br />");
-    return `<mark style="background-color: ${color}; color: inherit;">${escaped}</mark>`;
 }
 
 function getHighlightAnnotations(annotations: Annotation[]): Annotation[] {
@@ -385,7 +333,7 @@ function buildUniqueFileName(
     return candidate;
 }
 
-function buildBookPageMarkdown(
+export function buildBookPageMarkdown(
     source: ExportSource,
     annotations: Annotation[],
     generatedAt: string,
@@ -412,14 +360,20 @@ function buildBookPageMarkdown(
         "---",
         "",
         `# ${source.title}`,
+    ];
+
+    if (source.author && source.author !== "Unknown Author") {
+        lines.push(`*${source.author}*`);
+    }
+
+    lines.push(
         "",
-        `- Author: ${source.author}`,
         `- Format: ${source.format}`,
         `- Exported at: ${generatedAt}`,
         "",
         "## Highlights and Notes",
         "",
-    ];
+    );
 
     if (sorted.length === 0) {
         lines.push("_No highlights or notes yet._", "");
@@ -430,24 +384,22 @@ function buildBookPageMarkdown(
         const annotationKind = annotation.type === "note" ? "Note" : "Highlight";
         const quote = toMultilineText(annotation.selectedText);
         const note = toMultilineText(annotation.noteContent);
-        const color = getAnnotationHighlightColor(annotation);
+        const color = annotation.color || "yellow";
 
         lines.push(`### ${index + 1}. ${annotationKind}`);
         lines.push(`- Created: ${toIso(annotation.createdAt)}`);
         if (annotation.updatedAt) {
             lines.push(`- Updated: ${toIso(annotation.updatedAt)}`);
         }
-        if (color) {
-            lines.push(`- Color: ${color}`);
-        }
+        lines.push(`- Color: ${color}`);
         lines.push("");
 
         if (quote) {
-            lines.push("**Quote**", "", toHighlightedQuote(quote, color), "");
+            lines.push(toHighlightedQuote(quote), "");
         }
 
         if (note) {
-            lines.push("**Note**", "", note, "");
+            lines.push(note, "");
         }
 
         lines.push("---", "");
@@ -477,7 +429,7 @@ function collectDefinitions(term: VocabularyTerm): string[] {
     return definitions;
 }
 
-function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: string): string {
+export function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: string): string {
     const sortedTerms = [...terms].sort((left, right) => left.term.localeCompare(right.term));
     const languages = Array.from(
         new Set(sortedTerms.map((term) => toSingleLineText(term.language)).filter(Boolean)),
@@ -494,6 +446,7 @@ function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: string): 
             ? languages.map((language) => `  - ${toYamlString(language)}`)
             : ["  - \"unknown\""]),
         "tags:",
+        "  - flashcards",
         "  - theorem",
         "  - vocabulary",
         "---",
@@ -510,45 +463,52 @@ function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: string): 
         return lines.join("\n");
     }
 
-    sortedTerms.forEach((term, index) => {
-        const providers = Array.from(new Set(term.providerHistory)).sort((left, right) => left.localeCompare(right));
-        const definitions = collectDefinitions(term);
+    sortedTerms.forEach((term) => {
+        const safeId = term.id.replace(/[^a-zA-Z0-9-]/g, "") || toShortHash(term.term);
+        const blockId = `^fsrs-vocab-${safeId}`;
+        const phoneticStr = term.phonetic ? ` *[/${toSingleLineText(term.phonetic)}/]*` : "";
+        const contextQuote = term.contexts && term.contexts.length > 0
+            ? toSingleLineText(term.contexts[0])
+            : "";
 
-        lines.push(`## ${index + 1}. ${term.term}`);
-        lines.push(`- Term ID: \`${term.id}\``);
-        lines.push(`- Language: ${toSingleLineText(term.language, "unknown")}`);
-        if (term.phonetic) {
-            lines.push(`- Phonetic: /${toSingleLineText(term.phonetic)}/`);
+        lines.push("---card---");
+        lines.push(`### ${term.term}${phoneticStr} ${blockId}`);
+        if (contextQuote) {
+            lines.push(`> "${contextQuote}"`);
         }
-        lines.push(`- Created: ${toIso(term.createdAt)}`);
-        if (term.updatedAt) {
-            lines.push(`- Updated: ${toIso(term.updatedAt)}`);
-        }
-        if (providers.length > 0) {
-            lines.push(`- Providers: ${providers.join(", ")}`);
-        }
-        lines.push("");
+        lines.push("---");
 
-        if (definitions.length > 0) {
-            lines.push("### Definitions", "");
-            definitions.forEach((definition, definitionIndex) => {
-                lines.push(`${definitionIndex + 1}. ${definition}`);
+        let defIndex = 1;
+        if (term.meanings && term.meanings.length > 0) {
+            for (const meaning of term.meanings) {
+                const pos = meaning.partOfSpeech ? `**${meaning.partOfSpeech}**: ` : "";
+                for (const def of meaning.definitions) {
+                    const normDef = toSingleLineText(def);
+                    if (normDef) {
+                        lines.push(`${defIndex}. ${pos}${normDef}`);
+                        defIndex++;
+                    }
+                }
+            }
+        } else {
+            const defs = collectDefinitions(term);
+            defs.forEach((def) => {
+                lines.push(`${defIndex}. ${def}`);
+                defIndex++;
             });
-            lines.push("");
         }
 
-        lines.push("---", "");
+        lines.push("");
     });
 
     return lines.join("\n");
 }
 
-function buildBookPages(
+export function buildBookPages(
     books: Book[],
     rssArticles: RssArticle[],
     annotations: Annotation[],
-    vaultPath: string,
-    pagesDirectoryName: string,
+    pagesDirectoryPath: string,
 ): ExportBookPage[] {
     const booksById = new Map(books.map((book) => [book.id, book]));
     const rssArticlesById = new Map(rssArticles.map((article) => [article.id, article]));
@@ -564,7 +524,6 @@ function buildBookPages(
     }
 
     const usedFileNames = new Set<string>();
-    const pagesDirectoryPath = joinPath(vaultPath, pagesDirectoryName);
 
     return Array.from(groupedAnnotations.entries()).map(([bookId, bookAnnotations]) => {
         const source = buildExportSource(bookId, booksById, rssArticlesById);
@@ -600,31 +559,32 @@ export async function syncVaultMarkdownSnapshot({
         return { status: "skipped", message: "Markdown export sync is available in desktop mode only." };
     }
 
-    const highlightsFileName = normalizeMarkdownFileName(
-        settings.highlightsFileName,
-        DEFAULT_HIGHLIGHTS_FILE_NAME,
-    );
-    const vocabularyFileName = normalizeMarkdownFileName(
-        settings.vocabularyFileName,
-        DEFAULT_VOCABULARY_FILE_NAME,
-    );
-    const highlightsBaseName = normalizeFolderName(
-        removeMarkdownExtension(highlightsFileName),
-        removeMarkdownExtension(DEFAULT_HIGHLIGHTS_FILE_NAME),
-    );
-    const pagesDirectoryName = `${highlightsBaseName}${BOOK_PAGES_FOLDER_SUFFIX}`;
-    const pagesDirectoryPath = joinPath(vaultPath, pagesDirectoryName);
-    const legacyHighlightsIndexPath = joinPath(vaultPath, highlightsFileName);
-    const vocabularyPath = joinPath(vaultPath, vocabularyFileName);
+    const rawHighlightsFolder = settings.highlightsFileName?.trim();
+    const highlightsFolder = (rawHighlightsFolder && rawHighlightsFolder !== "theorem-highlights" && rawHighlightsFolder !== "theorem-highlights.md")
+        ? normalizeFolderName(removeMarkdownExtension(rawHighlightsFolder), DEFAULT_HIGHLIGHTS_FOLDER_NAME)
+        : DEFAULT_HIGHLIGHTS_FOLDER_NAME;
+
+    const rawVocabFile = settings.vocabularyFileName?.trim();
+    const vocabularyFileName = (rawVocabFile && rawVocabFile !== "theorem-vocabulary.md" && rawVocabFile !== "theorem-vocabulary")
+        ? normalizeMarkdownFileName(rawVocabFile, DEFAULT_VOCABULARY_FILE_NAME)
+        : DEFAULT_VOCABULARY_FILE_NAME;
+
+    const theoremDir = joinPath(vaultPath, "Theorem");
+    const pagesDirectoryPath = joinPath(theoremDir, highlightsFolder);
+    const vocabularyPath = joinPath(theoremDir, vocabularyFileName);
     const generatedAt = new Date().toISOString();
 
     try {
         const fs = await getTauriFs();
         await fs.mkdir(vaultPath, { recursive: true });
+        await fs.mkdir(theoremDir, { recursive: true });
         await fs.mkdir(pagesDirectoryPath, { recursive: true });
+
+        // Clean up legacy flat index if present
+        const legacyHighlightsIndexPath = joinPath(vaultPath, "theorem-highlights.md");
         try { await fs.remove(legacyHighlightsIndexPath); } catch {}
 
-        const pages = buildBookPages(books, rssArticles, annotations, vaultPath, pagesDirectoryName);
+        const pages = buildBookPages(books, rssArticles, annotations, pagesDirectoryPath);
 
         const BATCH_SIZE = 16;
         for (let i = 0; i < pages.length; i += BATCH_SIZE) {
@@ -661,6 +621,74 @@ export async function syncVaultMarkdownSnapshot({
             message,
         };
     }
+}
+
+let autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let vaultSyncQueue: Promise<void> = Promise.resolve();
+
+export interface TriggerVaultAutoSyncOptions {
+    immediate?: boolean;
+    debounceMs?: number;
+}
+
+export async function runVaultAutoSync(): Promise<VaultSyncResult> {
+    const { settings } = useSettingsStore.getState();
+    const { setVaultSyncStatus } = useUIStore.getState();
+
+    if (!settings.vault.enabled || !settings.vault.vaultPath.trim()) {
+        return { status: "skipped", message: "Markdown export sync is not enabled or configured." };
+    }
+
+    setVaultSyncStatus("syncing", "STATUS: SYNCING_MARKDOWN_EXPORT");
+
+    const { books, annotations } = useLibraryStore.getState();
+    const { articles } = useRssStore.getState();
+    const { vocabularyTerms } = useVocabularyStore.getState();
+
+    const result = await syncVaultMarkdownSnapshot({
+        books,
+        annotations,
+        rssArticles: articles,
+        vocabularyTerms,
+        settings: settings.vault,
+    });
+
+    if (result.status === "synced") {
+        setVaultSyncStatus("synced", result.message, new Date().toISOString());
+    } else if (result.status === "error") {
+        setVaultSyncStatus("error", result.message);
+    } else {
+        setVaultSyncStatus("idle", result.message);
+    }
+
+    return result;
+}
+
+export function triggerVaultAutoSync(options?: TriggerVaultAutoSyncOptions): void {
+    const { settings } = useSettingsStore.getState();
+    if (!settings.vault.enabled || !settings.vault.vaultPath.trim()) {
+        return;
+    }
+
+    if (autoSyncTimer) {
+        clearTimeout(autoSyncTimer);
+        autoSyncTimer = null;
+    }
+
+    if (options?.immediate) {
+        vaultSyncQueue = vaultSyncQueue
+            .catch(() => undefined)
+            .then(() => runVaultAutoSync().then(() => undefined));
+        return;
+    }
+
+    const delay = options?.debounceMs ?? 2000;
+    autoSyncTimer = setTimeout(() => {
+        autoSyncTimer = null;
+        vaultSyncQueue = vaultSyncQueue
+            .catch(() => undefined)
+            .then(() => runVaultAutoSync().then(() => undefined));
+    }, delay);
 }
 
 export async function appendAnnotationToVaultMarkdown({

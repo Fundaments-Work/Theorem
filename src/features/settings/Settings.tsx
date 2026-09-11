@@ -10,7 +10,7 @@ import {
     showSaveFileDialog,
 } from "../../core/lib/dialogs";
 import { ConfirmDialog, AlertDialog } from "../../ui";
-import { syncVaultMarkdownSnapshot } from "../../core/lib/vault-sync";
+import { syncVaultMarkdownSnapshot, triggerVaultAutoSync } from "../../core/lib/vault-sync";
 import { exportUnifiedSyncBundle, estimateSyncBundleSizeBytes } from "../../core/lib/sync-bundle";
 
 import {
@@ -593,6 +593,7 @@ export const SettingsPage = memo(function SettingsPage() {
             enabled: true,
             vaultPath: selectedPath,
         });
+        triggerVaultAutoSync({ immediate: true });
     };
 
     const handleDictionaryImport = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1225,7 +1226,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                                     highlightsFileName: normalizeHighlightsExportName(e.target.value),
                                                 })
                                             )}
-                                            placeholder="theorem-highlights"
+                                            placeholder="Books"
                                             className={cn("ui-input", "min-w-[16rem]")}
                                         />
                                     </div>
@@ -1239,7 +1240,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                             type="text"
                                             value={settings.vault.vocabularyFileName}
                                             onChange={(e) => updateVaultSettings({ vocabularyFileName: e.target.value })}
-                                            placeholder="theorem-vocabulary.md"
+                                            placeholder="Vocabulary.md"
                                             className={cn("ui-input", "min-w-[16rem]")}
                                         />
                                     </div>

@@ -46,8 +46,8 @@ const defaultVaultSettings: AppSettings["vault"] = {
     enabled: false,
     vaultPath: "",
     autoExportHighlights: true,
-    highlightsFileName: "theorem-highlights",
-    vocabularyFileName: "theorem-vocabulary.md",
+    highlightsFileName: "Books",
+    vocabularyFileName: "Vocabulary.md",
 };
 
 const defaultDeviceSyncSettings: AppSettings["deviceSync"] = {
@@ -372,6 +372,12 @@ export const useSettingsStore = create<SettingsStore>()(
                         ...defaultVaultSettings,
                         ...state.settings.vault,
                     };
+                    if (state.settings.vault.highlightsFileName === "theorem-highlights" || state.settings.vault.highlightsFileName === "theorem-highlights.md") {
+                        state.settings.vault.highlightsFileName = "Books";
+                    }
+                    if (state.settings.vault.vocabularyFileName === "theorem-vocabulary.md" || state.settings.vault.vocabularyFileName === "theorem-vocabulary") {
+                        state.settings.vault.vocabularyFileName = "Vocabulary.md";
+                    }
                 }
 
                 if (state && !state.settings.deviceSync) {
