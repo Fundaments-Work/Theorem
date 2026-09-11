@@ -237,56 +237,32 @@ export class FoliateEngine {
         const contents = this.view.renderer.getContents();
         if (!contents || contents.length === 0) return null;
 
-        const visibleRange = (this.view as any)?.lastLocation?.range;
-
+        const visibleRange = (this.view as any)?.lastLocation?.range as Range | undefined;
         let fullText = "";
-        let firstWordId = "";
 
-        if (visibleRange) {
-            
-            type Phase = 'before' | 'during' | 'after';
-            let phase: Phase = 'before';
+        for (const content of contents) {
+            const doc = content.document || content.doc;
+            if (!doc || !doc.body) continue;
 
-            for (const content of contents) {
-                const doc = content.document || content.doc;
-                if (!doc) continue;
-
-                const ttsWords = Array.from(doc.querySelectorAll('.tts-word')) as HTMLElement[];
-                for (const node of ttsWords) {
-                    const inRange = visibleRange.intersectsNode(node);
-
-                    if (phase === 'before') {
-                        if (inRange) phase = 'during';
-                    } else if (phase === 'during') {
-                        if (!inRange) {
-                            phase = 'after';
-                            if (!firstWordId) firstWordId = node.id;
-                            fullText += (node.textContent || '') + " ";
-                        }
-                    } else if (phase === 'after') {
-                        fullText += (node.textContent || '') + " ";
-                    }
+            if (visibleRange) {
+                try {
+                    const afterRange = doc.createRange();
+                    afterRange.setStart(visibleRange.endContainer, visibleRange.endOffset);
+                    afterRange.setEndAfter(doc.body.lastChild || doc.body);
+                    const text = afterRange.toString().trim();
+                    if (text) fullText += (fullText ? "\n" : "") + text;
+                } catch {
+                    // Fallback to body text if boundary points are in different nodes
                 }
-            }
-        } else {
-            
-            let sectionIndex = 0;
-            for (const content of contents) {
-                const doc = content.document || content.doc;
-                if (!doc) continue;
-                sectionIndex++;
-                if (sectionIndex <= 1) continue; 
-
-                const ttsWords = Array.from(doc.querySelectorAll('.tts-word')) as HTMLElement[];
-                for (const node of ttsWords) {
-                    if (!firstWordId) firstWordId = node.id;
-                    fullText += (node.textContent || '') + " ";
-                }
+            } else {
+                const body = doc.body as HTMLElement;
+                const text = (body.innerText || '').trim();
+                if (text) fullText += (fullText ? "\n" : "") + text;
             }
         }
 
         if (!fullText.trim()) return null;
-        return { text: fullText.trim(), startWordId: firstWordId };
+        return { text: fullText.trim().slice(0, 2500), startWordId: "" };
     }
 
     async open(
@@ -1532,9 +1508,6 @@ export class FoliateEngine {
                 if (exactRange) {
                     await this.view.renderer?.scrollToAnchor?.(exactRange, 'selection');
                     this._lastAnnotationActivatedAt = Date.now();
-                    if (this.options.onTextSelected) {
-                        this.options.onTextSelected(annotation.location, annotation.selectedText || '', exactRange.cloneRange());
-                    }
                     break;
                 }
             }

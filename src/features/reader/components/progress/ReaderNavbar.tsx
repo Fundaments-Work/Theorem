@@ -3,8 +3,14 @@ import { useCallback, useMemo, useState, useRef, memo } from "react";
 import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal, Disc3 } from "lucide-react";
 import { cn } from "../../../../core/lib/utils";
 import { Spinner } from "../../../../ui";
+import { useSettingsStore } from "../../../../core/store";
 import type { TocItem, DocLocation } from "../../../../core/types";
 import { NEURAL_VOICES, NEURAL_VOICE_LABELS, resolveNeuralVoice, type NeuralVoice } from "../../audio/ImmersionPlayer";
+import {
+    calculateTimeRemaining,
+    calculateChapterTimeRemaining,
+    formatTimeRemaining,
+} from "../../lib/reading-time";
 
 interface ReaderNavbarProps {
     location: DocLocation | null;
@@ -31,38 +37,6 @@ interface ReaderNavbarProps {
     /** Present when the neural engine can narrate and no audiobook is attached. */
     onGenerateAudiobook?: () => void;
     audioGenProgress?: { current: number; total: number } | null;
-}
-
-const AVERAGE_WPM = 225;
-
-const WORDS_PER_PAGE = 250;
-
-function formatTimeRemaining(minutes: number): string {
-    if (minutes < 1) {
-        return "< 1 min left";
-    }
-    if (minutes < 60) {
-        return `${Math.round(minutes)} min left`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const remainingMins = Math.round(minutes % 60);
-    if (remainingMins === 0) {
-        return `${hours} hr left`;
-    }
-    return `${hours} hr ${remainingMins} min left`;
-}
-
-function calculateTimeRemaining(
-    currentProgress: number,
-    totalPages: number
-): number {
-    if (totalPages <= 0 || currentProgress >= 1) return 0;
-
-    const pagesRemaining = Math.ceil(totalPages * (1 - currentProgress));
-    const wordsRemaining = pagesRemaining * WORDS_PER_PAGE;
-    const minutesRemaining = wordsRemaining / AVERAGE_WPM;
-
-    return minutesRemaining;
 }
 
 export const ReaderNavbar = memo(function ReaderNavbar({
@@ -94,6 +68,15 @@ export const ReaderNavbar = memo(function ReaderNavbar({
     const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
     const trackRef = useRef<HTMLDivElement>(null);
     const activeVoice: NeuralVoice = resolveNeuralVoice(ttsVoice);
+    const averageReadingSpeed = useSettingsStore(s => s.stats.averageReadingSpeed);
+
+    const effectiveWpm = useMemo(() => {
+        if (immersionMode && ttsState === 'playing') {
+            const speed = typeof ttsSpeed === "number" && ttsSpeed > 0 ? ttsSpeed : 1.0;
+            return Math.round(160 * speed);
+        }
+        return averageReadingSpeed > 0 ? averageReadingSpeed : 200;
+    }, [immersionMode, ttsState, ttsSpeed, averageReadingSpeed]);
 
     const normalizedSectionFractions = useMemo(() => {
         if (sectionFractions.length === 0) {
@@ -166,8 +149,24 @@ export const ReaderNavbar = memo(function ReaderNavbar({
     const timeRemaining = useMemo(() => {
         const pages = totalPages ?? location?.pageInfo?.totalPages ?? 0;
         if (pages <= 0) return null;
-        return formatTimeRemaining(calculateTimeRemaining(progress, pages));
-    }, [progress, totalPages, location?.pageInfo?.totalPages]);
+
+        const bookMinutes = calculateTimeRemaining(progress, pages, effectiveWpm);
+        const chapterMinutes = calculateChapterTimeRemaining(
+            progress,
+            normalizedSectionFractions,
+            pages,
+            effectiveWpm
+        );
+
+        const bookText = formatTimeRemaining(bookMinutes, "left");
+        const chapterText = chapterMinutes !== null ? formatTimeRemaining(chapterMinutes, "in chapter") : null;
+
+        return {
+            bookText,
+            chapterText,
+            combined: chapterText && bookMinutes > 0 ? `${chapterText} · ${bookText}` : bookText,
+        };
+    }, [progress, totalPages, location?.pageInfo?.totalPages, effectiveWpm, normalizedSectionFractions]);
 
     const progressText = useMemo(() => {
         const pct = Math.round(displayFraction * 100);
@@ -325,6 +324,11 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                         )}
                         <span className="text-[10px] sm:text-xs text-[var(--color-text-muted)] truncate">
                             {ttsState === 'playing' ? 'Reading aloud' : ttsState === 'paused' ? 'Paused' : ttsState === 'loading' ? 'Loading...' : 'Immersion Reading'}
+                            {timeRemaining?.combined && (
+                                <span className="hidden sm:inline ml-1.5 opacity-80">
+                                    · {timeRemaining.combined}
+                                </span>
+                            )}
                         </span>
                         <div className="flex items-center gap-1 ml-auto shrink-0">
                             {audioGenProgress ? (
@@ -441,8 +445,8 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             {currentSectionLabel}
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
-                            {timeRemaining && (
-                                <span className="hidden sm:inline text-[var(--color-text-muted)]">{timeRemaining}</span>
+                            {timeRemaining?.combined && (
+                                <span className="hidden sm:inline text-[var(--color-text-muted)]">{timeRemaining.combined}</span>
                             )}
                             <span className="font-medium text-[var(--color-text-primary)] font-mono text-[11px] sm:text-xs">
                                 {progressText}

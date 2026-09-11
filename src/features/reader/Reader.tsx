@@ -205,6 +205,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const statsRef = useRef(stats);
     statsRef.current = stats;
+    const lastRecordedLocKeyRef = useRef<string | null>(null);
     useEffect(() => {
         readerZoomRef.current = settings.readerSettings.zoom;
     }, [settings.readerSettings.zoom]);
@@ -815,7 +816,13 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
     }, [currentBookId]);
 
-    useReadingTime({ currentBookId, addReadingTime, stats, updateStats });
+    const { recordPageTurn } = useReadingTime({
+        currentBookId,
+        addReadingTime,
+        stats,
+        updateStats,
+        isTtsActive: ttsState === 'playing',
+    });
     useDailyGoalReminder();
 
     useEffect(() => {
@@ -834,6 +841,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     useEffect(() => {
         lastPersistedPdfStateRef.current = null;
+        lastRecordedLocKeyRef.current = null;
     }, [currentBookId]);
 
     const handleReaderExitFullscreen = useCallback(() => {
@@ -983,6 +991,14 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
 
         if (currentBookId) {
+            const currentLocKey = loc.cfi || (loc.pageInfo ? String(loc.pageInfo.currentPage) : String(loc.percentage));
+            if (lastRecordedLocKeyRef.current !== currentLocKey) {
+                lastRecordedLocKeyRef.current = currentLocKey;
+                const currentData = readerRef.current?.getVisibleTextForTts?.();
+                const words = currentData?.text ? currentData.text.trim().split(/\s+/).filter(Boolean).length : undefined;
+                recordPageTurn(words);
+            }
+
             debug('[Reader] Saving location update:', {
                 cfi: loc.cfi?.substring(0, 50),
                 percentage: loc.percentage,
@@ -1013,7 +1029,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             useRssStore.getState().updateArticleProgress(currentArticle.id, safePercentage);
         }
 
-    }, [currentBookId, currentArticle, scheduleProgressUpdate, updateProgress]);
+    }, [currentBookId, currentArticle, scheduleProgressUpdate, updateProgress, recordPageTurn]);
 
     useEffect(() => {
         if (isPdfFormat || !location?.cfi) return;
@@ -1067,10 +1083,21 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [isPdfFormat, ttsEnabled, immersionMode, ttsSpeakOptions]);
 
     const handleTtsPlay = useCallback(() => {
-        const text = ttsData?.text?.trim();
+        if (ttsState === 'paused' || immersionPlayer.state === 'paused') {
+            void immersionPlayer.resume();
+            return;
+        }
+        let text = ttsData?.text?.trim();
+        if (!text) {
+            const data = readerRef.current?.getVisibleTextForTts?.();
+            if (data?.text?.trim()) {
+                setTtsData(data);
+                text = data.text.trim();
+            }
+        }
         if (!text) return;
-        immersionPlayer.speak(text, ttsSpeakOptions());
-    }, [ttsData, ttsSpeakOptions]);
+        void immersionPlayer.speak(text, ttsSpeakOptions());
+    }, [ttsState, ttsData, ttsSpeakOptions]);
 
     const handleTtsPause = useCallback(() => {
         immersionPlayer.pause();
@@ -1180,11 +1207,22 @@ const BookReaderPage = memo(function BookReaderPage() {
             onStateChange: (state) => {
                 setTtsState(state);
             },
-            onError: () => setTtsState('idle'),
+            onNearEnd: () => {
+                const next = readerRef.current?.getNextPageTextForTts?.();
+                if (next?.text) void immersionPlayer.prefetch(next.text, ttsSpeakOptions());
+            },
+            onError: () => {
+                setTtsState('idle');
+            },
             onComplete: handleTtsComplete,
         });
-        return () => immersionPlayer.destroy();
-    }, [handleTtsComplete]);
+    }, [handleTtsComplete, ttsSpeakOptions]);
+
+    useEffect(() => {
+        return () => {
+            immersionPlayer.destroy();
+        };
+    }, []);
 
     // Neural voice: warm the next page's first synthesized chunks while the
     // current page reads, so turning the page doesn't wait on synthesis.

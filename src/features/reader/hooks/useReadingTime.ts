@@ -1,13 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { isTauri } from "../../../core/lib/env";
 import { useSettingsStore } from "../../../core/store";
 import type { DailyReadingActivity, ReadingStats } from "../../../core/types";
+import { calculateWpm, computeExponentialMovingAverage } from "../lib/reading-time";
 
 interface UseReadingTimeOptions {
     currentBookId: string | undefined;
     addReadingTime: (bookId: string, minutes: number) => void;
     stats: ReadingStats;
     updateStats: (updates: Partial<ReadingStats>) => void;
+    isTtsActive?: boolean;
 }
 
 async function notifyGoalMet(minutes: number) {
@@ -32,6 +34,7 @@ export function useReadingTime({
     addReadingTime,
     stats,
     updateStats,
+    isTtsActive,
 }: UseReadingTimeOptions) {
     const startedAtRef = useRef<number | null>(null);
     const accumulatedMsRef = useRef(0);
@@ -39,6 +42,46 @@ export function useReadingTime({
     const statsRef = useRef(stats);
     const notifiedGoalDateRef = useRef<string>("");
     statsRef.current = stats;
+
+    const lastPageTurnTimeRef = useRef<number | null>(Date.now());
+    const lastWordCountRef = useRef<number>(250);
+    const isTtsActiveRef = useRef<boolean>(!!isTtsActive);
+    isTtsActiveRef.current = !!isTtsActive;
+
+    const recordPageTurn = useCallback((wordsOnPage?: number) => {
+        const now = Date.now();
+        const lastTurn = lastPageTurnTimeRef.current;
+        const wordsRead = lastWordCountRef.current;
+
+        if (typeof wordsOnPage === "number" && wordsOnPage > 20) {
+            lastWordCountRef.current = wordsOnPage;
+        } else {
+            lastWordCountRef.current = 250;
+        }
+        lastPageTurnTimeRef.current = now;
+
+        // If immersion TTS is actively reading aloud, machine is narrating, don't contaminate human reading speed
+        if (isTtsActiveRef.current) {
+            return;
+        }
+
+        if (lastTurn === null) {
+            return;
+        }
+
+        const dwellSeconds = (now - lastTurn) / 1000;
+        const instantWpm = calculateWpm(wordsRead, dwellSeconds);
+        if (instantWpm === null) {
+            return;
+        }
+
+        const currentAvg = statsRef.current.averageReadingSpeed || 200;
+        const newAvg = computeExponentialMovingAverage(currentAvg, instantWpm);
+
+        if (newAvg !== currentAvg) {
+            updateStats({ averageReadingSpeed: newAvg });
+        }
+    }, [updateStats]);
 
     useEffect(() => {
         if (!currentBookId) return;
@@ -132,11 +175,15 @@ export function useReadingTime({
                 readingIntervalRef.current = null;
             }
             startedAtRef.current = null;
+            lastPageTurnTimeRef.current = null;
         };
 
         const resumeReadingTime = () => {
             if (startedAtRef.current === null) {
                 startedAtRef.current = Date.now();
+            }
+            if (lastPageTurnTimeRef.current === null) {
+                lastPageTurnTimeRef.current = Date.now();
             }
             if (!readingIntervalRef.current) {
                 readingIntervalRef.current = setInterval(flushReadingTime, 60000);
@@ -193,4 +240,6 @@ export function useReadingTime({
             }
         };
     }, [currentBookId, addReadingTime, updateStats]);
+
+    return { recordPageTurn };
 }
