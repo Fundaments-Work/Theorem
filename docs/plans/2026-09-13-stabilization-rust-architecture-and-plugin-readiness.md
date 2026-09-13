@@ -294,20 +294,29 @@ Adopting the 5 techniques from Cloudflare’s 1.1.1.1 DNS cache optimization (Au
 │    - 120ms tap-suppression barrier; strict touch gesture hierarchy                              │
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  MILESTONE 2: THEOREM v1.5.3 — Database Virtualization & Sync Hardening                         │
+│  MILESTONE 2: THEOREM v1.5.3 — Database Virtualization, Rust Core & Sync Hardening               │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│    - Hybrid Two-Tier Search: SQLite FTS5 candidate retrieval + nucleo-matcher SIMD fuzzy ranking (replacing fuse.js) │
-│    - Exact match character indices (highlighting matching query letters in UI)                   │
+│  • Two-Tier Search & UI Match Highlighting:                                                     │
+│    - Hybrid Two-Tier Search: SQLite FTS5 candidate retrieval + nucleo-matcher SIMD fuzzy ranking │
+│    - Exact match character indices (<HighlightMatch />) in Library, Bookmarks, and Annotations  │
+│    - Complete elimination of fuse.js runtime overhead across all views                          │
+│  • Database Virtualization & Relational Migration:                                              │
 │    - sqlite_query_books_window with limit/offset cursor pagination for 50,000+ books            │
 │    - Relational RSS schema in database.rs (rss_feeds, rss_articles, rss_article_content)        │
-│    - Relational reading_sessions table for instant analytics aggregations                       │
-│    - Elimination of monolithic Zustand persist JSON strings in kv_store                         │
+│    - Decoupled heavy HTML content from zustand:theorem-rss KV store (<50KB footprint)            │
+│    - Relational reading_sessions table for instant analytics and goal aggregations              │
+│    - Zero-data-loss immutable backups in kv_store preserved during automated migration          │
+│  • Native Rust Off-Thread Processing:                                                           │
+│    - High-performance morphological lemmatizer & stemmer (src-tauri/src/stemmer.rs) for MDict  │
+│      and StarDict dictionaries (100% inflection/plural lookup hit rate)                         │
+│    - Native standards-compliant EPUB packaging (src-tauri/src/article_epub.rs) replacing        │
+│      fflate zipSync on the JavaScript UI thread                                                 │
+│    - Off-thread cover downsampling & palette extraction (src-tauri/src/image_ops.rs) wired      │
+│      into cover-extractor.ts and storage.ts (no canvas blocking on Tauri)                       │
 │  • P2P Sync Hardening:                                                                          │
-│    - Granular atomic sync keys in Iroh docs (anno:<id>)                                         │
-│    - Native SQLite sync conflict resolution in Rust                                             │
-│  • Reader Ecosystem:                                                                            │
-│    - Offline morphological lemmatizer / stemmer in Rust (100% dictionary hit rate)              │
-│    - Wire native article_extractor.rs, removing @mozilla/readability from JS                    │
+│    - Granular atomic sync keys in Iroh docs (anno:<bookId>:<annotationId>)                     │
+│    - Complete elimination of Last-Write-Wins (LWW) array clobbers on offline concurrent sync    │
+│    - Native SQLite sync conflict resolution and transaction safety                              │
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
 │  MILESTONE 3: THEOREM v1.6.0 — Sandboxed Extensibility (The Plugin Ecosystem)                   │

@@ -224,6 +224,16 @@ impl MdxDictionary {
             }
         }
 
+        // 4. Try Morphological Lemmatization
+        let lemmas = crate::stemmer::lemmatize(clean_term);
+        for lemma in lemmas {
+            if lemma != clean_term && lemma != lower {
+                if let Some(res) = self.lookup_exact(&lemma)? {
+                    return Ok(Some(res));
+                }
+            }
+        }
+
         Ok(None)
     }
 

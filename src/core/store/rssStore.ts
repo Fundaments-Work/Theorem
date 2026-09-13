@@ -8,6 +8,7 @@ import {
 } from "../services/RssService";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import type { RssFeed, RssArticle, DeletionTombstone } from "../types";
+import { isTauri } from "../lib/env";
 import { useLibraryStore } from "./libraryStore";
 import { useUIStore } from "./uiStore";
 
@@ -130,6 +131,43 @@ export const useRssStore = create<RssStore>()(
                             isLoading: false,
                         };
                     });
+
+                    if (isTauri()) {
+                        import("../lib/sqlite-storage").then(({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
+                            sqliteSaveRssFeed({
+                                id: feed.id,
+                                title: feed.title,
+                                url: feed.url,
+                                siteUrl: feed.siteUrl,
+                                description: feed.description,
+                                iconUrl: feed.iconUrl,
+                                lastFetched: feed.lastFetched ? new Date(feed.lastFetched).getTime() : undefined,
+                                addedAt: new Date().getTime(),
+                                errorMessage: feed.errorMessage,
+                                unreadCount: feed.unreadCount,
+                            }).catch(() => {});
+                            const existingArticleUrls = new Set(get().articles.map(a => normalizeUrl(a.url)));
+                            const unique = articles.filter(a => !existingArticleUrls.has(normalizeUrl(a.url)));
+                            for (const a of unique) {
+                                sqliteSaveRssArticle({
+                                    id: a.id,
+                                    feedId: a.feedId,
+                                    title: a.title,
+                                    author: a.author,
+                                    url: a.url,
+                                    summary: a.summary,
+                                    contentSource: a.contentSource,
+                                    imageUrl: a.imageUrl,
+                                    publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
+                                    fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
+                                    isRead: a.isRead,
+                                    isFavorite: a.isFavorite,
+                                    progress: a.progress,
+                                }, a.content, a.fullContent).catch(() => {});
+                            }
+                        }).catch(() => {});
+                    }
+
                     scheduleMutationSync();
                     return feed;
                 } catch (err) {
@@ -145,6 +183,11 @@ export const useRssStore = create<RssStore>()(
                     feeds: state.feeds.filter(f => f.id !== feedId),
                     articles: state.articles.filter(a => a.feedId !== feedId),
                 }));
+                if (isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteDeleteRssFeed }) => {
+                        sqliteDeleteRssFeed(feedId).catch(() => {});
+                    }).catch(() => {});
+                }
                 useLibraryStore.setState(state => ({
                     deletionTombstones: [
                         ...state.deletionTombstones,
@@ -159,6 +202,11 @@ export const useRssStore = create<RssStore>()(
                 set(state => ({
                     articles: state.articles.filter(a => a.id !== articleId),
                 }));
+                if (isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteDeleteRssArticle }) => {
+                        sqliteDeleteRssArticle(articleId).catch(() => {});
+                    }).catch(() => {});
+                }
                 useLibraryStore.setState(state => ({
                     deletionTombstones: [
                         ...state.deletionTombstones,
@@ -211,6 +259,43 @@ export const useRssStore = create<RssStore>()(
                             ),
                         };
                     });
+
+                    if (isTauri()) {
+                        import("../lib/sqlite-storage").then(({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
+                            const updatedFeed = get().feeds.find(f => f.id === feedId);
+                            if (updatedFeed) {
+                                sqliteSaveRssFeed({
+                                    id: updatedFeed.id,
+                                    title: updatedFeed.title,
+                                    url: updatedFeed.url,
+                                    siteUrl: updatedFeed.siteUrl,
+                                    description: updatedFeed.description,
+                                    iconUrl: updatedFeed.iconUrl,
+                                    lastFetched: now.getTime(),
+                                    errorMessage: undefined,
+                                    unreadCount: updatedFeed.unreadCount,
+                                }).catch(() => {});
+                            }
+                            for (const a of newArticles) {
+                                sqliteSaveRssArticle({
+                                    id: a.id,
+                                    feedId: a.feedId,
+                                    title: a.title,
+                                    author: a.author,
+                                    url: a.url,
+                                    summary: a.summary,
+                                    contentSource: a.contentSource,
+                                    imageUrl: a.imageUrl,
+                                    publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
+                                    fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
+                                    isRead: a.isRead,
+                                    isFavorite: a.isFavorite,
+                                    progress: a.progress,
+                                }, a.content, a.fullContent).catch(() => {});
+                            }
+                        }).catch(() => {});
+                    }
+
                     scheduleMutationSync();
                 } catch (err) {
                     const message = err instanceof Error ? err.message : 'Refresh failed';
@@ -245,14 +330,21 @@ export const useRssStore = create<RssStore>()(
                         ),
                     };
                 });
+                if (isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleRead }) => {
+                        sqliteMarkArticleRead(articleId, true).catch(() => {});
+                    }).catch(() => {});
+                }
                 scheduleMutationSync();
             },
 
             toggleArticleRead: (articleId: string) => {
+                let nextRead = false;
                 set(state => {
                     const article = state.articles.find(a => a.id === articleId);
                     if (!article) return state;
                     const newRead = !article.isRead;
+                    nextRead = newRead;
                     return {
                         articles: state.articles.map(a =>
                             a.id === articleId ? { ...a, isRead: newRead } : a,
@@ -267,15 +359,30 @@ export const useRssStore = create<RssStore>()(
                         ),
                     };
                 });
+                if (isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleRead }) => {
+                        sqliteMarkArticleRead(articleId, nextRead).catch(() => {});
+                    }).catch(() => {});
+                }
                 scheduleMutationSync();
             },
 
             toggleArticleFavorite: (articleId: string) => {
-                set(state => ({
-                    articles: state.articles.map(a =>
-                        a.id === articleId ? { ...a, isFavorite: !a.isFavorite } : a,
-                    ),
-                }));
+                let nextFav = false;
+                set(state => {
+                    const article = state.articles.find(a => a.id === articleId);
+                    nextFav = article ? !article.isFavorite : false;
+                    return {
+                        articles: state.articles.map(a =>
+                            a.id === articleId ? { ...a, isFavorite: !a.isFavorite } : a,
+                        ),
+                    };
+                });
+                if (isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleFavorite }) => {
+                        sqliteMarkArticleFavorite(articleId, nextFav).catch(() => {});
+                    }).catch(() => {});
+                }
                 scheduleMutationSync();
             },
 
@@ -288,7 +395,25 @@ export const useRssStore = create<RssStore>()(
             },
 
             openArticleInReader: (article: RssArticle) => {
-                const fresh = get().articles.find(a => a.id === article.id) || article;
+                let fresh = get().articles.find(a => a.id === article.id) || article;
+                if ((!fresh.content || !fresh.fullContent) && isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteGetRssArticleContent }) => {
+                        sqliteGetRssArticleContent(fresh.id).then((cached) => {
+                            if (cached && (cached.content || cached.fullContent)) {
+                                set(state => ({
+                                    articles: state.articles.map(a =>
+                                        a.id === fresh.id
+                                            ? { ...a, content: cached.content || a.content, fullContent: cached.fullContent || a.fullContent }
+                                            : a
+                                    ),
+                                    currentArticle: state.currentArticle?.id === fresh.id
+                                        ? { ...state.currentArticle, content: cached.content || state.currentArticle.content, fullContent: cached.fullContent || state.currentArticle.fullContent }
+                                        : state.currentArticle,
+                                }));
+                            }
+                        }).catch(() => {});
+                    }).catch(() => {});
+                }
                 set({ currentArticle: fresh });
                 useUIStore.getState().setRoute('reader');
             },
@@ -319,6 +444,28 @@ export const useRssStore = create<RssStore>()(
                         ? { ...state.currentArticle, fullContent, contentSource: 'extracted' }
                         : state.currentArticle,
                 }));
+                if (isTauri()) {
+                    import("../lib/sqlite-storage").then(({ sqliteSaveRssArticle }) => {
+                        const a = get().articles.find(art => art.id === articleId);
+                        if (a) {
+                            sqliteSaveRssArticle({
+                                id: a.id,
+                                feedId: a.feedId,
+                                title: a.title,
+                                author: a.author,
+                                url: a.url,
+                                summary: a.summary,
+                                contentSource: 'extracted',
+                                imageUrl: a.imageUrl,
+                                publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
+                                fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
+                                isRead: a.isRead,
+                                isFavorite: a.isFavorite,
+                                progress: a.progress,
+                            }, a.content, fullContent).catch(() => {});
+                        }
+                    }).catch(() => {});
+                }
                 scheduleMutationSync();
             },
 
@@ -392,11 +539,13 @@ export const useRssStore = create<RssStore>()(
                     })
                     .slice(0, MAX_ARTICLES);
 
+                // Decouple full HTML to keep theorem-rss KV store under 50KB instead of 25MB+
                 const truncatedArticles = filteredArticles.map(article => ({
                     ...article,
-                    content: article.content.length > 50000
-                        ? article.content.slice(0, 50000) + '... [truncated]'
-                        : article.content,
+                    fullContent: undefined,
+                    content: article.summary
+                        ? (article.content.length > 500 ? article.content.slice(0, 500) + '...' : article.content)
+                        : (article.content.length > 1000 ? article.content.slice(0, 1000) + '...' : article.content),
                 }));
 
                 return {

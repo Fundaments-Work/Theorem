@@ -506,7 +506,18 @@ impl StarDict {
 
     /// Full lookup and parsed definitions
     pub fn lookup(&self, term: &str) -> Result<Option<StarDictEntryResult>, String> {
-        let (matched_word, offset, size) = match self.lookup_index(term) {
+        let clean = term.trim();
+        let index_hit = self.lookup_index(clean).or_else(|| {
+            let lemmas = crate::stemmer::lemmatize(clean);
+            for lemma in lemmas {
+                if let Some(hit) = self.lookup_index(&lemma) {
+                    return Some(hit);
+                }
+            }
+            None
+        });
+
+        let (matched_word, offset, size) = match index_hit {
             Some(v) => v,
             None => return Ok(None),
         };

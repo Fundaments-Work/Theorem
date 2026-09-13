@@ -1,6 +1,6 @@
 
 import type { BookFormat } from '../types';
-import { saveCoverImage } from './storage';
+import { saveCoverImage, downsampleCoverImage } from './storage';
 import { getConfiguredPdfJs } from './pdfjs-runtime';
 import { normalizeAuthor } from './utils';
 import { isMobile } from './env';
@@ -425,7 +425,8 @@ export async function extractMetadata(
                     if (blob && bookId) {
                         result.coverDataUrl = await saveCoverImage(bookId, blob);
                     } else if (blob) {
-                        result.coverDataUrl = await blobToDataUrl(blob);
+                        const downsampled = await downsampleCoverImage(blob);
+                        result.coverDataUrl = await blobToDataUrl(downsampled);
                     }
                 }
 
@@ -501,7 +502,8 @@ export async function extractMetadata(
                     if (bookId) {
                         result.coverDataUrl = await saveCoverImage(bookId, coverBlob);
                     } else {
-                        result.coverDataUrl = await blobToDataUrl(coverBlob);
+                        const downsampled = await downsampleCoverImage(coverBlob);
+                        result.coverDataUrl = await blobToDataUrl(downsampled);
                     }
                 }
             } catch (coverError) {

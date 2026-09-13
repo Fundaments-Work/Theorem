@@ -606,7 +606,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
                     if (isCancelled) return;
 
-                    const epubBlob = convertArticleToEpubBlob(articleToRender, feedTitle);
+                    const epubBlob = await convertArticleToEpubBlob(articleToRender, feedTitle);
                     setFile(epubBlob);
                 } catch (err) {
                     if (!isCancelled) {

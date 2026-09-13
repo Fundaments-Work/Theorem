@@ -1,6 +1,7 @@
 #![allow(unknown_lints)]
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
+pub mod article_epub;
 pub mod article_extractor;
 pub mod audio_player;
 pub mod audiobook;
@@ -24,6 +25,7 @@ pub mod mobi_parser;
 pub mod opds_parser;
 pub mod rss_parser;
 pub mod stardict;
+pub mod stemmer;
 pub mod supertonic;
 mod sync_commands;
 pub mod text_normalizer;
@@ -1463,6 +1465,8 @@ pub fn run() {
             rss_parser::fetch_and_parse_rss_feed,
             image_ops::downsample_cover,
             image_ops::extract_cover_palette,
+            stemmer::lemmatize_word,
+            article_epub::create_article_epub_native,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

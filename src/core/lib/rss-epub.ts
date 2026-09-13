@@ -1,5 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import type { RssArticle } from "../types";
+import { isTauri } from "./env";
 import { sanitizeArticleHtml } from "../../features/reader/article-reader/utils";
 
 function escapeXml(unsafe: string): string {
@@ -61,7 +62,7 @@ function htmlToValidXhtmlBody(htmlContent: string, coverImageUrl?: string): { xh
     }
 }
 
-export function convertArticleToEpubBlob(article: RssArticle, feedTitle?: string): Blob {
+export async function convertArticleToEpubBlob(article: RssArticle, feedTitle?: string): Promise<Blob> {
     const rawContent = article.fullContent || article.content || article.summary || "";
     const sanitizedHtml = sanitizeArticleHtml(rawContent);
     const { xhtml: xhtmlBody, hasCoverInBody } = htmlToValidXhtmlBody(sanitizedHtml, article.imageUrl);
@@ -69,6 +70,29 @@ export function convertArticleToEpubBlob(article: RssArticle, feedTitle?: string
 
     const title = article.title || "Untitled Article";
     const author = article.author || feedTitle || "RSS Feed";
+
+    if (isTauri()) {
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const bytes = await invoke<number[] | Uint8Array>("create_article_epub_native", {
+                payload: {
+                    title,
+                    author: author || null,
+                    content: xhtmlBody,
+                    url: article.url || null,
+                    coverImageUrl: shouldRenderCover ? article.imageUrl : null,
+                    publishedAt: article.publishedAt || null,
+                },
+            });
+            const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+            return new Blob([u8 as unknown as BlobPart], { type: "application/epub+zip" });
+        } catch (err) {
+            if (import.meta.env.DEV) {
+                console.warn("Native article EPUB creation failed, falling back to JS fflate:", err);
+            }
+        }
+    }
+
     const escapedTitle = escapeXml(title);
     const escapedAuthor = escapeXml(author);
     const escapedFeedTitle = feedTitle ? escapeXml(feedTitle) : "";

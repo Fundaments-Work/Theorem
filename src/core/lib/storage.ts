@@ -362,7 +362,7 @@ export async function deleteBookData(id: string, filePath?: string): Promise<voi
     }
 }
 
-async function downsampleCoverImage(blob: Blob, maxWidth = 200, maxHeight = 300): Promise<Blob> {
+export async function downsampleCoverImage(blob: Blob, maxWidth = 200, maxHeight = 300): Promise<Blob> {
     if (blob.type === "image/svg+xml") {
         return blob;
     }
