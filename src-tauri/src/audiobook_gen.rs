@@ -285,7 +285,9 @@ pub mod engine {
             }
 
             let chunk_start_sec = granule as f64 / TARGET_SAMPLE_RATE as f64;
-            for (chunk_idx, chunk) in desktop::chunk_text(&section.text, 300)
+            let normalized_section =
+                crate::text_normalizer::normalize_speech_text(&section.text, "en");
+            for (chunk_idx, chunk) in desktop::chunk_text(&normalized_section, 300)
                 .into_iter()
                 .enumerate()
             {

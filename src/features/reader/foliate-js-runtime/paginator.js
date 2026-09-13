@@ -1153,7 +1153,17 @@ export class Paginator extends HTMLElement {
         const resolvedAnchor = typeof anchor === 'function' && this.#view?.document
             ? anchor(this.#view.document)
             : anchor
-        const target = uncollapse(resolvedAnchor)
+        
+        // Stabilize cross-page/cross-column anchor: if anchor is a non-collapsed Range,
+        // collapse to its start boundary so uncollapse evaluates strictly the initial word/character.
+        let anchorTarget = resolvedAnchor
+        if (resolvedAnchor && typeof resolvedAnchor.cloneRange === 'function' && !resolvedAnchor.collapsed) {
+            const startRange = resolvedAnchor.cloneRange()
+            startRange.collapse(true)
+            anchorTarget = startRange
+        }
+
+        const target = uncollapse(anchorTarget)
         const rects = target?.getClientRects?.()
         // if anchor is an element or a range
         if (rects) {

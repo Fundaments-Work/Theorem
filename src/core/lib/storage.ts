@@ -363,10 +363,32 @@ export async function deleteBookData(id: string, filePath?: string): Promise<voi
 }
 
 async function downsampleCoverImage(blob: Blob, maxWidth = 200, maxHeight = 300): Promise<Blob> {
-    if (typeof window === "undefined" || typeof document === "undefined" || !window.HTMLCanvasElement) {
+    if (blob.type === "image/svg+xml") {
         return blob;
     }
-    if (blob.type === "image/svg+xml") {
+
+    if (isTauri()) {
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            const result = await invoke<{
+                data: number[];
+                mimeType: string;
+                width: number;
+                height: number;
+                dominantColor?: string;
+            }>("downsample_cover", {
+                imageBytes: Array.from(bytes),
+                maxWidth,
+                maxHeight,
+            });
+            return new Blob([new Uint8Array(result.data)], { type: result.mimeType });
+        } catch {
+            // Fallback to DOM canvas
+        }
+    }
+
+    if (typeof window === "undefined" || typeof document === "undefined" || !window.HTMLCanvasElement) {
         return blob;
     }
     return new Promise((resolve) => {

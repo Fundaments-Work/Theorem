@@ -89,7 +89,8 @@ pub mod desktop {
 
     fn preprocess_text(text: &str, lang: &str) -> String {
         // Reference: UnicodeProcessor._preprocess_text (py/helper.py).
-        let mut processed: String = text.nfkd().collect();
+        let normalized = crate::text_normalizer::normalize_speech_text(text, lang);
+        let mut processed: String = normalized.nfkd().collect();
         processed = processed.chars().filter(|c| !is_emoji(*c)).collect();
 
         const REPLACEMENTS: &[(&str, &str)] = &[

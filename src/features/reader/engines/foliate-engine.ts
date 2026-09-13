@@ -2017,6 +2017,7 @@ export class FoliateEngine {
             let pointerDownAt = 0;
             let pointerMoved = false;
             const SELECTION_CAPTURE_DELAY = 12;
+            const TAP_INTERACTION_BARRIER_MS = 120;
             const SELECTION_INTERACTION_SUPPRESS_MS = 420;
             const TAP_MAX_DISTANCE = 12;
             const TAP_MAX_DURATION = 350;
@@ -2287,7 +2288,7 @@ export class FoliateEngine {
                             return;
                         }
                         this.notifyViewportTap(event.target);
-                    }, SELECTION_CAPTURE_DELAY);
+                    }, TAP_INTERACTION_BARRIER_MS);
                 },
                 true,
             );
@@ -2310,6 +2311,7 @@ export class FoliateEngine {
                 let pointerDownAt = 0;
                 let pointerMoved = false;
                 const SELECTION_CAPTURE_DELAY = 24;
+                const TAP_INTERACTION_BARRIER_MS = 120;
                 const TAP_MAX_DISTANCE = 12;
                 const TAP_MAX_DURATION = 350;
                 
@@ -2409,7 +2411,7 @@ export class FoliateEngine {
                                 hasSelection: hasSelection,
                             }, '*');
                         }
-                    }, SELECTION_CAPTURE_DELAY);
+                    }, isTap ? TAP_INTERACTION_BARRIER_MS : SELECTION_CAPTURE_DELAY);
                 });
 
                 document.addEventListener('touchend', function(e) {

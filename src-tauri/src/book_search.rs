@@ -50,20 +50,46 @@ pub(crate) fn html_to_plain_text(html: &str) -> String {
     out
 }
 
-/// Extract context snippet around match offset
-fn extract_context_snippet(text: &str, start_char: usize, match_len: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let total_chars = chars.len();
+/// Extract context snippet around match byte offset using zero-allocation byte slicing
+fn extract_context_snippet(text: &str, match_byte_start: usize, match_byte_len: usize) -> String {
+    let snippet_char_radius = 50;
 
-    let snippet_radius = 50;
-    let snippet_start = start_char.saturating_sub(snippet_radius);
-    let snippet_end = (start_char + match_len + snippet_radius).min(total_chars);
+    // Scan backwards at most snippet_char_radius UTF-8 characters from match start
+    let prefix_slice = &text[..match_byte_start];
+    let mut chars_before = 0;
+    let mut snippet_byte_start = 0;
+    let mut has_prefix_ellipsis = false;
 
-    let prefix = if snippet_start > 0 { "…" } else { "" };
-    let suffix = if snippet_end < total_chars { "…" } else { "" };
+    for (byte_idx, _) in prefix_slice.char_indices().rev() {
+        chars_before += 1;
+        if chars_before >= snippet_char_radius {
+            snippet_byte_start = byte_idx;
+            has_prefix_ellipsis = true;
+            break;
+        }
+    }
 
-    let body: String = chars[snippet_start..snippet_end].iter().collect();
-    let clean_body = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Scan forwards at most snippet_char_radius UTF-8 characters from match end
+    let match_byte_end = (match_byte_start + match_byte_len).min(text.len());
+    let suffix_slice = &text[match_byte_end..];
+    let mut chars_after = 0;
+    let mut snippet_byte_end = text.len();
+    let mut has_suffix_ellipsis = false;
+
+    for (rel_byte_idx, ch) in suffix_slice.char_indices() {
+        chars_after += 1;
+        if chars_after >= snippet_char_radius {
+            snippet_byte_end = match_byte_end + rel_byte_idx + ch.len_utf8();
+            has_suffix_ellipsis = true;
+            break;
+        }
+    }
+
+    let raw_snippet = &text[snippet_byte_start..snippet_byte_end];
+    let clean_body: String = raw_snippet.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    let prefix = if has_prefix_ellipsis { "…" } else { "" };
+    let suffix = if has_suffix_ellipsis { "…" } else { "" };
 
     format!("{prefix}{clean_body}{suffix}")
 }
@@ -169,14 +195,14 @@ pub fn search_epub_spine(
             let mut search_from = 0;
             let mut last_byte_pos = 0;
             let mut running_char_offset = 0;
-            let match_len = q.chars().count();
 
             while let Some(byte_pos) = search_text[search_from..].find(&target_query) {
                 let actual_byte_pos = search_from + byte_pos;
                 running_char_offset += plain_text[last_byte_pos..actual_byte_pos].chars().count();
                 last_byte_pos = actual_byte_pos;
 
-                let snippet = extract_context_snippet(&plain_text, running_char_offset, match_len);
+                let snippet =
+                    extract_context_snippet(&plain_text, actual_byte_pos, target_query.len());
 
                 matches.push(NativeSearchMatch {
                     section_index: *sec_idx,

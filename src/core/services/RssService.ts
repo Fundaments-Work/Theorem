@@ -606,6 +606,14 @@ async function parseFeedXml(xmlText: string): Promise<ParsedFeed> {
     const jsonFeed = tryParseJsonFeed(xmlText);
     if (jsonFeed) return jsonFeed;
 
+    if (isTauri()) {
+        try {
+            return await invoke<ParsedFeed>('parse_rss_feed_native', { xml: xmlText });
+        } catch {
+            // Fallback to JS parser
+        }
+    }
+
     const parser = await createFeedParser();
     let parsed: FeedNode;
     try {

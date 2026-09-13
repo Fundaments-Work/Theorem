@@ -12,7 +12,7 @@
 
 /// A resolved CFI: 0-based spine position plus the content-document steps
 /// (with their final character offset when present).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CfiLocation {
     /// 0-based position in the OPF spine
     pub spine_index: usize,
@@ -22,11 +22,71 @@ pub struct CfiLocation {
     pub offset: Option<u32>,
 }
 
+impl Ord for CfiLocation {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.spine_index.cmp(&other.spine_index) {
+            std::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+        for (s1, s2) in self.steps.iter().zip(other.steps.iter()) {
+            match s1.0.cmp(&s2.0) {
+                std::cmp::Ordering::Equal => {}
+                ord => return ord,
+            }
+        }
+        match self.steps.len().cmp(&other.steps.len()) {
+            std::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+        let off1 = self.offset.unwrap_or(0);
+        let off2 = other.offset.unwrap_or(0);
+        off1.cmp(&off2)
+    }
+}
+
+impl PartialOrd for CfiLocation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// A resolved CFI range spanning from a start location to an end location.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CfiRange {
+    pub start: CfiLocation,
+    pub end: CfiLocation,
+}
+
 fn strip_optional_range(cfi: &str) -> &str {
     // A range CFI has two comma-separated paths; resolve to the start.
     match cfi.find(',') {
         Some(idx) => &cfi[..idx],
         None => cfi,
+    }
+}
+
+/// Parse a CFI range string into a [`CfiRange`].
+pub fn parse_range(cfi: &str) -> Result<CfiRange, String> {
+    let trimmed = cfi.trim();
+    let inner = trimmed
+        .strip_prefix("epubcfi(")
+        .map(|rest| rest.strip_suffix(')').unwrap_or(rest))
+        .unwrap_or(trimmed);
+
+    let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+    if parts.len() == 3 {
+        let parent = parts[0];
+        let start_str = format!("epubcfi({}{})", parent, parts[1]);
+        let end_str = format!("epubcfi({}{})", parent, parts[2]);
+        let start = parse(&start_str)?;
+        let end = parse(&end_str)?;
+        Ok(CfiRange { start, end })
+    } else {
+        let loc = parse(cfi)?;
+        Ok(CfiRange {
+            start: loc.clone(),
+            end: loc,
+        })
     }
 }
 
@@ -355,5 +415,15 @@ mod tests {
         let loc = parse("epubcfi(/6/4!/4/4/1:26)").unwrap();
         let text = resolve_text(&tree, &loc).unwrap();
         assert!(text.starts_with("target"));
+    }
+
+    #[test]
+    fn parses_cfi_range_and_orders_locations() {
+        let range = parse_range("epubcfi(/6/4!/4/10,/2:10,/2:50)").unwrap();
+        assert_eq!(range.start.spine_index, 1);
+        assert_eq!(range.start.offset, Some(10));
+        assert_eq!(range.end.spine_index, 1);
+        assert_eq!(range.end.offset, Some(50));
+        assert!(range.start < range.end);
     }
 }

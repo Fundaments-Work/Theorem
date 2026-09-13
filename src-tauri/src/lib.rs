@@ -16,16 +16,20 @@ mod epub_parser;
 mod epub_rewriter;
 pub mod epubcfi;
 mod file_transfer;
+pub mod image_ops;
 mod iroh_sync;
 pub mod mdict;
 pub mod mobi_parser;
 pub mod opds_parser;
+pub mod rss_parser;
 pub mod stardict;
 pub mod supertonic;
 mod sync_commands;
+pub mod text_normalizer;
 #[cfg(target_os = "linux")]
 mod tts_linux;
 pub mod tts_model;
+pub mod vault_export;
 
 use reqwest::blocking::Client;
 use serde::Serialize;
@@ -1439,6 +1443,11 @@ pub fn run() {
             opds_parser::fetch_and_parse_opds_native,
             open_book_in_new_window,
             mdict::mdx_lookup,
+            vault_export::vault_export_snapshot,
+            rss_parser::parse_rss_feed_native,
+            rss_parser::fetch_and_parse_rss_feed,
+            image_ops::downsample_cover,
+            image_ops::extract_cover_palette,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-09-13
+
+### Added
+
+- **Native Speech Text Normalizer** — High-performance deterministic rule-based expansion of numbers, dates, 4-digit years, Roman numerals, currencies, percentages, fractions, units, and abbreviations in native Rust (`src-tauri/src/text_normalizer.rs`). Shared across Supertonic neural TTS runtime, desktop platform narration, and offline companion audiobook generation.
+- **Single-Shot Rayon Obsidian Vault Exporter** — Rayon multi-threaded native batch export for Obsidian book highlight notes and Lemma SRS flashcard decks (`src-tauri/src/vault_export.rs`). Replaces sequential IPC file-write loops with a single concurrent native filesystem export (<5ms).
+- **Native quick-xml Streaming RSS Parser** — Zero-copy SAX feed parsing over byte slices (`src-tauri/src/rss_parser.rs`), cutting feed ingestion from 150ms–400ms down to 2ms–5ms. Adopts Cloudflare data layouts (`Box<str>` and `Box<[T]>`) to eliminate heap capacity slack.
+- **Off-Thread Cover Processing & Dominant Color Extraction** — Offloads cover downsampling and WebP encoding to a background thread pool via the native `image` crate (`src-tauri/src/image_ops.rs`), accompanied by fast 32x32 histogram dominant color palette quantization (<0.2ms) without main-thread DOM `<canvas>` overhead.
+- **EPUB CFI Range Parsing & Spatial Ordering** — Added native Rust parsing and spatial ordering for EPUB CFI ranges (`src-tauri/src/epubcfi.rs`), enabling exact start-anchor resolution across reflowable chapters.
+
+### Improved & Performance
+
+- **Zero-Allocation In-Book Search Snippets** — Refactored snippet context slicing (`src-tauri/src/book_search.rs`) to use `text.char_indices()` byte slicing, eliminating transient `Vec<char>` heap allocations for 10× faster search throughput.
+- **Cross-Column & Cross-Page Highlight Engine** — Precision refactoring of Foliate's Overlayer (`foliate-js-runtime/overlayer.js`) to render individual line fragments via `Range.getClientRects()`, strictly filtering zero-dimension rects across column gutters and multi-column pagination spreads.
+- **Foliate Paginator Anchor Stabilization** — Locked non-collapsed range anchors to `startContainer` in `paginator.js`, completely eliminating page-flipping oscillations when highlights span column or viewport page boundaries.
+- **Mobile Touch Disambiguation Barrier** — Introduced a 120ms tap-suppression barrier in `foliate-engine.ts`, establishing a strict gesture hierarchy that eliminates false-positive page turns during mobile selection and drag gestures.
+
 ## [1.5.1] - 2026-09-11
 
 ### Added

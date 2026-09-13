@@ -46,9 +46,11 @@ export class Overlayer {
         
         for (let i = arr.length - 1; i >= 0; i--) {
             const [key, obj] = arr[i]
-            for (const { left, top, right, bottom } of obj.rects)
+            for (const { left, top, right, bottom } of obj.rects) {
+                if (right <= left || bottom <= top) continue
                 if (top <= y && left <= x && bottom > y && right > x)
                     return [key, obj.range]
+            }
         }
         return []
     }
@@ -58,6 +60,7 @@ export class Overlayer {
         g.setAttribute('fill', color)
         if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr')
             for (const { right, top, height } of rects) {
+                if (!height || height <= 0) continue
                 const el = createSVGElement('rect')
                 el.setAttribute('x', right - strokeWidth)
                 el.setAttribute('y', top)
@@ -66,6 +69,7 @@ export class Overlayer {
                 g.append(el)
             }
         else for (const { left, bottom, width } of rects) {
+            if (!width || width <= 0) continue
             const el = createSVGElement('rect')
             el.setAttribute('x', left)
             el.setAttribute('y', bottom - strokeWidth)
@@ -81,6 +85,7 @@ export class Overlayer {
         g.setAttribute('fill', color)
         if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr')
             for (const { right, left, top, height } of rects) {
+                if (!height || height <= 0) continue
                 const el = createSVGElement('rect')
                 el.setAttribute('x', (right + left) / 2)
                 el.setAttribute('y', top)
@@ -89,6 +94,7 @@ export class Overlayer {
                 g.append(el)
             }
         else for (const { left, top, bottom, width } of rects) {
+            if (!width || width <= 0) continue
             const el = createSVGElement('rect')
             el.setAttribute('x', left)
             el.setAttribute('y', (top + bottom) / 2)
@@ -107,8 +113,9 @@ export class Overlayer {
         const block = strokeWidth * 1.5
         if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr')
             for (const { right, top, height } of rects) {
+                if (!height || height <= 0) continue
                 const el = createSVGElement('path')
-                const n = Math.round(height / block / 1.5)
+                const n = Math.max(1, Math.round(height / block / 1.5))
                 const inline = height / n
                 const ls = Array.from({ length: n },
                     (_, i) => `l${i % 2 ? -block : block} ${inline}`).join('')
@@ -116,8 +123,9 @@ export class Overlayer {
                 g.append(el)
             }
         else for (const { left, bottom, width } of rects) {
+            if (!width || width <= 0) continue
             const el = createSVGElement('path')
-            const n = Math.round(width / block / 1.5)
+            const n = Math.max(1, Math.round(width / block / 1.5))
             const inline = width / n
             const ls = Array.from({ length: n },
                 (_, i) => `l${inline} ${i % 2 ? block : -block}`).join('')
@@ -133,6 +141,7 @@ export class Overlayer {
         g.style.opacity = 'var(--overlayer-highlight-opacity, .3)'
         g.style.mixBlendMode = 'var(--overlayer-highlight-blend-mode, normal)'
         for (const { left, top, height, width } of rects) {
+            if (!width || !height || width <= 0 || height <= 0) continue
             const el = createSVGElement('rect')
             el.setAttribute('x', left)
             el.setAttribute('y', top)
@@ -149,6 +158,7 @@ export class Overlayer {
         g.setAttribute('stroke', color)
         g.setAttribute('stroke-width', strokeWidth)
         for (const { left, top, height, width } of rects) {
+            if (!width || !height || width <= 0 || height <= 0) continue
             const el = createSVGElement('rect')
             el.setAttribute('x', left)
             el.setAttribute('y', top)

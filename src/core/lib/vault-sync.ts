@@ -575,6 +575,66 @@ export async function syncVaultMarkdownSnapshot({
     const generatedAt = new Date().toISOString();
 
     try {
+        if (isTauri()) {
+            try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                const result = await invoke<{
+                    status: string;
+                    message: string;
+                    filesWritten: number;
+                    filePaths: string[];
+                }>("vault_export_snapshot", {
+                    payload: {
+                        vaultPath,
+                        highlightsFolder,
+                        vocabularyFileName,
+                        books: books.map((b) => ({
+                            id: b.id,
+                            title: b.title,
+                            author: b.author,
+                            format: b.format,
+                            filePath: b.filePath,
+                        })),
+                        annotations: annotations.map((a) => ({
+                            id: a.id,
+                            bookId: a.bookId,
+                            type: a.type,
+                            selectedText: a.selectedText,
+                            noteContent: a.noteContent,
+                            color: a.color,
+                            createdAt: a.createdAt,
+                            updatedAt: a.updatedAt,
+                        })),
+                        vocabularyTerms: vocabularyTerms.map((v) => ({
+                            id: v.id,
+                            term: v.term,
+                            language: v.language,
+                            phonetic: v.phonetic,
+                            meanings: v.meanings,
+                            contexts: v.contexts,
+                        })),
+                        rssArticles: rssArticles.map((r) => ({
+                            id: r.id,
+                            title: r.title,
+                            author: r.author,
+                            url: r.url,
+                        })),
+                        generatedAt,
+                    },
+                });
+
+                return {
+                    status: "synced",
+                    message: result.message,
+                    filePaths: result.filePaths,
+                };
+            } catch (nativeErr) {
+                if (import.meta.env.DEV) {
+                    console.warn("[vault-sync] Native export failed, falling back to JS:", nativeErr);
+                }
+            }
+        }
+
         const fs = await getTauriFs();
         await fs.mkdir(vaultPath, { recursive: true });
         await fs.mkdir(theoremDir, { recursive: true });
