@@ -31,6 +31,7 @@ const makeZipLoader = async (file, prefetchPromise) => {
     const prefetch = await prefetchPromise
     const textCache = prefetch?.textCache
     const sizes = prefetch?.sizes
+    const toc = prefetch?.toc
 
     if (!textCache && !sizes) {
         const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
@@ -86,7 +87,7 @@ const makeZipLoader = async (file, prefetchPromise) => {
         return sizes.get(name) ?? (cleanName ? sizes.get(cleanName) : undefined) ?? 0
     }
 
-    return { loadText, loadBlob, getSize, getLazyZip }
+    return { loadText, loadBlob, getSize, getLazyZip, toc }
 }
 
 const getFileEntries = async entry => entry.isFile ? entry
@@ -148,6 +149,9 @@ export const makeBook = async (file, prefetchPromise) => {
         else {
             const { EPUB } = await import('./epub.js')
             book = await new EPUB(loader).init()
+            if (!book.toc && loader.toc) {
+                book.toc = loader.toc
+            }
         }
     }
     else if (await isPDF(file)) {

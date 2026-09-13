@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from './env';
+import type { TocItem } from '../types';
 
 export interface EpubPrefetchResult {
     container?: string;
@@ -13,11 +14,13 @@ export interface EpubPrefetchResult {
     sizes: Record<string, number>;
     
     sections?: Record<string, string>;
+    toc?: TocItem[];
 }
 
 export interface PrefetchCache {
     textCache: Map<string, string>;
     sizes: Map<string, number>;
+    toc?: TocItem[];
 }
 
 export async function tryNativePrefetchEpub(path: string): Promise<PrefetchCache | null> {
@@ -50,7 +53,7 @@ export async function tryNativePrefetchEpub(path: string): Promise<PrefetchCache
 
         const sizes = new Map<string, number>(Object.entries(result.sizes));
 
-        return { textCache, sizes };
+        return { textCache, sizes, toc: result.toc };
     } catch {
         return null;
     }

@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { isTauri } from "../lib/env";
 import { theoremPersistStorage } from "../lib/persist-storage";
+import {
+    sqliteDeleteVocabularyTerm,
+    sqliteGetVocabularyTerms,
+    sqliteSaveVocabularyTerm,
+    type SqliteVocabularyTerm,
+} from "../lib/sqlite-storage";
 import {
     lookupDictionaryTerm,
     vocabularyTermFromLookup,
@@ -18,6 +25,52 @@ import type {
     VocabularyTerm,
 } from "../types";
 import { useLibraryStore } from "./libraryStore";
+
+export function toSqliteVocabularyTerm(term: VocabularyTerm): SqliteVocabularyTerm {
+    return {
+        id: term.id,
+        term: term.term,
+        normalizedTerm: term.normalizedTerm,
+        language: term.language,
+        phonetic: term.phonetic,
+        audioUrl: term.audioUrl,
+        meaningsJson: JSON.stringify(term.meanings || []),
+        providerHistoryJson: JSON.stringify(term.providerHistory || []),
+        sourceBookId: undefined,
+        contextSentence: undefined,
+        createdAt: term.createdAt instanceof Date ? term.createdAt.getTime() : new Date(term.createdAt).getTime(),
+        updatedAt: term.updatedAt
+            ? (term.updatedAt instanceof Date ? term.updatedAt.getTime() : new Date(term.updatedAt).getTime())
+            : undefined,
+    };
+}
+
+export function fromSqliteVocabularyTerm(st: SqliteVocabularyTerm): VocabularyTerm {
+    let meanings = [];
+    try {
+        meanings = JSON.parse(st.meaningsJson);
+    } catch {
+        meanings = [];
+    }
+    let providerHistory = [];
+    try {
+        providerHistory = JSON.parse(st.providerHistoryJson);
+    } catch {
+        providerHistory = [];
+    }
+    return {
+        id: st.id,
+        term: st.term,
+        normalizedTerm: st.normalizedTerm,
+        language: st.language,
+        phonetic: st.phonetic || undefined,
+        audioUrl: st.audioUrl || undefined,
+        meanings: Array.isArray(meanings) ? meanings : [],
+        providerHistory: Array.isArray(providerHistory) ? providerHistory : [],
+        createdAt: new Date(st.createdAt),
+        updatedAt: st.updatedAt ? new Date(st.updatedAt) : undefined,
+    };
+}
 
 function normalizeTermKey(term: string, language: string): string {
     return `${term.trim().toLowerCase()}::${language.trim().toLowerCase()}`;
@@ -123,6 +176,9 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     set((state) => ({
                         vocabularyTerms: [...state.vocabularyTerms, termToSave],
                     }));
+                    if (isTauri()) {
+                        void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(termToSave));
+                    }
                     triggerVaultAutoSync();
                     scheduleMutationSync();
                     return termToSave;
@@ -164,6 +220,9 @@ export const useVocabularyStore = create<VocabularyStore>()(
                         term.id === existing.id ? mergedTerm : term
                     )),
                 }));
+                if (isTauri()) {
+                    void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(mergedTerm));
+                }
                 triggerVaultAutoSync();
                 scheduleMutationSync();
                 return mergedTerm;
@@ -173,6 +232,9 @@ export const useVocabularyStore = create<VocabularyStore>()(
                 set((state) => ({
                     vocabularyTerms: state.vocabularyTerms.filter((term) => term.id !== termId),
                 }));
+                if (isTauri()) {
+                    void sqliteDeleteVocabularyTerm(termId);
+                }
                 const tombstone: DeletionTombstone = {
                     entityId: termId,
                     entityType: "vocabulary",
@@ -328,6 +390,30 @@ export const useVocabularyStore = create<VocabularyStore>()(
 
                 state.lookupCache = {};
                 state.activeDownload = null;
+
+                if (isTauri()) {
+                    void sqliteGetVocabularyTerms().then((sqliteTerms) => {
+                        if (sqliteTerms && sqliteTerms.length > 0) {
+                            const current = useVocabularyStore.getState().vocabularyTerms;
+                            const termMap = new Map<string, VocabularyTerm>();
+                            for (const t of current) {
+                                termMap.set(t.id, t);
+                            }
+                            let changed = false;
+                            for (const st of sqliteTerms) {
+                                if (!termMap.has(st.id)) {
+                                    termMap.set(st.id, fromSqliteVocabularyTerm(st));
+                                    changed = true;
+                                }
+                            }
+                            if (changed) {
+                                useVocabularyStore.setState({
+                                    vocabularyTerms: Array.from(termMap.values()),
+                                });
+                            }
+                        }
+                    }).catch(() => {});
+                }
             },
         },
     ),

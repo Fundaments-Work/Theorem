@@ -444,4 +444,49 @@ export async function sqliteGetReadingSessions(
     }
 }
 
+export interface SqliteVocabularyTerm {
+    id: string;
+    term: string;
+    normalizedTerm: string;
+    language: string;
+    phonetic?: string;
+    audioUrl?: string;
+    meaningsJson: string;
+    providerHistoryJson: string;
+    sourceBookId?: string;
+    contextSentence?: string;
+    createdAt: number;
+    updatedAt?: number;
+}
+
+export async function sqliteGetVocabularyTerms(): Promise<SqliteVocabularyTerm[]> {
+    if (!isTauri()) return [];
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_get_vocabulary_terms')) as SqliteVocabularyTerm[];
+    } catch {
+        return [];
+    }
+}
+
+export async function sqliteSaveVocabularyTerm(term: SqliteVocabularyTerm): Promise<void> {
+    if (!isTauri()) return;
+    try {
+        const invoke = await getInvoke();
+        await invoke('sqlite_save_vocabulary_term', { term });
+    } catch {
+        // Non-blocking
+    }
+}
+
+export async function sqliteDeleteVocabularyTerm(termId: string): Promise<void> {
+    if (!isTauri()) return;
+    try {
+        const invoke = await getInvoke();
+        await invoke('sqlite_delete_vocabulary_term', { termId });
+    } catch {
+        // Non-blocking
+    }
+}
+
 

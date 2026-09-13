@@ -55,6 +55,316 @@ pub(crate) fn resolve_relative(base: &str, target: &str) -> String {
         .to_string()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TocItemDto {
+    pub label: Box<str>,
+    pub href: Box<str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subitems: Option<Box<[TocItemDto]>>,
+}
+
+pub(crate) fn resolve_epub_href(base: &str, target: &str) -> String {
+    let clean_target = target.trim();
+    if clean_target.is_empty() {
+        return String::new();
+    }
+    if clean_target.starts_with("http://")
+        || clean_target.starts_with("https://")
+        || clean_target.starts_with("data:")
+    {
+        return clean_target.to_string();
+    }
+
+    let (file_part, fragment_part) = match clean_target.find('#') {
+        Some(pos) => (&clean_target[..pos], &clean_target[pos..]),
+        None => (clean_target, ""),
+    };
+
+    let clean_base = base.replace('\\', "/");
+    let base_dir = match clean_base.rfind('/') {
+        Some(pos) => &clean_base[..pos],
+        None => "",
+    };
+
+    let full_path = if file_part.is_empty() {
+        clean_base.to_string()
+    } else if file_part.starts_with('/') {
+        file_part.trim_start_matches('/').to_string()
+    } else if base_dir.is_empty() {
+        file_part.to_string()
+    } else {
+        format!("{base_dir}/{file_part}")
+    };
+
+    let mut segments: Vec<&str> = Vec::new();
+    for part in full_path.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        } else if part == ".." {
+            segments.pop();
+        } else {
+            segments.push(part);
+        }
+    }
+
+    let normalized = segments.join("/");
+    if fragment_part.is_empty() {
+        normalized
+    } else {
+        format!("{normalized}{fragment_part}")
+    }
+}
+
+pub(crate) fn normalize_label_text(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut in_whitespace = false;
+    for ch in text.trim().chars() {
+        if ch.is_whitespace() {
+            if !in_whitespace {
+                result.push(' ');
+                in_whitespace = true;
+            }
+        } else {
+            result.push(ch);
+            in_whitespace = false;
+        }
+    }
+    result
+}
+
+pub fn parse_ncx_toc(ncx_xml: &str, ncx_path: &str) -> Vec<TocItemDto> {
+    let normalized = strip_xml_bom(ncx_xml.as_bytes());
+    let mut reader = Reader::from_reader(normalized.as_ref());
+    reader.config_mut().trim_text(true);
+
+    struct NavPointBuilder {
+        label: String,
+        href: String,
+        subitems: Vec<TocItemDto>,
+    }
+
+    let mut stack: Vec<NavPointBuilder> = Vec::new();
+    let mut root_items: Vec<TocItemDto> = Vec::new();
+    let mut in_text = false;
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                let qname = e.name();
+                let name = local_name(qname.as_ref());
+                if name == b"navPoint" {
+                    stack.push(NavPointBuilder {
+                        label: String::new(),
+                        href: String::new(),
+                        subitems: Vec::new(),
+                    });
+                } else if name == b"text" {
+                    in_text = true;
+                } else if name == b"content" {
+                    if let Some(current) = stack.last_mut() {
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"src" {
+                                let raw_src = String::from_utf8_lossy(&attr.value);
+                                current.href = resolve_epub_href(ncx_path, &raw_src);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                let qname = e.name();
+                let name = local_name(qname.as_ref());
+                if name == b"content" {
+                    if let Some(current) = stack.last_mut() {
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"src" {
+                                let raw_src = String::from_utf8_lossy(&attr.value);
+                                current.href = resolve_epub_href(ncx_path, &raw_src);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::Text(ref e)) => {
+                if in_text {
+                    if let Some(current) = stack.last_mut() {
+                        if let Ok(txt) = e.unescape() {
+                            current.label.push_str(&txt);
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let qname = e.name();
+                let name = local_name(qname.as_ref());
+                if name == b"text" {
+                    in_text = false;
+                } else if name == b"navPoint" {
+                    if let Some(builder) = stack.pop() {
+                        let subitems = if builder.subitems.is_empty() {
+                            None
+                        } else {
+                            Some(builder.subitems.into_boxed_slice())
+                        };
+                        let item = TocItemDto {
+                            label: normalize_label_text(&builder.label).into_boxed_str(),
+                            href: builder.href.into_boxed_str(),
+                            subitems,
+                        };
+                        if let Some(parent) = stack.last_mut() {
+                            parent.subitems.push(item);
+                        } else {
+                            root_items.push(item);
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    root_items
+}
+
+fn is_toc_nav_start(e: &quick_xml::events::BytesStart<'_>) -> bool {
+    let mut has_toc = false;
+    let mut has_other_epub_type = false;
+    for attr in e.attributes().flatten() {
+        let key = attr.key.as_ref();
+        let val = String::from_utf8_lossy(&attr.value);
+        if key == b"epub:type" || key == b"type" {
+            if val.contains("toc") {
+                has_toc = true;
+            } else {
+                has_other_epub_type = true;
+            }
+        } else if (key == b"role" && val.contains("doc-toc"))
+            || (key == b"id" && val.eq_ignore_ascii_case("toc"))
+        {
+            has_toc = true;
+        }
+    }
+    has_toc || !has_other_epub_type
+}
+
+pub fn parse_nav_toc(nav_xml: &str, nav_path: &str) -> Vec<TocItemDto> {
+    let normalized = strip_xml_bom(nav_xml.as_bytes());
+    let mut reader = Reader::from_reader(normalized.as_ref());
+    reader.config_mut().trim_text(false);
+
+    struct LiBuilder {
+        label: String,
+        href: String,
+        subitems: Vec<TocItemDto>,
+    }
+
+    let mut stack: Vec<LiBuilder> = Vec::new();
+    let mut root_items: Vec<TocItemDto> = Vec::new();
+    let mut in_toc_nav = false;
+    let mut nav_depth: usize = 0;
+    let mut in_anchor_depth: usize = 0;
+    let mut in_span_depth: usize = 0;
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref e)) => {
+                let qname = e.name();
+                let name = local_name(qname.as_ref());
+                if name == b"nav" {
+                    if !in_toc_nav && is_toc_nav_start(e) {
+                        in_toc_nav = true;
+                        nav_depth = 1;
+                    } else if in_toc_nav {
+                        nav_depth += 1;
+                    }
+                } else if in_toc_nav {
+                    if name == b"li" {
+                        stack.push(LiBuilder {
+                            label: String::new(),
+                            href: String::new(),
+                            subitems: Vec::new(),
+                        });
+                    } else if name == b"a" {
+                        in_anchor_depth += 1;
+                        if let Some(current) = stack.last_mut() {
+                            if current.href.is_empty() {
+                                for attr in e.attributes().flatten() {
+                                    if attr.key.as_ref() == b"href" {
+                                        let raw_href = String::from_utf8_lossy(&attr.value);
+                                        current.href = resolve_epub_href(nav_path, &raw_href);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else if name == b"span" && in_anchor_depth == 0 {
+                        in_span_depth += 1;
+                    }
+                }
+            }
+            Ok(Event::Text(ref e)) => {
+                if in_toc_nav && (in_anchor_depth > 0 || in_span_depth > 0) {
+                    if let Some(current) = stack.last_mut() {
+                        if let Ok(txt) = e.unescape() {
+                            current.label.push_str(&txt);
+                        }
+                    }
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let qname = e.name();
+                let name = local_name(qname.as_ref());
+                if name == b"nav" && in_toc_nav {
+                    nav_depth = nav_depth.saturating_sub(1);
+                    if nav_depth == 0 {
+                        in_toc_nav = false;
+                        if !root_items.is_empty() {
+                            break;
+                        }
+                    }
+                } else if in_toc_nav {
+                    if name == b"a" {
+                        in_anchor_depth = in_anchor_depth.saturating_sub(1);
+                    } else if name == b"span" {
+                        in_span_depth = in_span_depth.saturating_sub(1);
+                    } else if name == b"li" {
+                        if let Some(builder) = stack.pop() {
+                            let subitems = if builder.subitems.is_empty() {
+                                None
+                            } else {
+                                Some(builder.subitems.into_boxed_slice())
+                            };
+                            let item = TocItemDto {
+                                label: normalize_label_text(&builder.label).into_boxed_str(),
+                                href: builder.href.into_boxed_str(),
+                                subitems,
+                            };
+                            if let Some(parent) = stack.last_mut() {
+                                parent.subitems.push(item);
+                            } else {
+                                root_items.push(item);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    root_items
+}
+
 pub(crate) fn strip_xml_bom(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     use std::borrow::Cow;
     if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
@@ -239,6 +549,7 @@ struct EpubMeta {
     ncx: Option<String>,
     encryption: Option<String>,
     sections: HashMap<String, String>,
+    toc: Option<Box<[TocItemDto]>>,
 }
 
 fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
@@ -290,6 +601,31 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
         }
     }
 
+    let toc = if let (Some(nav_text), Some(nav_p)) = (&nav, &nav_path) {
+        let items = parse_nav_toc(nav_text, nav_p);
+        if !items.is_empty() {
+            Some(items.into_boxed_slice())
+        } else if let (Some(ncx_text), Some(ncx_p)) = (&ncx, &ncx_path) {
+            let items = parse_ncx_toc(ncx_text, ncx_p);
+            if !items.is_empty() {
+                Some(items.into_boxed_slice())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else if let (Some(ncx_text), Some(ncx_p)) = (&ncx, &ncx_path) {
+        let items = parse_ncx_toc(ncx_text, ncx_p);
+        if !items.is_empty() {
+            Some(items.into_boxed_slice())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Some(EpubMeta {
         container: Some(container_text),
         opf_path,
@@ -300,6 +636,7 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
         ncx,
         encryption,
         sections,
+        toc,
     })
 }
 
@@ -329,6 +666,8 @@ pub struct ZipPrefetch {
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
     pub sections: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toc: Option<Box<[TocItemDto]>>,
 }
 
 #[tauri::command]
@@ -388,6 +727,7 @@ fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Stri
             .as_ref()
             .map(|e| e.sections.clone())
             .unwrap_or_default(),
+        toc: epub.and_then(|e| e.toc),
     })
 }
 
@@ -640,6 +980,104 @@ mod tests {
         assert_eq!(meta.ncx_path, Some("OEBPS/toc.ncx".to_string()));
         assert!(meta.nav.unwrap().contains("nav"));
         assert!(meta.ncx.unwrap().contains("ncx"));
+        assert!(meta.toc.is_some());
+        let toc = meta.toc.unwrap();
+        assert_eq!(toc.len(), 1);
+        assert_eq!(&*toc[0].label, "Ch1");
+        assert_eq!(&*toc[0].href, "OEBPS/ch1.xhtml");
+    }
+
+    #[test]
+    fn test_resolve_epub_href_cases() {
+        assert_eq!(
+            resolve_epub_href("OEBPS/toc.ncx", "ch1.xhtml#sec1"),
+            "OEBPS/ch1.xhtml#sec1"
+        );
+        assert_eq!(
+            resolve_epub_href("EPUB/nav/toc.xhtml", "../text/ch1.xhtml#part2"),
+            "EPUB/text/ch1.xhtml#part2"
+        );
+        assert_eq!(resolve_epub_href("nav.xhtml", "intro.xhtml"), "intro.xhtml");
+        assert_eq!(
+            resolve_epub_href("OEBPS/toc.ncx", "https://example.com/external"),
+            "https://example.com/external"
+        );
+    }
+
+    #[test]
+    fn test_parse_ncx_toc_nested() {
+        let ncx = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <navMap>
+    <navPoint id="np1" playOrder="1">
+      <navLabel><text>Chapter &amp; 1</text></navLabel>
+      <content src="chapter1.xhtml"/>
+      <navPoint id="np1_1" playOrder="2">
+        <navLabel><text>Section 1.1</text></navLabel>
+        <content src="chapter1.xhtml#sec1"/>
+      </navPoint>
+    </navPoint>
+    <navPoint id="np2" playOrder="3">
+      <navLabel><text>Chapter 2</text></navLabel>
+      <content src="chapter2.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>"#;
+        let items = parse_ncx_toc(ncx, "OEBPS/toc.ncx");
+        assert_eq!(items.len(), 2);
+        assert_eq!(&*items[0].label, "Chapter & 1");
+        assert_eq!(&*items[0].href, "OEBPS/chapter1.xhtml");
+        let sub = items[0].subitems.as_ref().unwrap();
+        assert_eq!(sub.len(), 1);
+        assert_eq!(&*sub[0].label, "Section 1.1");
+        assert_eq!(&*sub[0].href, "OEBPS/chapter1.xhtml#sec1");
+        assert_eq!(&*items[1].label, "Chapter 2");
+        assert_eq!(&*items[1].href, "OEBPS/chapter2.xhtml");
+    }
+
+    #[test]
+    fn test_parse_nav_toc_nested_and_landmarks() {
+        let nav = r#"<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body>
+  <nav epub:type="landmarks" hidden="">
+    <h2>Guide</h2>
+    <ol><li><a epub:type="cover" href="cover.xhtml">Cover</a></li></ol>
+  </nav>
+  <nav epub:type="toc" id="toc">
+    <h1>Table of Contents</h1>
+    <ol>
+      <li>
+        <a href="text/part1.xhtml">Part <i>I</i></a>
+        <ol>
+          <li><a href="text/ch1.xhtml#sub1">Chapter 1</a></li>
+        </ol>
+      </li>
+      <li>
+        <span>Part II (Unlinked)</span>
+        <ol>
+          <li><a href="text/ch2.xhtml">Chapter 2</a></li>
+        </ol>
+      </li>
+    </ol>
+  </nav>
+</body>
+</html>"#;
+        let items = parse_nav_toc(nav, "OEBPS/nav.xhtml");
+        assert_eq!(items.len(), 2);
+        assert_eq!(&*items[0].label, "Part I");
+        assert_eq!(&*items[0].href, "OEBPS/text/part1.xhtml");
+        let sub0 = items[0].subitems.as_ref().unwrap();
+        assert_eq!(sub0.len(), 1);
+        assert_eq!(&*sub0[0].label, "Chapter 1");
+        assert_eq!(&*sub0[0].href, "OEBPS/text/ch1.xhtml#sub1");
+
+        assert_eq!(&*items[1].label, "Part II (Unlinked)");
+        assert_eq!(&*items[1].href, "");
+        let sub1 = items[1].subitems.as_ref().unwrap();
+        assert_eq!(sub1.len(), 1);
+        assert_eq!(&*sub1[0].label, "Chapter 2");
+        assert_eq!(&*sub1[0].href, "OEBPS/text/ch2.xhtml");
     }
 
     #[test]

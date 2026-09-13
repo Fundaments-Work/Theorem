@@ -9,6 +9,7 @@ import {
     useRssStore,
     useUIStore,
     useSettingsStore,
+    toSqliteVocabularyTerm,
 } from "../store";
 import type { DeviceSyncStatus, SyncConflict } from "../types";
 import {
@@ -24,7 +25,7 @@ import {
 } from "./sync-import";
 import { isTauri } from "./env";
 import { saveCoverImage } from "./storage";
-import { sqliteRegisterMaterializedBook } from "./sqlite-storage";
+import { sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
 
 async function notifySync(title: string, body?: string, icon?: string) {
     const settings = useSettingsStore.getState().settings;
@@ -291,6 +292,11 @@ async function mergeIncomingData(
                 const merged = mergeVocabulary(incoming, current, allTombstones);
                 if (JSON.stringify(merged) !== JSON.stringify(current)) {
                     useVocabularyStore.setState({ vocabularyTerms: merged });
+                    if (isTauri()) {
+                        for (const term of merged) {
+                            void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term));
+                        }
+                    }
                     markUpdated("vocabulary");
                 }
             }

@@ -136,6 +136,9 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     run_v153_database_migrations(&conn)
         .map_err(|e| format!("Failed to run v1.5.3 migrations: {e}"))?;
 
+    run_v154_database_migrations(&conn)
+        .map_err(|e| format!("Failed to run v1.5.4 migrations: {e}"))?;
+
     Ok(())
 }
 
@@ -429,6 +432,23 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_reading_sessions_date ON reading_sessions(session_date);
     CREATE INDEX IF NOT EXISTS idx_reading_sessions_book_id ON reading_sessions(book_id);
+
+    CREATE TABLE IF NOT EXISTS vocabulary (
+        id TEXT PRIMARY KEY,
+        term TEXT NOT NULL,
+        normalized_term TEXT NOT NULL,
+        language TEXT NOT NULL,
+        phonetic TEXT,
+        audio_url TEXT,
+        meanings_json TEXT NOT NULL,
+        provider_history_json TEXT NOT NULL,
+        source_book_id TEXT,
+        context_sentence TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_vocabulary_term ON vocabulary(normalized_term, language);
+    CREATE INDEX IF NOT EXISTS idx_vocabulary_created_at ON vocabulary(created_at DESC);
 "#;
 
 #[cfg(target_os = "android")]
@@ -1980,6 +2000,253 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqliteVocabularyTerm {
+    pub id: Box<str>,
+    pub term: Box<str>,
+    pub normalized_term: Box<str>,
+    pub language: Box<str>,
+    pub phonetic: Option<Box<str>>,
+    pub audio_url: Option<Box<str>>,
+    pub meanings_json: Box<str>,
+    pub provider_history_json: Box<str>,
+    pub source_book_id: Option<Box<str>>,
+    pub context_sentence: Option<Box<str>>,
+    pub created_at: i64,
+    pub updated_at: Option<i64>,
+}
+
+fn map_vocabulary_row(row: &rusqlite::Row) -> rusqlite::Result<SqliteVocabularyTerm> {
+    Ok(SqliteVocabularyTerm {
+        id: row.get::<_, String>(0)?.into_boxed_str(),
+        term: row.get::<_, String>(1)?.into_boxed_str(),
+        normalized_term: row.get::<_, String>(2)?.into_boxed_str(),
+        language: row.get::<_, String>(3)?.into_boxed_str(),
+        phonetic: row.get::<_, Option<String>>(4)?.map(|s| s.into_boxed_str()),
+        audio_url: row.get::<_, Option<String>>(5)?.map(|s| s.into_boxed_str()),
+        meanings_json: row.get::<_, String>(6)?.into_boxed_str(),
+        provider_history_json: row.get::<_, String>(7)?.into_boxed_str(),
+        source_book_id: row.get::<_, Option<String>>(8)?.map(|s| s.into_boxed_str()),
+        context_sentence: row.get::<_, Option<String>>(9)?.map(|s| s.into_boxed_str()),
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+    })
+}
+
+pub fn sqlite_get_vocabulary_terms_inner(
+    connection: &Connection,
+) -> rusqlite::Result<Vec<SqliteVocabularyTerm>> {
+    let mut stmt = connection.prepare(
+        r#"
+        SELECT id, term, normalized_term, language, phonetic, audio_url,
+               meanings_json, provider_history_json, source_book_id,
+               context_sentence, created_at, updated_at
+        FROM vocabulary
+        ORDER BY created_at DESC
+        "#,
+    )?;
+
+    let rows = stmt.query_map([], map_vocabulary_row)?;
+    let mut terms = Vec::new();
+    for row in rows {
+        terms.push(row?);
+    }
+    Ok(terms)
+}
+
+pub fn sqlite_save_vocabulary_term_inner(
+    connection: &Connection,
+    term: &SqliteVocabularyTerm,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        r#"
+        INSERT INTO vocabulary (
+            id, term, normalized_term, language, phonetic, audio_url,
+            meanings_json, provider_history_json, source_book_id,
+            context_sentence, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        ON CONFLICT(id) DO UPDATE SET
+            term = excluded.term,
+            normalized_term = excluded.normalized_term,
+            language = excluded.language,
+            phonetic = excluded.phonetic,
+            audio_url = excluded.audio_url,
+            meanings_json = excluded.meanings_json,
+            provider_history_json = excluded.provider_history_json,
+            source_book_id = excluded.source_book_id,
+            context_sentence = excluded.context_sentence,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at
+        "#,
+        params![
+            &term.id[..],
+            &term.term[..],
+            &term.normalized_term[..],
+            &term.language[..],
+            term.phonetic.as_deref(),
+            term.audio_url.as_deref(),
+            &term.meanings_json[..],
+            &term.provider_history_json[..],
+            term.source_book_id.as_deref(),
+            term.context_sentence.as_deref(),
+            term.created_at,
+            term.updated_at
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn sqlite_delete_vocabulary_term_inner(
+    connection: &Connection,
+    term_id: &str,
+) -> rusqlite::Result<()> {
+    connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![term_id])?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_get_vocabulary_terms(app: AppHandle) -> Result<Vec<SqliteVocabularyTerm>, String> {
+    with_connection(&app, sqlite_get_vocabulary_terms_inner)
+}
+
+#[tauri::command]
+pub fn sqlite_save_vocabulary_term(
+    app: AppHandle,
+    term: SqliteVocabularyTerm,
+) -> Result<(), String> {
+    with_connection(&app, |conn| sqlite_save_vocabulary_term_inner(conn, &term))
+}
+
+#[tauri::command]
+pub fn sqlite_delete_vocabulary_term(app: AppHandle, term_id: String) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_delete_vocabulary_term_inner(conn, &term_id)
+    })
+}
+
+pub fn run_v154_database_migrations(connection: &Connection) -> rusqlite::Result<()> {
+    let is_done: bool = connection
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM kv_store WHERE key = 'migration_v154_done'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if is_done {
+        return Ok(());
+    }
+
+    let tx = connection.unchecked_transaction()?;
+
+    // Create vocabulary table if it doesn't exist
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS vocabulary (
+            id TEXT PRIMARY KEY,
+            term TEXT NOT NULL,
+            normalized_term TEXT NOT NULL,
+            language TEXT NOT NULL,
+            phonetic TEXT,
+            audio_url TEXT,
+            meanings_json TEXT NOT NULL,
+            provider_history_json TEXT NOT NULL,
+            source_book_id TEXT,
+            context_sentence TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_vocabulary_term ON vocabulary(normalized_term, language);
+        CREATE INDEX IF NOT EXISTS idx_vocabulary_created_at ON vocabulary(created_at DESC);
+        "#,
+    )?;
+
+    // Migrate Vocabulary from zustand:theorem-vocabulary
+    if let Ok(Some(vocab_json)) = tx
+        .query_row(
+            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-vocabulary'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&vocab_json) {
+            if let Some(terms) = parsed["state"]["vocabularyTerms"].as_array() {
+                for term in terms {
+                    let id = term["id"].as_str().unwrap_or("");
+                    let word = term["term"].as_str().unwrap_or("");
+                    let normalized_term = term["normalizedTerm"].as_str().unwrap_or(word);
+                    let language = term["language"].as_str().unwrap_or("en");
+                    let phonetic = term["phonetic"].as_str();
+                    let audio_url = term["audioUrl"].as_str();
+                    let meanings_json = term["meanings"].to_string();
+                    let provider_history_json = term["providerHistory"].to_string();
+                    let source_book_id = term["sourceBookId"].as_str();
+                    let context_sentence = term["contextSentence"].as_str();
+                    let created_at = term["createdAt"]
+                        .as_i64()
+                        .or_else(|| {
+                            term["createdAt"].as_str().and_then(|s| {
+                                chrono::DateTime::parse_from_rfc3339(s)
+                                    .ok()
+                                    .map(|dt| dt.timestamp_millis())
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as i64
+                        });
+                    let updated_at = term["updatedAt"].as_i64().or_else(|| {
+                        term["updatedAt"].as_str().and_then(|s| {
+                            chrono::DateTime::parse_from_rfc3339(s)
+                                .ok()
+                                .map(|dt| dt.timestamp_millis())
+                        })
+                    });
+
+                    if !id.is_empty() && !word.is_empty() {
+                        let _ = tx.execute(
+                            r#"
+                            INSERT OR IGNORE INTO vocabulary (
+                                id, term, normalized_term, language, phonetic, audio_url,
+                                meanings_json, provider_history_json, source_book_id,
+                                context_sentence, created_at, updated_at
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                            "#,
+                            params![
+                                id,
+                                word,
+                                normalized_term,
+                                language,
+                                phonetic,
+                                audio_url,
+                                meanings_json,
+                                provider_history_json,
+                                source_book_id,
+                                context_sentence,
+                                created_at,
+                                updated_at
+                            ],
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    tx.execute(
+        "INSERT INTO kv_store (key, value, updated_at) VALUES ('migration_v154_done', '1', unixepoch())",
+        [],
+    )?;
+
+    tx.commit()?;
+    eprintln!("[database] Completed Theorem v1.5.4 relational migrations successfully");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2093,6 +2360,21 @@ mod tests {
                 minutes REAL NOT NULL,
                 books_read_json TEXT,
                 created_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+
+            CREATE TABLE IF NOT EXISTS vocabulary (
+                id TEXT PRIMARY KEY,
+                term TEXT NOT NULL,
+                normalized_term TEXT NOT NULL,
+                language TEXT NOT NULL,
+                phonetic TEXT,
+                audio_url TEXT,
+                meanings_json TEXT NOT NULL,
+                provider_history_json TEXT NOT NULL,
+                source_book_id TEXT,
+                context_sentence TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER
             );
             "#,
         )

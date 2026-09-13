@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-09-13
+
+### Added
+
+- **Relational SQLite Vocabulary Storage Subsystem** — Added a dedicated normalized `vocabulary` table in `src-tauri/src/database.rs` with indexed lookup by `(normalized_term, language)` and `created_at`. Automatic idempotent zero-data-loss database migration (`run_v154_database_migrations`) unpacks existing terms from `zustand:theorem-vocabulary` into the relational store inside an atomic transaction while preserving the original `kv_store` blob as an immutable backup.
+- **Native EPUB Table of Contents (TOC) Pre-Parsing** — Implemented zero-copy streaming pre-parsing for both EPUB 3 Navigation documents (`<nav epub:type="toc">` / `<nav role="doc-toc">`) and EPUB 2 NCX files (`<navMap><navPoint>...`) in `src-tauri/src/epub_parser.rs` using `quick-xml`. Parses nested chapter hierarchies, resolves intra-book relative hrefs with URL fragments, unescapes entities, and packages the result into compact `Box<str>` / `Option<Box<[TocItemDto]>>` Cloudflare data layouts inside `prefetch_zip_metadata`.
+- **Instant Foliate Reader Table of Contents Display** — Wired the pre-parsed TOC directly into the EPUB bridge (`src/core/lib/tauri-epub-bridge.ts`) and reader runtime (`src/features/reader/foliate-js-runtime/view.js` and `epub.js`), allowing the webview reader to immediately populate chapters and landmarks without blocking on DOMParser XML parsing on the main thread.
+- **SQLite Vocabulary Persistence & Sync Integration** — Connected `saveVocabularyTerm`, `deleteVocabularyTerm`, and `onRehydrateStorage` in `vocabularyStore.ts` and `sync-orchestrator.ts` to SQLite relational CRUD operations (`sqlite_get_vocabulary_terms`, `sqlite_save_vocabulary_term`, `sqlite_delete_vocabulary_term`). Automatically reconciles relational SQLite terms on app startup and synchronizes mutations.
+
 ## [1.5.3] - 2026-09-13
 
 ### Added

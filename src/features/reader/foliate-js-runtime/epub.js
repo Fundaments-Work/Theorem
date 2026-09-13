@@ -901,8 +901,8 @@ export class EPUB {
     parser = new DOMParser()
     #loader
     #encryption
-    constructor({ loadText, loadBlob, getSize, sha1 }) {
-        
+    constructor({ loadText, loadBlob, getSize, sha1, toc }) {
+        this.toc = toc || null
         const inflight = new Map()
         const rawLoadText = loadText
         this.loadText = async (uri) => {
@@ -978,7 +978,7 @@ ${doc.querySelector('parsererror').innerText}`)
         if (navPath) try {
             const resolve = url => resolveURL(url, navPath)
             const nav = parseNav(await this.#loadXML(navPath), resolve)
-            this.toc = nav.toc
+            this.toc ??= nav.toc
             this.pageList = nav.pageList
             this.landmarks = nav.landmarks
         } catch(e) {
