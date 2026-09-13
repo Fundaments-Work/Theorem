@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "theorem"
-version = "1.5.2"
+version = "1.5.3"
 description = "Local-first desktop reader for PDFs, EPUBs, MOBI, and RSS."
 authors = ["Fundamentals"]
 license = "MIT"
@@ -79,6 +79,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 # EPUB pre-parser: streaming XML (replaces regex) + percent-encoded path fallback
 quick-xml = "0.36"
+# Helix SIMD-accelerated fuzzy matcher for Two-Tier search & typeahead
+nucleo-matcher = "0.3.1"
 percent-encoding = "2"
 iroh = "1.0.2"
 iroh-docs = "0.101.0"

@@ -3,7 +3,7 @@ import { useState, useMemo, useCallback, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 import { useLibraryStore, useUIStore } from "../../core/store";
-import { Dropdown, ConfirmDialog } from "../../ui";
+import { Dropdown, ConfirmDialog, HighlightMatch } from "../../ui";
 import {
     Bookmark,
     MoreVertical,
@@ -39,11 +39,12 @@ interface BookmarkCardProps {
         author: string;
         coverPath?: string;
     } | undefined;
+    searchQuery?: string;
     onDelete: (id: string) => void;
     onGoToBookmark: (bookId: string, location: string) => void;
 }
 
-const BookmarkCard = memo(function BookmarkCard({ bookmark, book, onDelete, onGoToBookmark }: BookmarkCardProps) {
+const BookmarkCard = memo(function BookmarkCard({ bookmark, book, searchQuery, onDelete, onGoToBookmark }: BookmarkCardProps) {
     const [showMenu, setShowMenu] = useState(false);
 
     return (
@@ -59,7 +60,7 @@ const BookmarkCard = memo(function BookmarkCard({ bookmark, book, onDelete, onGo
                         </span>
                     </div>
                     <div className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                        {book?.title || "Unknown source"} | {book?.author || "Unknown author"}
+                        <HighlightMatch text={book?.title || "Unknown source"} query={searchQuery} /> | <HighlightMatch text={book?.author || "Unknown author"} query={searchQuery} />
                     </div>
                 </div>
                 <div className="relative">
@@ -94,12 +95,12 @@ const BookmarkCard = memo(function BookmarkCard({ bookmark, book, onDelete, onGo
             <div className="space-y-3">
                 {bookmark.selectedText && (
                     <blockquote className="pl-3 font-serif text-[17px] leading-relaxed text-[color:var(--color-text-primary)]">
-                        {bookmark.selectedText}
+                        <HighlightMatch text={bookmark.selectedText} query={searchQuery} />
                     </blockquote>
                 )}
                 {bookmark.noteContent && (
                     <p className="font-serif text-[16px] leading-relaxed text-[color:var(--color-text-primary)] whitespace-pre-wrap">
-                        {bookmark.noteContent}
+                        <HighlightMatch text={bookmark.noteContent} query={searchQuery} />
                     </p>
                 )}
             </div>
@@ -264,6 +265,7 @@ export function BookmarksPage() {
                                 <BookmarkCard
                                     bookmark={filteredBookmarks[virtualRow.index]}
                                     book={getBookInfo(filteredBookmarks[virtualRow.index].bookId)}
+                                    searchQuery={searchQuery}
                                     onDelete={handleDelete}
                                     onGoToBookmark={handleGoToBookmark}
                                 />

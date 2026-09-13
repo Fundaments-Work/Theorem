@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { isTauri } from "../../../core/lib/env";
+import { sqliteRecordReadingSession } from "../../../core/lib/sqlite-storage";
 import { useSettingsStore } from "../../../core/store";
 import type { DailyReadingActivity, ReadingStats } from "../../../core/types";
 import { calculateWpm, computeExponentialMovingAverage } from "../lib/reading-time";
@@ -131,6 +132,16 @@ export function useReadingTime({
                 longestStreak: Math.max(currentStats.longestStreak, currentStreak),
                 lastReadDate: today,
             });
+
+            if (isTauri()) {
+                sqliteRecordReadingSession(
+                    `session:${today}`,
+                    today,
+                    elapsedMinutes,
+                    currentBookId,
+                    JSON.stringify([currentBookId]),
+                );
+            }
 
             const todayActivity = newDailyActivity.find(a => a.date === today);
             const todayMinutes = todayActivity?.minutes ?? 0;

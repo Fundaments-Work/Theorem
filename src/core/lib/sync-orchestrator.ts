@@ -73,7 +73,7 @@ async function mergeIncomingData(
         }
         
         for (const key of Object.keys(incomingMap)) {
-            if (key.startsWith("book:") || key.startsWith("annotation:") || key.startsWith("collection:")) {
+            if (key.startsWith("book:") || key.startsWith("annotation:") || key.startsWith("anno:") || key.startsWith("collection:")) {
                 if (!safeMap[key]) {
                     safeMap[key] = incomingMap[key];
                 }
@@ -95,7 +95,7 @@ async function mergeIncomingData(
                     perEntityBooks.push(parsed);
                 }
             } catch {}
-        } else if (key.startsWith("annotation:") && key !== "annotations") {
+        } else if ((key.startsWith("annotation:") || key.startsWith("anno:")) && key !== "annotations") {
             try {
                 const parsed = JSON.parse(safeMap[key]);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -908,7 +908,7 @@ export async function initDocsLiveListener(): Promise<() => void> {
             } catch {}
             return;
         }
-        if (key.startsWith("annotation:")) {
+        if (key.startsWith("annotation:") || key.startsWith("anno:")) {
             try {
                 const parsed = JSON.parse(value);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
@@ -1465,8 +1465,10 @@ export function subscribeZustandToIrohDocs(): () => void {
             } else {
                 for (const [id, ann] of currMap) {
                     if (!prevMap.has(id) || JSON.stringify(ann) !== JSON.stringify(prevMap.get(id)!)) {
-                        scheduleDocsWrite("annotation:" + id, () =>
-                            docsSetEntry("annotation:" + id, JSON.stringify(ann)), "annotation:" + id);
+                        const serialized = JSON.stringify(ann);
+                        const annoKey = "anno:" + (ann.bookId || "global") + ":" + id;
+                        scheduleDocsWrite(annoKey, () =>
+                            docsSetEntry(annoKey, serialized), annoKey);
                     }
                 }
             }

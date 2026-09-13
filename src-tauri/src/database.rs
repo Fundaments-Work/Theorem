@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -132,6 +132,9 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
             eprintln!("[database] VACUUM after blob reclaim failed: {e}");
         }
     }
+
+    run_v153_database_migrations(&conn)
+        .map_err(|e| format!("Failed to run v1.5.3 migrations: {e}"))?;
 
     Ok(())
 }
@@ -373,6 +376,59 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_book_annotations_book_id
         ON book_annotations(book_id);
+
+    CREATE TABLE IF NOT EXISTS rss_feeds (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        site_url TEXT,
+        description TEXT,
+        icon_url TEXT,
+        last_fetched INTEGER,
+        added_at INTEGER NOT NULL,
+        error_message TEXT,
+        unread_count INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS rss_articles (
+        id TEXT PRIMARY KEY,
+        feed_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT,
+        url TEXT NOT NULL,
+        summary TEXT,
+        content_source TEXT,
+        image_url TEXT,
+        published_at INTEGER,
+        fetched_at INTEGER NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        is_favorite INTEGER NOT NULL DEFAULT 0,
+        progress REAL,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        FOREIGN KEY(feed_id) REFERENCES rss_feeds(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_rss_articles_feed_id ON rss_articles(feed_id);
+    CREATE INDEX IF NOT EXISTS idx_rss_articles_published_at ON rss_articles(published_at);
+
+    CREATE TABLE IF NOT EXISTS rss_article_content (
+        article_id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        full_content TEXT,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        FOREIGN KEY(article_id) REFERENCES rss_articles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS reading_sessions (
+        id TEXT PRIMARY KEY,
+        book_id TEXT,
+        session_date TEXT NOT NULL,
+        minutes REAL NOT NULL,
+        books_read_json TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_reading_sessions_date ON reading_sessions(session_date);
+    CREATE INDEX IF NOT EXISTS idx_reading_sessions_book_id ON reading_sessions(book_id);
 "#;
 
 #[cfg(target_os = "android")]
@@ -785,11 +841,25 @@ pub fn check_goal_reminder_inner(
         format!("{:04}-{:02}-{:02}", y, m, d)
     };
 
-    let today_minutes = stats["dailyActivity"]
-        .as_array()
-        .and_then(|arr| arr.iter().find(|a| a["date"].as_str() == Some(&today)))
-        .map(|a| a["minutes"].as_u64().unwrap_or(0))
-        .unwrap_or(0);
+    let today_session_minutes: Option<f64> = connection
+        .query_row(
+            "SELECT SUM(minutes) FROM reading_sessions WHERE session_date = ?1",
+            params![today],
+            |row| row.get::<_, Option<f64>>(0),
+        )
+        .optional()
+        .unwrap_or(None)
+        .flatten();
+
+    let today_minutes = if let Some(min) = today_session_minutes {
+        min as u64
+    } else {
+        stats["dailyActivity"]
+            .as_array()
+            .and_then(|arr| arr.iter().find(|a| a["date"].as_str() == Some(&today)))
+            .map(|a| a["minutes"].as_u64().unwrap_or(0))
+            .unwrap_or(0)
+    };
 
     Ok(Some(GoalReminderData {
         today_minutes,
@@ -1208,6 +1278,708 @@ pub fn sqlite_shrink_memory(app: AppHandle) -> Result<(), String> {
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookWindowResult {
+    pub book_ids: Vec<String>,
+    pub total_count: u32,
+}
+
+pub fn sqlite_query_books_window_inner(
+    connection: &Connection,
+    limit: u32,
+    offset: u32,
+) -> rusqlite::Result<BookWindowResult> {
+    let total_count: u32 = connection
+        .query_row("SELECT COUNT(*) FROM books_fts", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    let mut stmt = connection.prepare("SELECT id FROM books_fts LIMIT ?1 OFFSET ?2")?;
+    let rows = stmt.query_map(params![limit, offset], |row| row.get::<_, String>(0))?;
+
+    let book_ids = rows.collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(BookWindowResult {
+        book_ids,
+        total_count,
+    })
+}
+
+#[tauri::command]
+pub fn sqlite_query_books_window(
+    app: AppHandle,
+    limit: u32,
+    offset: u32,
+) -> Result<BookWindowResult, String> {
+    with_connection(&app, |connection| {
+        sqlite_query_books_window_inner(connection, limit, offset)
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RssFeedDto {
+    pub id: Box<str>,
+    pub title: Box<str>,
+    pub url: Box<str>,
+    pub site_url: Option<Box<str>>,
+    pub description: Option<Box<str>>,
+    pub icon_url: Option<Box<str>>,
+    pub last_fetched: Option<i64>,
+    pub added_at: Option<i64>,
+    pub error_message: Option<Box<str>>,
+    pub unread_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RssArticleDto {
+    pub id: Box<str>,
+    pub feed_id: Box<str>,
+    pub title: Box<str>,
+    pub author: Option<Box<str>>,
+    pub url: Box<str>,
+    pub summary: Option<Box<str>>,
+    pub content_source: Option<Box<str>>,
+    pub image_url: Option<Box<str>>,
+    pub published_at: Option<i64>,
+    pub fetched_at: Option<i64>,
+    pub is_read: bool,
+    pub is_favorite: bool,
+    pub progress: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RssArticleContentDto {
+    pub article_id: Box<str>,
+    pub content: Box<str>,
+    pub full_content: Option<Box<str>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingSessionDto {
+    pub id: Box<str>,
+    pub book_id: Option<Box<str>>,
+    pub session_date: Box<str>,
+    pub minutes: f64,
+    pub books_read_json: Option<Box<str>>,
+    pub created_at: i64,
+}
+
+pub fn sqlite_get_rss_feeds_inner(connection: &Connection) -> rusqlite::Result<Vec<RssFeedDto>> {
+    let mut stmt = connection.prepare(
+        "SELECT id, title, url, site_url, description, icon_url, last_fetched, added_at, error_message, unread_count
+         FROM rss_feeds ORDER BY added_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(RssFeedDto {
+            id: row.get::<_, String>(0)?.into_boxed_str(),
+            title: row.get::<_, String>(1)?.into_boxed_str(),
+            url: row.get::<_, String>(2)?.into_boxed_str(),
+            site_url: row.get::<_, Option<String>>(3)?.map(|s| s.into_boxed_str()),
+            description: row.get::<_, Option<String>>(4)?.map(|s| s.into_boxed_str()),
+            icon_url: row.get::<_, Option<String>>(5)?.map(|s| s.into_boxed_str()),
+            last_fetched: row.get(6)?,
+            added_at: row.get(7)?,
+            error_message: row.get::<_, Option<String>>(8)?.map(|s| s.into_boxed_str()),
+            unread_count: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+#[tauri::command]
+pub fn sqlite_get_rss_feeds(app: AppHandle) -> Result<Vec<RssFeedDto>, String> {
+    with_connection(&app, sqlite_get_rss_feeds_inner)
+}
+
+pub fn sqlite_save_rss_feed_inner(
+    connection: &Connection,
+    feed: &RssFeedDto,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        r#"
+        INSERT INTO rss_feeds (
+            id, title, url, site_url, description, icon_url,
+            last_fetched, added_at, error_message, unread_count, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, unixepoch()), ?9, ?10, unixepoch())
+        ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            url = excluded.url,
+            site_url = excluded.site_url,
+            description = excluded.description,
+            icon_url = excluded.icon_url,
+            last_fetched = excluded.last_fetched,
+            error_message = excluded.error_message,
+            unread_count = excluded.unread_count,
+            updated_at = unixepoch()
+        "#,
+        params![
+            &feed.id,
+            &feed.title,
+            &feed.url,
+            &feed.site_url,
+            &feed.description,
+            &feed.icon_url,
+            feed.last_fetched,
+            feed.added_at,
+            &feed.error_message,
+            feed.unread_count,
+        ],
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_save_rss_feed(app: AppHandle, feed: RssFeedDto) -> Result<(), String> {
+    with_connection(&app, |conn| sqlite_save_rss_feed_inner(conn, &feed))
+}
+
+pub fn sqlite_delete_rss_feed_inner(
+    connection: &Connection,
+    feed_id: &str,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "DELETE FROM rss_article_content WHERE article_id IN (SELECT id FROM rss_articles WHERE feed_id = ?1)",
+        params![feed_id],
+    )?;
+    connection.execute(
+        "DELETE FROM rss_articles WHERE feed_id = ?1",
+        params![feed_id],
+    )?;
+    connection.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), String> {
+    with_connection(&app, |conn| sqlite_delete_rss_feed_inner(conn, &feed_id))
+}
+
+fn map_rss_article_row(row: &rusqlite::Row) -> rusqlite::Result<RssArticleDto> {
+    let is_read_int: i32 = row.get(10)?;
+    let is_fav_int: i32 = row.get(11)?;
+    Ok(RssArticleDto {
+        id: row.get::<_, String>(0)?.into_boxed_str(),
+        feed_id: row.get::<_, String>(1)?.into_boxed_str(),
+        title: row.get::<_, String>(2)?.into_boxed_str(),
+        author: row.get::<_, Option<String>>(3)?.map(|s| s.into_boxed_str()),
+        url: row.get::<_, String>(4)?.into_boxed_str(),
+        summary: row.get::<_, Option<String>>(5)?.map(|s| s.into_boxed_str()),
+        content_source: row.get::<_, Option<String>>(6)?.map(|s| s.into_boxed_str()),
+        image_url: row.get::<_, Option<String>>(7)?.map(|s| s.into_boxed_str()),
+        published_at: row.get(8)?,
+        fetched_at: row.get(9)?,
+        is_read: is_read_int != 0,
+        is_favorite: is_fav_int != 0,
+        progress: row.get(12)?,
+    })
+}
+
+pub fn sqlite_get_rss_articles_inner(
+    connection: &Connection,
+    feed_id: Option<&str>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> rusqlite::Result<Vec<RssArticleDto>> {
+    let limit_val = limit.unwrap_or(100);
+    let offset_val = offset.unwrap_or(0);
+
+    let sql = if feed_id.is_some() {
+        "SELECT id, feed_id, title, author, url, summary, content_source, image_url,
+                published_at, fetched_at, is_read, is_favorite, progress
+         FROM rss_articles
+         WHERE feed_id = ?1
+         ORDER BY fetched_at DESC LIMIT ?2 OFFSET ?3"
+    } else {
+        "SELECT id, feed_id, title, author, url, summary, content_source, image_url,
+                published_at, fetched_at, is_read, is_favorite, progress
+         FROM rss_articles
+         ORDER BY fetched_at DESC LIMIT ?1 OFFSET ?2"
+    };
+
+    let mut stmt = connection.prepare(sql)?;
+    let rows = if let Some(fid) = feed_id {
+        stmt.query_map(params![fid, limit_val, offset_val], map_rss_article_row)?
+    } else {
+        stmt.query_map(params![limit_val, offset_val], map_rss_article_row)?
+    };
+
+    rows.collect()
+}
+
+#[tauri::command]
+pub fn sqlite_get_rss_articles(
+    app: AppHandle,
+    feed_id: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Vec<RssArticleDto>, String> {
+    with_connection(&app, |conn| {
+        sqlite_get_rss_articles_inner(conn, feed_id.as_deref(), limit, offset)
+    })
+}
+
+pub fn sqlite_get_rss_article_content_inner(
+    connection: &Connection,
+    article_id: &str,
+) -> rusqlite::Result<Option<RssArticleContentDto>> {
+    let mut stmt = connection.prepare(
+        "SELECT article_id, content, full_content FROM rss_article_content WHERE article_id = ?1",
+    )?;
+    stmt.query_row(params![article_id], |row| {
+        Ok(RssArticleContentDto {
+            article_id: row.get::<_, String>(0)?.into_boxed_str(),
+            content: row.get::<_, String>(1)?.into_boxed_str(),
+            full_content: row.get::<_, Option<String>>(2)?.map(|s| s.into_boxed_str()),
+        })
+    })
+    .optional()
+}
+
+#[tauri::command]
+pub fn sqlite_get_rss_article_content(
+    app: AppHandle,
+    article_id: String,
+) -> Result<Option<RssArticleContentDto>, String> {
+    with_connection(&app, |conn| {
+        sqlite_get_rss_article_content_inner(conn, &article_id)
+    })
+}
+
+pub fn sqlite_save_rss_article_inner(
+    connection: &Connection,
+    article: &RssArticleDto,
+    content: Option<&str>,
+    full_content: Option<&str>,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        r#"
+        INSERT INTO rss_articles (
+            id, feed_id, title, author, url, summary,
+            content_source, image_url, published_at, fetched_at,
+            is_read, is_favorite, progress, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, unixepoch())
+        ON CONFLICT(id) DO UPDATE SET
+            feed_id = excluded.feed_id,
+            title = excluded.title,
+            author = excluded.author,
+            url = excluded.url,
+            summary = excluded.summary,
+            content_source = excluded.content_source,
+            image_url = excluded.image_url,
+            published_at = excluded.published_at,
+            fetched_at = excluded.fetched_at,
+            is_read = excluded.is_read,
+            is_favorite = excluded.is_favorite,
+            progress = excluded.progress,
+            updated_at = unixepoch()
+        "#,
+        params![
+            &article.id,
+            &article.feed_id,
+            &article.title,
+            &article.author,
+            &article.url,
+            &article.summary,
+            &article.content_source,
+            &article.image_url,
+            article.published_at,
+            article.fetched_at,
+            if article.is_read { 1 } else { 0 },
+            if article.is_favorite { 1 } else { 0 },
+            article.progress,
+        ],
+    )?;
+
+    if let Some(c) = content {
+        connection.execute(
+            r#"
+            INSERT INTO rss_article_content (article_id, content, full_content, updated_at)
+            VALUES (?1, ?2, ?3, unixepoch())
+            ON CONFLICT(article_id) DO UPDATE SET
+                content = excluded.content,
+                full_content = excluded.full_content,
+                updated_at = unixepoch()
+            "#,
+            params![&article.id, c, full_content],
+        )?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_save_rss_article(
+    app: AppHandle,
+    article: RssArticleDto,
+    content: Option<String>,
+    full_content: Option<String>,
+) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_save_rss_article_inner(conn, &article, content.as_deref(), full_content.as_deref())
+    })
+}
+
+pub fn sqlite_mark_article_read_inner(
+    connection: &Connection,
+    article_id: &str,
+    is_read: bool,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE rss_articles SET is_read = ?1, updated_at = unixepoch() WHERE id = ?2",
+        params![if is_read { 1 } else { 0 }, article_id],
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_mark_article_read(
+    app: AppHandle,
+    article_id: String,
+    is_read: bool,
+) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_mark_article_read_inner(conn, &article_id, is_read)
+    })
+}
+
+pub fn sqlite_mark_article_favorite_inner(
+    connection: &Connection,
+    article_id: &str,
+    is_favorite: bool,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE rss_articles SET is_favorite = ?1, updated_at = unixepoch() WHERE id = ?2",
+        params![if is_favorite { 1 } else { 0 }, article_id],
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_mark_article_favorite(
+    app: AppHandle,
+    article_id: String,
+    is_favorite: bool,
+) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_mark_article_favorite_inner(conn, &article_id, is_favorite)
+    })
+}
+
+pub fn sqlite_delete_rss_article_inner(
+    connection: &Connection,
+    article_id: &str,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "DELETE FROM rss_article_content WHERE article_id = ?1",
+        params![article_id],
+    )?;
+    connection.execute(
+        "DELETE FROM rss_articles WHERE id = ?1",
+        params![article_id],
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_delete_rss_article_inner(conn, &article_id)
+    })
+}
+
+pub fn sqlite_record_reading_session_inner(
+    connection: &Connection,
+    session_id: &str,
+    date: &str,
+    minutes: f64,
+    book_id: Option<&str>,
+    books_read_json: Option<&str>,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        r#"
+        INSERT INTO reading_sessions (id, book_id, session_date, minutes, books_read_json, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, unixepoch())
+        ON CONFLICT(id) DO UPDATE SET
+            minutes = reading_sessions.minutes + excluded.minutes,
+            book_id = COALESCE(excluded.book_id, reading_sessions.book_id),
+            books_read_json = COALESCE(excluded.books_read_json, reading_sessions.books_read_json)
+        "#,
+        params![session_id, book_id, date, minutes, books_read_json],
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sqlite_record_reading_session(
+    app: AppHandle,
+    session_id: String,
+    date: String,
+    minutes: f64,
+    book_id: Option<String>,
+    books_read_json: Option<String>,
+) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_record_reading_session_inner(
+            conn,
+            &session_id,
+            &date,
+            minutes,
+            book_id.as_deref(),
+            books_read_json.as_deref(),
+        )
+    })
+}
+
+fn map_reading_session_row(row: &rusqlite::Row) -> rusqlite::Result<ReadingSessionDto> {
+    Ok(ReadingSessionDto {
+        id: row.get::<_, String>(0)?.into_boxed_str(),
+        book_id: row.get::<_, Option<String>>(1)?.map(|s| s.into_boxed_str()),
+        session_date: row.get::<_, String>(2)?.into_boxed_str(),
+        minutes: row.get(3)?,
+        books_read_json: row.get::<_, Option<String>>(4)?.map(|s| s.into_boxed_str()),
+        created_at: row.get(5)?,
+    })
+}
+
+pub fn sqlite_get_reading_sessions_inner(
+    connection: &Connection,
+    start_date: Option<&str>,
+    end_date: Option<&str>,
+) -> rusqlite::Result<Vec<ReadingSessionDto>> {
+    let mut query = String::from(
+        "SELECT id, book_id, session_date, minutes, books_read_json, created_at FROM reading_sessions",
+    );
+    let mut clauses = Vec::new();
+    if start_date.is_some() {
+        clauses.push("session_date >= ?1");
+    }
+    if end_date.is_some() {
+        if start_date.is_some() {
+            clauses.push("session_date <= ?2");
+        } else {
+            clauses.push("session_date <= ?1");
+        }
+    }
+    if !clauses.is_empty() {
+        query.push_str(" WHERE ");
+        query.push_str(&clauses.join(" AND "));
+    }
+    query.push_str(" ORDER BY session_date DESC, created_at DESC");
+
+    let mut stmt = connection.prepare(&query)?;
+    let rows = match (start_date, end_date) {
+        (Some(start), Some(end)) => stmt.query_map(params![start, end], map_reading_session_row)?,
+        (Some(start), None) => stmt.query_map(params![start], map_reading_session_row)?,
+        (None, Some(end)) => stmt.query_map(params![end], map_reading_session_row)?,
+        (None, None) => stmt.query_map([], map_reading_session_row)?,
+    };
+
+    rows.collect()
+}
+
+#[tauri::command]
+pub fn sqlite_get_reading_sessions(
+    app: AppHandle,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<Vec<ReadingSessionDto>, String> {
+    with_connection(&app, |conn| {
+        sqlite_get_reading_sessions_inner(conn, start_date.as_deref(), end_date.as_deref())
+    })
+}
+
+pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result<()> {
+    let is_done: bool = connection
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM kv_store WHERE key = 'migration_v153_done'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if is_done {
+        return Ok(());
+    }
+
+    let tx = connection.unchecked_transaction()?;
+
+    // 1. Migrate RSS Feeds & Articles from zustand:theorem-rss
+    if let Ok(Some(rss_json)) = tx
+        .query_row(
+            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-rss'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&rss_json) {
+            if let Some(feeds) = parsed["state"]["feeds"].as_array() {
+                for feed in feeds {
+                    let id = feed["id"].as_str().unwrap_or("");
+                    let title = feed["title"].as_str().unwrap_or("");
+                    let url = feed["url"].as_str().unwrap_or("");
+                    let site_url = feed["siteUrl"].as_str();
+                    let description = feed["description"].as_str();
+                    let icon_url = feed["iconUrl"].as_str();
+                    let unread_count = feed["unreadCount"].as_i64().unwrap_or(0);
+                    let error_message = feed["errorMessage"].as_str();
+
+                    if !id.is_empty() && !title.is_empty() {
+                        let _ = tx.execute(
+                            r#"
+                            INSERT OR IGNORE INTO rss_feeds (
+                                id, title, url, site_url, description, icon_url,
+                                unread_count, error_message, added_at, updated_at
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
+                            "#,
+                            params![
+                                id,
+                                title,
+                                url,
+                                site_url,
+                                description,
+                                icon_url,
+                                unread_count,
+                                error_message
+                            ],
+                        );
+                    }
+                }
+            }
+
+            if let Some(articles) = parsed["state"]["articles"].as_array() {
+                for article in articles {
+                    let id = article["id"].as_str().unwrap_or("");
+                    let feed_id = article["feedId"].as_str().unwrap_or("");
+                    let title = article["title"].as_str().unwrap_or("");
+                    let author = article["author"].as_str();
+                    let url = article["url"].as_str().unwrap_or("");
+                    let summary = article["summary"].as_str();
+                    let content = article["content"].as_str().unwrap_or("");
+                    let full_content = article["fullContent"].as_str();
+                    let content_source = article["contentSource"].as_str();
+                    let image_url = article["imageUrl"].as_str();
+                    let is_read = if article["isRead"].as_bool().unwrap_or(false) {
+                        1
+                    } else {
+                        0
+                    };
+                    let is_favorite = if article["isFavorite"].as_bool().unwrap_or(false) {
+                        1
+                    } else {
+                        0
+                    };
+                    let progress = article["progress"].as_f64();
+
+                    if !id.is_empty() && !feed_id.is_empty() {
+                        let _ = tx.execute(
+                            r#"
+                            INSERT OR IGNORE INTO rss_articles (
+                                id, feed_id, title, author, url, summary,
+                                content_source, image_url, is_read, is_favorite,
+                                progress, fetched_at, updated_at
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch(), unixepoch())
+                            "#,
+                            params![
+                                id,
+                                feed_id,
+                                title,
+                                author,
+                                url,
+                                summary,
+                                content_source,
+                                image_url,
+                                is_read,
+                                is_favorite,
+                                progress
+                            ],
+                        );
+
+                        let _ = tx.execute(
+                            r#"
+                            INSERT OR IGNORE INTO rss_article_content (
+                                article_id, content, full_content, updated_at
+                            ) VALUES (?1, ?2, ?3, unixepoch())
+                            "#,
+                            params![id, content, full_content],
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Migrate Reading Sessions from zustand:theorem-settings (dailyActivity)
+    if let Ok(Some(settings_json)) = tx
+        .query_row(
+            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-settings'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&settings_json) {
+            if let Some(activities) = parsed["state"]["stats"]["dailyActivity"].as_array() {
+                for act in activities {
+                    let date = act["date"].as_str().unwrap_or("");
+                    let minutes = act["minutes"].as_f64().unwrap_or(0.0);
+                    let books_read_json = act["booksRead"].to_string();
+                    if !date.is_empty() {
+                        let session_id = format!("session:{}", date);
+                        let _ = tx.execute(
+                            r#"
+                            INSERT OR IGNORE INTO reading_sessions (
+                                id, session_date, minutes, books_read_json, created_at
+                            ) VALUES (?1, ?2, ?3, ?4, unixepoch())
+                            "#,
+                            params![session_id, date, minutes, books_read_json],
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Ensure any books in zustand:theorem-library are indexed into books_fts
+    if let Ok(Some(lib_json)) = tx
+        .query_row(
+            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-library'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&lib_json) {
+            if let Some(books) = parsed["state"]["books"].as_array() {
+                for b in books {
+                    let id = b["id"].as_str().unwrap_or("");
+                    let title = b["title"].as_str().unwrap_or("");
+                    let author = b["author"].as_str().unwrap_or("");
+                    if !id.is_empty() && !title.is_empty() {
+                        let _ = tx.execute(
+                            "INSERT OR IGNORE INTO books_fts (id, title, author) VALUES (?1, ?2, ?3)",
+                            params![id, title, author],
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Mark migration completed with timestamp
+    tx.execute(
+        "INSERT INTO kv_store (key, value, updated_at) VALUES ('migration_v153_done', '1', unixepoch())",
+        [],
+    )?;
+
+    tx.commit()?;
+    eprintln!("[database] Completed Theorem v1.5.3 relational migrations successfully");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1273,10 +2045,170 @@ mod tests {
                 updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
                 FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS rss_feeds (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                site_url TEXT,
+                description TEXT,
+                icon_url TEXT,
+                last_fetched INTEGER,
+                added_at INTEGER NOT NULL,
+                error_message TEXT,
+                unread_count INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_articles (
+                id TEXT PRIMARY KEY,
+                feed_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT,
+                url TEXT NOT NULL,
+                summary TEXT,
+                content_source TEXT,
+                image_url TEXT,
+                published_at INTEGER,
+                fetched_at INTEGER NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                progress REAL,
+                updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                FOREIGN KEY(feed_id) REFERENCES rss_feeds(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_article_content (
+                article_id TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                full_content TEXT,
+                updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                FOREIGN KEY(article_id) REFERENCES rss_articles(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS reading_sessions (
+                id TEXT PRIMARY KEY,
+                book_id TEXT,
+                session_date TEXT NOT NULL,
+                minutes REAL NOT NULL,
+                books_read_json TEXT,
+                created_at INTEGER NOT NULL DEFAULT (unixepoch())
+            );
             "#,
         )
         .unwrap();
         conn
+    }
+
+    #[test]
+    fn test_v153_database_migrations_preserves_kv_and_migrates() {
+        let conn = setup_db();
+
+        let rss_sample = r#"{
+            "state": {
+                "feeds": [{
+                    "id": "feed1",
+                    "title": "Rust Blog",
+                    "url": "https://blog.rust-lang.org/feed.xml",
+                    "unreadCount": 3
+                }],
+                "articles": [{
+                    "id": "art1",
+                    "feedId": "feed1",
+                    "title": "Announcing Rust 1.85",
+                    "url": "https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html",
+                    "content": "<p>Rust 1.85 is out!</p>",
+                    "fullContent": "Full content text here",
+                    "isRead": true,
+                    "isFavorite": false
+                }]
+            }
+        }"#;
+
+        let settings_sample = r#"{
+            "state": {
+                "stats": {
+                    "dailyActivity": [
+                        { "date": "2026-09-13", "minutes": 42.5, "booksRead": ["book1", "book2"] }
+                    ]
+                }
+            }
+        }"#;
+
+        let lib_sample = r#"{
+            "state": {
+                "books": [
+                    { "id": "book1", "title": "Dune", "author": "Frank Herbert" }
+                ]
+            }
+        }"#;
+
+        sqlite_set_kv_inner(&conn, "zustand:theorem-rss", rss_sample).unwrap();
+        sqlite_set_kv_inner(&conn, "zustand:theorem-settings", settings_sample).unwrap();
+        sqlite_set_kv_inner(&conn, "zustand:theorem-library", lib_sample).unwrap();
+
+        // Run migrations
+        run_v153_database_migrations(&conn).unwrap();
+
+        // Verify migration marker
+        let marker = sqlite_get_kv_inner(&conn, "migration_v153_done").unwrap();
+        assert_eq!(marker, Some("1".to_string()));
+
+        // Verify immutable backup: original kv values are completely unchanged!
+        assert_eq!(
+            sqlite_get_kv_inner(&conn, "zustand:theorem-rss").unwrap(),
+            Some(rss_sample.to_string())
+        );
+        assert_eq!(
+            sqlite_get_kv_inner(&conn, "zustand:theorem-settings").unwrap(),
+            Some(settings_sample.to_string())
+        );
+
+        // Verify relational table contents
+        let feed_title: String = conn
+            .query_row("SELECT title FROM rss_feeds WHERE id = 'feed1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(feed_title, "Rust Blog");
+
+        let article_title: String = conn
+            .query_row(
+                "SELECT title FROM rss_articles WHERE id = 'art1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(article_title, "Announcing Rust 1.85");
+
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM rss_article_content WHERE article_id = 'art1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(content, "<p>Rust 1.85 is out!</p>");
+
+        let minutes: f64 = conn
+            .query_row(
+                "SELECT minutes FROM reading_sessions WHERE session_date = '2026-09-13'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(minutes, 42.5);
+
+        // Verify book was indexed into books_fts
+        let fts_title: String = conn
+            .query_row("SELECT title FROM books_fts WHERE id = 'book1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(fts_title, "Dune");
+
+        // Verify idempotency: running a 2nd time does nothing and does not fail
+        run_v153_database_migrations(&conn).unwrap();
     }
 
     #[test]
@@ -1683,5 +2615,110 @@ mod tests {
         assert_eq!(book_data_len(&conn, "book1"), 0);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_relational_crud_operations() {
+        let conn = setup_db();
+
+        // 1. Test RSS Feed CRUD
+        let feed = RssFeedDto {
+            id: "f1".into(),
+            title: "Tech News".into(),
+            url: "https://example.com/feed.xml".into(),
+            site_url: Some("https://example.com".into()),
+            description: Some("Tech news feed".into()),
+            icon_url: None,
+            last_fetched: Some(1000),
+            added_at: Some(900),
+            error_message: None,
+            unread_count: 5,
+        };
+        sqlite_save_rss_feed_inner(&conn, &feed).unwrap();
+
+        let feeds = sqlite_get_rss_feeds_inner(&conn).unwrap();
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(&*feeds[0].title, "Tech News");
+        assert_eq!(feeds[0].unread_count, 5);
+
+        // 2. Test RSS Article & Content CRUD
+        let article = RssArticleDto {
+            id: "a1".into(),
+            feed_id: "f1".into(),
+            title: "Article 1".into(),
+            author: Some("Author 1".into()),
+            url: "https://example.com/a1".into(),
+            summary: Some("Summary 1".into()),
+            content_source: Some("feed".into()),
+            image_url: None,
+            published_at: Some(1050),
+            fetched_at: Some(1060),
+            is_read: false,
+            is_favorite: false,
+            progress: Some(0.25),
+        };
+        sqlite_save_rss_article_inner(
+            &conn,
+            &article,
+            Some("<p>Body 1</p>"),
+            Some("<p>Full body 1</p>"),
+        )
+        .unwrap();
+
+        let articles = sqlite_get_rss_articles_inner(&conn, Some("f1"), None, None).unwrap();
+        assert_eq!(articles.len(), 1);
+        assert_eq!(&*articles[0].title, "Article 1");
+        assert!(!articles[0].is_read);
+
+        let content = sqlite_get_rss_article_content_inner(&conn, "a1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(&*content.content, "<p>Body 1</p>");
+        assert_eq!(content.full_content.as_deref(), Some("<p>Full body 1</p>"));
+
+        // 3. Mark read and favorite
+        sqlite_mark_article_read_inner(&conn, "a1", true).unwrap();
+        sqlite_mark_article_favorite_inner(&conn, "a1", true).unwrap();
+        let updated_articles = sqlite_get_rss_articles_inner(&conn, None, None, None).unwrap();
+        assert!(updated_articles[0].is_read);
+        assert!(updated_articles[0].is_favorite);
+
+        // 4. Test Reading Sessions
+        sqlite_record_reading_session_inner(
+            &conn,
+            "session:2026-09-13",
+            "2026-09-13",
+            25.0,
+            Some("book1"),
+            Some("[\"book1\"]"),
+        )
+        .unwrap();
+
+        // Increment session
+        sqlite_record_reading_session_inner(
+            &conn,
+            "session:2026-09-13",
+            "2026-09-13",
+            15.0,
+            Some("book1"),
+            None,
+        )
+        .unwrap();
+
+        let sessions = sqlite_get_reading_sessions_inner(&conn, Some("2026-09-01"), None).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].minutes, 40.0);
+
+        // 5. Test Delete Article & Feed Cascade
+        sqlite_delete_rss_article_inner(&conn, "a1").unwrap();
+        assert!(sqlite_get_rss_articles_inner(&conn, None, None, None)
+            .unwrap()
+            .is_empty());
+        assert!(sqlite_get_rss_article_content_inner(&conn, "a1")
+            .unwrap()
+            .is_none());
+
+        sqlite_delete_rss_feed_inner(&conn, "f1").unwrap();
+        assert!(sqlite_get_rss_feeds_inner(&conn).unwrap().is_empty());
     }
 }

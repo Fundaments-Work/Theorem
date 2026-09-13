@@ -8,7 +8,7 @@ import { useLibraryStore, useUIStore, useVocabularyStore } from "../../core/stor
 import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
 import type { HighlightColor, VocabularyTerm } from "../../core/types";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
-import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
+import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody, HighlightMatch } from "../../ui";
 import {
     Highlighter,
     StickyNote,
@@ -95,6 +95,7 @@ interface AnnotationCardProps {
         coverPath?: string;
     } | undefined;
     shareId: string | null;
+    searchQuery?: string;
     onDelete: (id: string) => void;
     onEdit: (id: string) => void;
     onGoToBook: (bookId: string, location?: string) => void;
@@ -105,6 +106,7 @@ const AnnotationCard = memo(function AnnotationCard({
     annotation,
     book,
     shareId,
+    searchQuery,
     onDelete,
     onEdit,
     onShare,
@@ -130,7 +132,7 @@ const AnnotationCard = memo(function AnnotationCard({
 
                     </div>
                     <div className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)] truncate">
-                        {book?.title || "Unknown source"} <span className="text-[color:var(--color-text-muted)]">|</span> {book?.author || "Unknown author"}
+                        <HighlightMatch text={book?.title || "Unknown source"} query={searchQuery} /> <span className="text-[color:var(--color-text-muted)]">|</span> <HighlightMatch text={book?.author || "Unknown author"} query={searchQuery} />
                     </div>
                 </div>
                 <div className="relative">
@@ -202,12 +204,12 @@ const AnnotationCard = memo(function AnnotationCard({
             <div className="space-y-3">
                 {annotation.selectedText && (
                     <blockquote className="pl-3 font-serif text-[17px] leading-relaxed text-[color:var(--color-text-primary)]">
-                        {annotation.selectedText}
+                        <HighlightMatch text={annotation.selectedText} query={searchQuery} />
                     </blockquote>
                 )}
                 {annotation.noteContent && (
                     <p className="font-serif text-[16px] leading-relaxed text-[color:var(--color-text-primary)] whitespace-pre-wrap">
-                        {annotation.noteContent}
+                        <HighlightMatch text={annotation.noteContent} query={searchQuery} />
                     </p>
                 )}
             </div>
@@ -832,6 +834,7 @@ export function AnnotationsPage() {
                                     annotation={filteredAnnotations[virtualRow.index]}
                                     book={getBookInfo(filteredAnnotations[virtualRow.index].bookId)}
                                     shareId={sharingId}
+                                    searchQuery={searchQuery}
                                     onDelete={handleDelete}
                                     onEdit={handleEdit}
                                     onGoToBook={handleGoToBook}

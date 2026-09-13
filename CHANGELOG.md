@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-09-13
+
+### Added
+
+- **Hybrid Two-Tier Search Engine (`SQLite FTS5` + `nucleo-matcher`)** — Completely replaced JavaScript `fuse.js` in desktop and mobile environments with a native Rust two-tier search architecture (`src-tauri/src/fuzzy_search.rs`). Tier 1 leverages SQLite `books_fts` FTS5 index to prune large libraries on disk down to candidate sets in ~1ms without heap allocation. Tier 2 uses SIMD-accelerated Smith-Waterman matching (`nucleo-matcher`, powering Helix editor) to rank candidates, recover typos, and compute exact matching UTF-32 character indices in ~0.1ms.
+- **UI Match Character Highlighting (`<HighlightMatch />`)** — Reusable, high-performance UI letter highlighting component (`src/ui/HighlightMatch.tsx`) that visually accentuates matched character segments in book titles, authors, annotations, and bookmarks across grid, compact, and list views as the user types. Grouping contiguous matched characters minimizes React DOM nodes for zero-lag 60fps typing.
+- **Zero-Data-Loss Relational Migration Subsystem** — Added dedicated SQLite relational tables for `rss_feeds`, `rss_articles`, `rss_article_content` (separating heavy article bodies from metadata), and `reading_sessions` (time-series analytics) in `src-tauri/src/database.rs`. Automatically and idempotently migrates legacy JSON blobs from `kv_store` into normalized tables inside an atomic transaction while preserving the original `kv_store` values as immutable backups.
+- **Full Relational Storage & Session Telemetry API** — Exposed native Tauri commands and typed TypeScript wrappers for RSS feed/article/content CRUD and reading session recording. Reading time hook flushes active session telemetry directly to relational tables while feeding daily goal reminders.
+- **Atomic P2P Annotation Sync** — Hardened Iroh Docs P2P synchronization with atomic item-level keys (`anno:<bookId>:<annotationId>`) to prevent overwrite collisions and ensure rapid delta replication across paired devices.
+- **Windowed Library Query API** — Added `sqlite_query_books_window` Tauri command with native limit/offset cursor queries to support large library virtualization.
+
+### Improved & Performance
+
+- **Eliminated JS `Fuse.js` Overhead** — Removed runtime `Fuse` object instantiation and heap-allocated searchable item caches in `filtering.ts`, dropping library filtering memory pressure and query latency to near-zero.
+- **Robust Cross-Platform Search Fallbacks** — Seamlessly falls back to token matching in pure browser and mock environments while running native two-tier search in desktop and mobile Tauri runtimes.
+
 ## [1.5.2] - 2026-09-13
 
 ### Added

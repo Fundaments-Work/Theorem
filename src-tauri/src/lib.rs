@@ -16,6 +16,7 @@ mod epub_parser;
 mod epub_rewriter;
 pub mod epubcfi;
 mod file_transfer;
+pub mod fuzzy_search;
 pub mod image_ops;
 mod iroh_sync;
 pub mod mdict;
@@ -1412,6 +1413,20 @@ pub fn run() {
             database::sqlite_save_book_annotations,
             database::sqlite_get_book_annotations,
             database::sqlite_shrink_memory,
+            database::sqlite_query_books_window,
+            database::sqlite_get_rss_feeds,
+            database::sqlite_save_rss_feed,
+            database::sqlite_delete_rss_feed,
+            database::sqlite_get_rss_articles,
+            database::sqlite_get_rss_article_content,
+            database::sqlite_save_rss_article,
+            database::sqlite_mark_article_read,
+            database::sqlite_mark_article_favorite,
+            database::sqlite_delete_rss_article,
+            database::sqlite_record_reading_session,
+            database::sqlite_get_reading_sessions,
+            fuzzy_search::fuzzy_rank_candidates,
+            fuzzy_search::two_tier_search_books,
             sync_commands::iroh_start,
             sync_commands::iroh_stop,
             sync_commands::iroh_pair,

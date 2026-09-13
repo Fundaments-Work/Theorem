@@ -1,5 +1,6 @@
-import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import { normalizeAuthor } from "../../core/lib/utils";
+import { FORMAT_DISPLAY_NAMES } from "../../core/types";
+import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 
 import type { Book, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 
@@ -23,10 +24,6 @@ export interface LibraryFilterOptions {
     ftsSearchIds?: string[];
 }
 
-import Fuse from "fuse.js";
-
-const booksFuseCache = new WeakMap<Book[], Fuse<any>>();
-
 export function getFilteredAndSortedBooks({
     books,
     searchQuery,
@@ -43,38 +40,32 @@ export function getFilteredAndSortedBooks({
     const trimmedQuery = searchQuery.trim();
 
     if (trimmedQuery) {
-        if (ftsSearchIds && ftsSearchIds.length > 0) {
-            const idSet = new Set(ftsSearchIds);
-            searchResults = books.filter((b) => idSet.has(b.id));
+        if (ftsSearchIds !== undefined) {
+            const bookMap = new Map(books.map((b) => [b.id, b]));
+            searchResults = ftsSearchIds
+                .map((id) => bookMap.get(id))
+                .filter((b): b is Book => b !== undefined);
         } else {
-            let fuse = booksFuseCache.get(books);
-            if (!fuse) {
-                const searchableItems = books.map((book) => ({
-                    book,
-                    title: book.title,
-                    author: normalizeAuthor(book.author),
-                    tags: book.tags.join(" "),
-                    format: `${FORMAT_DISPLAY_NAMES[book.format]} ${book.format}`,
-                }));
+            const searchableItems = books.map((book) => ({
+                book,
+                title: book.title || "",
+                author: normalizeAuthor(book.author),
+                tags: Array.isArray(book.tags) ? book.tags.join(" ") : "",
+                format: `${FORMAT_DISPLAY_NAMES[book.format] || ""} ${book.format || ""}`,
+            }));
 
-                fuse = new Fuse(searchableItems, {
-                    keys: [
-                        { name: "title", weight: 0.45 },
-                        { name: "author", weight: 0.3 },
-                        { name: "tags", weight: 0.15 },
-                        { name: "format", weight: 0.1 },
-                    ],
-                    threshold: 0.34,
-                    ignoreLocation: true,
-                    includeScore: true,
-                    shouldSort: true,
-                    minMatchCharLength: 2,
-                });
-                booksFuseCache.set(books, fuse);
-            }
-
-            const rawResults = fuse.search(trimmedQuery);
-            searchResults = rawResults.map((r) => r.item.book);
+            const ranked = rankByFuzzyQuery(searchableItems, trimmedQuery, {
+                keys: [
+                    { name: "title", weight: 0.45 },
+                    { name: "author", weight: 0.3 },
+                    { name: "tags", weight: 0.15 },
+                    { name: "format", weight: 0.1 },
+                ],
+                threshold: 0.34,
+                ignoreLocation: true,
+                minMatchCharLength: 2,
+            });
+            searchResults = ranked.map((r) => r.item.book);
         }
     }
 

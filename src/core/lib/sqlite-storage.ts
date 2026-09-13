@@ -208,3 +208,240 @@ export async function sqliteShrinkMemory(): Promise<void> {
         // Ignore if unsupported or pool busy
     }
 }
+
+export interface TwoTierSearchResult {
+    bookId: string;
+    title: string;
+    author?: string;
+    score: number;
+    titleIndices: number[];
+    authorIndices: number[];
+}
+
+export async function twoTierSearchBooks(
+    query: string,
+    limit: number = 50,
+): Promise<TwoTierSearchResult[]> {
+    if (!isTauri() || !query.trim()) return [];
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('two_tier_search_books', { query, limit })) as TwoTierSearchResult[];
+    } catch {
+        return [];
+    }
+}
+
+export interface FuzzyCandidateInput {
+    id: string;
+    title: string;
+    author?: string;
+    tags?: string;
+    format?: string;
+}
+
+export interface FuzzyMatchResult {
+    id: string;
+    score: number;
+    titleIndices: number[];
+    authorIndices: number[];
+}
+
+export async function fuzzyRankCandidates(
+    candidates: FuzzyCandidateInput[],
+    query: string,
+    limit: number = 50,
+): Promise<FuzzyMatchResult[]> {
+    if (!isTauri() || !query.trim() || candidates.length === 0) return [];
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('fuzzy_rank_candidates', { candidates, query, limit })) as FuzzyMatchResult[];
+    } catch {
+        return [];
+    }
+}
+
+export interface BookWindowResult {
+    bookIds: string[];
+    totalCount: number;
+}
+
+export async function sqliteQueryBooksWindow(
+    limit: number,
+    offset: number,
+): Promise<BookWindowResult> {
+    const invoke = await getInvoke();
+    return (await invoke('sqlite_query_books_window', { limit, offset })) as BookWindowResult;
+}
+
+export interface SqliteRssFeed {
+    id: string;
+    title: string;
+    url: string;
+    siteUrl?: string;
+    description?: string;
+    iconUrl?: string;
+    lastFetched?: number;
+    addedAt?: number;
+    errorMessage?: string;
+    unreadCount: number;
+}
+
+export interface SqliteRssArticle {
+    id: string;
+    feedId: string;
+    title: string;
+    author?: string;
+    url: string;
+    summary?: string;
+    contentSource?: string;
+    imageUrl?: string;
+    publishedAt?: number;
+    fetchedAt?: number;
+    isRead: boolean;
+    isFavorite: boolean;
+    progress?: number;
+}
+
+export interface SqliteRssArticleContent {
+    articleId: string;
+    content: string;
+    fullContent?: string;
+}
+
+export interface SqliteReadingSession {
+    id: string;
+    bookId?: string;
+    sessionDate: string;
+    minutes: number;
+    booksReadJson?: string;
+    createdAt: number;
+}
+
+export async function sqliteGetRssFeeds(): Promise<SqliteRssFeed[]> {
+    if (!isTauri()) return [];
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_get_rss_feeds')) as SqliteRssFeed[];
+    } catch {
+        return [];
+    }
+}
+
+export async function sqliteSaveRssFeed(feed: SqliteRssFeed): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_save_rss_feed', { feed });
+}
+
+export async function sqliteDeleteRssFeed(feedId: string): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_delete_rss_feed', { feedId });
+}
+
+export async function sqliteGetRssArticles(
+    feedId?: string,
+    limit?: number,
+    offset?: number,
+): Promise<SqliteRssArticle[]> {
+    if (!isTauri()) return [];
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_get_rss_articles', {
+            feedId: feedId ?? null,
+            limit: limit ?? null,
+            offset: offset ?? null,
+        })) as SqliteRssArticle[];
+    } catch {
+        return [];
+    }
+}
+
+export async function sqliteGetRssArticleContent(
+    articleId: string,
+): Promise<SqliteRssArticleContent | null> {
+    if (!isTauri()) return null;
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_get_rss_article_content', {
+            articleId,
+        })) as SqliteRssArticleContent | null;
+    } catch {
+        return null;
+    }
+}
+
+export async function sqliteSaveRssArticle(
+    article: SqliteRssArticle,
+    content?: string,
+    fullContent?: string,
+): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_save_rss_article', {
+        article,
+        content: content ?? null,
+        fullContent: fullContent ?? null,
+    });
+}
+
+export async function sqliteMarkArticleRead(articleId: string, isRead: boolean): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_mark_article_read', { articleId, isRead });
+}
+
+export async function sqliteMarkArticleFavorite(
+    articleId: string,
+    isFavorite: boolean,
+): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_mark_article_favorite', { articleId, isFavorite });
+}
+
+export async function sqliteDeleteRssArticle(articleId: string): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_delete_rss_article', { articleId });
+}
+
+export async function sqliteRecordReadingSession(
+    sessionId: string,
+    date: string,
+    minutes: number,
+    bookId?: string,
+    booksReadJson?: string,
+): Promise<void> {
+    if (!isTauri()) return;
+    try {
+        const invoke = await getInvoke();
+        await invoke('sqlite_record_reading_session', {
+            sessionId,
+            date,
+            minutes,
+            bookId: bookId ?? null,
+            booksReadJson: booksReadJson ?? null,
+        });
+    } catch {
+        // Non-blocking background telemetry
+    }
+}
+
+export async function sqliteGetReadingSessions(
+    startDate?: string,
+    endDate?: string,
+): Promise<SqliteReadingSession[]> {
+    if (!isTauri()) return [];
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_get_reading_sessions', {
+            startDate: startDate ?? null,
+            endDate: endDate ?? null,
+        })) as SqliteReadingSession[];
+    } catch {
+        return [];
+    }
+}
+
+

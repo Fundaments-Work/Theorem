@@ -16,12 +16,12 @@ import {
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
     ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones
 } from "lucide-react";
-import { ContextMenu, PageHeader, TheoremBookCover } from "../../ui";
+import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
 import { Modal, ModalHeader, ModalBody, ModalFooter, ConfirmDialog, AlertDialog } from "../../ui";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
-import { sqliteSearchBooks } from "../../core/lib/sqlite-storage";
+import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
 import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
 import { toast } from "sonner";
@@ -125,6 +125,8 @@ export const BookCard = memo(function BookCard({
     isSelecting,
     isSelected,
     onToggleSelect,
+    titleHighlightIndices,
+    authorHighlightIndices,
 }: {
     book: Book;
     viewMode: LibraryViewMode;
@@ -141,6 +143,8 @@ export const BookCard = memo(function BookCard({
     isSelecting?: boolean;
     isSelected?: boolean;
     onToggleSelect?: (bookId: string) => void;
+    titleHighlightIndices?: number[];
+    authorHighlightIndices?: number[];
 }) {
     const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const clickCountRef = useRef(0);
@@ -344,10 +348,10 @@ export const BookCard = memo(function BookCard({
 
                     <div className="px-0.5">
                         <h3 className="font-bold text-[11px] uppercase tracking-wide text-[color:var(--color-text-primary)] line-clamp-3 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words">
-                            {book.title}
+                            <HighlightMatch text={book.title} indices={titleHighlightIndices} />
                         </h3>
                         <p className="text-[10px] font-medium text-[color:var(--color-text-secondary)] line-clamp-2 opacity-60 uppercase tracking-tight">
-                            {normalizeAuthor(book.author) || "Unknown Author"}
+                            <HighlightMatch text={normalizeAuthor(book.author) || "Unknown Author"} indices={authorHighlightIndices} />
                         </p>
                     </div>
                 </div>
@@ -385,10 +389,10 @@ export const BookCard = memo(function BookCard({
 
                     <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-sm text-[color:var(--color-text-primary)] line-clamp-2 break-words">
-                            {book.title}
+                            <HighlightMatch text={book.title} indices={titleHighlightIndices} />
                         </h3>
                         <p className="text-xs text-[color:var(--color-text-secondary)] line-clamp-1">
-                            {normalizeAuthor(book.author) || "Unknown Author"}
+                            <HighlightMatch text={normalizeAuthor(book.author) || "Unknown Author"} indices={authorHighlightIndices} />
                         </p>
                         <div className="flex items-center gap-2 mt-1">
                             <div
@@ -496,7 +500,9 @@ export const MemoizedBookCard = memo(BookCard, (prev, next) => {
         prev.book.syncedWithoutFile === next.book.syncedWithoutFile &&
         prev.viewMode === next.viewMode &&
         prev.isSelecting === next.isSelecting &&
-        prev.isSelected === next.isSelected;
+        prev.isSelected === next.isSelected &&
+        prev.titleHighlightIndices === next.titleHighlightIndices &&
+        prev.authorHighlightIndices === next.authorHighlightIndices;
 });
 
 function EmptyLibrary({
@@ -1177,14 +1183,26 @@ export function LibraryPage() {
     const debouncedSearchQuery = useDebounce(searchQuery, 250);
 
     const [ftsSearchIds, setFtsSearchIds] = useState<string[] | undefined>(undefined);
+    const [matchHighlights, setMatchHighlights] = useState<Map<string, { titleIndices: number[]; authorIndices: number[] }>>(() => new Map());
+
     useEffect(() => {
         if (!isTauri() || !debouncedSearchQuery.trim()) {
             setFtsSearchIds(undefined);
+            setMatchHighlights(new Map());
             return;
         }
         let cancelled = false;
-        sqliteSearchBooks(debouncedSearchQuery.trim(), 200).then((results) => {
-            if (!cancelled) setFtsSearchIds(results.map((r) => r.book_id));
+        twoTierSearchBooks(debouncedSearchQuery.trim(), 200).then((results) => {
+            if (cancelled) return;
+            setFtsSearchIds(results.map((r) => r.bookId));
+            const highlights = new Map<string, { titleIndices: number[]; authorIndices: number[] }>();
+            for (const r of results) {
+                highlights.set(r.bookId, {
+                    titleIndices: r.titleIndices,
+                    authorIndices: r.authorIndices,
+                });
+            }
+            setMatchHighlights(highlights);
         });
         return () => { cancelled = true; };
     }, [debouncedSearchQuery]);
@@ -1986,6 +2004,8 @@ export function LibraryPage() {
                                                             book={rowItems[0]}
                                                             viewMode={settings.libraryViewMode}
                                                             isSelected={selectedBooks.includes(rowItems[0].id)}
+                                                            titleHighlightIndices={matchHighlights.get(rowItems[0].id)?.titleIndices}
+                                                            authorHighlightIndices={matchHighlights.get(rowItems[0].id)?.authorIndices}
                                                             {...cardProps}
                                                         />
                                                     </div>
@@ -2004,6 +2024,8 @@ export function LibraryPage() {
                                                                 book={book}
                                                                 viewMode={settings.libraryViewMode}
                                                                 isSelected={selectedBooks.includes(book.id)}
+                                                                titleHighlightIndices={matchHighlights.get(book.id)?.titleIndices}
+                                                                authorHighlightIndices={matchHighlights.get(book.id)?.authorIndices}
                                                                 {...cardProps}
                                                             />
                                                         ))}
