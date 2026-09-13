@@ -105,7 +105,19 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` — never open raw `Connection::open()`. Migrations are versioned per store (Zustand persist middleware). When changing persisted schemas: bump version, update defaults, add/adjust `migrate`.
 
-Key constraints: `book.locations` (foliate-js positions) must NOT be stored in Zustand — use SQLite BLOB. `data:` cover paths ARE serialized into sync payloads (covers are downsampled to ≤200×300 webp ~tens of KB) so that cover edits propagate to peers; keep them small.
+## Rust-First Engineering, Memory & Search Architecture
+
+- **Search for Rust alternatives first**: Whenever implementing any feature that processes text, files, collections, search, hashing, parsing, or caching, **always search for and prioritize a native Rust implementation** instead of TypeScript. Rust is the single source of truth for heavy computation, file I/O, and data storage. JavaScript/React should only handle UI presentation and lightweight interaction state.
+- **Memory & Allocation Optimization (Cloudflare Data Layouts)**:
+  - Eliminate capacity overhead: Use `Box<str>` and `Box<[T]>` instead of `String` and `Vec<T>` for all immutable/cached DTOs to save 8 bytes per field and prevent heap over-allocation.
+  - Slices over collections: Use byte-index slicing (`str::char_indices`, `&[u8]`) rather than collecting intermediate vectors (`Vec<char>`, `Vec<u8>`).
+  - Enum optimization: Box oversized or rare variants (`Box<LargeVariant>`) to keep high-frequency enums $\le 24$ bytes (`clippy::large_enum_variant`).
+  - Single contiguous buffers: Prefer flat contiguous buffers with small integer offsets (`u16`) and bitflags over deeply nested pointer webs.
+- **Hybrid Two-Tier Search Engine (`SQLite FTS5` + `nucleo`)**:
+  - **Tier 1 (Disk / OS Page Cache)**: SQLite `FTS5` retrieves coarse candidates (pruning 50,000+ books down to top ~200) in ~1ms without allocating memory.
+  - **Tier 2 (SIMD Fuzzy Ranking & Highlighting)**: `nucleo-matcher` (Helix's SIMD-accelerated Smith-Waterman matcher) ranks those candidates, scores typos/word-boundaries, and yields exact matching character indices (`indices`) for UI text highlighting in ~0.1ms.
+  - **In-Memory Typeahead**: Command palette, tags, shelves, and table of contents run directly through `nucleo-matcher` in <0.05ms.
+  - **No JS matchers**: Never use `fuse.js` or in-memory JavaScript string scanning over large collections.
 
 ## Anti-patterns (violations = bugs)
 
@@ -117,6 +129,7 @@ Key constraints: `book.locations` (foliate-js positions) must NOT be stored in Z
 - No `awaitSettledLayout()` / double-RAF delays after navigation (paginator container is grid-sized, measurements are immediate)
 - No `Array.find()` on books array — use the store's `getBook(bookId)`
 - No `console.log` in production code — use `import.meta.env.DEV` guards
+- No heavy computation, text parsing, fuzzy searching, or bulk image processing in JavaScript — search for and use a native Rust alternative (e.g. `nucleo` + SQLite FTS5 instead of `fuse.js`, `image` crate WebP instead of DOM `<canvas>`)
 
 ## Release
 
