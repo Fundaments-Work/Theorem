@@ -1,280 +1,326 @@
-# Architecture & Stabilization Roadmap: Rust Core Expansion & Plugin Ecosystem Readiness
+# Architecture & Stabilization Roadmap: Rust Core Expansion, Memory Optimization & Plugin Readiness
 
 **Date**: 2026-09-13  
-**Status**: Architecture Roadmap & Specification  
-**Target Milestone**: v1.5.2 (Stabilization & Targeted Rust Modules) $\rightarrow$ v1.5.3 (Data Layer & Sync Hardening) $\rightarrow$ v1.6.0 (Plugin Ecosystem)  
+**Status**: Active Architecture Specification & Master Roadmap  
+**Target Milestones**:  
+- **v1.5.2**: Precision Highlighting, Zero-Allocation Search & Targeted Rust Performance Upgrades  
+- **v1.5.3**: Database Virtualization, Relational RSS, FTS5 & Zero-Copy Storage Scalability  
+- **v1.6.0**: WebAssembly & Isolated Runtime Plugin Ecosystem  
 **Authors**: Theorem Core Team  
 
 ---
 
-## 1. Executive Context & Vision
+## 1. Executive Context & Architectural Vision
 
-Theorem's strategic roadmap targets becoming the **"Obsidian of Reading Apps"** in **v1.6.0**—a high-performance, local-first reading hub featuring a modular, hot-reloadable plugin ecosystem. Community plugins will extend Theorem with Bionic reading, interlinear translation glosses, Zotero/BibTeX integration, Anki card synchronization, and custom document format loaders without bloating the core application.
+Theorem’s strategic roadmap targets becoming the **"Obsidian of Reading Apps"** in **v1.6.0**—a high-performance, local-first reading hub featuring a modular, hot-reloadable plugin ecosystem. Community plugins will extend Theorem with Bionic reading, interlinear translation glosses, Zotero/BibTeX integration, Anki card synchronization, and custom document format loaders without bloating the core application.
 
-However, an extensible plugin ecosystem cannot be safely mounted on an unstable foundation. Prior to introducing third-party JavaScript runtimes, declarative reader slots, and plugin APIs in v1.6.0, the core platform must resolve three architectural vulnerabilities present up to v1.5.1:
+However, an extensible plugin ecosystem cannot be safely mounted on an unstable or memory-bloated foundation. Prior to introducing third-party runtimes, declarative reader slots, and plugin APIs in v1.6.0, the core platform must resolve several architectural bottlenecks present up to v1.5.1:
 
-1. **Reader Layout Fragility**: Cross-page and cross-column selection in paginated views must be mathematically robust so third-party overlays or highlight scripts do not trigger pagination oscillation or erratic page turns.
-2. **Dual-State Split-Brain**: Storing the entire library in JavaScript Zustand memory while simultaneously mirroring to SQLite creates memory bloat at scale (1,000+ books) and lacks a clean, transactional single source of truth for plugins.
+1. **Reader Layout Fragility**: Cross-page and cross-column selection in Foliate CSS multi-column paginated views must be mathematically robust so third-party overlays or highlight scripts do not trigger pagination oscillation or erratic page turns.
+2. **The Monolithic Persist Bottleneck**: Storing the entire library, RSS feed articles (up to 25MB of HTML), vocabulary, and reading stats in JavaScript Zustand memory and serializing giant monolithic JSON strings to SQLite `kv_store` on every mutation creates severe V8 heap bloat (~150MB+) and 100–300ms GC stalls.
 3. **Monolithic Sync Payloads**: Peer-to-peer (Iroh) sync serializes arrays monolithically, making concurrent offline edits vulnerable to Last-Write-Wins (LWW) overwrites and requiring expensive double-hop IPC serialization (`Rust -> TS -> Rust`).
+4. **Main-Thread JavaScript CPU Churn**: Operations like in-book search snippet collection, image downsampling, RSS XML parsing, and Obsidian vault exports currently churn allocations on the single JavaScript thread.
 
-This document outlines the **complete architectural stabilization audit**, evaluates all candidates across the application for **selective Rust migration**, and defines the structural bridge to the **v1.6.0 Plugin Engine**.
-
----
-
-## 2. Stability Audit: Current Edge-Cases & Fragilities (v1.5.1)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          CURRENT STABILITY DEFICITS                             │
-├──────────────────────────┬──────────────────────────────────────────────────────┤
-│ SUBSYSTEM                │ ROOT CAUSE & BEHAVIORAL RISK                         │
-├──────────────────────────┼──────────────────────────────────────────────────────┤
-│ 1. Cross-Page Selection  │ getBoundingClientRect() spans column gutters.        │
-│                          │ Navigation oscillates between Page N and N+1.        │
-│ 2. Dual-State Storage    │ Zustand serializes unbounded JSON to disk on every   │
-│                          │ mutation; SQLite mirrors via redundant IPC writes.   │
-│ 3. P2P Iroh Sync         │ Monolithic array keys ("annotations") cause LWW data │
-│                          │ loss during concurrent offline multi-device editing. │
-│ 4. Mobile / Stylus Input │ Touch event bubbling triggers both page turn and     │
-│                          │ footnote peek popover on tap near links.             │
-│ 5. PDF.js Engine Memory  │ Offscreen canvas textures retained during rapid      │
-│                          │ scroll across large 500+ page technical documents.  │
-│ 6. Dictionary Inflections│ Offline MDX/StarDict misses unindexed inflections    │
-│                          │ ("running" fails if "run" redirect is missing).      │
-└──────────────────────────┴──────────────────────────────────────────────────────┘
-```
-
-### 2.1 Cross-Page & Cross-Column Highlighting
-
-- **Primary Source**: [`src/features/reader/foliate-js-runtime/paginator.js:336-444`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/features/reader/foliate-js-runtime/paginator.js#L336-L444), [`overlayer.js:4-174`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/features/reader/foliate-js-runtime/overlayer.js#L4-L174)
-- **The Defect**:
-  Reflowable chapters in Foliate use CSS Multi-column layout (`column-width`, `column-gap`). When a sentence starts at the bottom of Column $N$ (Page $N$) and ends at the top of Column $N+1$ (Page $N+1$):
-  1. `Range.prototype.getClientRects()` returns disjoint line boxes for each column, but standard bounding boxes (`getBoundingClientRect()`) span horizontally across the column gap and vertically across unrelated lines.
-  2. If an annotation range spans across a spine item boundary or page edge, calling `goToAnnotation()` can cause the paginator to resolve the target to Page $N+1$, uncollapse the anchor, re-evaluate the scroll position to Page $N$, and oscillate infinitely, causing rapid page flickering.
-- **Stabilization Required (v1.5.2)**:
-  - Overlayer SVG rendering must strictly iterate over `range.getClientRects()` and draw individual `<rect>` fragments.
-  - Paginator anchor uncollapsing must anchor strictly to the start node of the range.
-  - Implement native Rust CFI range division in [`src-tauri/src/epubcfi.rs`](file:///run/media/sapiens/Development/Fundaments/Theorem/src-tauri/src/epubcfi.rs) to partition cross-boundary CFI ranges into deterministic sub-ranges.
-
-### 2.2 Dual-State Storage & Synchronization (Zustand vs. SQLite)
-
-- **Primary Source**: [`src/core/store/libraryStore.ts:475-725`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/store/libraryStore.ts#L475-L725), [`src/core/lib/sqlite-storage.ts:1-250`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/sqlite-storage.ts#L1-L250)
-- **The Defect**:
-  - The entire library state (`books`, `annotations`, `collections`, `tombstones`) is kept in JavaScript memory via Zustand `persist` middleware (`theoremPersistStorage`).
-  - On every mutation (e.g. adding a highlight), Zustand serializes the **entire** state into JSON on the webview storage, and simultaneously invokes individual Tauri IPC commands (`sqliteSaveBookMetadata`, `sqliteSaveBookAnnotations`).
-  - **Memory & Latency**: A user with 1,500 books and 10,000 highlights maintains a ~25MB active object tree in V8. Parsing and stringifying this on every store mutation induces main-thread garbage collection (GC) stalls.
-  - **Split-Brain Risk for Plugins**: When plugins in v1.6 modify book metadata or tags, writing to Zustand does not guarantee transactional integrity in SQLite, and writing to SQLite bypasses Zustand reactivity.
-- **Stabilization Required (v1.5.3)**:
-  - Transition SQLite in Rust to the **canonical single source of truth**.
-  - Zustand becomes a lightweight, virtualized view-cache holding only active collections, current book data, and paginated library slices.
-
-### 2.3 Monolithic P2P Sync Payloads & LWW Collisions
-
-- **Primary Source**: [`docs/sync.md:65-105`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/sync.md#L65-L105), [`src/core/lib/sync-orchestrator.ts:1-350`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/sync-orchestrator.ts#L1-L350)
-- **The Defect**:
-  - `provisionToIrohDocs()` serializes all annotations into a single Iroh doc entry under the monolithic key `annotations`.
-  - If Device A creates a highlight in Chapter 1 while Device B creates a highlight in Chapter 5, the two devices experience a Last-Write-Wins conflict on the entire `annotations` array. The device whose sync timestamp is older has its highlights discarded.
-  - Sync processing requires a double IPC hop: Rust receives Iroh bytes $\rightarrow$ sends to TypeScript $\rightarrow$ TypeScript deserializes and loops through JS objects $\rightarrow$ TypeScript invokes Tauri IPC commands to write records back into SQLite.
-- **Stabilization Required (v1.5.3)**:
-  - Migrate Iroh doc entries to atomic keys: `anno:<bookId>:<annotationId>`.
-  - Move CRDT/LWW reconciliation into Rust (`theorem-sync-core`), directly applying updates to SQLite in a single transaction.
-
-### 2.4 Touch & Stylus Gesture Disambiguation on Android
-
-- **Primary Source**: [`src/features/reader/foliate-js-runtime/paginator.js:820-950`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/features/reader/foliate-js-runtime/paginator.js#L820-L950)
-- **The Defect**:
-  On touchscreens, tap gestures near links, footnotes, or image figures can trigger conflicting event handlers simultaneously (e.g., page navigation triggers while the footnote popover attempts to open).
-- **Stabilization Required (v1.5.2)**:
-  Establish strict gesture hierarchy: `Active Selection (Drag/Stylus) > Interactive Element (Footnote/Link) > Viewport Navigation (Page Turn)`. Add an explicit 120ms tap-suppression barrier following touch release.
-
-### 2.5 PDF.js Canvas Resource Management
-
-- **Primary Source**: [`src/features/reader/engines/pdfjs-engine.tsx:1-450`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/features/reader/engines/pdfjs-engine.tsx#L1-L450)
-- **The Defect**:
-  In large PDFs (800+ page technical manuals), rapid continuous scrolling can retain rendered `<canvas>` bitmaps in the browser rendering pipeline before garbage collection cycles run, driving memory consumption past 1GB on low-RAM devices.
-- **Stabilization Required (v1.5.2)**:
-  Enforce explicit canvas destruction (`canvas.width = 0; canvas.height = 0; ctx = null`) for all rendered pages outside a strict $\pm 2$ page buffer.
+This master plan synthesizes all findings from:
+- [`docs/research/cross-page-highlighting.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/cross-page-highlighting.md) (Geometric client rects & anchor stabilization)
+- [`docs/research/rust-performance-rewrite-candidates.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/rust-performance-rewrite-candidates.md) (Targeted Rust modules)
+- [`docs/research/database-performance-and-memory-optimization.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/database-performance-and-memory-optimization.md) (Database virtualization & scale)
+- [`docs/research/latest-rust-memory-techniques-and-rss-architecture.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/latest-rust-memory-techniques-and-rss-architecture.md) (Cloudflare DNS memory layout lessons & RSS overhaul)
+- [`docs/research/whole-app-rust-capabilities-and-roadmap.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/whole-app-rust-capabilities-and-roadmap.md) (Whole-app feature audit)
 
 ---
 
-## 3. Comprehensive Whole-App Rust Rewrite Evaluation
-
-We evaluated all computational, string-processing, and file I/O operations across Theorem to determine which components yield significant performance and architectural gains when moved to Rust.
+## 2. Stability & Performance Deficits Audit (v1.5.1 Baseline)
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 RUST REWRITE CANDIDATES MATRIX                               │
-├──────────────────────────┬──────────────┬──────────────┬───────────────┬─────────────────────┤
-│ CANDIDATE MODULE         │ EFFORT       │ PERF GAIN    │ BUNDLE CUT    │ TARGET RELEASE      │
-├──────────────────────────┼──────────────┼──────────────┼───────────────┼─────────────────────┤
-│ 1. Vault Markdown Export │ Low (2 days) │ 50x (I/O)    │ Minor         │ v1.5.2 (Immediate)  │
-│ 2. Audio Text Normalizer │ Low (1 day)  │ 20x (CPU)    │ Minor         │ v1.5.2 (Immediate)  │
-│ 3. Cover Image Transcode │ Low (1 day)  │ Zero UI lag  │ Minor         │ v1.5.2 (Immediate)  │
-│ 4. RSS Feed XML Parser   │ Med (2 days) │ 15x (CPU)    │ ~175 KB       │ v1.5.2 (Immediate)  │
-│ 5. CFI Range Partitioning│ Low (1 day)  │ Critical Fix │ Minor         │ v1.5.2 (Immediate)  │
-│ 6. Dictionary Lemmatizer │ Med (2 days) │ Instant      │ Minor         │ v1.5.3 (Data Layer) │
-│ 7. Atomic CRDT Merger    │ Med (3 days) │ 10x (Sync)   │ Moderate      │ v1.5.3 (Data Layer) │
-│ 8. SQLite Virtual Query  │ High (4 days)│ Inf Scale    │ High          │ v1.5.3 (Data Layer) │
-└──────────────────────────┴──────────────┴──────────────┴───────────────┴─────────────────────┘
-```
-
-### 3.1 Vault Markdown & Lemma Deck Exporter (`src-tauri/src/vault_export.rs`)
-
-- **Current Implementation**: [`src/core/lib/vault-sync.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/vault-sync.ts)
-- **Bottleneck**: Generates markdown strings in JavaScript and invokes `@tauri-apps/plugin-fs` `writeTextFile` in batches of 16. In a library of 100 books, this produces over 100 IPC roundtrips, serializing megabytes of string data across the webview boundary.
-- **Rust Architecture**:
-  ```rust
-  #[tauri::command]
-  pub async fn vault_export_snapshot(
-      app: AppHandle,
-      vault_path: String,
-      highlights_folder: String,
-      vocab_filename: String,
-  ) -> Result<VaultExportStats, String> {
-      // 1. Query SQLite connection directly in Rust (zero IPC serialization from frontend)
-      // 2. Format Obsidian book notes with '> ==quote==' and Lemma flashcards with '---card---'
-      // 3. Concurrently write files via rayon::prelude::* and std::fs::write
-  }
-  ```
-- **Benefit**: Export duration drops from ~300ms to <5ms. Eliminates all IPC file writing overhead and prevents any UI micro-stutters during reactive auto-sync.
-
-### 3.2 Audio Text Normalization Engine (`src-tauri/src/text_normalizer.rs`)
-
-- **Current Implementation**: [`src/features/reader/audio/text-normalization.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/features/reader/audio/text-normalization.ts)
-- **Bottleneck**: 297 lines of regexes and number-to-words algorithms running in V8. Critically, background companion audiobook generation ([`audiobook_gen.rs`](file:///run/media/sapiens/Development/Fundaments/Theorem/src-tauri/src/audiobook_gen.rs)) runs in Rust and cannot access this TypeScript code, causing generated audiobooks to read raw numbers and symbols unnaturally.
-- **Rust Architecture**:
-  ```rust
-  pub fn normalize_for_speech(text: &str) -> String {
-      // 1. Regex expansion: currency ($12.50 -> twelve dollars and fifty cents)
-      // 2. Ordinal & Year expansion (1984 -> nineteen eighty-four)
-      // 3. Roman numerals in headings (Chapter IV -> Chapter four)
-      // 4. Abbreviations (Dr. -> Doctor, etc. -> et cetera)
-  }
-  ```
-- **Benefit**: Shared single-binary implementation between live Immersion TTS and companion audiobook generation. $20\times$ faster string processing with zero V8 heap allocation.
-
-### 3.3 Cover Resizing & WebP Transcoder (`src-tauri/src/image_ops.rs`)
-
-- **Current Implementation**: [`src/core/lib/storage.ts:365-419`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/storage.ts#L365-L419)
-- **Bottleneck**: Uses DOM `<canvas>` elements to decode and resize large cover images (5–15 MB), causing frame drops and main-thread locking during book import.
-- **Rust Architecture**:
-  Utilize the existing `image` crate in `src-tauri/Cargo.toml`.
-  ```rust
-  #[tauri::command]
-  pub async fn downsample_cover_image(
-      image_bytes: Vec<u8>,
-      max_width: u32,
-      max_height: u32,
-  ) -> Result<Vec<u8>, String> {
-      tokio::task::spawn_blocking(move || {
-          let img = image::load_from_memory(&image_bytes).map_err(|e| e.to_string())?;
-          let thumbnail = img.thumbnail(max_width, max_height);
-          let mut buffer = Vec::new();
-          thumbnail.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::WebP)
-              .map_err(|e| e.to_string())?;
-          Ok(buffer)
-      }).await.map_err(|e| e.to_string())?
-  }
-  ```
-- **Benefit**: Completely offloads image decoding from the UI thread; SIMD-accelerated thumbnail generation in <5ms.
-
-### 3.4 RSS & Atom Feed Engine (`src-tauri/src/rss_parser.rs`)
-
-- **Current Implementation**: [`src/core/services/RssService.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/services/RssService.ts)
-- **Bottleneck**: Bundles `fast-xml-parser` (73 KB) and `markdown-it` (102 KB) into the webview bundle. Parsing feeds in JavaScript causes high memory churn and UI pauses on app launch.
-- **Rust Architecture**:
-  Stream-parse feeds using `quick-xml` (already compiled into Theorem for OPDS and EPUB parsing) and fetch via `reqwest`.
-  ```rust
-  #[tauri::command]
-  pub async fn fetch_and_parse_rss_feed(url: String) -> Result<ParsedRssFeedDto, String>;
-  ```
-- **Benefit**: Trims **~175 KB of minified JS** from the webview bundle. Parses feeds $15\times$ faster with zero GC overhead.
-
-### 3.5 Offline Morphological Stemmer & Lemmatizer (`src-tauri/src/lemmatizer.rs`)
-
-- **Current Implementation**: [`src/core/services/StarDictService.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/services/StarDictService.ts), [`src-tauri/src/mdict.rs`](file:///run/media/sapiens/Development/Fundaments/Theorem/src-tauri/src/mdict.rs)
-- **Bottleneck**: Looking up inflected words (e.g. "unearthed", "spoke", "criteria") fails if the offline dictionary lacks exact synonym redirects.
-- **Rust Architecture**:
-  Embed a fast morphological lemmatizer or Porter/Snowball stemmer in Rust. If `mdx_lookup` or `stardict_lookup` yields 0 results, the engine instantly stems the word and retries in <0.2ms before falling back to remote network APIs.
-- **Benefit**: Offline dictionary hit-rate improves by ~35% on classic literature.
-
----
-
-## 4. The v1.6 Plugin Architecture Foundation
-
-To ensure that plugins in v1.6 cannot corrupt the database or crash the reader viewport, Theorem establishes strict architectural contracts:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           v1.6 PLUGIN RUNTIME CONTRACT                          │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│  1. Declarative Viewport Slot Isolation (Foliate Overlayer SVG)                 │
-│     • Plugins NEVER touch chapter <iframe> DOM directly.                        │
-│     • Reader provides dedicated React / SVG overlay slot:                       │
-│       `registerReaderOverlay({ id, render: (viewport) => ReactNode })`          │
-│     • Guarantees Foliate's multi-column pagination never crashes.               │
-│                                                                                 │
-│  2. Sandboxed Namespaced Storage                                                │
-│     • Plugins receive isolated SQLite tables: `plugin_<id>_kv`.                 │
-│     • Strict capability manifest: `permissions: ["annotations:read"]`.         │
-│                                                                                 │
-│  3. Strongly-Typed Event Bus                                                    │
-│     • `app.on("before:page-turn", (event) => ...)` (cancellable)                │
-│     • `app.on("highlight:create", (highlight) => ...)`                          │
-│     • `app.on("book:open", (book) => ...)`                                      │
-│                                                                                 │
-│  4. Native Rust Extensibility Hooks                                             │
-│     • Custom Format Loaders (`registerFormatLoader({ ext, loader })`)           │
-│     • Custom Exporters (`registerVaultExporter({ id, handler })`)               │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                               CURRENT SUBSYSTEM BOTTLENECK AUDIT                                │
+├──────────────────────────┬──────────────────────────────────────────────────────────────────────┤
+│ SUBSYSTEM                │ ROOT CAUSE & PERFORMANCE DEFICIT                                     │
+├──────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ 1. Cross-Page Selection  │ getBoundingClientRect() spans column gutters. Navigation oscillates  │
+│                          │ between Page N and N+1 on cross-boundary selections.                 │
+│ 2. Monolithic Persist    │ Zustand serializes 10MB-25MB JSON strings to kv_store on EVERY       │
+│                          │ mutation (library, RSS, vocabulary). Blocks JS thread for 150ms.     │
+│ 3. RSS Ingestion         │ fast-xml-parser & markdown-it in JS bundle (~175KB); 500 HTML        │
+│                          │ articles held in V8 heap; SQLite has ZERO relational tables for RSS. │
+│ 4. In-Book Search        │ book_search.rs collects Vec<char> of entire chapter on every single  │
+│                          │ match hit, generating tens of megabytes of transient garbage.        │
+│ 5. Cover Processing      │ HTML5 Canvas in cover-extractor.ts freezes UI on bulk import.        │
+│ 6. Full-Text Library     │ fuse.js in JS heap builds in-memory search index on every query.     │
+│ 7. P2P Iroh Sync         │ Monolithic array keys ("annotations") cause LWW data loss on offline │
+│                          │ edits; double-hop IPC serialization (Rust -> TS -> Rust).            │
+│ 8. Vault & SRS Sync      │ vault-sync.ts fires 60+ individual IPC file writes from JS.          │
+│ 9. Reading Analytics     │ dailyActivity accumulated as unbounded JSON array in settingsStore.   │
+│ 10. PDF.js Memory        │ Canvas bitmaps retained during rapid scroll in large technical PDFs. │
+└──────────────────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. Phased Implementation Roadmap
+## 3. Core Architectural Upgrades by Subsystem
 
-### Milestone 1: Theorem v1.5.2 — Reader Stabilization & Core Rust Modules
-*Goal: Bulletproof cross-page highlighting, eliminate IPC export lag, and unify speech normalization.*
+### 3.1 Reader Engine: Cross-Page Highlights & Zero-Allocation Search
 
-1. **Cross-Page & Cross-Column Highlighting Engine**:
-   - Implement disjoint line-box rendering in [`foliate-js-runtime/overlayer.js`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/features/reader/foliate-js-runtime/overlayer.js) using `Range.getClientRects()`.
-   - Prevent navigation oscillation in `goToAnnotation()` by anchoring to the start CFI node.
-   - Enhance [`src-tauri/src/epubcfi.rs`](file:///run/media/sapiens/Development/Fundaments/Theorem/src-tauri/src/epubcfi.rs) with CFI range splitting and comparison.
-2. **Native Vault & Lemma Deck Exporter (`vault_export.rs`)**:
-   - Move markdown generation and disk writes from `vault-sync.ts` into a single parallel Rust command.
-3. **Native Audio Text Normalizer (`text_normalizer.rs`)**:
-   - Port number/abbreviation expansion to Rust; unify live Supertonic TTS and companion audiobook generation.
-4. **Native Cover Downsampler (`image_ops.rs`)**:
-   - Replace off-screen HTML canvas resizing with native Rust `image` decoding and WebP encoding.
-5. **Native RSS XML Parser (`rss_parser.rs`)**:
-   - Replace `fast-xml-parser` and `markdown-it` in `RssService.ts` with Rust `quick-xml`, trimming ~175 KB from frontend bundle.
+#### A. Geometric Fragment Rendering in Overlayer (`foliate-js-runtime/overlayer.js`)
+- **Problem**: `getBoundingClientRect()` encompasses column gaps and unrelated text lines when a selection spans across two columns or page breaks.
+- **Solution**:
+  - Overlayer SVG rendering strictly iterates over `range.getClientRects()`, creating individual `<rect>` elements for each physical text line fragment.
+  - Rectangles falling within column gap zones (`x` within gutter coordinates) are discarded.
+  - Visual padding is applied strictly along the inline axis, preventing vertical overflow collisions between lines.
 
----
+#### B. Anchor Stabilization in Paginator (`foliate-js-runtime/paginator.js`)
+- **Problem**: `goToAnnotation()` evaluates the center of the bounding box of a cross-boundary range. If the end of the range is on Page $N+1$, the paginator snaps forward, but the viewport layout re-anchors to Page $N$, causing rapid visual oscillation.
+- **Solution**:
+  - `goToAnnotation(range)` is refactored to resolve target scroll position **strictly using `range.startContainer` and `range.startOffset`**.
+  - A 150ms navigation barrier prevents redundant layout re-evaluations while paginator scroll transitions are animating.
 
-### Milestone 2: Theorem v1.5.3 — Data Layer Hardening & P2P Sync Architecture
-*Goal: Transition SQLite to single source of truth and eliminate sync LWW collisions.*
-
-1. **Atomic Item-Level Iroh Sync**:
-   - Break monolithic `annotations` and `collections` sync keys into `anno:<id>` and `coll:<id>`.
-2. **Native CRDT Sync Merger**:
-   - Move three-way merging from `sync-import.ts` into `theorem-sync-core`. Rust applies updates directly into SQLite.
-3. **SQLite Query Virtualization**:
-   - Make SQLite the single source of truth; Zustand maintains only active window slices, enabling infinite library scaling.
-4. **Offline Dictionary Lemmatizer (`lemmatizer.rs`)**:
-   - Embed native morphological stemmer in Rust for StarDict and MDict lookups.
+#### C. Zero-Allocation In-Book Search Snippets (`src-tauri/src/book_search.rs`)
+- **Problem**: Line 55 of `book_search.rs` executes `let chars: Vec<char> = text.chars().collect()` on **every match**, allocating millions of 4-byte UTF-32 characters into memory.
+- **Solution**:
+  - Eliminate `Vec<char>` completely.
+  - Use `text.char_indices()` to identify UTF-8 byte slices directly:
+    ```rust
+    fn extract_context_snippet(text: &str, byte_start: usize, byte_len: usize) -> &str
+    ```
+  - Search runs **10× faster** with **0 bytes of transient heap allocation**.
 
 ---
 
-### Milestone 3: Theorem v1.6.0 — The Extensibility Release (Plugin Ecosystem)
-*Goal: Launch the Theorem Plugin Engine and Community Ecosystem.*
+### 3.2 Cloudflare-Inspired Rust Data Layouts
 
-1. **Plugin Runtime Loader**:
-   - Create `PluginManager.ts` to scan, load, and hot-reload `$APPDATA/plugins/<plugin-id>/`.
-2. **SDK & API Surface**:
-   - Publish `@theorem/plugin-sdk` with `TheoremPlugin` base class, Event Bus, and Settings Tab abstractions.
-3. **Declarative Reader Slots**:
-   - Expose isolated overlay rendering in `FoliateEngine` and `PDFJsEngine` (enabling Bionic reading, translation, commentary).
-4. **Community Plugin Directory**:
-   - In-app plugin browser in Theorem Settings with 1-click install.
+Adopting the 5 techniques from Cloudflare’s 1.1.1.1 DNS cache optimization (August 2026):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                           CLOUDFLARE RUST DATA LAYOUT PRINCIPLES                                │
+├──────────────────────────┬──────────────────────────────────────────────────────────────────────┤
+│ TECHNIQUE                │ APPLICATION IN THEOREM                                               │
+├──────────────────────────┼──────────────────────────────────────────────────────────────────────┤
+│ 1. Box<[T]> & Box<str>   │ Used for all immutable DTOs (RSS articles, OPDS entries, book        │
+│    (Cost of Capacity)    │ search results). Drops 8B capacity per field; zero heap slack.       │
+│ 2. Contiguous Flattening │ Replace multiple heap vectors with flat buffers indexed by u16       │
+│    (Fewer Lists/Pointers)│ offsets. Pack boolean flags into bitflags structs.                   │
+│ 3. Context-Inferred Keys │ Child records (e.g. RSS articles, highlights) omit redundant parent  │
+│    (Dropping the Owner)  │ IDs (feed_id, book_id) in memory if known by the query context.      │
+│ 4. Enum Variant Boxing   │ Box large/rare enum variants (clippy::large_enum_variant) to shrink  │
+│    (Enum Sizing)         │ the entire enum to ≤24 bytes.                                        │
+│ 5. Scratchpad Buffers    │ Thread-local reusable serialization scratchpads with exact memcpy    │
+│    (Wire Format Packing) │ into Box<[u8]>. Zero-copy IPC transfer.                              │
+└──────────────────────────┴──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 3.3 Modern RSS Feed Subsystem Overhaul
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                               MODERN RUST NATIVE RSS ARCHITECTURE                               │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│   [ HTTP Stream ]                                                                               │
+│          │                                                                                      │
+│          ▼                                                                                      │
+│   [ Native Streaming Parser: rss_parser.rs ]                                                    │
+│          │ • Zero-copy SAX parsing over byte stream (quick-xml)                                 │
+│          │ • Memory layout: Box<str> & Box<[T]> (Cloudflare Technique 1)                        │
+│          │ • Context-inferred feed_id (Cloudflare Technique 3)                                  │
+│          ▼                                                                                      │
+│   [ Relational SQLite Tables in database.rs ]                                                   │
+│          │ • rss_feeds (id, title, url, site_url, icon_url, last_fetched)                       │
+│          │ • rss_articles (id, feed_id, title, url, author, published_at, is_read, summary)     │
+│          │ • rss_article_content (article_id, content, full_content)                            │
+│          │   (Separated! Lightweight metadata vs heavy HTML content)                             │
+│          ▼                                                                                      │
+│   [ Virtualized Window IPC ]                                                                    │
+│          │ • sqlite_get_rss_articles_window(feed_id, limit: 50, offset: 0)                      │
+│          │ • IPC payload is tiny (~10KB vs 25MB)                                                │
+│          ▼                                                                                      │
+│   [ React Virtual Viewport (FeedsPage.tsx) ]                                                    │
+│          │ • Renders 50 lightweight cards instantly                                             │
+│          │ • Zero V8 heap pressure (<200KB JS memory)                                           │
+│          ▼                                                                                      │
+│   [ On Article Open ]                                                                           │
+│          │ • Rust load_article_content(article_id) on-demand                                    │
+│          │ • Rust article_to_epub_native using native zip crate                                 │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### A. Native Streaming Parser (`src-tauri/src/rss_parser.rs`)
+- Parses RSS 2.0, Atom 1.0, and RDF feeds via `quick-xml` directly from bytes.
+- Execution time: **2ms – 5ms** (vs. 150ms – 400ms in JavaScript).
+- Trims **~175 KB** of minified JavaScript from the frontend bundle (`fast-xml-parser`, `markdown-it`).
+
+#### B. Relational SQLite Schema & Content Decoupling (`src-tauri/src/database.rs`)
+- Store lightweight metadata in `rss_articles` (~200 bytes/row).
+- Store full HTML content in `rss_article_content`, fetched **only when an article is opened**.
+- Eliminates the 25MB monolithic persist loop from `rssStore.ts`.
+
+#### C. Wire Native Readability (`article_extractor.rs`)
+- Direct frontend calls to `fetch_and_extract_article_native` in Rust.
+- Deprecate JavaScript `@mozilla/readability` and `DOMPurify` (-120 KB JS bundle).
+
+---
+
+### 3.4 Library Scalability: Database Virtualization & Native FTS5
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                             HIGH-SCALE ZERO-COPY STORAGE PIPELINE                               │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│   [ React Virtual Viewport ] (Only 50 books in DOM / V8 Heap: ~150KB)                            │
+│                │                                                                                │
+│                ▼ IPC Cursor Query (limit: 50, offset: 100, sort: 'recent')                      │
+│   [ SQLite in Rust (WAL + mmap: 256MB) ]                                                        │
+│                │ • Sub-millisecond B-Tree index scan                                            │
+│                │ • books_fts USING fts5 (1-2ms BM25 ranking over 50,000 books)                  │
+│                │ • OS page cache reads (zero heap allocations)                                  │
+│                ▼                                                                                │
+│   [ Typed Window Payload ] (15KB IPC transfer vs. 30MB monolithic JSON string)                  │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Native SQLite FTS5**:
+   - Replace JavaScript `fuse.js` with compiled SQLite FTS5:
+     ```sql
+     CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
+         id UNINDEXED, title, author, description, tags,
+         tokenize = 'unicode61 remove_diacritics 2'
+     );
+     ```
+   - Searches 50,000 books in **1–2ms** with BM25 ranking.
+2. **Windowed Library Pagination**:
+   - `sqlite_query_books_window(filter, sort, limit, offset)` streams small typed slices to the frontend virtualizer.
+   - V8 heap drops by **90%+** (from 150MB+ to <5MB).
+3. **Dedicated Time-Series Table for Reading Analytics**:
+   - Move `dailyActivity` array out of `settingsStore.ts` into a relational `reading_sessions` table with date indexes. Instant SQL aggregations (`SUM(minutes)`, streaks, velocity) with zero JSON parsing.
+
+---
+
+### 3.5 Targeted Rust Native Performance Modules
+
+1. **Vault & Lemma SRS Exporter (`src-tauri/src/vault_export.rs`)**:
+   - Multi-threaded Rayon export of Obsidian book notes and Lemma flashcard decks.
+   - Replaces 60+ individual IPC `writeTextFile` operations with one native batch write (<5ms).
+2. **Speech Text Normalizer (`src-tauri/src/text_normalizer.rs`)**:
+   - Deterministic rule-based expansion of numbers, dates, Roman numerals, abbreviations, and currency.
+   - Shared between live Supertonic neural voice, desktop platform TTS, and companion audiobook generation (`audiobook_gen.rs`).
+3. **Off-Thread Cover Downsampling (`src-tauri/src/image_ops.rs`)**:
+   - Offloads image decoding and WebP compression to a Rayon thread pool using the `image` crate.
+   - Guarantees 60fps UI responsiveness during bulk book import.
+4. **Dominant Color Quantization**:
+   - Native SIMD / K-Means palette extraction directly on raw pixel buffers (<0.5ms vs 30ms with DOM canvas).
+
+---
+
+### 3.6 P2P Sync Hardening (`theorem-sync-core`)
+
+1. **Granular Item-Level Sync Keys**:
+   - Transition from monolithic sync keys (`annotations`) to atomic keys (`anno:<bookId>:<annotationId>`).
+   - Completely eliminates Last-Write-Wins (LWW) array overwrite collisions during concurrent offline editing.
+2. **Native SQLite Sync Merging in Rust**:
+   - Apply incoming Iroh-gossip updates directly to SQLite inside a single `with_connection` transaction.
+   - Notify the frontend via lightweight Tauri events (`sync-updated`), refreshing only visible viewport components.
+
+---
+
+### 3.7 The v1.6.0 Plugin Sandbox Runtime
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                  v1.6 PLUGIN RUNTIME CONTRACT                                   │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│  1. WebAssembly Component Sandbox (Wasmtime / Extism in Rust)                                   │
+│     • Plugins compile to .wasm (from TS/AssemblyScript, Rust, Go).                              │
+│     • True capability security: zero filesystem or network access unless declared in manifest.  │
+│     • 10× faster compute than JavaScript workers; zero DOM corruption risk.                     │
+│                                                                                                 │
+│  2. Declarative Viewport Slot Isolation (Foliate Overlayer SVG)                                 │
+│     • Plugins NEVER touch chapter <iframe> DOM directly.                                        │
+│     • Reader provides dedicated React / SVG overlay slot:                                       │
+│       registerReaderOverlay({ id, render: (viewport) => ReactNode })                            │
+│     • Guarantees Foliate's multi-column pagination never crashes.                               │
+│                                                                                                 │
+│  3. Namespaced Isolated Storage                                                                 │
+│     • Plugins receive isolated SQLite tables: plugin_<id>_kv.                                   │
+│     • Strict capability manifest: permissions: ["annotations:read"].                            │
+│                                                                                                 │
+│  4. Strongly-Typed Event Bus & Native Hooks                                                     │
+│     • app.on("before:page-turn", (event) => ...) (cancellable)                                  │
+│     • app.on("highlight:create", (highlight) => ...)                                           │
+│     • registerFormatLoader({ ext, loader }) / registerVaultExporter({ id, handler })            │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. Phased Master Roadmap
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   PHASED MASTER ROADMAP                                         │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  MILESTONE 1: THEOREM v1.5.2 — Precision Reader & Targeted Rust Modules                         │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  • Cross-Page Highlighting Engine:                                                              │
+│    - foliate-js-runtime/overlayer.js line fragment rendering (Range.getClientRects)             │
+│    - foliate-js-runtime/paginator.js anchor lock to startContainer                              │
+│    - src-tauri/src/epubcfi.rs CFI range splitting & comparison                                  │
+│  • Targeted Rust Modules:                                                                       │
+│    - src-tauri/src/vault_export.rs: Single-shot Rayon Obsidian & Lemma SRS exporter             │
+│    - src-tauri/src/text_normalizer.rs: Speech normalizer for TTS & companion audiobooks         │
+│    - src-tauri/src/image_ops.rs: Off-thread cover downsampling & WebP encoding                  │
+│    - src-tauri/src/rss_parser.rs: quick-xml SAX parser with Box<str> layout                     │
+│    - src-tauri/src/book_search.rs: Zero-allocation char_indices snippet search                 │
+│  • Mobile & Touch Disambiguation:                                                               │
+│    - 120ms tap-suppression barrier; strict touch gesture hierarchy                              │
+│                                                                                                 │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  MILESTONE 2: THEOREM v1.5.3 — Database Virtualization & Sync Hardening                         │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  • Database Virtualization & Scale:                                                             │
+│    - SQLite FTS5 full-text search (replacing fuse.js)                                           │
+│    - sqlite_query_books_window with limit/offset cursor pagination for 50,000+ books            │
+│    - Relational RSS schema in database.rs (rss_feeds, rss_articles, rss_article_content)        │
+│    - Relational reading_sessions table for instant analytics aggregations                       │
+│    - Elimination of monolithic Zustand persist JSON strings in kv_store                         │
+│  • P2P Sync Hardening:                                                                          │
+│    - Granular atomic sync keys in Iroh docs (anno:<id>)                                         │
+│    - Native SQLite sync conflict resolution in Rust                                             │
+│  • Reader Ecosystem:                                                                            │
+│    - Offline morphological lemmatizer / stemmer in Rust (100% dictionary hit rate)              │
+│    - Wire native article_extractor.rs, removing @mozilla/readability from JS                    │
+│                                                                                                 │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  MILESTONE 3: THEOREM v1.6.0 — Sandboxed Extensibility (The Plugin Ecosystem)                   │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  • WebAssembly Sandbox Runtime (Wasmtime / Extism in Rust)                                      │
+│  • Declarative Reader Overlay Slot Architecture (Foliate & PDF.js)                              │
+│  • Namespaced SQLite Storage & Capability-Based Permission System                               │
+│  • Published @theorem/plugin-sdk with Event Bus & Settings Tab APIs                             │
+│  • In-App Community Plugin Browser with 1-Click Installation                                    │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 5. Verification & Quality Gates
+
+Each milestone must strictly satisfy Theorem's quality gates:
+1. **Zero Lint / Compiler Errors**:
+   - Frontend: `pnpm typecheck` must produce zero errors.
+   - Rust: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo check` must pass cleanly.
+2. **Automated Test Coverage**:
+   - Unit tests for all Rust modules (`vault_export`, `text_normalizer`, `rss_parser`, `book_search`).
+   - Vitest suite (`pnpm test`) passing 100%.
+3. **Zero Secrets / Credentials Rule**:
+   - Full compliance with [`AGENTS.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/AGENTS.md).
