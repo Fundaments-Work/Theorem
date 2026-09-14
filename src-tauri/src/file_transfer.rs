@@ -104,29 +104,140 @@ impl std::fmt::Debug for FileTransferHandler {
     }
 }
 
+enum BookSource {
+    File(tokio::fs::File, u64),
+    Memory(Vec<u8>),
+}
+
 impl FileTransferHandler {
     fn open_read_db(data_dir: &Path) -> Result<rusqlite::Connection, String> {
         let db_path = data_dir.join("theorem.db");
-        let conn = rusqlite::Connection::open(&db_path).map_err(|e| format!("open db: {e}"))?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| format!("open db: {e}"))?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 5000;
              PRAGMA foreign_keys = ON;",
         )
         .map_err(|e| format!("pragma: {e}"))?;
         Ok(conn)
     }
 
-    async fn read_book_data(data_dir: &Path, book_id: &str) -> Result<Vec<u8>, String> {
-        let conn = Self::open_read_db(data_dir)?;
-        let mut stmt = conn
-            .prepare("SELECT data FROM books WHERE id = ?1 AND length(data) > 0")
-            .map_err(|e| format!("prepare: {e}"))?;
-        let book_data: Vec<u8> = stmt
-            .query_row(rusqlite::params![book_id], |row| row.get(0))
-            .map_err(|_| format!("book data not found in sqlite: {book_id}"))?;
-        Ok(book_data)
+    fn find_in_db(data_dir: &Path, book_id: &str) -> (Option<Vec<u8>>, Vec<PathBuf>) {
+        let mut data = None;
+        let mut paths = Vec::new();
+        let conn = match Self::open_read_db(data_dir) {
+            Ok(c) => c,
+            Err(_) => return (None, paths),
+        };
+
+        // 1. Check books.data BLOB
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT data FROM books WHERE id = ?1 AND length(data) > 0")
+        {
+            if let Ok(blob) =
+                stmt.query_row(rusqlite::params![book_id], |row| row.get::<_, Vec<u8>>(0))
+            {
+                data = Some(blob);
+            }
+        }
+
+        // 2. Check book_metadata table
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT metadata_json FROM book_metadata WHERE book_id = ?1")
+        {
+            if let Ok(meta_str) =
+                stmt.query_row(rusqlite::params![book_id], |row| row.get::<_, String>(0))
+            {
+                if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(&meta_str) {
+                    for key in &["filePath", "file_path", "storagePath", "storage_path"] {
+                        if let Some(p_str) = meta_val.get(*key).and_then(|v| v.as_str()) {
+                            paths.push(PathBuf::from(p_str));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Check kv_store table for 'persist:theorem-library'
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT value FROM kv_store WHERE key = 'persist:theorem-library'")
+        {
+            if let Ok(lib_str) = stmt.query_row([], |row| row.get::<_, String>(0)) {
+                if let Ok(lib_val) = serde_json::from_str::<serde_json::Value>(&lib_str) {
+                    if let Some(books) = lib_val.pointer("/state/books").and_then(|b| b.as_array())
+                    {
+                        for b in books {
+                            if b.get("id").and_then(|v| v.as_str()) == Some(book_id) {
+                                for key in &["filePath", "file_path", "storagePath", "storage_path"]
+                                {
+                                    if let Some(p_str) = b.get(*key).and_then(|v| v.as_str()) {
+                                        paths.push(PathBuf::from(p_str));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (data, paths)
+    }
+
+    async fn locate_book(data_dir: &Path, book_id: &str) -> Result<BookSource, String> {
+        // 1. Check book-cache/{book_id}.book
+        let cache_file = data_dir
+            .join("book-cache")
+            .join(format!("{}.book", book_id));
+        if let Ok(metadata) = tokio::fs::metadata(&cache_file).await {
+            if metadata.is_file() {
+                let file = tokio::fs::File::open(&cache_file)
+                    .await
+                    .map_err(|e| format!("open cache file: {e}"))?;
+                return Ok(BookSource::File(file, metadata.len()));
+            }
+        }
+
+        // 2. Check book-cache/{book_id}
+        let cache_file_raw = data_dir.join("book-cache").join(book_id);
+        if let Ok(metadata) = tokio::fs::metadata(&cache_file_raw).await {
+            if metadata.is_file() {
+                let file = tokio::fs::File::open(&cache_file_raw)
+                    .await
+                    .map_err(|e| format!("open cache raw file: {e}"))?;
+                return Ok(BookSource::File(file, metadata.len()));
+            }
+        }
+
+        // 3. Query SQLite via spawn_blocking to keep accept Send-compliant
+        let dir_clone = data_dir.to_path_buf();
+        let id_clone = book_id.to_string();
+        let (db_data, candidate_paths) =
+            tokio::task::spawn_blocking(move || Self::find_in_db(&dir_clone, &id_clone))
+                .await
+                .map_err(|e| format!("spawn_blocking: {e}"))?;
+
+        if let Some(data) = db_data {
+            return Ok(BookSource::Memory(data));
+        }
+
+        for p in candidate_paths {
+            if let Ok(metadata) = tokio::fs::metadata(&p).await {
+                if metadata.is_file() {
+                    let file = tokio::fs::File::open(&p)
+                        .await
+                        .map_err(|e| format!("open book file: {e}"))?;
+                    return Ok(BookSource::File(file, metadata.len()));
+                }
+            }
+        }
+
+        Err(format!(
+            "book '{book_id}' not found in book-cache, sqlite blob, or referenced file paths"
+        ))
     }
 }
 
@@ -145,29 +256,24 @@ impl ProtocolHandler for FileTransferHandler {
                 Ok(_) => line.trim().to_string(),
             };
 
-            let result = {
-                let path = self
-                    .data_dir
-                    .join("book-cache")
-                    .join(format!("{}.book", request));
-                match tokio::fs::read(&path).await {
-                    Ok(data) => Ok(data),
-                    Err(fs_err) => Self::read_book_data(&self.data_dir, &request)
-                        .await
-                        .map_err(|_| format!("book not found in book-cache or sqlite: {fs_err}")),
-                }
-            };
+            let result = Self::locate_book(&self.data_dir, &request).await;
 
             match result {
-                Ok(data) => {
+                Ok(BookSource::File(mut file, len)) => {
+                    let header = format!("OK {}\n", len);
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut send, header.as_bytes()).await;
+                    let _ = tokio::io::copy(&mut file, &mut send).await;
+                    let _ = send.finish();
+                }
+                Ok(BookSource::Memory(data)) => {
                     let header = format!("OK {}\n", data.len());
-                    let _ = send.write_all(header.as_bytes()).await;
-                    let _ = send.write_all(&data).await;
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut send, header.as_bytes()).await;
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut send, &data).await;
                     let _ = send.finish();
                 }
                 Err(e) => {
                     let msg = format!("ERR {}\n", e);
-                    let _ = send.write_all(msg.as_bytes()).await;
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut send, msg.as_bytes()).await;
                     let _ = send.finish();
                 }
             }

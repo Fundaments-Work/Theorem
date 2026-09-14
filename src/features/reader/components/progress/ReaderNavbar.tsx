@@ -2,6 +2,7 @@
 import { useCallback, useMemo, useState, useRef, memo } from "react";
 import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal, Disc3 } from "lucide-react";
 import { cn } from "../../../../core/lib/utils";
+import { isAndroid } from "../../../../core/lib/env";
 import { Spinner } from "../../../../ui";
 import { useSettingsStore } from "../../../../core/store";
 import type { TocItem, DocLocation } from "../../../../core/types";
@@ -355,7 +356,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                     <Download className="w-3 h-3" />
                                 </button>
                             )}
-                            {neuralReady && onTtsVoiceChange && (
+                            {(neuralReady || isAndroid()) && (
                                 <div className="relative">
                                     <button
                                         onClick={() => setVoiceMenuOpen(v => !v)}
@@ -374,24 +375,28 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                         <>
                                             <div className="fixed inset-0 z-[141]" onClick={() => setVoiceMenuOpen(false)} />
                                             <div className="absolute bottom-9 right-0 z-[142] w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
-                                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mb-1.5">Voice</div>
-                                                <div className="grid grid-cols-5 gap-1">
-                                                    {NEURAL_VOICES.map((v) => (
-                                                        <button
-                                                            key={v}
-                                                            title={NEURAL_VOICE_LABELS[v]}
-                                                            onClick={() => onTtsVoiceChange(v)}
-                                                            className={cn(
-                                                                "h-7 rounded-md text-[10px] font-medium transition-colors",
-                                                                activeVoice === v
-                                                                    ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
-                                                                    : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
-                                                            )}
-                                                        >
-                                                            {v}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                                {neuralReady && onTtsVoiceChange && (
+                                                    <>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mb-1.5">Voice</div>
+                                                        <div className="grid grid-cols-5 gap-1">
+                                                            {NEURAL_VOICES.map((v) => (
+                                                                <button
+                                                                    key={v}
+                                                                    title={NEURAL_VOICE_LABELS[v]}
+                                                                    onClick={() => onTtsVoiceChange(v)}
+                                                                    className={cn(
+                                                                        "h-7 rounded-md text-[10px] font-medium transition-colors",
+                                                                        activeVoice === v
+                                                                            ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                            : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
+                                                                    )}
+                                                                >
+                                                                    {v}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </>
+                                                )}
                                                 <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mt-2.5 mb-1.5">Speed</div>
                                                 <div className="flex gap-1">
                                                     {[0.75, 1, 1.25, 1.5].map((s) => (

@@ -24,6 +24,11 @@ export function isTauriDesktop(): boolean {
     return isTauri() && !isMobile();
 }
 
+export function isAndroid(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return /Android/i.test(navigator.userAgent);
+}
+
 export function isWebKitBrowserEngine(): boolean {
     if (typeof navigator === 'undefined') return false;
 

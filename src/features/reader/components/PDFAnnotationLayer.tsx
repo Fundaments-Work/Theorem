@@ -415,13 +415,40 @@ export function PDFAnnotationLayer({
             return;
         }
 
-        const selectedText = selection.toString().trim();
+        let pageRange: Range;
+        try {
+            const nodeRange = document.createRange();
+            nodeRange.selectNodeContents(textLayerNode);
+
+            const startCmp = range.compareBoundaryPoints(Range.START_TO_START, nodeRange);
+            const startContainer = startCmp < 0 ? nodeRange.startContainer : range.startContainer;
+            const startOffset = startCmp < 0 ? nodeRange.startOffset : range.startOffset;
+
+            const endCmp = range.compareBoundaryPoints(Range.END_TO_END, nodeRange);
+            const endContainer = endCmp > 0 ? nodeRange.endContainer : range.endContainer;
+            const endOffset = endCmp > 0 ? nodeRange.endOffset : range.endOffset;
+
+            pageRange = document.createRange();
+            pageRange.setStart(startContainer, startOffset);
+            pageRange.setEnd(endContainer, endOffset);
+        } catch {
+            pageRange = range;
+        }
+
+        const selectedText = pageRange.toString().trim();
         if (!selectedText) {
             return;
         }
 
         const layerRect = layerNode.getBoundingClientRect();
-        const rects = Array.from(range.getClientRects())
+        const EPSILON = 2;
+        const rects = Array.from(pageRange.getClientRects())
+            .filter((rect) => (
+                rect.bottom >= layerRect.top - EPSILON &&
+                rect.top <= layerRect.bottom + EPSILON &&
+                rect.right >= layerRect.left - EPSILON &&
+                rect.left <= layerRect.right + EPSILON
+            ))
             .map((rect) => ({
                 x: (rect.left - layerRect.left) / scale,
                 y: (rect.top - layerRect.top) / scale,
@@ -437,7 +464,6 @@ export function PDFAnnotationLayer({
         const firstRect = rects[0];
         const dedupKey = `${selectedText.slice(0, 80)}:${firstRect.x.toFixed(2)}:${firstRect.y.toFixed(2)}:${rects.length}`;
         if (highlightDedupRef.current === dedupKey) {
-            selection.removeAllRanges();
             return;
         }
         highlightDedupRef.current = dedupKey;
@@ -457,7 +483,13 @@ export function PDFAnnotationLayer({
             rects,
         });
 
-        selection.removeAllRanges();
+        // Defer clearing selection so adjacent pages can capture their portion of a cross-page selection
+        window.setTimeout(() => {
+            const currentSel = window.getSelection();
+            if (currentSel && !currentSel.isCollapsed) {
+                currentSel.removeAllRanges();
+            }
+        }, 80);
     }, [highlightColor, mode, onAnnotationAdd, pageNumber, scale]);
 
     useEffect(() => {

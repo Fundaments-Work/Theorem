@@ -418,7 +418,6 @@ let _responderReadyPromise: Promise<void> | null = null;
 // Track the last successful provision so clean sync rounds don't re-write
 // every book/domain over IPC. Keyed by the serialized value; invalidated
 // when the paired-device set changes or a re-provision is forced.
-let _provisionedOnce = false;
 let _lastProvisionFingerprint = "";
 const _provisionedValues = new Map<string, string>();
 
@@ -1239,25 +1238,14 @@ export async function provisionToIrohDocs(): Promise<boolean> {
         const devices = await getPairedDevices().catch(() => []);
         const fingerprint = devices.map((d) => d.deviceId).sort().join("|");
 
-        // Skip the round entirely only for structural reasons: never provisioned,
-        // a forced re-provision (e.g. after a doc re-import), or a changed peer
-        // set. We must NOT skip based on _dataDirty: that flag is only set when
-        // auto-sync is on, so a manual sync with auto-sync disabled would skip
-        // provisioning and silently drop the user's edits. The per-key
-        // _provisionedValues cache below still avoids re-writing unchanged data.
-        const needsProvision = _forceReProvision || !_provisionedOnce
-            || fingerprint !== _lastProvisionFingerprint;
-        if (!needsProvision) {
-            return true;
-        }
-
         // A new/changed peer set or a doc re-import means peers may be missing
         // our entries, so write everything rather than only the deltas.
+        // The per-key _provisionedValues cache below avoids re-writing unchanged data
+        // while allowing mutations (e.g. reading progress updates) to push to iroh-docs.
         if (fingerprint !== _lastProvisionFingerprint || _forceReProvision) {
             _provisionedValues.clear();
         }
         _lastProvisionFingerprint = fingerprint;
-        _provisionedOnce = true;
         _forceReProvision = false;
 
         const serializeBook = (book: typeof lib.books[number]) => {

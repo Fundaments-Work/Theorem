@@ -174,6 +174,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const settings = useSettingsStore(useShallow((state) => state.settings));
     const updateReaderSettings = useSettingsStore((state) => state.updateReaderSettings);
     const updateStats = useSettingsStore((state) => state.updateStats);
+    const updateTtsSettings = useSettingsStore((state) => state.updateTtsSettings);
     const readerZoomRef = useRef(settings.readerSettings.zoom);
     const readerRef = useRef<ReaderViewportHandle>(null);
     const pdfReaderRef = useRef<PDFJsEngineRef>(null);
@@ -1781,9 +1782,15 @@ const BookReaderPage = memo(function BookReaderPage() {
 
         const resolvePickerPosition = (anchor?: Range | MouseEvent) => {
             if (anchor && 'getBoundingClientRect' in anchor) {
-                const rect = anchor.getBoundingClientRect();
-                let normalizedLeft = rect.left;
-                let normalizedTop = rect.top;
+                const clientRects = Array.from(anchor.getClientRects()).filter(
+                    (r) => r.width > 0 && r.height > 0,
+                );
+                const targetRect = clientRects.length > 0
+                    ? clientRects[clientRects.length - 1]
+                    : anchor.getBoundingClientRect();
+
+                let normalizedLeft = targetRect.left;
+                let normalizedTop = targetRect.top;
 
                 const rangeDocument = anchor.startContainer?.ownerDocument;
                 const frameElement = rangeDocument?.defaultView?.frameElement;
@@ -1794,9 +1801,9 @@ const BookReaderPage = memo(function BookReaderPage() {
                 }
 
                 return {
-                    x: normalizedLeft + rect.width / 2,
+                    x: normalizedLeft + targetRect.width / 2,
                     y: normalizedTop,
-                    height: Math.max(rect.height, 24),
+                    height: Math.max(targetRect.height, 24),
                 };
             }
 
@@ -2466,7 +2473,12 @@ const BookReaderPage = memo(function BookReaderPage() {
                     fullscreen={settings.readerSettings.fullscreen}
                     onToggleFullscreen={() => updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen })}
                     immersionMode={immersionMode}
-                    onToggleImmersion={(!isPdfFormat && ttsEnabled) ? () => setImmersionMode(v => !v) : undefined}
+                    onToggleImmersion={!isPdfFormat ? () => {
+                        if (!ttsEnabled) {
+                            updateTtsSettings({ enabled: true });
+                        }
+                        setImmersionMode(v => !v);
+                    } : undefined}
                     speedReadMode={speedReadMode}
                     onToggleSpeedRead={(!isPdfFormat && settings.speedReadEnabled) ? () => {
                         if (speedReadMode) {

@@ -54,12 +54,12 @@ const defaultDeviceSyncSettings: AppSettings["deviceSync"] = {
     deviceId: "",
     deviceName: "",
     pairedDevices: [],
-    syncOnConnect: false,
-    autoSyncEnabled: false,
+    syncOnConnect: true,
+    autoSyncEnabled: true,
 };
 
 const defaultTtsSettings: TtsSettings = {
-    enabled: false,
+    enabled: true,
     voice: "af_bella",
     speed: 1.0,
 };
@@ -210,7 +210,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: "theorem-settings",
-            version: 11,
+            version: 12,
             storage: createJSONStorage(() => theoremPersistStorage),
             partialize: (state) => ({
                 settings: state.settings,
@@ -288,6 +288,20 @@ export const useSettingsStore = create<SettingsStore>()(
                 if (version < 11) {
                     if (state.settings && state.settings.cli === undefined) {
                         state.settings.cli = { enabled: false };
+                    }
+                }
+
+                if (version < 12) {
+                    if (state.settings?.tts && state.settings.tts.enabled === undefined) {
+                        state.settings.tts.enabled = true;
+                    }
+                    if (state.settings?.deviceSync) {
+                        if (state.settings.deviceSync.autoSyncEnabled === undefined) {
+                            state.settings.deviceSync.autoSyncEnabled = true;
+                        }
+                        if (state.settings.deviceSync.syncOnConnect === undefined) {
+                            state.settings.deviceSync.syncOnConnect = true;
+                        }
                     }
                 }
 

@@ -167,10 +167,12 @@ class TtsAudioPlugin(private val activity: Activity) : Plugin(activity) {
         runOnUiThread {
             try {
                 if (voiceName.isNotEmpty()) {
-                    for (voice in currentTts.voices) {
-                        if (voice.name == voiceName) {
-                            currentTts.voice = voice
-                            break
+                    currentTts.voices?.let { voices ->
+                        for (voice in voices) {
+                            if (voice.name == voiceName) {
+                                currentTts.voice = voice
+                                break
+                            }
                         }
                     }
                 }
@@ -230,11 +232,13 @@ class TtsAudioPlugin(private val activity: Activity) : Plugin(activity) {
             runOnUiThread {
                 try {
                     val jsonArray = JSONArray()
-                    for (v in currentTts.voices) {
-                        val obj = JSONObject()
-                        obj.put("name", v.name)
-                        obj.put("locale", v.locale?.toLanguageTag() ?: "")
-                        jsonArray.put(obj)
+                    currentTts.voices?.let { voices ->
+                        for (v in voices) {
+                            val obj = JSONObject()
+                            obj.put("name", v.name)
+                            obj.put("locale", v.locale?.toLanguageTag() ?: "")
+                            jsonArray.put(obj)
+                        }
                     }
                     val result = JSObject()
                     result.put("voicesJson", jsonArray.toString())
@@ -349,10 +353,12 @@ class TtsAudioPlugin(private val activity: Activity) : Plugin(activity) {
                     pendingSynthInvokes[utteranceId] = invoke
 
                     if (args.voice.isNotEmpty()) {
-                        for (voice in currentTts.voices) {
-                            if (voice.name == args.voice) {
-                                currentTts.voice = voice
-                                break
+                        currentTts.voices?.let { voices ->
+                            for (voice in voices) {
+                                if (voice.name == args.voice) {
+                                    currentTts.voice = voice
+                                    break
+                                }
                             }
                         }
                     }
