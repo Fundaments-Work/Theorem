@@ -66,12 +66,13 @@ The accept loop runs for the entire app lifecycle. If a doc event stream dies, i
 
 `provisionToIrohDocs()` serializes all store state into the iroh-docs document as individual key-value entries:
 - `book:{bookId}` — per-book metadata (stripped of file paths and data: cover URLs)
-- `annotations` — full annotations array
+- `anno:{bookId}:{annotationId}` — fine-grained per-annotation entries to avoid monolithic array collision
+- `annotations` — full annotations array fallback
 - `collections` — full collections array
 - `deletion_tombstones` — sync-aware deletion markers
-- `vocabulary` — vocabulary terms
+- `vocabulary` — vocabulary terms (and relational SQLite vocabulary entries)
 - `settings` — full settings + `_settingsUpdatedAt` timestamp
-- `reading_stats` — reading statistics
+- `reading_stats` — reading statistics (including `lastGoalNotifiedDate` and `lastDailyReminderDate`)
 - `rss_feeds` / `rss_articles` — RSS data
 
 ### 4. Sync
@@ -89,23 +90,23 @@ The `runDeviceSync()` JS function orchestrates a complete sync round:
 3. Listens for `docs-pending-content-ready` and `docs-sync-finished` events (settles when BOTH fire or 30s timeout)
 4. Calls `docsSyncNow(peerDeviceId)` — triggers the Rust-side sync
 5. `hydrateFromIrohDocs()` — reads all entries from all paired docs via `docsGetAllEntries()`
-6. `mergeIncomingData()` — merges all incoming entries into local Zustand stores
+6. In Rust Tauri desktop/mobile environments, `sqlite_merge_sync_entries` merges incoming items directly into SQLite in an atomic transaction; in pure web environments, `mergeIncomingData()` reconciles the Zustand stores.
 
 ### 5. Merge
 
-`mergeIncomingData()` on the JS side processes all incoming entries:
+Incoming sync reconciliation processes all entries:
 
 | Domain | Strategy |
 |--------|----------|
-| Books | By contentHash/blobHash dedup. Newer `lastReadAt` wins progress. Union of tags, favorites, ratings. |
-| Annotations | Newer `updatedAt` wins. Filtered by tombstones. |
+| Books | By contentHash/blobHash dedup. Newer `lastReadAt` wins progress (with `Math.max(progress)` fallback). Union of tags, favorites, ratings. |
+| Annotations | Fine-grained `anno:{bookId}:{annotationId}` keys. Newer `updatedAt` wins. Union of non-conflicting IDs (zero data loss). Filtered by tombstones. |
 | Collections | Union of bookIds. Newer name/description wins. |
-| Vocabulary | Merged by normalized term+language. Deduped meanings. |
+| Vocabulary | Merged by normalized term+language. Deduped meanings. Synchronized with normalized SQLite `vocabulary` table. |
 | Settings | Newer `_settingsUpdatedAt` timestamp wins. Preserves local `deviceSync` config. |
-| Reading stats | Max of each stat. Union of daily activity. Streaks recomputed. |
+| Reading stats | Max of each stat. Union of daily activity. Streaks recomputed. Deterministic merge of `lastGoalNotifiedDate` and `lastDailyReminderDate` to eliminate cross-device duplicate notifications. |
 | RSS feeds | By URL. Merged metadata. |
 | RSS articles | By ID. Union of read/favorite status. |
-| Deletion tombstones | Union of all tombstones with older-than-90-day pruning. |
+| Deletion tombstones | Union of all tombstones with older-than-90-day pruning. Permanent tombstone precedence over live records. |
 
 ### 6. Live Listener
 

@@ -110,6 +110,7 @@ const AnnotationCard = memo(function AnnotationCard({
     onDelete,
     onEdit,
     onShare,
+    onGoToBook,
 }: AnnotationCardProps) {
     const [showMenu, setShowMenu] = useState(false);
     const borderColor = annotation.color ? HIGHLIGHT_SOLID_COLORS[annotation.color] : "var(--color-border)";
@@ -131,7 +132,11 @@ const AnnotationCard = memo(function AnnotationCard({
                         </span>
 
                     </div>
-                    <div className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)] truncate">
+                    <div
+                        onClick={() => onGoToBook(annotation.bookId, annotation.location)}
+                        className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)] truncate cursor-pointer hover:underline"
+                        title="Open in book"
+                    >
                         <HighlightMatch text={book?.title || "Unknown source"} query={searchQuery} /> <span className="text-[color:var(--color-text-muted)]">|</span> <HighlightMatch text={book?.author || "Unknown author"} query={searchQuery} />
                     </div>
                 </div>
@@ -152,6 +157,15 @@ const AnnotationCard = memo(function AnnotationCard({
                                 onClick={() => setShowMenu(false)}
                             />
                             <div className="absolute right-0 top-full z-20 mt-1 w-40 border border-[var(--color-border)] bg-[var(--color-surface)] py-1">
+                                <button
+                                    onClick={() => {
+                                        onGoToBook(annotation.bookId, annotation.location);
+                                        setShowMenu(false);
+                                    }}
+                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                                >
+                                    Open in book
+                                </button>
                                 <button
                                     onClick={() => {
                                         onEdit(annotation.id);
@@ -201,14 +215,18 @@ const AnnotationCard = memo(function AnnotationCard({
                 </div>
             </div>
 
-            <div className="space-y-3">
+            <div
+                className="space-y-3 cursor-pointer"
+                onClick={() => onGoToBook(annotation.bookId, annotation.location)}
+                title="Click to open at this highlighted location"
+            >
                 {annotation.selectedText && (
-                    <blockquote className="pl-3 font-serif text-[17px] leading-relaxed text-[color:var(--color-text-primary)]">
+                    <blockquote className="pl-3 font-serif text-[17px] leading-relaxed text-[color:var(--color-text-primary)] hover:opacity-85 transition-opacity">
                         <HighlightMatch text={annotation.selectedText} query={searchQuery} />
                     </blockquote>
                 )}
                 {annotation.noteContent && (
-                    <p className="font-serif text-[16px] leading-relaxed text-[color:var(--color-text-primary)] whitespace-pre-wrap">
+                    <p className="font-serif text-[16px] leading-relaxed text-[color:var(--color-text-primary)] whitespace-pre-wrap hover:opacity-85 transition-opacity">
                         <HighlightMatch text={annotation.noteContent} query={searchQuery} />
                     </p>
                 )}

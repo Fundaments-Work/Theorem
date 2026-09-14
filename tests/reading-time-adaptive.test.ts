@@ -148,3 +148,53 @@ describe("formatAdaptiveReadingTime", () => {
         expect(res.combined).toBeNull();
     });
 });
+
+describe("Outliers and boundary cases", () => {
+    it("handles 0-word and negative-word inputs gracefully in calculateWpm", () => {
+        expect(calculateWpm(0, 30)).toBe(MIN_WPM);
+        expect(calculateWpm(-50, 30)).toBe(MIN_WPM);
+    });
+
+    it("handles exact boundary thresholds for dwell time (5s and 180s)", () => {
+        // Exactly 5.0 seconds should compute valid WPM, 4.999 should be null
+        expect(calculateWpm(250, 4.999)).toBeNull();
+        expect(calculateWpm(250, 5.0)).not.toBeNull();
+        expect(calculateWpm(250, 5.0)).toBe(MAX_WPM); // 3000 WPM clamped to 800
+
+        // Exactly 180.0 seconds should compute valid WPM, 180.001 should be null
+        expect(calculateWpm(250, 180.0)).not.toBeNull();
+        expect(calculateWpm(250, 180.001)).toBeNull();
+    });
+
+    it("handles massive word inputs (e.g. 100,000 words) without overflow", () => {
+        expect(calculateWpm(100_000, 60)).toBe(MAX_WPM);
+    });
+
+    it("handles zero and negative dwell times without throwing", () => {
+        expect(calculateWpm(250, 0)).toBeNull();
+        expect(calculateWpm(250, -10)).toBeNull();
+    });
+
+    it("handles non-finite and extreme progress in calculateTimeRemaining", () => {
+        // Progress < 0 clamps or treats as 0 progress
+        expect(calculateTimeRemaining(-0.5, 100, 250)).toBe(100);
+        // Progress > 1 returns 0 remaining
+        expect(calculateTimeRemaining(1.5, 100, 250)).toBe(0);
+        // 0 total pages returns 0 remaining
+        expect(calculateTimeRemaining(0, 0, 250)).toBe(0);
+        // Negative total pages returns 0 remaining
+        expect(calculateTimeRemaining(0, -10, 250)).toBe(0);
+    });
+
+    it("handles single-element or empty fraction arrays in calculateChapterTimeRemaining", () => {
+        expect(calculateChapterTimeRemaining(0.5, [], 100, 250)).toBeNull();
+        expect(calculateChapterTimeRemaining(0.5, [0.5], 100, 250)).toBeNull();
+        expect(calculateChapterTimeRemaining(0.5, [0, 1], 100, 250)).toBeNull(); // final section check
+    });
+
+    it("handles formatting outliers in formatTimeRemaining", () => {
+        expect(formatTimeRemaining(NaN)).toBe("< 1 min left");
+        expect(formatTimeRemaining(-5)).toBe("< 1 min left");
+        expect(formatTimeRemaining(10_000)).toBe("166 hr 40 min left");
+    });
+});

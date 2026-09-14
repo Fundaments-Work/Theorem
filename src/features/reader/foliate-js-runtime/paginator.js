@@ -406,10 +406,10 @@ class View {
         for (const el of doc.body.querySelectorAll('figure')) {
             setStylesImportant(el, breakAvoidStyles)
         }
-        // Target paragraphs and divs that directly contain an img/svg child
-        for (const el of doc.body.querySelectorAll('p > img, p > svg, p > video, div > img, div > svg, section > img')) {
+        // Target dedicated image paragraphs (where the paragraph's sole content is the media)
+        for (const el of doc.body.querySelectorAll('p > img, p > svg, p > video')) {
             const parent = el.parentElement
-            if (parent && parent !== doc.body) {
+            if (parent && parent !== doc.body && parent.children.length === 1 && !parent.textContent.trim()) {
                 setStylesImportant(parent, breakAvoidStyles)
             }
         }
@@ -672,11 +672,20 @@ export class Paginator extends HTMLElement {
             let isPointerSelecting = false
             doc.addEventListener('pointerdown', () => isPointerSelecting = true)
             doc.addEventListener('pointerup', () => isPointerSelecting = false)
+            doc.addEventListener('pointercancel', () => isPointerSelecting = false)
             let isKeyboardSelecting = false
             doc.addEventListener('keydown', () => isKeyboardSelecting = true)
             doc.addEventListener('keyup', () => isKeyboardSelecting = false)
             
-            const checkPointerSelection = debounce((_range, _sel) => {}, 700)
+            const checkPointerSelection = debounce((range, sel) => {
+                if (!sel?.rangeCount) return
+                const selRange = sel.getRangeAt(0)
+                const backward = selectionIsBackward(sel)
+                if (backward && selRange.compareBoundaryPoints(Range.START_TO_START, range) < 0)
+                    this.prev()
+                else if (!backward && selRange.compareBoundaryPoints(Range.END_TO_END, range) > 0)
+                    this.next()
+            }, 600)
             doc.addEventListener('selectionchange', () => {
                 if (this.scrolled) return
                 const sel = doc.getSelection()
@@ -932,10 +941,17 @@ export class Paginator extends HTMLElement {
 
         this.#scrollToPage(page, 'snap').then(() => {
             const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
-            if (dir) return this.#goTo({
-                index: this.#adjacentIndex(dir),
-                anchor: dir < 0 ? () => 1 : () => 0,
-            })
+            if (dir) {
+                const nextIndex = this.#adjacentIndex(dir)
+                if (this.#canGoToIndex(nextIndex)) {
+                    return this.#goTo({
+                        index: nextIndex,
+                        anchor: dir < 0 ? () => 1 : () => 0,
+                    })
+                }
+            }
+        }).catch(err => {
+            console.warn('[foliate paginator] snap error', err)
         })
     }
     #onTouchStart(e) {
@@ -964,10 +980,8 @@ export class Paginator extends HTMLElement {
 
         // Bail immediately if user has active text selection (highlight drag)
         const sel = this.#view?.document?.getSelection?.()
-        const hasSelection = (sel && !sel.isCollapsed && sel.toString().trim().length > 0)
-            || Date.now() < this.#selectionActiveUntil
+        const hasSelection = sel && !sel.isCollapsed && sel.toString().trim().length > 0
         if (hasSelection) {
-            this.#selectionActiveUntil = Date.now() + 1500
             if (this.#touchScrolled) {
                 this.#touchScrolled = false
                 this.#scrollToPage(this.page, 'snap')
@@ -980,21 +994,17 @@ export class Paginator extends HTMLElement {
         const dx = state.x - x, dy = state.y - y
         const dt = e.timeStamp - state.t
 
-        // If finger was held for >180ms before moving, it is a long-press / text selection hold
-        if (!state.axis && dt > 180) {
-            state.axis = 'hold'
-            return
-        }
-        if (state.axis === 'hold') return
-
-        // Determine axis lock on intentional movement past 20px with horizontal dominance
+        // Determine axis lock on intentional movement past 12px with horizontal dominance
         if (!state.axis) {
             const absDx = Math.abs(state.startX - x)
             const absDy = Math.abs(state.startY - y)
-            if (absDx > 20 && absDx > absDy * 1.5) {
+            if (absDx > 12 && absDx > absDy) {
                 state.axis = 'h'
-            } else if (absDy > 20 && absDy > absDx * 1.5) {
+            } else if (absDy > 12 && absDy > absDx) {
                 state.axis = 'v'
+            } else if (dt > 400 && absDx < 10 && absDy < 10) {
+                state.axis = 'hold'
+                return
             }
         }
 
@@ -1039,8 +1049,7 @@ export class Paginator extends HTMLElement {
 
         // If user had active text selection, restore page position if it was touched
         const sel = this.#view?.document?.getSelection?.()
-        const hasSelection = (sel && !sel.isCollapsed && sel.toString().trim().length > 0)
-            || Date.now() < this.#selectionActiveUntil
+        const hasSelection = sel && !sel.isCollapsed && sel.toString().trim().length > 0
         if (hasSelection) {
             if (wasScrolled) {
                 this.#scrollToPage(this.page, 'snap')
@@ -1061,12 +1070,12 @@ export class Paginator extends HTMLElement {
             const state = this.#touchState
             const size = this.size
             // Commit the page turn if:
-            //   - displacement exceeded 25% of screen width (slow drag completion), OR
-            //   - flick velocity exceeded 0.25 px/ms (quick swipe)
+            //   - displacement exceeded 20% of screen width (smooth thumb drag completion), OR
+            //   - flick velocity exceeded 0.2 px/ms (quick swipe)
             const totalDx = state.totalDx ?? 0
             const velocity = state.vx ?? 0
-            const displaced = Math.abs(totalDx) > size * 0.25
-            const flicked = Math.abs(velocity) > 0.25
+            const displaced = Math.abs(totalDx) > size * 0.2
+            const flicked = Math.abs(velocity) > 0.2
             if (displaced || flicked) {
                 // Use velocity for snap direction; fall back to displacement direction
                 const effectiveVx = Math.abs(velocity) > 0.05
@@ -1117,7 +1126,7 @@ export class Paginator extends HTMLElement {
             : this.#pageOffset
         const apply = x => scrolled
             ? this.#container[this.scrollProp] = x
-            : this.#setViewPosition(x)
+            : this.#setViewPosition(x, false)
         if (cur() === offset) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
@@ -1171,16 +1180,7 @@ export class Paginator extends HTMLElement {
             return
         }
 
-        // Stabilize cross-page/cross-column anchor: if anchor is a non-collapsed Range,
-        // collapse to its start boundary so uncollapse evaluates strictly the initial word/character.
-        let anchorTarget = resolvedAnchor
-        if (resolvedAnchor && typeof resolvedAnchor.cloneRange === 'function' && !resolvedAnchor.collapsed) {
-            const startRange = resolvedAnchor.cloneRange()
-            startRange.collapse(true)
-            anchorTarget = startRange
-        }
-
-        const target = uncollapse(anchorTarget)
+        const target = uncollapse(resolvedAnchor)
         const rects = target?.getClientRects?.()
         // if anchor is an element or a range
         if (rects) {
@@ -1234,7 +1234,9 @@ export class Paginator extends HTMLElement {
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
     async #display(promise) {
-        const { index, src, anchor, onLoad, select } = await promise
+        const res = await promise
+        if (!res || res.index == null) return
+        const { index, src, anchor, onLoad, select } = res
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
@@ -1291,6 +1293,7 @@ export class Paginator extends HTMLElement {
         return index >= 0 && index <= this.sections.length - 1
     }
     async #goTo({ index, anchor, select}) {
+        if (!this.#canGoToIndex(index)) return
         if (index === this.#index) await this.#display({ index, anchor, select })
         else {
             const oldIndex = this.#index
@@ -1304,7 +1307,7 @@ export class Paginator extends HTMLElement {
                 .catch(e => {
                     console.warn(e)
                     console.warn(new Error(`Failed to load section ${index}`))
-                    return {}
+                    return null
                 }))
         }
     }
@@ -1349,14 +1352,24 @@ export class Paginator extends HTMLElement {
     async #turnPage(dir, distance) {
         if (this.#locked) return
         this.#locked = true
-        const prev = dir === -1
-        const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
-        if (shouldGo) await this.#goTo({
-            index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
-        })
-        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
-        this.#locked = false
+        try {
+            const prev = dir === -1
+            const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+            if (shouldGo) {
+                const nextIndex = this.#adjacentIndex(dir)
+                if (this.#canGoToIndex(nextIndex)) {
+                    await this.#goTo({
+                        index: nextIndex,
+                        anchor: prev ? () => 1 : () => 0,
+                    })
+                }
+            }
+            if (shouldGo) await wait(60)
+        } catch (err) {
+            console.warn('[foliate paginator] #turnPage error', err)
+        } finally {
+            this.#locked = false
+        }
     }
     prev(distance) {
         return this.#turnPage(-1, distance)

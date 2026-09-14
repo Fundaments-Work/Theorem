@@ -90,11 +90,13 @@ const childGetter = (doc, ns) => {
 
 const resolveURL = (url, relativeTo) => {
     try {
-        if (relativeTo.includes(':')) return new URL(url, relativeTo)
+        if (!url) return url
+        if (relativeTo.includes(':')) return new URL(url, relativeTo).href
         
         const root = 'https://invalid.invalid/'
         const obj = new URL(url, root + relativeTo)
         obj.search = ''
+        obj.hash = ''
         return decodeURI(obj.href.replace(root, ''))
     } catch(e) {
         console.warn(e)
@@ -763,10 +765,35 @@ class Loader {
         return this.createURL(href, tryLoadBlob, mediaType, parent)
     }
     async loadHref(href, base, parents = []) {
-        if (isExternal(href)) return href
+        if (!href || isExternal(href)) return href
         const path = resolveURL(href, base)
-        const item = this.manifest.find(item => item.href === path)
-        if (!item) return href
+        let item = this.manifest.find(item => item.href === path)
+        if (!item) {
+            const cleanPath = path.split('#')[0].split('?')[0]
+            const decodedPath = decodeURIComponent(cleanPath)
+            item = this.manifest.find(item => {
+                const h = (item.href || '').split('#')[0].split('?')[0]
+                return h === cleanPath || h === decodedPath || decodeURIComponent(h) === decodedPath
+            })
+        }
+        if (!item) {
+            try {
+                const cleanPath = path.split('#')[0].split('?')[0]
+                const blob = await this.loadBlob(cleanPath)
+                if (blob) {
+                    const ext = cleanPath.split('.').pop()?.toLowerCase()
+                    const mediaType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                        : ext === 'png' ? 'image/png'
+                        : ext === 'gif' ? 'image/gif'
+                        : ext === 'webp' ? 'image/webp'
+                        : ext === 'svg' ? 'image/svg+xml'
+                        : ext === 'css' ? 'text/css'
+                        : 'application/octet-stream'
+                    return this.createURL(cleanPath, blob, mediaType, parents.at(-1))
+                }
+            } catch {}
+            return href
+        }
         return this.loadItem(item, parents.concat(base))
     }
     async loadReplaced(item, parents = []) {
@@ -811,9 +838,14 @@ class Loader {
             for (const el of doc.querySelectorAll('[src]')) await replace(el, 'src')
             for (const el of doc.querySelectorAll('[poster]')) await replace(el, 'poster')
             for (const el of doc.querySelectorAll('object[data]')) await replace(el, 'data')
-            for (const el of doc.querySelectorAll('[*|href]:not([href])'))
-                el.setAttributeNS(NS.XLINK, 'href', await this.loadHref(
-                    el.getAttributeNS(NS.XLINK, 'href'), href, parents))
+            for (const el of doc.querySelectorAll('image[href], use[href]')) await replace(el, 'href')
+            for (const el of doc.querySelectorAll('[*|href]')) {
+                const xlinkHref = el.getAttributeNS(NS.XLINK, 'href')
+                if (xlinkHref) {
+                    el.setAttributeNS(NS.XLINK, 'href', await this.loadHref(
+                        xlinkHref, href, parents))
+                }
+            }
             for (const el of doc.querySelectorAll('[srcset]'))
                 el.setAttribute('srcset', await replaceSeries(el.getAttribute('srcset'),
                     /(\s*)(.+?)\s*((?:\s[\d.]+[wx])+\s*(?:,|$)|,\s+|$)/g,
@@ -901,8 +933,7 @@ export class EPUB {
     parser = new DOMParser()
     #loader
     #encryption
-    constructor({ loadText, loadBlob, getSize, sha1, toc }) {
-        this.toc = toc || null
+    constructor({ loadText, loadBlob, getSize, sha1 }) {
         const inflight = new Map()
         const rawLoadText = loadText
         this.loadText = async (uri) => {
@@ -978,7 +1009,7 @@ ${doc.querySelector('parsererror').innerText}`)
         if (navPath) try {
             const resolve = url => resolveURL(url, navPath)
             const nav = parseNav(await this.#loadXML(navPath), resolve)
-            this.toc ??= nav.toc
+            this.toc = nav.toc
             this.pageList = nav.pageList
             this.landmarks = nav.landmarks
         } catch(e) {

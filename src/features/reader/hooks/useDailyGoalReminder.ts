@@ -3,13 +3,17 @@ import { isTauri } from "../../../core/lib/env";
 import { useSettingsStore } from "../../../core/store";
 
 async function sendReminder(shortfall: number, totalGoal: number) {
-    const { notifyIfGranted } = await import("../../../core/lib/notifications");
     const msg = shortfall >= totalGoal
         ? `Time for your daily reading! Your goal is ${totalGoal} minutes today.`
         : `You're ${shortfall} min short of your daily reading goal — keep going!`;
-    await notifyIfGranted("Reading Goal Reminder", msg);
-    const { toast } = await import("sonner");
-    toast(msg);
+    const isVisible = typeof document !== "undefined" && !document.hidden;
+    if (isVisible) {
+        const { toast } = await import("sonner");
+        toast(msg);
+    } else {
+        const { notifyIfGranted } = await import("../../../core/lib/notifications");
+        await notifyIfGranted("Reading Goal Reminder", msg);
+    }
 }
 
 export function isReminderTime(reminderSetting: string, now = new Date()): boolean {
@@ -28,6 +32,7 @@ export function useDailyGoalReminder() {
 
         const checkReminder = async () => {
             try {
+                if (!useSettingsStore.persist.hasHydrated()) return;
                 const { settings, stats, updateStats } = useSettingsStore.getState();
                 if (!settings.goalNotifications) return;
 

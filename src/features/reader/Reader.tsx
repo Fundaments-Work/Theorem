@@ -173,7 +173,6 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const settings = useSettingsStore(useShallow((state) => state.settings));
     const updateReaderSettings = useSettingsStore((state) => state.updateReaderSettings);
-    const stats = useSettingsStore((state) => state.stats);
     const updateStats = useSettingsStore((state) => state.updateStats);
     const readerZoomRef = useRef(settings.readerSettings.zoom);
     const readerRef = useRef<ReaderViewportHandle>(null);
@@ -202,8 +201,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [pdfBrushWidth, setPdfBrushWidth] = useState(2);
     const [pdfHasOutline, setPdfHasOutline] = useState(false);
 
-    const statsRef = useRef(stats);
-    statsRef.current = stats;
+    const pageTurnWordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastRecordedLocKeyRef = useRef<string | null>(null);
     useEffect(() => {
         readerZoomRef.current = settings.readerSettings.zoom;
@@ -818,13 +816,14 @@ const BookReaderPage = memo(function BookReaderPage() {
     const { recordPageTurn } = useReadingTime({
         currentBookId,
         addReadingTime,
-        stats,
-        updateStats,
         isTtsActive: ttsState === 'playing',
     });
 
     useEffect(() => {
         return () => {
+            if (pageTurnWordTimeoutRef.current) {
+                clearTimeout(pageTurnWordTimeoutRef.current);
+            }
             if (resumeTimeoutRef.current) {
                 clearTimeout(resumeTimeoutRef.current);
             }
@@ -882,7 +881,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
 
         const currentYear = new Date().getFullYear();
-        const currentStats = statsRef.current;
+        const currentStats = useSettingsStore.getState().stats;
         updateStats({
             booksCompleted: currentStats.booksCompleted + 1,
             booksReadThisYear: result.completedYear === currentYear
@@ -992,9 +991,25 @@ const BookReaderPage = memo(function BookReaderPage() {
             const currentLocKey = loc.cfi || (loc.pageInfo ? String(loc.pageInfo.currentPage) : String(loc.percentage));
             if (lastRecordedLocKeyRef.current !== currentLocKey) {
                 lastRecordedLocKeyRef.current = currentLocKey;
-                const currentData = readerRef.current?.getVisibleTextForTts?.();
-                const words = currentData?.text ? currentData.text.trim().split(/\s+/).filter(Boolean).length : undefined;
-                recordPageTurn(words);
+                recordPageTurn();
+
+                if (pageTurnWordTimeoutRef.current) {
+                    clearTimeout(pageTurnWordTimeoutRef.current);
+                }
+                pageTurnWordTimeoutRef.current = setTimeout(() => {
+                    const sampleVisibleWords = () => {
+                        const currentData = readerRef.current?.getVisibleTextForTts?.();
+                        const words = currentData?.text ? currentData.text.trim().split(/\s+/).filter(Boolean).length : undefined;
+                        if (words && words > 20) {
+                            recordPageTurn(words);
+                        }
+                    };
+                    if (typeof requestIdleCallback !== 'undefined') {
+                        requestIdleCallback(sampleVisibleWords);
+                    } else {
+                        sampleVisibleWords();
+                    }
+                }, 1000);
             }
 
             debug('[Reader] Saving location update:', {
@@ -1132,6 +1147,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const handleTtsSpeedChange = useCallback((speed: number) => {
         useSettingsStore.getState().updateTtsSettings({ speed });
+        void immersionPlayer.setSpeed(speed);
     }, []);
 
     const handleOpenNeuralSettings = useCallback(() => {
@@ -1723,10 +1739,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 return;
             }
             
-            const timer = setTimeout(() => {
-                readerRef.current?.loadAnnotations?.(bookAnnotations).catch(e => console.error("[catch]", e));
-            }, 500);
-            return () => clearTimeout(timer);
+            readerRef.current?.loadAnnotations?.(bookAnnotations).catch(e => console.error("[catch]", e));
         }
     }, [activeDocId, getBookAnnotations, isBookReady, isPdfFormat]);
 
@@ -1736,7 +1749,8 @@ const BookReaderPage = memo(function BookReaderPage() {
         if (initialLocation) {
             debug('[Reader] CFI was provided, engine should have navigated');
             hasAppliedInitialLocationRef.current = true;
-            const ann = annotations.find(a => a.location === initialLocation);
+            const currentBookAnnotations = activeDocId ? getBookAnnotations(activeDocId) : [];
+            const ann = currentBookAnnotations.find(a => a.location === initialLocation) || annotations.find(a => a.location === initialLocation);
             if (ann) {
                 readerRef.current?.goToAnnotation(ann);
             }
@@ -1990,32 +2004,6 @@ const BookReaderPage = memo(function BookReaderPage() {
                         addAnnotation(annotationWithBookId);
                         setAnnotations(prev => [...prev, annotationWithBookId]);
                         debug('[Reader] Created new highlight:', annotationWithBookId.id);
-
-                        const currentSection = extractSectionIndex(selectedCfi);
-                        const lastHL = lastCreatedHighlightRef.current;
-                        if (lastHL && currentSection !== null && lastHL.sectionIndex >= 0) {
-                            const timeSinceLast = Date.now() - lastHL.timestamp;
-                            const isAdjacentSection = Math.abs(currentSection - lastHL.sectionIndex) === 1;
-                            if (timeSinceLast < 30000 && isAdjacentSection) {
-                                debug('[Reader] Merging cross-page highlights:', {
-                                    prev: lastHL.text.substring(0, 30),
-                                    next: selectedText.substring(0, 30),
-                                });
-                                const mergedText = lastHL.text + " " + selectedText;
-                                
-                                removeAnnotation(lastHL.annotationId);
-                                readerRef.current?.removeHighlight?.(lastHL.annotationId);
-                                setAnnotations(prev => prev.filter(a => a.id !== lastHL.annotationId));
-                                
-                                updateAnnotation(annotationWithBookId.id, { selectedText: mergedText });
-                                setAnnotations(prev => prev.map(a =>
-                                    a.id === annotationWithBookId.id
-                                        ? { ...a, selectedText: mergedText }
-                                        : a
-                                ));
-                                debug('[Reader] Merged cross-page highlight');
-                            }
-                        }
 
                         lastCreatedHighlightRef.current = {
                             annotationId: annotationWithBookId.id,
@@ -2452,7 +2440,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             <div
                 ref={toolbarContainerRef}
                 className={cn(
-                    "absolute top-0 left-0 right-0 z-[140] transition-transform duration-300",
+                    "absolute top-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out",
                     shouldShowReaderChrome ? "translate-y-0" : "-translate-y-full"
                 )}
             >
@@ -2500,33 +2488,40 @@ const BookReaderPage = memo(function BookReaderPage() {
 
             <div className="absolute inset-0 overflow-hidden">
                 {isPdfFormat ? (
-                    <Suspense fallback={<div className="flex items-center justify-center h-full">Loading PDF...</div>}>
-                        <PDFReader
-                            ref={pdfReaderRef}
-                            pdfPath={resolvedPdfPath}
-                            pdfData={pdfData ?? undefined}
-                            originalFilename={currentBook?.title}
-                            initialPage={pdfInitialPage}
-                            initialZoom={pdfInitialZoom}
-                            initialZoomMode={pdfInitialZoomMode}
-                            presentationMode={pdfPresentationMode}
-                            onPresentationModeChange={handlePdfPresentationModeChange}
-                            brightness={settings.readerSettings.brightness}
-                            onPageChange={handlePdfPageChange}
-                            onZoomModeChange={handlePdfZoomModeChange}
-                            onLoad={handlePdfLoad}
-                            onError={handlePdfError}
-                            onViewportTap={handleViewportTap}
-                            showControls={shouldShowReaderChrome}
-                            annotations={annotations}
-                            annotationMode={pdfAnnotationMode}
-                            highlightColor={pdfHighlightColor}
-                            penColor={pdfBrushColor}
-                            penWidth={pdfBrushWidth}
-                            onAnnotationAdd={handlePdfAnnotationAdd}
-                            onAnnotationChange={handlePdfAnnotationChange}
-                            onAnnotationRemove={handlePdfAnnotationRemove}
-                        />
+                    <Suspense fallback={<div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">Loading PDF...</div>}>
+                        {resolvedPdfPath || pdfData ? (
+                            <PDFReader
+                                key={activeDocId || 'pdf-doc'}
+                                ref={pdfReaderRef}
+                                pdfPath={resolvedPdfPath}
+                                pdfData={pdfData ?? undefined}
+                                originalFilename={currentBook?.title}
+                                initialPage={pdfInitialPage}
+                                initialZoom={pdfInitialZoom}
+                                initialZoomMode={pdfInitialZoomMode}
+                                presentationMode={pdfPresentationMode}
+                                onPresentationModeChange={handlePdfPresentationModeChange}
+                                brightness={settings.readerSettings.brightness}
+                                onPageChange={handlePdfPageChange}
+                                onZoomModeChange={handlePdfZoomModeChange}
+                                onLoad={handlePdfLoad}
+                                onError={handlePdfError}
+                                onViewportTap={handleViewportTap}
+                                showControls={shouldShowReaderChrome}
+                                annotations={annotations}
+                                annotationMode={pdfAnnotationMode}
+                                highlightColor={pdfHighlightColor}
+                                penColor={pdfBrushColor}
+                                penWidth={pdfBrushWidth}
+                                onAnnotationAdd={handlePdfAnnotationAdd}
+                                onAnnotationChange={handlePdfAnnotationChange}
+                                onAnnotationRemove={handlePdfAnnotationRemove}
+                            />
+                        ) : (
+                            <div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">
+                                Loading document...
+                            </div>
+                        )}
                     </Suspense>
                 ) : (
                     <ReaderViewport
@@ -2558,7 +2553,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         className={cn(
                             "fixed bottom-6 z-[100]",
                             isMobileViewport ? "left-4" : "left-8",
-                            "flex items-center justify-center w-11 h-11 rounded-full shadow-lg transition-all duration-300",
+                            "flex items-center justify-center w-11 h-11 rounded-full shadow-lg transition-[transform,opacity] duration-150 ease-out",
                             "bg-[var(--color-surface)]/95 backdrop-blur-xl text-[color:var(--color-text-primary)] border border-[var(--color-border)]",
                             "hover:scale-105 active:scale-95 hover:bg-[var(--color-surface)]",
                             (shouldShowReaderChrome || pdfAnnotationMode !== 'none') ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
@@ -2577,7 +2572,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onPenColorChange={setPdfBrushColor}
                         onPenWidthChange={setPdfBrushWidth}
                         className={cn(
-                            "bottom-6 transition-all duration-300",
+                            "bottom-6 transition-[transform,opacity] duration-150 ease-out",
                             isMobileViewport ? "right-4" : "right-8",
                             (shouldShowReaderChrome || pdfAnnotationMode !== 'none') ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
                         )}
@@ -2628,7 +2623,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
                         audioGenProgress={audioGenProgress}
                         className={cn(
-                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-300 backdrop-blur-xl",
+                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
                             immersionMode
                                 ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
                                 : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",

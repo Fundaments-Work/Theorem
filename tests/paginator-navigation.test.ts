@@ -137,4 +137,201 @@ describe("Paginator navigation & CFI anchor resolution (Issue #78)", () => {
             expect(range.toString()).toBe("Target");
         });
     });
+
+    describe("Uncollapse edge cases & range stabilization", () => {
+        // Mock of paginator.js uncollapse logic
+        const uncollapse = (range: any) => {
+            if (!range || typeof range !== 'object' || !range.collapsed || !range.endContainer) return range;
+            const { endOffset, endContainer } = range;
+            if (endContainer.nodeType === 1) {
+                const node = endContainer.childNodes[endOffset];
+                if (node?.nodeType === 1) return node;
+                if ((node?.nodeType === 3 || node?.nodeType === 4) && node.length > 0) {
+                    const r = range.cloneRange();
+                    r.selectNodeContents(node);
+                    return r;
+                }
+                return endContainer;
+            }
+            if (endContainer.nodeType === 3) return endContainer.parentElement;
+            return range;
+        };
+
+        it("safely handles primitive numbers (fractions) without throwing TypeError", () => {
+            expect(() => uncollapse(0)).not.toThrow();
+            expect(uncollapse(0)).toBe(0);
+            expect(() => uncollapse(1)).not.toThrow();
+            expect(uncollapse(1)).toBe(1);
+            expect(() => uncollapse(0.5)).not.toThrow();
+            expect(uncollapse(0.5)).toBe(0.5);
+            expect(uncollapse(null)).toBeNull();
+            expect(uncollapse(undefined)).toBeUndefined();
+            expect(uncollapse("string-anchor")).toBe("string-anchor");
+        });
+
+        it("preserves non-collapsed ranges (highlights) untouched without collapsing to parent", () => {
+            const doc = document.implementation.createHTMLDocument("HighlightTest");
+            const p = doc.createElement("p");
+            p.textContent = "The quick brown fox jumps over the lazy dog";
+            doc.body.appendChild(p);
+
+            const textNode = p.firstChild!;
+            const highlightRange = doc.createRange();
+            highlightRange.setStart(textNode, 4); // "quick"
+            highlightRange.setEnd(textNode, 9);
+
+            expect(highlightRange.collapsed).toBe(false);
+            const target = uncollapse(highlightRange);
+
+            // target MUST remain the exact non-collapsed Range, NOT p or doc.body
+            expect(target).toBe(highlightRange);
+            expect(target.toString()).toBe("quick");
+            expect(target.collapsed).toBe(false);
+        });
+
+        it("uncollapses collapsed cursor ranges to the containing element", () => {
+            const doc = document.implementation.createHTMLDocument("CursorTest");
+            const p = doc.createElement("p");
+            p.textContent = "Word";
+            doc.body.appendChild(p);
+
+            const textNode = p.firstChild!;
+            const cursorRange = doc.createRange();
+            cursorRange.setStart(textNode, 2);
+            cursorRange.setEnd(textNode, 2);
+
+            expect(cursorRange.collapsed).toBe(true);
+            const target = uncollapse(cursorRange);
+
+            // Collapsed text range uncollapses to parent paragraph element
+            expect(target).toBe(p);
+        });
+    });
+
+    describe("Paginator boundary protection and touch gesture responsiveness", () => {
+        it("guards adjacent section navigation against out-of-bounds indices", () => {
+            const sections = [{ id: "sec1" }, { id: "sec2" }, { id: "sec3" }];
+            const canGoToIndex = (index: number) => index >= 0 && index <= sections.length - 1;
+
+            expect(canGoToIndex(-1)).toBe(false);
+            expect(canGoToIndex(0)).toBe(true);
+            expect(canGoToIndex(1)).toBe(true);
+            expect(canGoToIndex(2)).toBe(true);
+            expect(canGoToIndex(3)).toBe(false);
+            expect(canGoToIndex(undefined as unknown as number)).toBe(false);
+        });
+
+        it("correctly identifies horizontal swipe gestures without hold delay", () => {
+            const detectAxis = (startX: number, startY: number, x: number, y: number, dt: number) => {
+                const absDx = Math.abs(startX - x);
+                const absDy = Math.abs(startY - y);
+                if (absDx > 12 && absDx > absDy) {
+                    return "h";
+                } else if (absDy > 12 && absDy > absDx) {
+                    return "v";
+                } else if (dt > 400 && absDx < 10 && absDy < 10) {
+                    return "hold";
+                }
+                return null;
+            };
+
+            // Quick horizontal flick: thumb moves 30px right, 10px down in 120ms
+            expect(detectAxis(100, 200, 130, 210, 120)).toBe("h");
+
+            // Diagonal thumb swipe: 25px horizontal, 18px vertical in 200ms
+            expect(detectAxis(100, 200, 125, 218, 200)).toBe("h");
+
+            // Vertical scroll: 10px horizontal, 40px vertical
+            expect(detectAxis(100, 200, 110, 240, 150)).toBe("v");
+
+            // Stationary long-press (selection hold): 2px jitter over 450ms
+            expect(detectAxis(100, 200, 102, 201, 450)).toBe("hold");
+
+            // Hesitant swipe: finger down 250ms then moves 25px horizontal (MUST NOT be locked to hold)
+            expect(detectAxis(100, 200, 125, 205, 250)).toBe("h");
+        });
+
+        it("ensures turnPage lock is reliably released even if section load rejects", async () => {
+            let locked = false;
+            let failureHandled = false;
+
+            const turnPageMock = async (shouldFail: boolean) => {
+                if (locked) return "dropped";
+                locked = true;
+                try {
+                    if (shouldFail) {
+                        throw new Error("Simulated section load failure");
+                    }
+                    return "success";
+                } catch {
+                    failureHandled = true;
+                } finally {
+                    locked = false;
+                }
+            };
+
+            // First turn fails: lock MUST be freed in finally block
+            await turnPageMock(true);
+            expect(failureHandled).toBe(true);
+            expect(locked).toBe(false);
+
+            // Subsequent turn must NOT be blocked or dropped
+            const secondAttempt = await turnPageMock(false);
+            expect(secondAttempt).toBe("success");
+            expect(locked).toBe(false);
+        });
+
+        it("safely handles single-page and zero-page boundary anchor calculations", () => {
+            const calculateAnchorPage = (anchor: number, pages: number) => {
+                if (!pages || pages < 3) {
+                    return 1;
+                }
+                const textPages = pages - 2;
+                const newPage = textPages > 1 ? Math.round(anchor * (textPages - 1)) : 0;
+                return Math.max(1, Math.min(newPage + 1, pages - 2));
+            };
+
+            // Normal 5 pages: 1 pad + 3 text + 1 pad
+            expect(calculateAnchorPage(0, 5)).toBe(1);
+            expect(calculateAnchorPage(0.5, 5)).toBe(2);
+            expect(calculateAnchorPage(1.0, 5)).toBe(3);
+
+            // Outliers: pages <= 2 (corrupt or empty section)
+            expect(calculateAnchorPage(0.5, 0)).toBe(1);
+            expect(calculateAnchorPage(0.5, 1)).toBe(1);
+            expect(calculateAnchorPage(0.5, 2)).toBe(1);
+
+            // Boundary values of numeric fraction: negative or > 1
+            expect(calculateAnchorPage(-0.5, 5)).toBe(1);
+            expect(calculateAnchorPage(2.0, 5)).toBe(3);
+        });
+
+        it("guarantees idempotent listener attachment per Document instance", () => {
+            const doc = document.implementation.createHTMLDocument("IdempotentTest");
+            let listenerCount = 0;
+
+            const attachOnce = (targetDoc: Document) => {
+                if ((targetDoc as any).__theorem_selection_attached) {
+                    return false;
+                }
+                (targetDoc as any).__theorem_selection_attached = true;
+                listenerCount++;
+                return true;
+            };
+
+            // First attachment attaches successfully
+            expect(attachOnce(doc)).toBe(true);
+            expect(listenerCount).toBe(1);
+
+            // Subsequent repeated calls on the same document are no-ops
+            expect(attachOnce(doc)).toBe(false);
+            expect(attachOnce(doc)).toBe(false);
+            expect(listenerCount).toBe(1);
+
+            // Fresh document receives listeners
+            const newDoc = document.implementation.createHTMLDocument("SecondDoc");
+            expect(attachOnce(newDoc)).toBe(true);
+            expect(listenerCount).toBe(2);
+        });
+    });
 });

@@ -8,30 +8,37 @@ import { calculateWpm, computeExponentialMovingAverage } from "../lib/reading-ti
 interface UseReadingTimeOptions {
     currentBookId: string | undefined;
     addReadingTime: (bookId: string, minutes: number) => void;
-    stats: ReadingStats;
-    updateStats: (updates: Partial<ReadingStats>) => void;
+    stats?: ReadingStats;
+    updateStats?: (updates: Partial<ReadingStats>) => void;
     isTtsActive?: boolean;
 }
 
 async function notifyGoalMet(minutes: number) {
-    const { notifyIfGranted } = await import("../../../core/lib/notifications");
-    await notifyIfGranted("Goal Met!", `You've hit your daily reading goal of ${minutes} minutes!`);
-    const { toast } = await import("sonner");
-    toast.success("Daily goal met!");
+    const isVisible = typeof document !== "undefined" && !document.hidden;
+    if (isVisible) {
+        const { toast } = await import("sonner");
+        toast.success(`Daily goal met! (${minutes} min)`);
+    } else {
+        const { notifyIfGranted } = await import("../../../core/lib/notifications");
+        await notifyIfGranted("Goal Met!", `You've hit your daily reading goal of ${minutes} minutes!`);
+    }
 }
 
 export function useReadingTime({
     currentBookId,
     addReadingTime,
-    stats,
-    updateStats,
+    stats: propStats,
+    updateStats: propUpdateStats,
     isTtsActive,
 }: UseReadingTimeOptions) {
     const startedAtRef = useRef<number | null>(null);
     const accumulatedMsRef = useRef(0);
     const readingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const statsRef = useRef(stats);
-    statsRef.current = stats;
+    const updateStats = propUpdateStats ?? useSettingsStore.getState().updateStats;
+    const statsRef = useRef(propStats ?? useSettingsStore.getState().stats);
+    if (propStats) {
+        statsRef.current = propStats;
+    }
 
     const lastPageTurnTimeRef = useRef<number | null>(Date.now());
     const lastWordCountRef = useRef<number>(250);
@@ -65,23 +72,24 @@ export function useReadingTime({
             return;
         }
 
-        const currentAvg = statsRef.current.averageReadingSpeed || 200;
+        const currentAvg = useSettingsStore.getState().stats.averageReadingSpeed || 200;
         const newAvg = computeExponentialMovingAverage(currentAvg, instantWpm);
 
         if (newAvg !== currentAvg) {
-            updateStats({ averageReadingSpeed: newAvg });
+            useSettingsStore.getState().updateStats({ averageReadingSpeed: newAvg });
         }
-    }, [updateStats]);
+    }, []);
 
     useEffect(() => {
         if (!currentBookId) return;
 
-        const commitMinutes = (elapsedMinutes: number) => {
+        const commitMinutes = (elapsedMinutes: number, silent = false) => {
             addReadingTime(currentBookId, elapsedMinutes);
 
             const currentStats = useSettingsStore.getState().stats;
             const today = new Date().toISOString().split('T')[0];
             const existingActivity = currentStats.dailyActivity.find(a => a.date === today);
+            const previousTodayMinutes = existingActivity?.minutes ?? 0;
 
             let newDailyActivity: DailyReadingActivity[];
             if (existingActivity) {
@@ -145,8 +153,12 @@ export function useReadingTime({
 
             const todayActivity = newDailyActivity.find(a => a.date === today);
             const todayMinutes = todayActivity?.minutes ?? 0;
+            // Only celebrate at the exact moment the threshold is crossed during active reading.
+            // Exiting the reader or backgrounding must be completely silent, and never re-notify if goal was already met.
+            const justCrossedGoal = previousTodayMinutes < currentStats.dailyGoal && todayMinutes >= currentStats.dailyGoal;
             if (
-                todayMinutes >= currentStats.dailyGoal &&
+                !silent &&
+                justCrossedGoal &&
                 useSettingsStore.getState().settings.goalNotifications &&
                 currentStats.lastGoalNotifiedDate !== today
             ) {
@@ -155,7 +167,7 @@ export function useReadingTime({
             }
         };
 
-        const flushReadingTime = () => {
+        const flushReadingTime = (silent = false) => {
             if (startedAtRef.current !== null) {
                 const now = Date.now();
                 accumulatedMsRef.current += now - startedAtRef.current;
@@ -164,12 +176,12 @@ export function useReadingTime({
             const elapsedMinutes = Math.floor(accumulatedMsRef.current / 60000);
             if (elapsedMinutes > 0) {
                 accumulatedMsRef.current -= elapsedMinutes * 60000;
-                commitMinutes(elapsedMinutes);
+                commitMinutes(elapsedMinutes, silent);
             }
         };
 
-        const pauseReadingTime = () => {
-            flushReadingTime();
+        const pauseReadingTime = (silent = true) => {
+            flushReadingTime(silent);
             if (readingIntervalRef.current) {
                 clearInterval(readingIntervalRef.current);
                 readingIntervalRef.current = null;
@@ -194,7 +206,7 @@ export function useReadingTime({
 
         const handleVisibilityChange = () => {
             if (document.hidden) {
-                pauseReadingTime();
+                pauseReadingTime(true);
             } else {
                 resumeReadingTime();
             }
@@ -207,7 +219,7 @@ export function useReadingTime({
             (async () => {
                 const { listen } = await import('@tauri-apps/api/event');
                 const unlistenPause = await listen('tauri://on-pause', () => {
-                    pauseReadingTime();
+                    pauseReadingTime(true);
                 });
                 const unlistenResume = await listen('tauri://on-resume', () => {
                     resumeReadingTime();
@@ -224,7 +236,8 @@ export function useReadingTime({
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             tauriUnlisten.forEach((fn) => fn());
 
-            flushReadingTime();
+            // Exiting the reader flushes time completely silently - never notify on book exit
+            flushReadingTime(true);
         };
     }, [currentBookId, addReadingTime, updateStats]);
 

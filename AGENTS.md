@@ -41,9 +41,15 @@ Root `pnpm` commands run from repo root. Cargo commands run from `src-tauri/`. `
 Run all that apply:
 
 - TypeScript: `pnpm typecheck` — zero errors
+- Vitest: `pnpm test` — all unit and integration tests must pass
 - Rust (if any `.rs` changed): `cd src-tauri && cargo fmt && cargo clippy && cargo check` — fmt must produce no diff, clippy zero warnings
 
 If clippy is noisy, try `cargo clippy --fix --lib` first.
+
+### Testing Integrity & Outlier Coverage
+
+- Tests must rigorously cover edge cases, boundaries, and outliers (e.g. 0-length inputs, rapid concurrent interactions, missing elements, corrupted data, boundary navigation).
+- **NEVER weaken, delete, loosen assertions, or edit tests simply to make them pass.** If a test or outlier fails, investigate and fix the underlying implementation code. The test exists to defend correctness.
 
 CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) on push to main.
 
@@ -133,6 +139,15 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 
 ## Release
 
+### Versioning & Stability Convention
+
+- **Stable Releases**: Only `X.Y.0` versions (e.g. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`) are designated as **stable** production releases.
+- **Beta / Pre-releases**: All minor/patch versions (`X.Y.Z` where `Z > 0`, e.g. `1.5.1`, `1.5.2`, `1.5.3`, etc.) are designated as **beta / pre-release** versions.
+- Whenever releasing or editing any `X.Y.Z` (`Z > 0`) tag on GitHub, always ensure it is marked as a pre-release:
+  ```bash
+  gh release edit v<version> --prerelease
+  ```
+
 ### Before tagging a release
 
 1. **Bump version** in all 4 files:
@@ -156,6 +171,10 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
    ```
    CI (`release.yml`) triggers on tags matching `v[0-9]+.*`, builds all
    targets, signs artifacts, and publishes to GitHub Releases.
+   If the release is a minor/patch version (`X.Y.Z` where `Z > 0`), mark it as a pre-release in GitHub:
+   ```bash
+   gh release edit v<version> --prerelease
+   ```
 
 ### Android adaptive icon
 

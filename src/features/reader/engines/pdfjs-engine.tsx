@@ -103,15 +103,15 @@ const DEFAULT_SCALE = 1.0;
 const PDF_TO_CSS_UNITS = pdfjsLib.PixelsPerInch?.PDF_TO_CSS_UNITS ?? (96 / 72);
 const PAGE_PRERENDER_MARGIN = "90% 0px";
 const INITIAL_PAGE_LOAD_SIZE = 1;
-const PAGE_LOAD_BATCH_SIZE = 3;
-const PAGE_LOAD_AHEAD_THRESHOLD = 1;
-const PAGE_EDGE_PREFETCH_COUNT = 2;
-const EDGE_PREFETCH_MIN_INTERVAL_MS = 250;
-const PAGE_PROXY_LOAD_CONCURRENCY = 2;
+const PAGE_LOAD_BATCH_SIZE = 8;
+const PAGE_LOAD_AHEAD_THRESHOLD = 4;
+const PAGE_EDGE_PREFETCH_COUNT = 8;
+const EDGE_PREFETCH_MIN_INTERVAL_MS = 60;
+const PAGE_PROXY_LOAD_CONCURRENCY = 3;
 const KEYBOARD_SCROLL_STEP_RATIO = 0.82;
 const KEYBOARD_SCROLL_STEP_MIN_PX = 72;
 
-const PAGE_PROXY_KEEP_WINDOW = 5;
+const PAGE_PROXY_KEEP_WINDOW = 50;
 const PAGE_PROXY_PAGED_KEEP_WINDOW = 2;
 
 const WEBKIT_MIN_OUTPUT_SCALE = 1.2;
@@ -1121,9 +1121,22 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
         const prunePageProxyCache = useCallback((existingPages: PDFPageProxy[], centerPage: number, pageCount: number) => {
             if (existingPages.length === 0) return existingPages;
-            const windowSize = presentationModeRef.current === 'paged' ? PAGE_PROXY_PAGED_KEEP_WINDOW : PAGE_PROXY_KEEP_WINDOW;
-            const keepStart = Math.max(1, centerPage - windowSize);
-            const keepEnd = Math.min(pageCount, centerPage + windowSize);
+            if (presentationModeRef.current === 'paged') {
+                const keepStart = Math.max(1, centerPage - PAGE_PROXY_PAGED_KEEP_WINDOW);
+                const keepEnd = Math.min(pageCount, centerPage + PAGE_PROXY_PAGED_KEEP_WINDOW);
+                let changed = false;
+                const nextPages: PDFPageProxy[] = [];
+                for (const page of existingPages) {
+                    if (page.pageNumber < keepStart || page.pageNumber > keepEnd) { changed = true; page.cleanup(); continue; }
+                    nextPages.push(page);
+                }
+                return changed ? nextPages : existingPages;
+            }
+            // In continuous scroll mode, retain loaded page proxies to preserve exact DOM layout height
+            // and prevent scroll jumps, blank pages, or halting. Prune only under extreme memory pressure (>80 pages).
+            if (existingPages.length <= 80) return existingPages;
+            const keepStart = Math.max(1, centerPage - PAGE_PROXY_KEEP_WINDOW);
+            const keepEnd = Math.min(pageCount, centerPage + PAGE_PROXY_KEEP_WINDOW);
             let changed = false;
             const nextPages: PDFPageProxy[] = [];
             for (const page of existingPages) {
@@ -1703,7 +1716,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
                     const { min: minLoadedPage, max: maxLoadedPage } = loadedPageBoundsRef.current;
                     if (maxLoadedPage >= minLoadedPage && totalPageCount > 0) {
-                        const edgeThreshold = Math.max(120, Math.round(container.clientHeight * 0.9));
+                        const edgeThreshold = Math.max(800, Math.round(container.clientHeight * 2.0));
                         const distanceToTop = scrollTop;
                         const distanceToBottom = container.scrollHeight - (scrollTop + container.clientHeight);
                         const shouldPrefetchPrevious = distanceToTop <= edgeThreshold && scrollDirection <= 0;
@@ -2214,7 +2227,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 {!isLoading && !error && totalPages > 0 && (
                     <div
                         className={cn(
-                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1.5 rounded-full bg-[var(--color-surface)]/95 backdrop-blur-xl border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-all duration-300 ease-out select-none",
+                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1.5 rounded-full bg-[var(--color-surface)]/95 backdrop-blur-xl border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
                             showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
                         )}
                     >

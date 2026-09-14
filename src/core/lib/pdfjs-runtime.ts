@@ -1,7 +1,9 @@
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
+
 type PdfJsModule = typeof import("pdfjs-dist");
 type PdfJsWorkerConfigurableModule = Pick<PdfJsModule, "GlobalWorkerOptions">;
 
-const PDFJS_WORKER_URL = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).href;
+const PDFJS_WORKER_URL = pdfjsWorkerUrl;
 
 let workerConfigured = false;
 let configuredPdfJsModulePromise: Promise<PdfJsModule> | null = null;

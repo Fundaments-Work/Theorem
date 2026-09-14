@@ -23,6 +23,7 @@ import {
 } from '../../../core/lib/design-tokens';
 import { rankByFuzzyQuery } from "../../../core/lib/search/fuzzy";
 import { normalizeAuthor } from '../../../core/lib/utils';
+import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 
 const READER_SEARCH_EXACT_LIMIT = 120;
 const READER_SEARCH_FALLBACK_TRIGGER_THRESHOLD = 3;
@@ -574,55 +575,38 @@ export class FoliateEngine {
         this.view.history?.addEventListener('popstate', (_e: any) => {
         });
 
+        this.view.addEventListener('create-overlay', (e: any) => {
+            const index = e?.detail?.index;
+            if (typeof index === 'number') {
+                this.renderAnnotationsForSection(index);
+            }
+        });
+
         this.view.addEventListener('load', (e: any) => {
             const detail = e.detail;
             
-            if (detail?.doc) {
-                this.iframeListenersAttached.delete(detail.doc);
-            }
-            
-            setTimeout(() => {
+            requestAnimationFrame(() => {
                 if (this.options.onTextSelected) {
                     this.setupIframeSelectionListener(this.options.onTextSelected);
-                } else {
                 }
-                
-                this.renderAnnotationsForSection(detail?.index);
-            }, 500);
+                if (typeof detail?.index === 'number') {
+                    this.renderAnnotationsForSection(detail.index);
+                }
+            });
         });
 
         this.view.addEventListener('draw-annotation', (e: any) => {
-            const { draw, annotation, doc } = e.detail;
+            const { draw, annotation } = e.detail;
             
             if (!draw || !annotation) {
                 return;
             }
 
             const color = this.getHighlightColor(annotation.color || 'yellow');
-            
             try {
-                
-                draw((rects: DOMRectList) => {
-                    const g = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-                    g.setAttribute('fill', color);
-                    g.setAttribute('data-highlight', 'true');
-                    g.style.opacity = '0.4';
-                    g.style.mixBlendMode = 'multiply';
-                    g.style.pointerEvents = 'none';
-                    
-                    for (const rect of rects) {
-                        const el = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                        el.setAttribute('x', String(rect.left));
-                        el.setAttribute('y', String(rect.top));
-                        el.setAttribute('width', String(rect.width));
-                        el.setAttribute('height', String(rect.height));
-                        el.setAttribute('rx', '2');
-                        g.appendChild(el);
-                    }
-                    
-                    return g;
-                }, annotation);
+                draw(Overlayer.highlight, { color });
             } catch (err) {
+                console.error('[draw-annotation] failed to draw highlight', err);
             }
         });
 
@@ -841,6 +825,11 @@ export class FoliateEngine {
         if (renderer.setStyles) {
             
             const colors = getThemeColors(this.theme);
+            const isDark = this.theme === 'dark';
+            if (this.view?.style) {
+                this.view.style.setProperty('--overlayer-highlight-blend-mode', isDark ? 'screen' : 'multiply');
+                this.view.style.setProperty('--overlayer-highlight-opacity', isDark ? '0.45' : '0.35');
+            }
             
             const fontFamilyCSS = currentSettings.fontFamily === 'original' ? '' : `
                 /* Font family override - applies to ALL elements with !important */
@@ -1297,7 +1286,12 @@ export class FoliateEngine {
             await this.view?.addAnnotation?.({
                 value: cfi,
                 color: color,
+                selectedText: text,
             });
+            const contents = this.view?.renderer?.getContents?.() || [];
+            for (const content of contents) {
+                content.overlayer?.redraw();
+            }
         } catch (e) {
         }
 
@@ -1315,7 +1309,12 @@ export class FoliateEngine {
                 await this.view?.addAnnotation?.({
                     value: annotation.location,
                     color: annotation.color,
+                    selectedText: annotation.selectedText,
                 });
+                const contents = this.view?.renderer?.getContents?.() || [];
+                for (const content of contents) {
+                    content.overlayer?.redraw();
+                }
             } catch (e) {
             }
         }
@@ -1370,33 +1369,24 @@ export class FoliateEngine {
         const allAnnotations = Array.from(this.annotations.values());
         
         for (const annotation of allAnnotations) {
-            
             if ((annotation.type === 'highlight' || annotation.type === 'note') && annotation.location) {
                 try {
                     await this.view?.addAnnotation?.({
                         value: annotation.location,
                         color: annotation.color,
+                        selectedText: annotation.selectedText,
                     });
                 } catch (e) {
-                    
                 }
             }
         }
-        
     }
 
     async loadAnnotations(annotations: Annotation[]): Promise<void> {
-        
         if (!this.view || !this.book) {
             return;
         }
 
-        const deleteOps = Array.from(this.annotations.values())
-            .map((annotation) =>
-                this.view?.deleteAnnotation?.({ value: annotation.location })
-                    ?.catch((e: any) => console.error("[catch]", e)) ?? Promise.resolve(),
-            );
-        await Promise.all(deleteOps);
         this.annotations.clear();
         this.annotationLocations.clear();
 
@@ -1408,18 +1398,11 @@ export class FoliateEngine {
             this.annotationLocations.set(annotation.location, annotation);
         }
 
-        const BATCH_SIZE = 12;
-        for (let i = 0; i < toRender.length; i += BATCH_SIZE) {
-            const batch = toRender.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map((annotation) =>
-                this.view?.addAnnotation?.({
-                    value: annotation.location,
-                    color: annotation.color,
-                })?.catch((e: any) => console.error("[catch]", e)) ?? Promise.resolve(),
-            ));
-            
-            if (i + BATCH_SIZE < toRender.length) {
-                await new Promise((resolve) => setTimeout(resolve, 4));
+        const contents = this.view.renderer?.getContents?.() || [];
+        for (const content of contents) {
+            if (typeof content.index === 'number') {
+                await this.renderAnnotationsForSection(content.index);
+                content.overlayer?.redraw();
             }
         }
     }
@@ -1478,6 +1461,11 @@ export class FoliateEngine {
         if (!annotation.location || !this.view) return;
         this._navigationInProgress = true;
         try {
+            this.annotations.set(annotation.id, annotation);
+            if (annotation.location) {
+                this.annotationLocations.set(annotation.location, annotation);
+            }
+
             await this.view.goTo(annotation.location);
             this.applyZoomSync();
             this.scheduleSettingsUpdate();
@@ -1508,6 +1496,17 @@ export class FoliateEngine {
                 if (exactRange) {
                     await this.view.renderer?.scrollToAnchor?.(exactRange, 'selection');
                     this._lastAnnotationActivatedAt = Date.now();
+
+                    await this.view.addAnnotation?.({
+                        value: annotation.location,
+                        color: annotation.color,
+                        selectedText: annotation.selectedText,
+                        range: exactRange,
+                    });
+                    content.overlayer?.redraw();
+                    requestAnimationFrame(() => {
+                        content.overlayer?.redraw();
+                    });
                     break;
                 }
             }
@@ -1975,14 +1974,8 @@ export class FoliateEngine {
 
             const iframeElement = doc.defaultView?.frameElement as HTMLIFrameElement;
             if (iframeElement) {
-                
-                iframeElement.addEventListener('load', () => {
-                    this.attachSelectionListenersToIframe(iframeElement, content.index, callback);
-                });
-                
                 this.attachSelectionListenersToIframe(iframeElement, content.index, callback);
             } else {
-                
                 this.injectSelectionScript(doc, content.index, callback);
             }
 
@@ -2004,6 +1997,11 @@ export class FoliateEngine {
                 return;
             }
 
+            if ((doc as any).__theorem_selection_attached) {
+                return;
+            }
+            (doc as any).__theorem_selection_attached = true;
+
             if (doc.documentElement) {
                 doc.documentElement.style.touchAction = 'manipulation';
             }
@@ -2017,7 +2015,6 @@ export class FoliateEngine {
             let pointerDownAt = 0;
             let pointerMoved = false;
             const SELECTION_CAPTURE_DELAY = 12;
-            const TAP_INTERACTION_BARRIER_MS = 120;
             const SELECTION_INTERACTION_SUPPRESS_MS = 420;
             const TAP_MAX_DISTANCE = 12;
             const TAP_MAX_DURATION = 350;
@@ -2261,34 +2258,27 @@ export class FoliateEngine {
                         return;
                     }
 
-                    window.setTimeout(() => {
-                        // Dedup: if the injected-script foliate-tap postMessage already
-                        // notified within 150ms, skip. This prevents a double-toggle when
-                        // both paths fire on same-origin iframes. If the postMessage path
-                        // never fires (cross-origin, script injection unavailable, etc.),
-                        // this outer handler is the reliable fallback.
-                        const TAP_DEDUP_MS = 150;
-                        if (Date.now() - this._lastTapNotifiedAt < TAP_DEDUP_MS) {
-                            return;
-                        }
+                    const TAP_DEDUP_MS = 150;
+                    if (Date.now() - this._lastTapNotifiedAt < TAP_DEDUP_MS) {
+                        return;
+                    }
 
-                        const shouldSuppressInteraction =
-                            Date.now() - lastSelectionCapturedAt < SELECTION_INTERACTION_SUPPRESS_MS;
-                        if (shouldSuppressInteraction) {
-                            return;
-                        }
+                    const shouldSuppressInteraction =
+                        Date.now() - lastSelectionCapturedAt < SELECTION_INTERACTION_SUPPRESS_MS;
+                    if (shouldSuppressInteraction) {
+                        return;
+                    }
 
-                        const selection = doc.getSelection();
-                        const hasSelection = Boolean(
-                            selection
-                            && !selection.isCollapsed
-                            && selection.toString().trim().length > 0,
-                        );
-                        if (hasSelection && !this.shouldForceViewportTap()) {
-                            return;
-                        }
-                        this.notifyViewportTap(event.target);
-                    }, TAP_INTERACTION_BARRIER_MS);
+                    const selection = doc.getSelection();
+                    const hasSelection = Boolean(
+                        selection
+                        && !selection.isCollapsed
+                        && selection.toString().trim().length > 0,
+                    );
+                    if (hasSelection && !this.shouldForceViewportTap()) {
+                        return;
+                    }
+                    this.notifyViewportTap(event.target);
                 },
                 true,
             );
@@ -2311,7 +2301,6 @@ export class FoliateEngine {
                 let pointerDownAt = 0;
                 let pointerMoved = false;
                 const SELECTION_CAPTURE_DELAY = 24;
-                const TAP_INTERACTION_BARRIER_MS = 120;
                 const TAP_MAX_DISTANCE = 12;
                 const TAP_MAX_DURATION = 350;
                 
@@ -2401,6 +2390,23 @@ export class FoliateEngine {
                     pointerDownAt = 0;
                     pointerMoved = false;
                     
+                    if (isTap) {
+                        var sel = document.getSelection();
+                        var hasSel = Boolean(
+                            sel
+                            && !sel.isCollapsed
+                            && sel.toString().trim().length > 0,
+                        );
+                        if (!hasSel) {
+                            window.parent.postMessage({
+                                type: 'foliate-tap',
+                                sectionIndex: ${index},
+                                hasSelection: false,
+                            }, '*');
+                            return;
+                        }
+                    }
+
                     // Check selection after a short delay
                     setTimeout(function() {
                         var hasSelection = postSelection(e.clientX, e.clientY);
@@ -2411,7 +2417,7 @@ export class FoliateEngine {
                                 hasSelection: hasSelection,
                             }, '*');
                         }
-                    }, isTap ? TAP_INTERACTION_BARRIER_MS : SELECTION_CAPTURE_DELAY);
+                    }, SELECTION_CAPTURE_DELAY);
                 });
 
                 document.addEventListener('touchend', function(e) {

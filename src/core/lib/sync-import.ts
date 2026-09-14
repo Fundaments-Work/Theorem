@@ -497,8 +497,17 @@ export function mergeReadingStats(
         .sort()
         .pop();
 
+    const lastGoalNotifiedDate = [existing.lastGoalNotifiedDate, incoming.lastGoalNotifiedDate]
+        .filter(Boolean)
+        .sort()
+        .pop();
+
+    const lastDailyReminderDate = [existing.lastDailyReminderDate, incoming.lastDailyReminderDate]
+        .filter(Boolean)
+        .sort()
+        .pop();
+
     return {
-        
         totalReadingTime: Math.max(existing.totalReadingTime, incoming.totalReadingTime),
         booksCompleted: Math.max(existing.booksCompleted, incoming.booksCompleted),
         averageReadingSpeed: Math.max(existing.averageReadingSpeed, incoming.averageReadingSpeed),
@@ -509,6 +518,8 @@ export function mergeReadingStats(
         booksReadThisYear: Math.max(existing.booksReadThisYear, incoming.booksReadThisYear),
         dailyActivity: mergedActivity,
         lastReadDate,
+        lastGoalNotifiedDate,
+        lastDailyReminderDate,
     };
 }
 

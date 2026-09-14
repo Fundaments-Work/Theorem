@@ -261,6 +261,56 @@ const languageInfo = lang => {
     }
 }
 
+const findRangeByText = (doc, text) => {
+    if (!text || !doc.body) return null
+    const target = text.trim()
+    if (!target) return null
+
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null)
+    let node
+    const textNodes = []
+    let fullText = ''
+    while ((node = walker.nextNode())) {
+        textNodes.push(node)
+        fullText += node.nodeValue || ''
+    }
+    const index = fullText.indexOf(target)
+    if (index === -1) return null
+
+    let cur = 0
+    let startNode = null
+    let startOffset = 0
+    let endNode = null
+    let endOffset = 0
+    const endIndex = index + target.length
+
+    for (const tn of textNodes) {
+        const len = tn.nodeValue?.length || 0
+        if (!startNode && cur + len > index) {
+            startNode = tn
+            startOffset = index - cur
+        }
+        if (startNode && cur + len >= endIndex) {
+            endNode = tn
+            endOffset = endIndex - cur
+            break
+        }
+        cur += len
+    }
+
+    if (startNode && endNode) {
+        try {
+            const range = doc.createRange()
+            range.setStart(startNode, startOffset)
+            range.setEnd(endNode, endOffset)
+            return range
+        } catch {
+            return null
+        }
+    }
+    return null
+}
+
 export class View extends HTMLElement {
     #root = this.attachShadow({ mode: 'closed' })
     #sectionProgress
@@ -496,15 +546,20 @@ export class View extends HTMLElement {
             const { overlayer, doc } = obj
             overlayer.remove(value)
             if (!remove) {
-                let range
-                try {
-                    range = doc ? anchor(doc) : anchor
-                } catch (err) {
-                    // A CFI that no longer resolves against the current DOM
-                    // (e.g. a stale or partially-matching range) must not break
-                    // the whole annotation render.
-                    console.warn('[foliate] could not resolve annotation range', value, err)
-                    range = null
+                let range = annotation.range || null
+                if (!range) {
+                    try {
+                        range = doc ? anchor(doc) : anchor
+                    } catch (err) {
+                        // A CFI that no longer resolves against the current DOM
+                        // (e.g. a stale or partially-matching range) must not break
+                        // the whole annotation render.
+                        console.warn('[foliate] could not resolve annotation range', value, err)
+                        range = null
+                    }
+                }
+                if (!range && doc && (annotation.selectedText || annotation.text)) {
+                    range = findRangeByText(doc, annotation.selectedText || annotation.text)
                 }
                 if (range) {
                     const draw = (func, opts) => overlayer.add(value, range, func, opts)

@@ -174,15 +174,17 @@ Two rendering paths converge in `Reader.tsx`:
 Reader.tsx orchestrates:
   ├─ Book loading (detect format → choose engine)
   ├─ Annotation sync (store ↔ engine ↔ panel)
-  ├─ Search (engine-native or PDF.js)
-  ├─ Narration (ImmersionPlayer: neural/platform TTS · AudiobookBar: companion audio)
-  └─ Navigation state (pagination, position tracking)
+  ├─ Search (native Rust book_search or PDF.js)
+  ├─ Narration (ImmersionPlayer: WSOLA pitch-preserving time-stretching, neural/platform TTS · AudiobookBar: companion audio)
+  └─ Navigation state (pagination, position tracking, decoupled stats reads via on-demand store access)
 
 Non-PDF path:
   ReaderViewport → useDocumentReader → FoliateEngine → foliate-js view.js
+  (Idempotent selection listeners, bounds-checked spine navigation, zero-delay intra-section flipping)
 
 PDF path:
   PDFReader → PDFJsEngine → pdfjs-dist
+  (Persistent page proxy keep window to prevent DOM collapse, native Rust parallel search, multi-page prefetching)
 ```
 
 The foliate-js submodule at `src/features/reader/foliate-js/` is vendored upstream (johnfactotum/foliate-js). We never edit it directly. Instead, `scripts/sync-foliate-js.sh` copies the files we need into `src/features/reader/foliate-js-runtime/` and applies runtime patches. This is where our modifications live.

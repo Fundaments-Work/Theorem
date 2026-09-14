@@ -398,33 +398,6 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         return;
     }, []);
 
-    useEffect(() => {
-        if (!onTextSelected || !isInitialized) return;
-
-        const engine = getEngine();
-        if (!engine) return;
-
-        engine.setupIframeSelectionListener((cfi, text, event) => {
-            onTextSelected(cfi, text, event);
-        });
-
-        const handleLoad = () => {
-            engine.setupIframeSelectionListener((cfi, text, event) => {
-                onTextSelected(cfi, text, event);
-            });
-        };
-
-        const engineInstance = engine as any;
-        if (engineInstance.view) {
-            engineInstance.view.addEventListener('load', handleLoad);
-        }
-        
-        return () => {
-            if (engineInstance.view) {
-                engineInstance.view.removeEventListener('load', handleLoad);
-            }
-        };
-    }, [onTextSelected, getEngine, isInitialized]);
 
     useEffect(() => {
         const container = containerRef.current;

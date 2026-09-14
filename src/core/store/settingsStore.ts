@@ -99,6 +99,8 @@ const defaultReadingStats: ReadingStats = {
     yearlyBookGoal: 24,
     booksReadThisYear: 0,
     dailyActivity: [],
+    lastGoalNotifiedDate: undefined,
+    lastDailyReminderDate: undefined,
 };
 
 interface SettingsStore {

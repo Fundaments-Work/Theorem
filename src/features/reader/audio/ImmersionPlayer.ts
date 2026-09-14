@@ -540,6 +540,14 @@ class ImmersionPlayer {
         this.scheduleEngineUnload();
     }
 
+    /** Dynamically change playback speed of the active native stream via WSOLA time-stretching. */
+    async setSpeed(speed: number) {
+        if (!isTauri()) return;
+        if (this.nativeSession) {
+            await invoke("tts_audio_set_speed", { speed }).catch((e) => console.error("[catch]", e));
+        }
+    }
+
     /** Fire-and-forget synthesis of the next page's first chunk so it plays back instantly. */
     async prefetch(text: string, opts: SpeakOptions = {}) {
         if (!isTauri() || !text.trim()) return;
