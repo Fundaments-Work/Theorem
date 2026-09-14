@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ArticleExtractorService } from "../src/core/services/ArticleExtractorService";
 
 describe("ArticleExtractorService", () => {
-    it("extracts clean readable article content from HTML", () => {
+    it("extracts clean readable article content from HTML", async () => {
         const sampleHtml = `
             <!DOCTYPE html>
             <html>
@@ -30,7 +30,7 @@ describe("ArticleExtractorService", () => {
             </html>
         `;
 
-        const extracted = ArticleExtractorService.extractFromHtml(sampleHtml, "https://example.com/posts/ereader");
+        const extracted = await ArticleExtractorService.extractFromHtml(sampleHtml, "https://example.com/posts/ereader");
         expect(extracted).not.toBeNull();
         expect(extracted?.title).toBe("Revolutionary E-Reader Architecture");
         expect(extracted?.content).toContain("Theorem ebook reader combines local-first SQLite persistence");
@@ -42,12 +42,12 @@ describe("ArticleExtractorService", () => {
         expect(extracted?.leadImageUrl).toBe("https://example.com/cover.jpg");
     });
 
-    it("returns null on empty or unparseable input", () => {
-        const extracted = ArticleExtractorService.extractFromHtml("");
+    it("returns null on empty or unparseable input", async () => {
+        const extracted = await ArticleExtractorService.extractFromHtml("");
         expect(extracted).toBeNull();
     });
 
-    it("sanitizes dangerous script tags from extracted content", () => {
+    it("sanitizes dangerous script tags from extracted content", async () => {
         const maliciousHtml = `
             <html>
             <body>
@@ -61,7 +61,7 @@ describe("ArticleExtractorService", () => {
             </html>
         `;
 
-        const extracted = ArticleExtractorService.extractFromHtml(maliciousHtml);
+        const extracted = await ArticleExtractorService.extractFromHtml(maliciousHtml);
         expect(extracted).not.toBeNull();
         expect(extracted?.content).not.toContain("<script>");
         expect(extracted?.content).not.toContain("onerror");

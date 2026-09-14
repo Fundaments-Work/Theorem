@@ -1291,6 +1291,202 @@ pub fn sqlite_get_book_annotations(app: AppHandle, book_id: String) -> Result<Ve
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMergeResult {
+    pub domains_updated: Vec<String>,
+    pub books_count: usize,
+    pub annotations_count: usize,
+}
+
+pub fn sqlite_merge_sync_entries_inner(
+    connection: &Connection,
+    entries: std::collections::HashMap<String, String>,
+) -> rusqlite::Result<SyncMergeResult> {
+    let mut domains_updated: Vec<String> = Vec::new();
+    let mut books_count = 0usize;
+    let mut annotations_count = 0usize;
+
+    // 1. Process tombstones first if present
+    if let Some(tombstones_json) = entries.get("deletion_tombstones") {
+        if let Ok(tombstones) = serde_json::from_str::<Vec<serde_json::Value>>(tombstones_json) {
+            for ts in &tombstones {
+                let id = ts.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let entity_type = ts.get("entityType").and_then(|v| v.as_str()).unwrap_or("");
+                if id.is_empty() {
+                    continue;
+                }
+                match entity_type {
+                    "book" => {
+                        let _ = connection.execute("DELETE FROM books WHERE id = ?1", params![id]);
+                        let _ = connection
+                            .execute("DELETE FROM book_metadata WHERE book_id = ?1", params![id]);
+                        let _ =
+                            connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id]);
+                        let _ = connection.execute(
+                            "DELETE FROM book_annotations WHERE book_id = ?1",
+                            params![id],
+                        );
+                    }
+                    "annotation" => {
+                        let _ = connection
+                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id]);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let mut record_domain = |d: &str| {
+        if !domains_updated.iter().any(|existing| existing == d) {
+            domains_updated.push(d.to_string());
+        }
+    };
+
+    // 2. Process all entries
+    for (key, value) in &entries {
+        if key == "deletion_tombstones" {
+            connection.execute(
+                "INSERT INTO kv_store(key, value, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()",
+                params![key, value],
+            )?;
+            record_domain("deletion_tombstones");
+        } else if let Some(book_id) = key.strip_prefix("book:") {
+            if let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) {
+                let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let author = book_val.get("author").and_then(|v| v.as_str());
+
+                connection.execute(
+                    "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+                    params![book_id],
+                )?;
+
+                connection.execute(
+                    "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
+                    params![book_id, value],
+                )?;
+
+                let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
+                let _ = connection.execute(
+                    "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+                    params![book_id, title, author],
+                );
+
+                books_count += 1;
+                record_domain("books");
+            }
+        } else if key == "books" {
+            if let Ok(books_vec) = serde_json::from_str::<Vec<serde_json::Value>>(value) {
+                for b in &books_vec {
+                    if let Some(book_id) = b.get("id").and_then(|v| v.as_str()) {
+                        let title = b.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                        let author = b.get("author").and_then(|v| v.as_str());
+                        let meta_json = serde_json::to_string(b).unwrap_or_default();
+
+                        connection.execute(
+                            "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+                            params![book_id],
+                        )?;
+
+                        connection.execute(
+                            "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
+                            params![book_id, meta_json],
+                        )?;
+
+                        let _ = connection
+                            .execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
+                        let _ = connection.execute(
+                            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+                            params![book_id, title, author],
+                        );
+                        books_count += 1;
+                    }
+                }
+                if !books_vec.is_empty() {
+                    record_domain("books");
+                }
+            }
+        } else if key.starts_with("anno:") || key.starts_with("annotation:") {
+            if let Ok(ann_val) = serde_json::from_str::<serde_json::Value>(value) {
+                let id = ann_val
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| key.clone());
+                let book_id = ann_val
+                    .get("bookId")
+                    .or_else(|| ann_val.get("book_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                if !book_id.is_empty() {
+                    connection.execute(
+                        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+                        params![book_id],
+                    )?;
+
+                    connection.execute(
+                        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
+                        params![id, book_id, value],
+                    )?;
+                    annotations_count += 1;
+                    record_domain("annotations");
+                }
+            }
+        } else if key == "annotations" {
+            if let Ok(anns_vec) = serde_json::from_str::<Vec<serde_json::Value>>(value) {
+                for a in &anns_vec {
+                    if let Some(id) = a.get("id").and_then(|v| v.as_str()) {
+                        let book_id = a
+                            .get("bookId")
+                            .or_else(|| a.get("book_id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if !book_id.is_empty() {
+                            let ann_json = serde_json::to_string(a).unwrap_or_default();
+                            connection.execute(
+                                "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+                                params![book_id],
+                            )?;
+                            connection.execute(
+                                "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
+                                params![id, book_id, ann_json],
+                            )?;
+                            annotations_count += 1;
+                        }
+                    }
+                }
+                if !anns_vec.is_empty() {
+                    record_domain("annotations");
+                }
+            }
+        } else {
+            connection.execute(
+                "INSERT INTO kv_store(key, value, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()",
+                params![key, value],
+            )?;
+            record_domain(key);
+        }
+    }
+
+    Ok(SyncMergeResult {
+        domains_updated,
+        books_count,
+        annotations_count,
+    })
+}
+
+#[tauri::command]
+pub fn sqlite_merge_sync_entries(
+    app: AppHandle,
+    entries: std::collections::HashMap<String, String>,
+) -> Result<SyncMergeResult, String> {
+    with_connection(&app, |connection| {
+        sqlite_merge_sync_entries_inner(connection, entries)
+    })
+}
+
 #[tauri::command]
 pub fn sqlite_shrink_memory(app: AppHandle) -> Result<(), String> {
     with_connection(&app, |connection| {
@@ -3002,5 +3198,75 @@ mod tests {
 
         sqlite_delete_rss_feed_inner(&conn, "f1").unwrap();
         assert!(sqlite_get_rss_feeds_inner(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_sqlite_merge_sync_entries() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+
+        entries.insert(
+            "book:b1".to_string(),
+            r#"{"id":"b1","title":"Dune","author":"Frank Herbert"}"#.to_string(),
+        );
+        entries.insert(
+            "anno:b1:a1".to_string(),
+            r#"{"id":"a1","bookId":"b1","text":"Fear is the mind-killer"}"#.to_string(),
+        );
+        entries.insert(
+            "settings".to_string(),
+            r#"{"fontSize":18,"theme":"sepia"}"#.to_string(),
+        );
+
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert!(res.domains_updated.contains(&"books".to_string()));
+        assert!(res.domains_updated.contains(&"annotations".to_string()));
+        assert!(res.domains_updated.contains(&"settings".to_string()));
+        assert_eq!(res.books_count, 1);
+        assert_eq!(res.annotations_count, 1);
+
+        // Verify book metadata and FTS
+        let meta = sqlite_get_book_metadata_inner(&conn, "b1").unwrap();
+        assert!(meta.is_some());
+        assert!(meta.unwrap().contains("Frank Herbert"));
+
+        let fts = sqlite_search_books_inner(&conn, "Dune", 10).unwrap();
+        assert_eq!(fts.len(), 1);
+        assert_eq!(fts[0].book_id, "b1");
+
+        // Verify annotation
+        let anns = sqlite_get_book_annotations_inner(&conn, "b1").unwrap();
+        assert_eq!(anns.len(), 1);
+        assert!(anns[0].contains("mind-killer"));
+
+        // Verify settings in kv_store
+        let settings = sqlite_get_kv_inner(&conn, "settings").unwrap();
+        assert_eq!(
+            settings,
+            Some(r#"{"fontSize":18,"theme":"sepia"}"#.to_string())
+        );
+
+        // Test tombstone deletion
+        let mut tombstone_entries = std::collections::HashMap::new();
+        tombstone_entries.insert(
+            "deletion_tombstones".to_string(),
+            r#"[{"id":"b1","entityType":"book","deletedAt":1000}]"#.to_string(),
+        );
+        let del_res = sqlite_merge_sync_entries_inner(&conn, tombstone_entries).unwrap();
+        assert!(del_res
+            .domains_updated
+            .contains(&"deletion_tombstones".to_string()));
+
+        assert_eq!(sqlite_get_book_metadata_inner(&conn, "b1").unwrap(), None);
+        assert_eq!(
+            sqlite_get_book_annotations_inner(&conn, "b1")
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            0
+        );
     }
 }

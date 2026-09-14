@@ -1,5 +1,3 @@
-import { Readability } from "@mozilla/readability";
-import DOMPurify from "dompurify";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../lib/env";
 
@@ -78,12 +76,38 @@ export class ArticleExtractorService {
     /**
      * Extracts readable full article content from raw HTML.
      */
-    static extractFromHtml(html: string, url?: string): ExtractedArticle | null {
+    static async extractFromHtml(html: string, url?: string): Promise<ExtractedArticle | null> {
+        if (!html || !html.trim()) {
+            return null;
+        }
+
+        if (isTauri()) {
+            try {
+                const nativeResult = await invoke<ExtractedArticle>("extract_article_from_html_native", {
+                    html,
+                    url: url || null,
+                });
+                if (nativeResult && nativeResult.title) {
+                    return nativeResult;
+                }
+            } catch (error) {
+                if (import.meta.env.DEV) {
+                    console.warn("[ArticleExtractor] Native extract_article_from_html_native failed, falling back:", error);
+                }
+            }
+        }
+
         if (typeof DOMParser === "undefined") {
             return null;
         }
 
         try {
+            const [{ Readability }, dompurifyModule] = await Promise.all([
+                import("@mozilla/readability"),
+                import("dompurify"),
+            ]);
+            const DOMPurify = (dompurifyModule && (dompurifyModule.default || dompurifyModule)) as typeof import("dompurify").default;
+
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
 
@@ -165,7 +189,7 @@ export class ArticleExtractorService {
 
         try {
             const html = await this.fetchHtml(url);
-            return this.extractFromHtml(html, url);
+            return await this.extractFromHtml(html, url);
         } catch (error) {
             console.error(`[ArticleExtractor] Failed to extract article from ${url}:`, error);
             return null;

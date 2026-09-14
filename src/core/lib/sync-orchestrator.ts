@@ -1344,6 +1344,17 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
         const entries = await docsGetAllEntries();
         if (!entries || Object.keys(entries).length === 0) return domainsUpdated;
 
+        if (isTauri()) {
+            try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                await invoke("sqlite_merge_sync_entries", { entries });
+            } catch (err) {
+                if (import.meta.env.DEV) {
+                    console.warn("[sync] Native sqlite_merge_sync_entries failed, falling back to JS merge:", err);
+                }
+            }
+        }
+
         const localSettingsUpdatedAt = useSettingsStore.getState().settingsLastModifiedAt || new Date().toISOString();
         const { domainsUpdated: merged } = await mergeIncomingData(
             entries,

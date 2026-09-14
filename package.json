@@ -78,7 +78,6 @@
         "dompurify": "^3.4.15",
         "fast-xml-parser": "^5.11.1",
         "fflate": "^0.8.3",
-        "fuse.js": "^7.5.0",
         "html-to-image": "^1.11.13",
         "i18next": "^26.4.2",
         "i18next-browser-languagedetector": "^8.2.1",

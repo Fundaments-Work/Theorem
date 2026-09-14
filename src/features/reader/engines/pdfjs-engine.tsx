@@ -1299,6 +1299,56 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
             searchSessionRef.current += 1;
             const sessionId = searchSessionRef.current;
+
+            // Native Rust PDF Search Fast-Path
+            if (isTauri() && pdfPath && !pdfPath.startsWith("idb://") && !pdfPath.startsWith("blob:")) {
+                try {
+                    yield { progress: 0.1 };
+                    const nativeResult = await invoke<{
+                        matches: Array<{
+                            sectionIndex: number;
+                            sectionHref: string;
+                            snippet: string;
+                            matchText: string;
+                            charOffset: number;
+                        }>;
+                        total: number;
+                        durationMs: number;
+                    }>("search_book_content", {
+                        path: pdfPath,
+                        query: normalizedQuery,
+                        matchCase: false,
+                    });
+
+                    if (searchSessionRef.current !== sessionId) return;
+
+                    if (nativeResult && Array.isArray(nativeResult.matches)) {
+                        const yieldedLocations = new Set<string>();
+                        let matchCount = 0;
+                        const total = nativeResult.matches.length;
+                        for (const m of nativeResult.matches) {
+                            if (searchSessionRef.current !== sessionId) return;
+                            const location = getPdfSearchLocation(m.sectionIndex + 1);
+                            if (!yieldedLocations.has(location)) {
+                                yieldedLocations.add(location);
+                                yield {
+                                    cfi: location,
+                                    excerpt: m.snippet,
+                                };
+                            }
+                            matchCount++;
+                            yield { progress: 0.1 + (matchCount / Math.max(1, total)) * 0.9 };
+                        }
+                        yield "done";
+                        return;
+                    }
+                } catch (e) {
+                    if (import.meta.env.DEV) {
+                        console.warn("[pdfjs-engine] Native PDF search failed, falling back to JS worker:", e);
+                    }
+                }
+            }
+
             const normalizedQueryLower = normalizedQuery.toLowerCase();
             const yieldedLocations = new Set<string>();
             const searchablePages: PDFSearchPageItem[] = [];
@@ -1367,7 +1417,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
             if (searchSessionRef.current !== sessionId) return;
             yield "done";
-        }, [pdfDocument]);
+        }, [pdfDocument, pdfPath]);
 
         const annotationsByPage = useMemo(() => {
             const grouped = new Map<number, Annotation[]>();

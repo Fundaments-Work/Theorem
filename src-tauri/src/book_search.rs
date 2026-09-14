@@ -1,3 +1,4 @@
+use flate2::read::{DeflateDecoder, ZlibDecoder};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use rayon::prelude::*;
@@ -313,6 +314,488 @@ fn parse_ordered_spine_hrefs(xml: &str) -> Vec<String> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PDF SEARCH ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+fn parse_obj_header(pre: &[u8]) -> Option<(usize, usize)> {
+    let mut i = pre.len();
+    while i > 0 && pre[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    let gen_end = i;
+    while i > 0 && pre[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    let gen_start = i;
+    if gen_start == gen_end {
+        return None;
+    }
+
+    while i > 0 && pre[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    let id_end = i;
+    while i > 0 && pre[i - 1].is_ascii_digit() {
+        i -= 1;
+    }
+    let id_start = i;
+    if id_start == id_end {
+        return None;
+    }
+
+    let id_str = std::str::from_utf8(&pre[id_start..id_end]).ok()?;
+    let gen_str = std::str::from_utf8(&pre[gen_start..gen_end]).ok()?;
+
+    let id = id_str.parse::<usize>().ok()?;
+    let gen = gen_str.parse::<usize>().ok()?;
+    Some((id, gen))
+}
+
+struct PdfObjectSlice<'a> {
+    dict: &'a [u8],
+    stream: Option<&'a [u8]>,
+}
+
+fn parse_pdf_objects(bytes: &[u8]) -> HashMap<usize, PdfObjectSlice<'_>> {
+    let mut objects = HashMap::new();
+    let mut pos = 0;
+
+    while pos < bytes.len() {
+        let slice = &bytes[pos..];
+        let Some(obj_idx) = find_subslice(slice, b" obj") else {
+            break;
+        };
+
+        let obj_start = pos + obj_idx;
+        let pre_obj = &bytes[pos..obj_start];
+        if let Some((id, _gen)) = parse_obj_header(pre_obj) {
+            let body_start = obj_start + 4;
+            let end_obj_pos = find_subslice(&bytes[body_start..], b"endobj")
+                .map(|p| body_start + p)
+                .unwrap_or(bytes.len());
+
+            let obj_body = &bytes[body_start..end_obj_pos];
+
+            let mut dict = obj_body;
+            let mut stream_data = None;
+
+            if let Some(stream_kw_idx) = find_subslice(obj_body, b"stream") {
+                dict = &obj_body[..stream_kw_idx];
+                let mut stream_start = stream_kw_idx + 6;
+                if stream_start < obj_body.len() && obj_body[stream_start] == b'\r' {
+                    stream_start += 1;
+                }
+                if stream_start < obj_body.len() && obj_body[stream_start] == b'\n' {
+                    stream_start += 1;
+                }
+
+                if let Some(endstream_kw_idx) =
+                    find_subslice(&obj_body[stream_start..], b"endstream")
+                {
+                    let mut stream_end = stream_start + endstream_kw_idx;
+                    if stream_end > stream_start && obj_body[stream_end - 1] == b'\n' {
+                        stream_end -= 1;
+                    }
+                    if stream_end > stream_start && obj_body[stream_end - 1] == b'\r' {
+                        stream_end -= 1;
+                    }
+                    stream_data = Some(&obj_body[stream_start..stream_end]);
+                }
+            }
+
+            objects.insert(
+                id,
+                PdfObjectSlice {
+                    dict,
+                    stream: stream_data,
+                },
+            );
+
+            pos = end_obj_pos + 6;
+        } else {
+            pos = obj_start + 4;
+        }
+    }
+
+    objects
+}
+
+fn is_page_object(dict: &[u8]) -> bool {
+    if let Some(pos) = find_subslice(dict, b"/Type /Page") {
+        let after = pos + 11;
+        return after >= dict.len() || (dict[after] != b's' && dict[after] != b'S');
+    }
+    if let Some(pos) = find_subslice(dict, b"/Type/Page") {
+        let after = pos + 10;
+        return after >= dict.len() || (dict[after] != b's' && dict[after] != b'S');
+    }
+    false
+}
+
+fn extract_content_ids(dict: &[u8]) -> Vec<usize> {
+    let mut ids = Vec::new();
+    let Some(contents_pos) = find_subslice(dict, b"/Contents") else {
+        return ids;
+    };
+    let rest = &dict[contents_pos + 9..];
+    let mut in_bracket = false;
+    let mut i = 0;
+    while i < rest.len() {
+        let b = rest[i];
+        if b == b'[' {
+            in_bracket = true;
+            i += 1;
+            continue;
+        } else if b == b']' {
+            break;
+        } else if b == b'/' {
+            if !in_bracket {
+                break;
+            }
+        } else if b == b'>' {
+            break;
+        } else if b.is_ascii_digit() {
+            let start = i;
+            while i < rest.len() && rest[i].is_ascii_digit() {
+                i += 1;
+            }
+            if let Ok(s) = std::str::from_utf8(&rest[start..i]) {
+                if let Ok(id) = s.parse::<usize>() {
+                    let lookahead = &rest[i..];
+                    if let Some(r_pos) = find_subslice(&lookahead[..lookahead.len().min(12)], b" R")
+                    {
+                        ids.push(id);
+                        i += r_pos + 2;
+                        if !in_bracket {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    ids
+}
+
+fn decompress_pdf_stream(dict: &[u8], stream_bytes: &[u8]) -> Vec<u8> {
+    let is_flate = find_subslice(dict, b"FlateDecode").is_some();
+    if is_flate {
+        let mut decoder = ZlibDecoder::new(stream_bytes);
+        let mut out = Vec::new();
+        if decoder.read_to_end(&mut out).is_ok() && !out.is_empty() {
+            return out;
+        }
+        let mut def_decoder = DeflateDecoder::new(stream_bytes);
+        out.clear();
+        if def_decoder.read_to_end(&mut out).is_ok() && !out.is_empty() {
+            return out;
+        }
+    }
+    stream_bytes.to_vec()
+}
+
+fn decode_hex_string(hex: &[u8]) -> Option<String> {
+    let mut clean_hex = Vec::with_capacity(hex.len());
+    for &b in hex {
+        if b.is_ascii_hexdigit() {
+            clean_hex.push(b);
+        }
+    }
+    if clean_hex.is_empty() {
+        return None;
+    }
+    if clean_hex.len() % 2 != 0 {
+        clean_hex.push(b'0');
+    }
+
+    let mut bytes = Vec::with_capacity(clean_hex.len() / 2);
+    for chunk in clean_hex.chunks_exact(2) {
+        let h = std::str::from_utf8(chunk).ok()?;
+        let val = u8::from_str_radix(h, 16).ok()?;
+        bytes.push(val);
+    }
+
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let u16_chars: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16(&u16_chars).ok()
+    } else {
+        Some(String::from_utf8_lossy(&bytes).to_string())
+    }
+}
+
+fn extract_text_from_pdf_stream(stream: &[u8]) -> String {
+    let mut out = String::with_capacity(stream.len() / 2);
+    let mut i = 0;
+
+    while i < stream.len() {
+        let b = stream[i];
+        if b == b'(' {
+            i += 1;
+            let mut depth = 1;
+            let mut s = String::new();
+            while i < stream.len() && depth > 0 {
+                if stream[i] == b'\\' && i + 1 < stream.len() {
+                    i += 1;
+                    match stream[i] {
+                        b'n' => s.push('\n'),
+                        b'r' => s.push('\n'),
+                        b't' => s.push(' '),
+                        b'(' => s.push('('),
+                        b')' => s.push(')'),
+                        b'\\' => s.push('\\'),
+                        other => s.push(other as char),
+                    }
+                } else if stream[i] == b'(' {
+                    depth += 1;
+                    s.push('(');
+                } else if stream[i] == b')' {
+                    depth -= 1;
+                    if depth > 0 {
+                        s.push(')');
+                    }
+                } else {
+                    s.push(stream[i] as char);
+                }
+                i += 1;
+            }
+            out.push_str(&s);
+        } else if b == b'[' {
+            i += 1;
+            while i < stream.len() && stream[i] != b']' {
+                if stream[i] == b'(' {
+                    i += 1;
+                    let mut depth = 1;
+                    let mut s = String::new();
+                    while i < stream.len() && depth > 0 {
+                        if stream[i] == b'\\' && i + 1 < stream.len() {
+                            i += 1;
+                            match stream[i] {
+                                b'n' => s.push('\n'),
+                                b'r' => s.push('\n'),
+                                b't' => s.push(' '),
+                                b'(' => s.push('('),
+                                b')' => s.push(')'),
+                                b'\\' => s.push('\\'),
+                                other => s.push(other as char),
+                            }
+                        } else if stream[i] == b'(' {
+                            depth += 1;
+                            s.push('(');
+                        } else if stream[i] == b')' {
+                            depth -= 1;
+                            if depth > 0 {
+                                s.push(')');
+                            }
+                        } else {
+                            s.push(stream[i] as char);
+                        }
+                        i += 1;
+                    }
+                    out.push_str(&s);
+                } else if stream[i] == b'<' {
+                    i += 1;
+                    let hex_start = i;
+                    while i < stream.len() && stream[i] != b'>' {
+                        i += 1;
+                    }
+                    let hex_bytes = &stream[hex_start..i];
+                    if let Some(decoded) = decode_hex_string(hex_bytes) {
+                        out.push_str(&decoded);
+                    }
+                    if i < stream.len() {
+                        i += 1;
+                    }
+                } else if stream[i] == b'-' {
+                    let num_start = i;
+                    i += 1;
+                    while i < stream.len() && (stream[i].is_ascii_digit() || stream[i] == b'.') {
+                        i += 1;
+                    }
+                    if let Ok(num_str) = std::str::from_utf8(&stream[num_start..i]) {
+                        if let Ok(spacing) = num_str.parse::<f32>() {
+                            if spacing <= -100.0 && !out.ends_with(' ') {
+                                out.push(' ');
+                            }
+                        }
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            if i < stream.len() {
+                i += 1;
+            }
+        } else if b == b'<' && i + 1 < stream.len() && stream[i + 1] != b'<' {
+            i += 1;
+            let hex_start = i;
+            while i < stream.len() && stream[i] != b'>' {
+                i += 1;
+            }
+            let hex_bytes = &stream[hex_start..i];
+            if let Some(decoded) = decode_hex_string(hex_bytes) {
+                out.push_str(&decoded);
+            }
+            if i < stream.len() {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    out
+}
+
+pub fn extract_pdf_page_texts(bytes: &[u8]) -> Vec<String> {
+    let objects = parse_pdf_objects(bytes);
+    if objects.is_empty() {
+        return Vec::new();
+    }
+
+    let mut page_objects: Vec<(usize, &PdfObjectSlice<'_>)> = objects
+        .iter()
+        .filter(|(_, obj)| is_page_object(obj.dict))
+        .map(|(id, obj)| (*id, obj))
+        .collect();
+
+    page_objects.sort_by_key(|(id, _)| *id);
+
+    if !page_objects.is_empty() {
+        let mut pages = Vec::with_capacity(page_objects.len());
+        for (_page_id, page_obj) in page_objects {
+            let mut page_text = String::new();
+            let content_ids = extract_content_ids(page_obj.dict);
+
+            if !content_ids.is_empty() {
+                for cid in content_ids {
+                    if let Some(c_obj) = objects.get(&cid) {
+                        if let Some(stream_bytes) = c_obj.stream {
+                            let decompressed = decompress_pdf_stream(c_obj.dict, stream_bytes);
+                            let text = extract_text_from_pdf_stream(&decompressed);
+                            if !text.is_empty() {
+                                if !page_text.is_empty() {
+                                    page_text.push(' ');
+                                }
+                                page_text.push_str(&text);
+                            }
+                        }
+                    }
+                }
+            } else if let Some(stream_bytes) = page_obj.stream {
+                let decompressed = decompress_pdf_stream(page_obj.dict, stream_bytes);
+                page_text = extract_text_from_pdf_stream(&decompressed);
+            }
+
+            let clean: String = page_text.split_whitespace().collect::<Vec<_>>().join(" ");
+            pages.push(clean);
+        }
+        pages
+    } else {
+        let mut stream_objects: Vec<(usize, &PdfObjectSlice<'_>)> = objects
+            .iter()
+            .filter(|(_, obj)| obj.stream.is_some())
+            .map(|(id, obj)| (*id, obj))
+            .collect();
+
+        stream_objects.sort_by_key(|(id, _)| *id);
+
+        let mut pages = Vec::new();
+        for (_id, obj) in stream_objects {
+            if let Some(stream_bytes) = obj.stream {
+                let decompressed = decompress_pdf_stream(obj.dict, stream_bytes);
+                let text = extract_text_from_pdf_stream(&decompressed);
+                let clean: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !clean.is_empty() {
+                    pages.push(clean);
+                }
+            }
+        }
+        pages
+    }
+}
+
+pub fn search_pdf_content(
+    path: &Path,
+    query: &str,
+    match_case: bool,
+) -> Result<Vec<NativeSearchMatch>, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let bytes = std::fs::read(path).map_err(|e| format!("Cannot read PDF: {e}"))?;
+    if !bytes.starts_with(b"%PDF-") {
+        return Err("Not a valid PDF file".to_string());
+    }
+
+    let page_texts = extract_pdf_page_texts(&bytes);
+    if page_texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let target_query = if match_case {
+        q.to_string()
+    } else {
+        q.to_lowercase()
+    };
+
+    let results: Vec<NativeSearchMatch> = page_texts
+        .par_iter()
+        .enumerate()
+        .flat_map(|(page_idx, text)| {
+            let search_text = if match_case {
+                text.clone()
+            } else {
+                text.to_lowercase()
+            };
+
+            let mut matches = Vec::new();
+            let mut search_from = 0;
+            let mut last_byte_pos = 0;
+            let mut running_char_offset = 0;
+
+            while let Some(byte_pos) = search_text[search_from..].find(&target_query) {
+                let actual_byte_pos = search_from + byte_pos;
+                running_char_offset += text[last_byte_pos..actual_byte_pos].chars().count();
+                last_byte_pos = actual_byte_pos;
+
+                let snippet = extract_context_snippet(text, actual_byte_pos, target_query.len());
+
+                matches.push(NativeSearchMatch {
+                    section_index: page_idx,
+                    section_href: format!("page={}", page_idx + 1),
+                    snippet,
+                    match_text: q.to_string(),
+                    char_offset: running_char_offset,
+                });
+
+                search_from = actual_byte_pos + target_query.len();
+                if search_from >= search_text.len() {
+                    break;
+                }
+            }
+
+            matches
+        })
+        .collect();
+
+    Ok(results)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TAURI COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -330,10 +813,27 @@ pub async fn search_book_content(
 
     let is_match_case = match_case.unwrap_or(false);
 
-    let matches =
-        tokio::task::spawn_blocking(move || search_epub_spine(&file_path, &query, is_match_case))
-            .await
-            .map_err(|e| format!("Search task failed: {e}"))??;
+    let is_pdf = file_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        || {
+            if let Ok(mut f) = std::fs::File::open(&file_path) {
+                let mut magic = [0u8; 4];
+                f.read_exact(&mut magic).is_ok() && &magic == b"%PDF"
+            } else {
+                false
+            }
+        };
+
+    let matches = tokio::task::spawn_blocking(move || {
+        if is_pdf {
+            search_pdf_content(&file_path, &query, is_match_case)
+        } else {
+            search_epub_spine(&file_path, &query, is_match_case)
+        }
+    })
+    .await
+    .map_err(|e| format!("Search task failed: {e}"))??;
 
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
     let total = matches.len();
@@ -366,6 +866,81 @@ mod tests {
         let snippet = extract_context_snippet(text, 8, 7); // "Ishmael"
         assert!(snippet.contains("Ishmael"));
         assert!(snippet.contains("Call me"));
+    }
+
+    #[test]
+    fn test_pdf_extract_and_search() {
+        let pdf_data = b"%PDF-1.4\n\
+1 0 obj\n\
+<< /Type /Catalog /Pages 2 0 R >>\n\
+endobj\n\
+2 0 obj\n\
+<< /Type /Pages /Kids [ 3 0 R ] /Count 1 >>\n\
+endobj\n\
+3 0 obj\n\
+<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\n\
+endobj\n\
+4 0 obj\n\
+<< /Length 55 >>\n\
+stream\n\
+BT\n\
+/F1 12 Tf\n\
+(Theorem ebook reader combines local-first SQLite persistence) Tj\n\
+ET\n\
+endstream\n\
+endobj\n\
+trailer\n\
+<< /Root 1 0 R >>\n\
+%%EOF\n";
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let pdf_path = temp_dir.path().join("test_sample.pdf");
+        std::fs::write(&pdf_path, pdf_data).unwrap();
+
+        let matches = search_pdf_content(&pdf_path, "SQLite persistence", false).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].section_index, 0);
+        assert_eq!(matches[0].section_href, "page=1");
+        assert!(matches[0].snippet.contains("SQLite persistence"));
+    }
+
+    #[test]
+    fn test_pdf_flate_compressed_search() {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let content_stream =
+            b"BT /F1 12 Tf [ (Quantum) -150 (Computing) -200 (Breakthrough) ] TJ ET";
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(content_stream).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut pdf_data = Vec::new();
+        pdf_data
+            .extend_from_slice(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        pdf_data
+            .extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [ 3 0 R ] /Count 1 >>\nendobj\n");
+        pdf_data.extend_from_slice(
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n",
+        );
+        let header4 = format!(
+            "4 0 obj\n<< /Filter /FlateDecode /Length {} >>\nstream\n",
+            compressed.len()
+        );
+        pdf_data.extend_from_slice(header4.as_bytes());
+        pdf_data.extend_from_slice(&compressed);
+        pdf_data.extend_from_slice(b"\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let pdf_path = temp_dir.path().join("test_compressed.pdf");
+        std::fs::write(&pdf_path, &pdf_data).unwrap();
+
+        let matches = search_pdf_content(&pdf_path, "Quantum Computing", false).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].section_index, 0);
+        assert_eq!(matches[0].section_href, "page=1");
+        assert!(matches[0].snippet.contains("Quantum Computing"));
     }
 
     #[test]
