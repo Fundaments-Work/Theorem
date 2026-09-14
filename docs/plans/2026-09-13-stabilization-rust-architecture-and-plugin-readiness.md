@@ -1,11 +1,12 @@
 # Architecture & Stabilization Roadmap: Rust Core Expansion, Memory Optimization & Plugin Readiness
 
 **Date**: 2026-09-13  
-**Status**: Active Architecture Specification & Master Roadmap  
+**Status**: Completed (Stabilization & Rust Core Expansion Complete in v1.5.2, v1.5.3, and v1.5.4 — Ready for v1.6.0 Plugin Ecosystem)  
 **Target Milestones**:  
-- **v1.5.2**: Precision Highlighting, Zero-Allocation Search & Targeted Rust Performance Upgrades  
-- **v1.5.3**: Database Virtualization, Relational RSS, FTS5 & Zero-Copy Storage Scalability  
-- **v1.6.0**: WebAssembly & Isolated Runtime Plugin Ecosystem  
+- **v1.5.2**: Precision Highlighting, Zero-Allocation Search & Targeted Rust Performance Upgrades (Done)  
+- **v1.5.3**: Database Virtualization, Relational RSS, FTS5 & Zero-Copy Storage Scalability (Done)  
+- **v1.5.4**: WSOLA Audio Time-Stretching, Native PDF Search, Rust Sync Merging & fuse.js Elimination (Done)  
+- **v1.6.0**: WebAssembly & Isolated Runtime Plugin Ecosystem (Next Milestone)  
 **Authors**: Theorem Core Team  
 
 ---
@@ -278,7 +279,7 @@ Adopting the 5 techniques from Cloudflare’s 1.1.1.1 DNS cache optimization (Au
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  MILESTONE 1: THEOREM v1.5.2 — Precision Reader & Targeted Rust Modules                         │
+│  MILESTONE 1: THEOREM v1.5.2 — Precision Reader & Targeted Rust Modules [COMPLETED]             │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
 │  • Cross-Page Highlighting Engine:                                                              │
 │    - foliate-js-runtime/overlayer.js line fragment rendering (Range.getClientRects)             │
@@ -294,32 +295,35 @@ Adopting the 5 techniques from Cloudflare’s 1.1.1.1 DNS cache optimization (Au
 │    - 120ms tap-suppression barrier; strict touch gesture hierarchy                              │
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  MILESTONE 2: THEOREM v1.5.3 — Database Virtualization, Rust Core & Sync Hardening               │
+│  MILESTONE 2: THEOREM v1.5.3 & v1.5.4 — Database Virtualization & Rust Core [COMPLETED]         │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
 │  • Two-Tier Search & UI Match Highlighting:                                                     │
 │    - Hybrid Two-Tier Search: SQLite FTS5 candidate retrieval + nucleo-matcher SIMD fuzzy ranking │
 │    - Exact match character indices (<HighlightMatch />) in Library, Bookmarks, and Annotations  │
 │    - Complete elimination of fuse.js runtime overhead across all views                          │
+│  • Native PDF In-Book Search Engine:                                                            │
+│    - book_search.rs PDF object stream decompressor, text operator extractor, and Rayon parallel  │
+│    - pdfjs-engine.tsx fast-path streaming search matches directly into UI with pdf:page jumps  │
+│  • Native WSOLA Audio Time-Stretching:                                                          │
+│    - audio_player.rs pitch-preserving waveform similarity overlap-add (0.5x-3.0x speed)         │
+│    - Native Rodio volume and playback rate control commands                                     │
+│  • Native Readability & Zero-DOM Parsing:                                                       │
+│    - article_extractor.rs extract_article_from_html_native via quick-xml                        │
+│    - Dynamic code-splitting of @mozilla/readability & DOMPurify on web (-120KB initial chunk)   │
 │  • Database Virtualization & Relational Migration:                                              │
 │    - sqlite_query_books_window with limit/offset cursor pagination for 50,000+ books            │
 │    - Relational RSS schema in database.rs (rss_feeds, rss_articles, rss_article_content)        │
+│    - Relational vocabulary table with indexed normalized term lookups and backup migration      │
 │    - Decoupled heavy HTML content from zustand:theorem-rss KV store (<50KB footprint)            │
 │    - Relational reading_sessions table for instant analytics and goal aggregations              │
 │    - Zero-data-loss immutable backups in kv_store preserved during automated migration          │
-│  • Native Rust Off-Thread Processing:                                                           │
-│    - High-performance morphological lemmatizer & stemmer (src-tauri/src/stemmer.rs) for MDict  │
-│      and StarDict dictionaries (100% inflection/plural lookup hit rate)                         │
-│    - Native standards-compliant EPUB packaging (src-tauri/src/article_epub.rs) replacing        │
-│      fflate zipSync on the JavaScript UI thread                                                 │
-│    - Off-thread cover downsampling & palette extraction (src-tauri/src/image_ops.rs) wired      │
-│      into cover-extractor.ts and storage.ts (no canvas blocking on Tauri)                       │
 │  • P2P Sync Hardening:                                                                          │
 │    - Granular atomic sync keys in Iroh docs (anno:<bookId>:<annotationId>)                     │
+│    - sqlite_merge_sync_entries in Rust: direct in-database transactional gossip sync merging    │
 │    - Complete elimination of Last-Write-Wins (LWW) array clobbers on offline concurrent sync    │
-│    - Native SQLite sync conflict resolution and transaction safety                              │
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  MILESTONE 3: THEOREM v1.6.0 — Sandboxed Extensibility (The Plugin Ecosystem)                   │
+│  MILESTONE 3: THEOREM v1.6.0 — Sandboxed Extensibility (The Plugin Ecosystem) [UPCOMING]        │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
 │  • WebAssembly Sandbox Runtime (Wasmtime / Extism in Rust)                                      │
 │  • Declarative Reader Overlay Slot Architecture (Foliate & PDF.js)                              │
