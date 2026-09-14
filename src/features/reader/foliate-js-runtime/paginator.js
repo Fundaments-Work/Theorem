@@ -37,7 +37,7 @@ const animate = (a, b, duration, ease, render) => new Promise(resolve => {
 })
 
 const uncollapse = range => {
-    if (!range || !('collapsed' in range) || !range.collapsed || !range.endContainer) return range
+    if (!range || typeof range !== 'object' || !range.collapsed || !range.endContainer) return range
     const { endOffset, endContainer } = range
     if (endContainer.nodeType === 1) {
         const node = endContainer.childNodes[endOffset]
@@ -1153,7 +1153,24 @@ export class Paginator extends HTMLElement {
         const resolvedAnchor = typeof anchor === 'function' && this.#view?.document
             ? anchor(this.#view.document)
             : anchor
-        
+
+        // if anchor is a fraction / numeric position
+        if (typeof resolvedAnchor === 'number') {
+            if (this.scrolled) {
+                await this.#scrollTo(resolvedAnchor * this.viewSize, reason)
+                return
+            }
+            const { pages } = this
+            if (!pages || pages < 3) {
+                await this.#scrollToPage(1, reason)
+                return
+            }
+            const textPages = pages - 2
+            const newPage = textPages > 1 ? Math.round(resolvedAnchor * (textPages - 1)) : 0
+            await this.#scrollToPage(Math.max(1, Math.min(newPage + 1, pages - 2)), reason)
+            return
+        }
+
         // Stabilize cross-page/cross-column anchor: if anchor is a non-collapsed Range,
         // collapse to its start boundary so uncollapse evaluates strictly the initial word/character.
         let anchorTarget = resolvedAnchor
@@ -1186,22 +1203,6 @@ export class Paginator extends HTMLElement {
                 await this.#scrollToRect(rect, reason)
                 return
             }
-        }
-        // if anchor is a fraction
-        if (typeof resolvedAnchor === 'number') {
-            if (this.scrolled) {
-                await this.#scrollTo(resolvedAnchor * this.viewSize, reason)
-                return
-            }
-            const { pages } = this
-            if (!pages || pages < 3) {
-                await this.#scrollToPage(1, reason)
-                return
-            }
-            const textPages = pages - 2
-            const newPage = textPages > 1 ? Math.round(resolvedAnchor * (textPages - 1)) : 0
-            await this.#scrollToPage(Math.max(1, Math.min(newPage + 1, pages - 2)), reason)
-            return
         }
         // Fallback for unmeasurable range/element anchor: show first page of section
         await this.#scrollToPage(1, reason)
