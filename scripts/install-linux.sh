@@ -182,13 +182,14 @@ DESKTOP
 # ── Usage ──
 usage() {
     cat <<EOF
-Usage: ./scripts/install-linux.sh [--version VERSION] [--bundle deb|rpm|appimage]
+Usage: ./scripts/install-linux.sh [--version VERSION] [--beta] [--bundle deb|rpm|appimage]
 
-Downloads the latest Theorem release from GitHub and installs it.
-If --version is omitted, auto-detects the latest release.
+Downloads Theorem from GitHub and installs it.
+If --version is omitted, auto-detects the latest stable release (or latest beta with --beta).
 
 Options:
-    --version VERSION   Install a specific version (default: latest)
+    --version VERSION   Install a specific version (default: latest stable)
+    --beta, --prerelease Install the latest beta / pre-release version
     --bundle TYPE       Package format: deb, appimage (default: auto-detect)
     --print-latest      Print the latest available version and exit
     -h, --help          Show this help
@@ -200,16 +201,22 @@ EOF
 }
 
 # ── Main ──
-VERSION=""
-bundle="auto"
+VERSION="${VERSION:-}"
+bundle="${BUNDLE:-auto}"
+BETA="${BETA:-false}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version)  VERSION="$2"; shift 2 ;;
+        --beta|--prerelease) BETA=true; shift ;;
         --bundle|-b) bundle="$2"; shift 2 ;;
     --print-latest)
         need_cmd jq
-        curl -fsSL "https://api.github.com/repos/$GH_REPO/releases/latest" | jq -r '.tag_name | ltrimstr("v")'
+        if [[ "$BETA" == "true" ]]; then
+            curl -fsSL "https://api.github.com/repos/$GH_REPO/releases" | jq -r '([.[] | select(.prerelease == true)][0].tag_name // .[0].tag_name) | ltrimstr("v")'
+        else
+            curl -fsSL "https://api.github.com/repos/$GH_REPO/releases/latest" | jq -r '.tag_name | ltrimstr("v")'
+        fi
         exit 0
         ;;
     --help|-h)  usage 0 ;;
@@ -223,12 +230,21 @@ need_cmd bsdtar
 # Auto-detect latest version
 if [[ -z "$VERSION" ]]; then
     need_cmd jq
-    VERSION="$(curl -fsSL "https://api.github.com/repos/$GH_REPO/releases/latest" | jq -r '.tag_name | ltrimstr("v")')"
-    if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
-        log_error "Failed to detect latest version from GitHub"
-        exit 1
+    if [[ "$BETA" == "true" ]]; then
+        VERSION="$(curl -fsSL "https://api.github.com/repos/$GH_REPO/releases" | jq -r '([.[] | select(.prerelease == true)][0].tag_name // .[0].tag_name) | ltrimstr("v")')"
+        if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
+            log_error "Failed to detect latest beta version from GitHub"
+            exit 1
+        fi
+        log_info "Latest beta release: v$VERSION"
+    else
+        VERSION="$(curl -fsSL "https://api.github.com/repos/$GH_REPO/releases/latest" | jq -r '.tag_name | ltrimstr("v")')"
+        if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
+            log_error "Failed to detect latest version from GitHub"
+            exit 1
+        fi
+        log_info "Latest release: v$VERSION"
     fi
-    log_info "Latest release: v$VERSION"
 fi
 
 if [[ "$bundle" == "auto" ]]; then

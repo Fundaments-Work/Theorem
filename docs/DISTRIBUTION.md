@@ -60,7 +60,14 @@ F-Droid once available).
 ### One-line installer
 
 ```bash
+# Latest stable release
 curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash
+
+# Latest beta / pre-release
+curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --beta
+
+# Or install a specific version
+curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --version 1.5.4
 ```
 
 The script detects the distro, downloads the latest release, and installs a

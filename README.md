@@ -30,7 +30,14 @@ A **free, open-source, local-first** reading app that runs on **Linux, macOS, Wi
 ### Linux (one command)
 
 ```bash
+# Latest stable release
 curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash
+
+# Latest beta / pre-release
+curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --beta
+
+# Or install a specific version
+curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --version 1.5.4
 ```
 
 ### Manual Download
