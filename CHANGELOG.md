@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Instant Foliate Reader Table of Contents Display** — Wired the pre-parsed TOC directly into the EPUB bridge (`src/core/lib/tauri-epub-bridge.ts`) and reader runtime (`src/features/reader/foliate-js-runtime/view.js` and `epub.js`), allowing the webview reader to immediately populate chapters and landmarks without blocking on DOMParser XML parsing on the main thread.
 - **SQLite Vocabulary Persistence & Sync Integration** — Connected `saveVocabularyTerm`, `deleteVocabularyTerm`, and `onRehydrateStorage` in `vocabularyStore.ts` and `sync-orchestrator.ts` to SQLite relational CRUD operations (`sqlite_get_vocabulary_terms`, `sqlite_save_vocabulary_term`, `sqlite_delete_vocabulary_term`). Automatically reconciles relational SQLite terms on app startup and synchronizes mutations.
 
+### Fixed
+
+- **Paginator Uncollapse Non-Object Anchor Error** — Fixed an unhandled promise rejection in `src/features/reader/foliate-js-runtime/paginator.js` where `('collapsed' in range)` was evaluated on numeric anchors (`1`, `0`, fractions) during settings re-renders and column layout updates. Guarded `uncollapse` against non-object inputs and handled numeric/fractional anchors immediately before range calculations.
+
 ### Improved & Performance
 
 - **Complete Elimination of `fuse.js`** — Removed the `fuse.js` runtime dependency from `package.json` and replaced it in `src/core/lib/search/fuzzy.ts` with a lightweight, zero-dependency fuzzy matching engine. Provides exact prefix, word-boundary, substring, and subsequence compactness scoring while reducing bundle overhead to 2KB.
