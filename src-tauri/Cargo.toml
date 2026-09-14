@@ -110,7 +110,7 @@ rodio = { version = "0.22", default-features = false, features = ["playback", "w
 # pkg-config — none of it ships in any binary).
 audiopus = "0.2"
 audiopus_sys = { version = "0.2", features = ["static"] }
-rand = "0.8"
+rand = "0.10"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
