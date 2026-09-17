@@ -15,7 +15,7 @@
 
 ## 1. Executive Context & Architectural Vision
 
-Theorem’s strategic vision is to become the premier local-first, high-performance reading environment. In **v1.6.0**, Theorem will deliver **Native Modular Power Features**—empowering users with fully customizable Mustache/Jinja-driven Markdown/Obsidian vault and Anki exports, built-in native Bionic/speed-reading typography, and external webhook integrations (Readwise, Notion, HTTP) directly within the fast native Rust and React engine. 
+Theorem’s strategic vision is to become the premier local-first, high-performance reading environment. In **v1.5.6 through v1.6.0**, Theorem prioritizes **Native-Grade PDF Support & Modular PKM Extensibility**—empowering users with ultra-smooth virtualized PDF reading, two-page spreads, fully customizable Mustache/Jinja-driven Markdown exports for all Personal Knowledge Management (PKM) software, and external webhook integrations (Readwise, Notion, HTTP) directly within the fast native Rust and React engine. 
 
 The full **WebAssembly community plugin ecosystem** has been strategically deferred to **v2.0.0+** to prevent premature public API freezing while SQLite virtualization, multi-window coordination, and reader layouts are still evolving. Delivering user-requested extensibility natively in v1.6.0 eliminates WASM boundary overhead, prevents memory fragmentation, and provides 100% desktop and mobile parity with zero configuration.
 
@@ -325,18 +325,25 @@ Adopting the 5 techniques from Cloudflare’s 1.1.1.1 DNS cache optimization (Au
 │    - Granular atomic sync keys in Iroh docs (anno:<bookId>:<annotationId>)                     │
 │    - sqlite_merge_sync_entries in Rust: direct in-database transactional gossip sync merging    │
 │    - Complete elimination of Last-Write-Wins (LWW) array clobbers on offline concurrent sync    │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  MILESTONE 2.5: THEOREM v1.5.6 — Native PDF Stabilization & Core Resilience [IN PROGRESS]        │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  • Native-Grade PDF Virtualization:                                                             │
+│    - True full-document layout calculation & 100% accurate native scrollbar geometry            │
+│    - Instant TOC & page jumps without sequential loading stalls or scroll jumps                 │
+│    - Smooth trackpad pinch-to-zoom anchored around cursor with zero visual jumps                │
+│    - Two-Page Spread mode (facing pages) for desktop wide-screen reading                         │
+│  • Core System Resilience:                                                                      │
+│    - Multi-mount external drive normalization & on-demand QUIC streaming fallbacks               │
+│    - Paginator uncollapse & expand null-safety guards across all documents                      │
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  MILESTONE 3: THEOREM v1.6.0 — Native Modular Power Features & Core Excellence [UPCOMING]        │
+│  MILESTONE 3: THEOREM v1.6.0 — Modular PKM Extensibility & Core Excellence [UPCOMING]           │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  • Customizable Vault & Note Exporter:                                                          │
+│  • Customizable Vault & PKM Exporter:                                                          │
 │    - Native Jinja/Mustache template engine in Settings for per-book Markdown export              │
 │    - User-configurable frontmatter, quote callouts, tag transformations, and note structure      │
-│  • Native Bionic & Speed-Reading Engine:                                                        │
-│    - High-performance typographic fixation/saccade emphasis directly in reader viewport        │
-│    - Zero-allocation overlayer styling across EPUB, MOBI, and PDF                               │
-│  • Anki Flashcard Generator & Spaced Repetition:                                                │
-│    - One-click flashcard generation for highlighted passages and saved vocabulary terms         │
+│    - Universal compatibility with Obsidian, Logseq, Foam, SilverBullet, Anytype, and Joplin    │
 │  • Webhooks & External Integrations:                                                            │
 │    - Automated event-driven export to Readwise, Notion, and generic HTTP endpoints              │
 │  • Storage & Performance Polishing:                                                             │

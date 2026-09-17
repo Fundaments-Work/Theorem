@@ -150,7 +150,8 @@ Markdown/vault export is GUI-only — there is no headless `vault` subcommand.
 ## Roadmap: v1.6.0 Template-Driven Customization
 
 In **v1.6.0**, Theorem will introduce native user-customizable export templates:
-- **Jinja/Mustache Syntax**: Customize Markdown output templates in Settings → Devices & Export (e.g. `{{author}}/{{title}}.md`, custom YAML frontmatter fields, Obsidian callout formatting `> [!quote]`).
-- **Anki / Spaced Repetition Exporter**: Export highlighted sentences and saved vocabulary words directly into Anki-ready flashcard formats.
+- **Jinja/Mustache Syntax**: Customize Markdown output templates in Settings → Devices & Export (e.g. `{{author}}/{{title}}.md`, custom YAML frontmatter fields, quote callout formatting `> [!quote]` or `> [!note]`).
+- **Universal PKM Compatibility**: First-class template presets for Obsidian, Logseq, Foam, SilverBullet, Anytype, and Joplin.
 - **Outgoing Webhooks**: Automatically push highlights to Readwise, Notion, or custom HTTP endpoints upon creation.
+- **Vocabulary & SRS**: Tight integration with Lemma companion for spaced-repetition flashcards directly from exported vocabulary.
 

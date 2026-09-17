@@ -13,19 +13,18 @@ Following in-depth architectural evaluation and review of user requirements, The
 
 ### A. The Rationale for Deferral to v2.0+
 1. **Avoiding Premature API Freeze**: Shipping an external plugin SDK/API in v1.6.0 would force Theorem to commit to public interfaces and backwards compatibility while the underlying SQLite relational migrations, multi-window synchronization, and reader engines are still actively being optimized. Freezing APIs too early creates technical debt.
-2. **The "Plugin Illusion" vs. Real User Needs**: Community demand for plugins is driven almost entirely by four specific workflows:
-   - Customizable Obsidian / Logseq Markdown templates (custom YAML frontmatter, callout styles, custom tags).
-   - Bionic / fast-reading typographic overlays.
-   - Anki / spaced-repetition flashcard creation from highlights and vocabulary.
+2. **The "Plugin Illusion" vs. Real User Needs**: Community demand for plugins is driven almost entirely by user workflows:
+   - Customizable Markdown templates for Personal Knowledge Management (PKM) systems (Obsidian, Logseq, Foam, SilverBullet, Anytype, Dendron) with custom YAML frontmatter, callout styles, and custom tags.
    - External sync with Readwise, Notion, or custom webhooks.
+   - Spaced-repetition vocabulary review (already built into Theorem via Lemma).
    Implementing these workflows via third-party plugins introduces WASM boundary overhead, IPC latency, sandboxing complexity, and potential UI instability. Implementing them **natively** in Rust and React provides 100× better performance, zero battery drain, zero configuration headaches, and works seamlessly across Desktop and Android.
 3. **Sandbox & Security Overhead**: An isolated WebAssembly sandbox (Wasmtime/Extism) with capability manifests, CPU quotas, permission prompts, and a community marketplace requires massive maintenance bandwidth that detracts from the core reading experience.
 
-### B. The v1.6.0 Focus: Native Modular Power Features
+### B. The v1.6.0 Focus: Native Modular Power Features & Core Excellence
 In Theorem v1.6.0, Theorem will deliver the extensibility power users want directly within the core:
-- **Template-Driven Vault & Note Exporter**: Fully customizable Jinja/Mustache templates for per-book highlights, annotations, and vocabulary (custom frontmatter, callouts, filenames, and Anki card formats).
-- **Native Bionic & Speed-Reading Engine**: Typographic fixation and saccade emphasis integrated directly into reader settings and the Foliate/PDF viewport.
+- **Template-Driven Vault & PKM Exporter**: Fully customizable Jinja/Mustache templates for per-book highlights, annotations, and vocabulary (custom frontmatter, callouts, filenames, and markdown formatting).
 - **External Webhooks & Note Integrations**: Direct sync hooks to Readwise, Notion, and configurable HTTP endpoints.
+- **Native-Grade PDF Reading Experience**: Ultra-smooth virtualized continuous scrolling, two-page spread mode, and anchored trackpad zoom.
 - **Deepened SQLite Virtualization & Performance**: Continued Rust-first memory and storage scaling.
 
 When Theorem reaches **v2.0.0**, with core data layouts and reader geometry completely stabilized and battle-tested, the isolated WebAssembly plugin ecosystem detailed below will be introduced as the platform extension layer.
@@ -34,11 +33,11 @@ When Theorem reaches **v2.0.0**, with core data layouts and reader geometry comp
 
 ## 2. Executive Summary & Design Philosophy (v2.0.0+ Vision)
 
-Theorem's long-term vision is to become the **Obsidian of Reading Apps** in **v2.0.0+** — a fast, local-first reading hub that is not a closed silo, but an extensible platform where developers and readers can easily build custom tools, note exporters, custom themes, and reading overlays.
+Theorem's long-term vision is to become the **premier local-first reading hub for Personal Knowledge Management (PKM)** in **v2.0.0+** — a fast, open reading hub that is not a closed silo, but an extensible platform where developers and readers can easily build custom tools, note exporters, custom themes, and reading overlays.
 
 ### Core Tenets of the Plugin Architecture:
-1. **Low Friction (Obsidian-Style Developer Experience)**: Anyone who knows standard JavaScript/TypeScript and React (or Rust/WASM) can build and publish a plugin in minutes.
-2. **Zero Core Bloat**: Advanced niche workflows (e.g. Anki flashcard generation, Notion sync, Bionic reading, Zotero bibtex citation matching, DJVU loaders) live as community plugins rather than cluttering the core app.
+1. **Low Friction (Clean Developer Experience)**: Anyone who knows standard JavaScript/TypeScript and React (or Rust/WASM) can build and publish a plugin in minutes.
+2. **Zero Core Bloat**: Advanced niche workflows (e.g. Notion sync, Zotero bibtex citation matching, DJVU loaders) live as community plugins rather than cluttering the core app.
 3. **Local-First & Hot-Reloadable**: Plugins live in `$APPDATA/plugins/<plugin-id>/` with instant live hot-reloading during development.
 4. **Sandboxed Security & Stability**: Plugins must **never** corrupt the SQLite database, freeze the main UI thread, or crash Foliate's multi-column paginator layout.
 
@@ -108,10 +107,10 @@ my-custom-plugin/
 ```json
 {
   "id": "theorem-smart-vault-templates",
-  "name": "Smart Obsidian Vault Exporter",
+  "name": "Smart PKM Vault Exporter",
   "version": "1.0.0",
   "minTheoremVersion": "2.0.0",
-  "description": "Customizable markdown templates for exporting highlights and notes to Obsidian.",
+  "description": "Customizable markdown templates for exporting highlights and notes to PKM vaults.",
   "author": "Theorem Community",
   "permissions": [
     "vault:write",
@@ -132,7 +131,7 @@ my-custom-plugin/
 ### A. Reader Overlays & Sensory Modifiers
 - **Hook**: `registerReaderOverlay({ id, render, priority })`
 - **Use Cases**:
-  - **Bionic Reading**: Dynamically bolds the first letters of words in the active viewport (native in v1.6.0; open to plugin overrides in v2.0+).
+  - **Sensory Modifiers**: Contrast filters, custom reading rulers, line guides.
   - **Translation & Dictionary Glosser**: Injects floating word definitions or interlinear glosses.
   - **Margin Commentary**: Renders sticky notes alongside paragraphs on widescreen monitors.
 
@@ -141,7 +140,6 @@ my-custom-plugin/
 - **Use Cases**:
   - **Template-Driven Markdown Exporter**: Full user customization with Jinja/Mustache syntax (`{{author}}/{{title}}.md`, Callouts, YAML Frontmatter — delivered natively in v1.6.0).
   - **Notion / Readwise / Logseq Exporters**: Syncs highlights to external note systems.
-  - **Anki Flashcard Generator**: Converts marked sentences into `.apkg` or connects to AnkiConnect.
 
 ### C. Custom Document Formats & Audio Encoders
 - **Hook**: `registerFormatLoader({ extensions, loader })`
@@ -179,9 +177,8 @@ my-custom-plugin/
 - [x] Multi-device Iroh P2P sync hardening and direct LAN discovery.
 
 ### Phase 2: Native Modular Power Features & Core Extensibility (v1.6.0) [Next Milestone]
-- [ ] **Customizable Vault & Note Exporter**: Native Jinja/Mustache template engine in Settings → Devices & Export allowing custom YAML frontmatter, quote callouts, tag transformations, and per-book filenames.
-- [ ] **Native Bionic / Speed-Reading Mode**: Typographic fixation/saccade toggle in Reader Settings directly wired to the overlayer rendering path with zero allocation overhead.
-- [ ] **Anki Flashcard Generator**: Built-in export format for highlighted sentences and saved vocabulary terms.
+- [ ] **Customizable Vault & PKM Exporter**: Native Jinja/Mustache template engine in Settings → Devices & Export allowing custom YAML frontmatter, quote callouts, tag transformations, and per-book filenames for all Markdown PKMs.
+- [ ] **Native-Grade PDF Support**: True full-document virtualization, two-page spread, anchored trackpad zoom, and smooth scrollbar.
 - [ ] **External Sync & Webhook Exporters**: Configurable webhook endpoints for pushing highlights to Readwise, Notion, or custom web services.
 - [ ] **Multi-Window Sync Hardening**: IPC event deduplication and instant UI refresh across companion windows.
 

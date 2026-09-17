@@ -222,8 +222,8 @@ This document analyzes **every existing feature in Theorem**, identifies exact p
 
 #### A. v1.6.0: Native Template & Modular Extensibility
 Rather than imposing an unneeded WebAssembly boundary and premature API freeze for common note-export customizations:
-- **Rust Template Compiler**: A lightweight, fast templating engine (e.g. `minijinja` / Mustache) compiled into Rust for zero-cost evaluation of Obsidian, Logseq, and Anki card templates.
-- **Native Bionic Fast-Reading**: Directly computed glyph emphasis in Foliate/PDF overlayer without WASM/JS IPC latency.
+- **Rust Template Compiler**: A lightweight, fast templating engine (e.g. `minijinja` / Mustache) compiled into Rust for zero-cost evaluation of Markdown PKM templates (Obsidian, Logseq, Foam, SilverBullet, Anytype).
+- **Native-Grade PDF Reading**: True full-document layout virtualization, two-page spread support, and anchored zoom without JavaScript worker bottlenecks.
 - **Webhook & Sync Dispatchers**: Direct async HTTP dispatching via `reqwest` in Rust for pushing annotations to Readwise, Notion, and custom endpoints.
 
 #### B. v2.0.0+: The WebAssembly Plugin Sandbox Runtime
@@ -262,10 +262,15 @@ For arbitrary community-authored code in Theorem **v2.0.0+**:
 │   • Dedicated reading_sessions table for instant analytics                     │
 │   • Atomic P2P gossip sync merging in Rust & direct LAN fallback                │
 │                                                                                 │
-│   [ v1.6.0: Native Modular Power Features & Core Excellence ]                   │
-│   • Native Jinja/Mustache template compiler in Rust for Obsidian/Vault export   │
-│   • Native Bionic & fast-reading mode integrated into Foliate & PDF.js          │
-│   • Built-in Anki flashcard exporter and spaced-repetition templates            │
+│   [ v1.5.6: Native-Grade PDF Stabilization & Core Resilience ]                  │
+│   • True full-document layout virtualization & 100% accurate native scrollbar   │
+│   • Instant TOC & page jumps without sequential loading stalls or scroll jumps  │
+│   • Two-page spread mode (facing pages) for desktop wide-screen reading          │
+│   • Smooth trackpad pinch-to-zoom anchored around cursor with zero visual jumps │
+│                                                                                 │
+│   [ v1.6.0: Native Modular Power Features & PKM Extensibility ]                 │
+│   • Native Jinja/Mustache template compiler in Rust for all Markdown PKMs       │
+│   • Universal template presets for Obsidian, Logseq, Foam, SilverBullet, etc.   │
 │   • Outgoing webhooks to Readwise, Notion, and generic HTTP endpoints          │
 │                                                                                 │
 │   [ v2.0.0+: Extensible Plugin Ecosystem & Sandbox ]                            │
