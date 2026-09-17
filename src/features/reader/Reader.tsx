@@ -156,7 +156,6 @@ const BookReaderPage = memo(function BookReaderPage() {
     const currentBookId = useUIStore((state) => state.currentBookId);
     const setRoute = useUIStore((state) => state.setRoute);
     const currentArticle = useRssStore((state) => state.currentArticle);
-    const feeds = useRssStore((state) => state.feeds);
     const closeArticleViewer = useRssStore((state) => state.closeArticleViewer);
     const activeDocId = currentBookId || (currentArticle ? `rss:${currentArticle.id}` : null);
 
@@ -171,7 +170,18 @@ const BookReaderPage = memo(function BookReaderPage() {
     const saveVocabularyTerm = useVocabularyStore((state) => state.saveVocabularyTerm);
     const installedDictionaryCount = useVocabularyStore((state) => state.installedDictionaries.length);
 
-    const settings = useSettingsStore(useShallow((state) => state.settings));
+    const { readerSettings, tts, vocabulary, speedReadEnabled } = useSettingsStore(
+        useShallow((state) => ({
+            readerSettings: state.settings.readerSettings,
+            tts: state.settings.tts,
+            vocabulary: state.settings.vocabulary,
+            speedReadEnabled: state.settings.speedReadEnabled,
+        }))
+    );
+    const settings = useMemo(
+        () => ({ readerSettings, tts, vocabulary, speedReadEnabled }),
+        [readerSettings, tts, vocabulary, speedReadEnabled]
+    );
     const updateReaderSettings = useSettingsStore((state) => state.updateReaderSettings);
     const updateStats = useSettingsStore((state) => state.updateStats);
     const updateTtsSettings = useSettingsStore((state) => state.updateTtsSettings);
@@ -578,9 +588,10 @@ const BookReaderPage = memo(function BookReaderPage() {
             if (!currentBookId && currentArticle) {
                 setPdfData(null);
                 setResolvedPdfPath("");
+                const currentFeeds = useRssStore.getState().feeds;
                 setMetadata({
                     title: currentArticle.title || "Untitled Article",
-                    author: currentArticle.author || (feeds.find(f => f.id === currentArticle.feedId)?.title) || "RSS Feed",
+                    author: currentArticle.author || (currentFeeds.find(f => f.id === currentArticle.feedId)?.title) || "RSS Feed",
                 });
                 setToc([]);
                 setLocation(null);
@@ -593,7 +604,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 setLoadError(null);
 
                 try {
-                    const feedTitle = feeds.find((feed) => feed.id === currentArticle.feedId)?.title;
+                    const feedTitle = currentFeeds.find((feed) => feed.id === currentArticle.feedId)?.title;
                     const { convertArticleToEpubBlob } = await import("../../core/lib/rss-epub");
 
                     let articleToRender = currentArticle;

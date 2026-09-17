@@ -943,10 +943,64 @@ export function RenameBookModal({
     );
 }
 
+const DailyHighlightBanner = memo(function DailyHighlightBanner({
+    showDailyHighlight,
+    selectedShelf,
+    showFavoritesOnly,
+    isSelecting,
+}: {
+    showDailyHighlight: boolean;
+    selectedShelf: unknown;
+    showFavoritesOnly: boolean;
+    isSelecting: boolean;
+}) {
+    const [dismissed, setDismissed] = useState(
+        () => sessionStorage.getItem("theorem-dismiss-highlight") === new Date().toISOString().split("T")[0]
+    );
+
+    const annotations = useLibraryStore((state) => (dismissed || !showDailyHighlight ? null : state.annotations));
+
+    if (dismissed || !showDailyHighlight || !annotations || selectedShelf || showFavoritesOnly || isSelecting) {
+        return null;
+    }
+
+    const nonBookmarks = annotations.filter((a) => a.type !== "bookmark" && a.selectedText);
+    if (nonBookmarks.length === 0) return null;
+    const daySeed = new Date().toISOString().split("T")[0].split("-").reduce((a, b) => a + parseInt(b), 0);
+    const hl = nonBookmarks[daySeed % nonBookmarks.length];
+    if (!hl) return null;
+    const hlBook = useLibraryStore.getState().getBook(hl.bookId);
+
+    return (
+        <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+                <div className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider mb-1.5">
+                    From your highlights
+                </div>
+                <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5">
+                    &ldquo;{hl.selectedText}&rdquo;
+                </p>
+                <div className="text-[11px] text-[color:var(--color-text-secondary)]">
+                    — {hlBook?.title || "Unknown source"}
+                </div>
+            </div>
+            <button
+                onClick={() => {
+                    sessionStorage.setItem("theorem-dismiss-highlight", new Date().toISOString().split("T")[0]);
+                    setDismissed(true);
+                }}
+                className="shrink-0 mt-0.5 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
+                aria-label="Dismiss highlight"
+            >
+                ✕
+            </button>
+        </div>
+    );
+});
+
 export function LibraryPage() {
     const books = useLibraryStore((state) => state.books);
     const collections = useLibraryStore((state) => state.collections);
-    const annotations = useLibraryStore((state) => state.annotations);
     const coversHydrated = useLibraryStore((state) => state.coversHydrated);
     const addBook = useLibraryStore((state) => state.addBook);
     const removeBook = useLibraryStore((state) => state.removeBook);
@@ -972,9 +1026,6 @@ export function LibraryPage() {
     const [isSelecting, setIsSelecting] = useState(false);
 
     const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-    const [dismissedHighlight, setDismissedHighlight] = useState(
-        () => sessionStorage.getItem("theorem-dismiss-highlight") === new Date().toISOString().split("T")[0]
-    );
     const filterDropdownRef = useRef<HTMLDivElement>(null);
 
     const [infoModalBook, setInfoModalBook] = useState<Book | null>(null);
@@ -1950,40 +2001,12 @@ export function LibraryPage() {
                     </div>
 
                     <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth">
-                        {(() => {
-                            if (dismissedHighlight || !settings.showDailyHighlight) return null;
-                            const nonBookmarks = annotations.filter((a) => a.type !== "bookmark" && a.selectedText);
-                            if (nonBookmarks.length === 0 || selectedShelf || showFavoritesOnly || isSelecting) return null;
-                            const daySeed = new Date().toISOString().split("T")[0].split("-").reduce((a, b) => a + parseInt(b), 0);
-                            const hl = nonBookmarks[daySeed % nonBookmarks.length];
-                            const hlBook = useLibraryStore.getState().getBook(hl.bookId);
-                            if (!hl) return null;
-                            return (
-                                <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider mb-1.5">
-                                            From your highlights
-                                        </div>
-                                        <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5">
-                                            &ldquo;{hl.selectedText}&rdquo;
-                                        </p>
-                                        <div className="text-[11px] text-[color:var(--color-text-secondary)]">
-                                            — {hlBook?.title || "Unknown source"}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            sessionStorage.setItem("theorem-dismiss-highlight", new Date().toISOString().split("T")[0]);
-                                            setDismissedHighlight(true);
-                                        }}
-                                        className="shrink-0 mt-0.5 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
-                                        aria-label="Dismiss highlight"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            );
-                        })()}
+                        <DailyHighlightBanner
+                            showDailyHighlight={!!settings.showDailyHighlight}
+                            selectedShelf={selectedShelf}
+                            showFavoritesOnly={showFavoritesOnly}
+                            isSelecting={isSelecting}
+                        />
                         {sortedBooks.length === 0 ? (
                             <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                                 <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">No documents match criteria</p>

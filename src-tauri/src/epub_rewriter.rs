@@ -24,9 +24,14 @@ pub struct RewriteResult {
 }
 
 fn find_ci(haystack: &str, needle: &str) -> Option<usize> {
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() {
+        return Some(0);
+    }
     haystack
-        .to_ascii_lowercase()
-        .find(&needle.to_ascii_lowercase())
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .position(|window| window.eq_ignore_ascii_case(needle_bytes))
 }
 
 fn escape_xml_text(value: &str) -> String {

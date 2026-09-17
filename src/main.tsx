@@ -5,7 +5,7 @@ import { GlobalLoader } from "./ui";
 import { initSentry } from "./core/lib/sentry";
 import "./index.css";
 
-initSentry(import.meta.env.VITE_SENTRY_DSN as string | undefined, import.meta.env.MODE);
+void initSentry(import.meta.env.VITE_SENTRY_DSN as string | undefined, import.meta.env.MODE);
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

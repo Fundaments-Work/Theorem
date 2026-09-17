@@ -413,6 +413,8 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_rss_articles_feed_id ON rss_articles(feed_id);
     CREATE INDEX IF NOT EXISTS idx_rss_articles_published_at ON rss_articles(published_at);
+    CREATE INDEX IF NOT EXISTS idx_rss_articles_feed_fetched ON rss_articles(feed_id, fetched_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_rss_articles_fetched_at ON rss_articles(fetched_at DESC);
 
     CREATE TABLE IF NOT EXISTS rss_article_content (
         article_id TEXT PRIMARY KEY,
@@ -432,6 +434,7 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_reading_sessions_date ON reading_sessions(session_date);
     CREATE INDEX IF NOT EXISTS idx_reading_sessions_book_id ON reading_sessions(book_id);
+    CREATE INDEX IF NOT EXISTS idx_reading_sessions_date_created ON reading_sessions(session_date DESC, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS vocabulary (
         id TEXT PRIMARY KEY,

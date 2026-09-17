@@ -587,6 +587,8 @@ pub async fn ingest_books_native(
                 let content_hash = compute_file_sha256(path);
                 let id = uuid::Uuid::new_v4().to_string();
                 let now = chrono::Utc::now().to_rfc3339();
+                let cover_extraction_done = metadata.cover_data_url.is_some();
+                let cover_path = metadata.cover_data_url;
 
                 let book = NativeBookRecord {
                     id,
@@ -596,8 +598,8 @@ pub async fn ingest_books_native(
                     storage_path: None,
                     format: ext,
                     content_hash,
-                    cover_path: metadata.cover_data_url.clone(),
-                    cover_extraction_done: metadata.cover_data_url.is_some(),
+                    cover_path,
+                    cover_extraction_done,
                     description: metadata.description,
                     publisher: metadata.publisher,
                     published_date: metadata.published_date,

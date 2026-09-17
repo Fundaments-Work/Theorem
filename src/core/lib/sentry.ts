@@ -1,11 +1,9 @@
-import * as Sentry from "@sentry/react";
-
 let isInitialized = false;
 
-export function initSentry(
+export async function initSentry(
     dsn?: string,
     environment: string = "production",
-): void {
+): Promise<void> {
     if (isInitialized) return;
 
     const resolvedDsn = dsn ?? (typeof (globalThis as any).process?.env?.SENTRY_DSN === "string" ? (globalThis as any).process.env.SENTRY_DSN : undefined);
@@ -13,6 +11,8 @@ export function initSentry(
     if (!resolvedDsn) {
         return;
     }
+
+    const Sentry = await import("@sentry/react");
 
     Sentry.init({
         dsn: resolvedDsn,
@@ -25,7 +25,6 @@ export function initSentry(
         replaysSessionSampleRate: 0.1,
         replaysOnErrorSampleRate: 1.0,
         beforeSend(event) {
-            
             if (event.breadcrumbs) {
                 for (const crumb of event.breadcrumbs) {
                     if (crumb.data && "filePath" in crumb.data) {
@@ -39,5 +38,3 @@ export function initSentry(
 
     isInitialized = true;
 }
-
-export { Sentry };

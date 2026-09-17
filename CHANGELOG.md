@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Atomic Safe Downloads**: Updated `download_book_file` to stream incoming bytes into a `.download.tmp` temporary file before atomically renaming to `.book`, cleaning up incomplete artifacts on network timeout or failure.
   - **Reader & Library On-Demand UX**: In `Reader.tsx`, eliminated 120s stall loops when downloads fail and wired the "Try Again" error button to immediately re-trigger `downloadBookOnDemand`. Added a dedicated "Download File" action in `Library.tsx`'s context menu for non-materialized books.
 
+### Improved & Performance
+
+- **Dynamic Deferred Sentry Loading** — Refactored `src/core/lib/sentry.ts` and `src/main.tsx` to dynamically import `@sentry/react` only when a valid Sentry DSN is resolved at runtime. Sheds **270 KB (88 KB gzip)** from the synchronous critical startup path for local, offline, and dev instances.
+- **React Re-render Isolation & Fine-Grained Selectors** —
+  - In `Library.tsx`, extracted `<DailyHighlightBanner />` as an isolated memoized component, removing the `annotations` array subscription from `LibraryPage`. Prevents full library re-renders (1,000+ cards) when annotations are created, updated, or synced.
+  - In `Sidebar.tsx`, replaced whole-object `stats` subscriptions with primitive `currentStreak` selectors, preventing sidebar thrashing during background reading progress flushes.
+  - In `Reader.tsx`, decoupled the `feeds` array subscription from the active book reader and isolated reader-specific settings via shallow derivation, ensuring background RSS feed refreshes and non-reader settings modifications never trigger reader viewport re-renders.
+- **SQLite Composite Query Indexes** — Added `idx_rss_articles_feed_fetched ON rss_articles(feed_id, fetched_at DESC)`, `idx_rss_articles_fetched_at ON rss_articles(fetched_at DESC)`, and `idx_reading_sessions_date_created ON reading_sessions(session_date DESC, created_at DESC)` in `src-tauri/src/database.rs`, converting in-memory sort scans into instant index lookups.
+- **Zero-Allocation Rust Search & Clone Elimination** —
+  - Replaced allocating string-lowercasing search in `src-tauri/src/epub_rewriter.rs` (`find_ci`) with zero-allocation byte window scanning (`windows(len).position(|w| w.eq_ignore_ascii_case(...))`), saving tens of 100KB–500KB OPF string allocations per metadata write.
+  - In `src-tauri/src/epub_parser.rs` (`prefetch_sync`), moved owned `EpubMeta` fields directly, eliminating redundant heap string clones and pre-inflated chapter map duplication.
+  - In `src-tauri/src/batch_ingest.rs`, moved base64 cover strings directly into `NativeBookRecord` without cloning.
+- **Cloudflare DTO Data Layouts** — Applied `Box<str>` and `Box<[T]>` across Rust DTOs (`book_search.rs`, `opds_parser.rs`, `article_extractor.rs`, `mobi_parser.rs`, `audiobook.rs`, `mdict.rs`, `stardict.rs`), shedding 8 bytes of excess allocator capacity per field.
+
 ## [1.5.5] - 2026-09-14 (Beta)
 
 ### Fixed

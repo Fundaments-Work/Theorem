@@ -713,21 +713,46 @@ fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Stri
 
     let epub = read_epub_metadata(&mut archive);
 
+    let (container, opf_path, opf, nav_path, nav, ncx_path, ncx, encryption, sections, toc) =
+        match epub {
+            Some(e) => (
+                e.container,
+                Some(e.opf_path),
+                e.opf,
+                e.nav_path,
+                e.nav,
+                e.ncx_path,
+                e.ncx,
+                e.encryption,
+                e.sections,
+                e.toc,
+            ),
+            None => (
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                HashMap::new(),
+                None,
+            ),
+        };
+
     Ok(ZipPrefetch {
-        container: epub.as_ref().and_then(|e| e.container.clone()),
-        opf_path: epub.as_ref().map(|e| e.opf_path.clone()),
-        opf: epub.as_ref().and_then(|e| e.opf.clone()),
-        nav_path: epub.as_ref().and_then(|e| e.nav_path.clone()),
-        nav: epub.as_ref().and_then(|e| e.nav.clone()),
-        ncx_path: epub.as_ref().and_then(|e| e.ncx_path.clone()),
-        ncx: epub.as_ref().and_then(|e| e.ncx.clone()),
-        encryption: epub.as_ref().and_then(|e| e.encryption.clone()),
+        container,
+        opf_path,
+        opf,
+        nav_path,
+        nav,
+        ncx_path,
+        ncx,
+        encryption,
         sizes,
-        sections: epub
-            .as_ref()
-            .map(|e| e.sections.clone())
-            .unwrap_or_default(),
-        toc: epub.and_then(|e| e.toc),
+        sections,
+        toc,
     })
 }
 
