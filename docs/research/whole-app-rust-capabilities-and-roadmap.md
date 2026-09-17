@@ -1,7 +1,7 @@
 # Whole-App Rust Capabilities, Performance Audit & Architectural Roadmap
 
 **Target**: Complete survey of all Theorem features and how Rust can maximize performance, minimize memory, and stabilize the system  
-**Context**: Preparation for Theorem v1.5.2 $\rightarrow$ v1.5.3 $\rightarrow$ v1.6.0 (Plugin Ecosystem)  
+**Context**: Preparation for Theorem v1.5.2 $\rightarrow$ v1.5.3 $\rightarrow$ v1.5.5 $\rightarrow$ v1.6.0 (Native Modular Power Features) $\rightarrow$ v2.0.0 (Plugin Ecosystem)  
 **Date**: 2026-09-13  
 **Status**: Comprehensive Feature-by-Feature Specification  
 
@@ -218,9 +218,16 @@ This document analyzes **every existing feature in Theorem**, identifies exact p
 
 ---
 
-### 3.8 The v1.6.0 Plugin Sandbox Runtime
+### 3.8 Native Template Engine & Future Plugin Sandbox
 
-For the planned **v1.6.0 Plugin Ecosystem**:
+#### A. v1.6.0: Native Template & Modular Extensibility
+Rather than imposing an unneeded WebAssembly boundary and premature API freeze for common note-export customizations:
+- **Rust Template Compiler**: A lightweight, fast templating engine (e.g. `minijinja` / Mustache) compiled into Rust for zero-cost evaluation of Obsidian, Logseq, and Anki card templates.
+- **Native Bionic Fast-Reading**: Directly computed glyph emphasis in Foliate/PDF overlayer without WASM/JS IPC latency.
+- **Webhook & Sync Dispatchers**: Direct async HTTP dispatching via `reqwest` in Rust for pushing annotations to Readwise, Notion, and custom endpoints.
+
+#### B. v2.0.0+: The WebAssembly Plugin Sandbox Runtime
+For arbitrary community-authored code in Theorem **v2.0.0+**:
 - **Why Not Web Workers?** Standard JS Web Workers run in the browser context with full DOM access capabilities or complex iframe messaging, and can freeze the browser thread.
 - **The Rust Solution: WebAssembly Component Model (Wasmtime or Extism)**:
   - Plugins compile to `.wasm` (from TypeScript, Rust, Go, or Python).
@@ -248,17 +255,24 @@ For the planned **v1.6.0 Plugin Ecosystem**:
 │   • Zero-allocation in-book search snippet slicing (book_search.rs)             │
 │   • Off-thread cover downsampling & WebP encoding (image_ops.rs)                │
 │                                                                                 │
-│   [ v1.5.3: Database Virtualization & Storage Scalability ]                     │
+│   [ v1.5.3 – v1.5.5: Database Virtualization & Storage Scalability ]            │
 │   • SQLite FTS5 full-text search (replacing fuse.js)                            │
 │   • Virtualized windowed queries for 50,000+ books (limit/offset)               │
 │   • Dedicated relational tables for RSS (rss_articles, rss_article_content)     │
 │   • Dedicated reading_sessions table for instant analytics                     │
-│   • Eliminate monolithic Zustand persist JSON strings in kv_store               │
+│   • Atomic P2P gossip sync merging in Rust & direct LAN fallback                │
 │                                                                                 │
-│   [ v1.6.0: Extensible Plugin Ecosystem & Sandbox ]                             │
+│   [ v1.6.0: Native Modular Power Features & Core Excellence ]                   │
+│   • Native Jinja/Mustache template compiler in Rust for Obsidian/Vault export   │
+│   • Native Bionic & fast-reading mode integrated into Foliate & PDF.js          │
+│   • Built-in Anki flashcard exporter and spaced-repetition templates            │
+│   • Outgoing webhooks to Readwise, Notion, and generic HTTP endpoints          │
+│                                                                                 │
+│   [ v2.0.0+: Extensible Plugin Ecosystem & Sandbox ]                            │
 │   • Native WebAssembly plugin host (Wasmtime / Extism)                          │
 │   • Hook lifecycle architecture (Reader, Library, Ingest, Exporters)            │
 │   • User-facing capability permission manager in Settings                       │
+│   • In-app community plugin registry                                            │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```

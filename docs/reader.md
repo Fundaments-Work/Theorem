@@ -105,3 +105,11 @@ Platform-specific TTS commands in Rust:
 
 The Rust commands are synchronous shell commands, but the JS side (`ImmersionPlayer.ts`) manages playback state and, on Android, resumes from the last reported word boundary. Sentence/word highlighting synced to narration is not yet implemented. Companion audiobook tracks (`.m4b`/`.mp3`) upgrade this player into a human-narrated player with speed controls.
 
+## Roadmap: v1.6.0 Bionic / Fast-Reading Mode
+
+In **v1.6.0**, Theorem will add a native **Bionic / Speed-Reading Mode**:
+- **Typographic Fixation**: Emphasizes the initial syllables of words to facilitate faster saccadic movement across sentences.
+- **Engine-Native Rendering**: Injected via the reader overlayer and CSS styling pipelines across EPUB, MOBI, and PDF.js text layers with zero runtime JS allocation overhead.
+- **Configurable Controls**: Accessible from Reader Settings with adjustable fixation intensity, saccade frequency, and per-book toggles.
+
+

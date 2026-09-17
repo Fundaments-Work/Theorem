@@ -1,21 +1,25 @@
 # Architecture & Stabilization Roadmap: Rust Core Expansion, Memory Optimization & Plugin Readiness
 
-**Date**: 2026-09-13  
-**Status**: Completed (Stabilization & Rust Core Expansion Complete in v1.5.2, v1.5.3, and v1.5.4 — Ready for v1.6.0 Plugin Ecosystem)  
+**Date**: 2026-09-13 (Updated: 2026-09-17)  
+**Status**: Core Expansion Complete (v1.5.2–v1.5.5) — Strategy Revised for v1.6.0 & v2.0.0+  
 **Target Milestones**:  
 - **v1.5.2**: Precision Highlighting, Zero-Allocation Search & Targeted Rust Performance Upgrades (Done)  
 - **v1.5.3**: Database Virtualization, Relational RSS, FTS5 & Zero-Copy Storage Scalability (Done)  
 - **v1.5.4**: WSOLA Audio Time-Stretching, Native PDF Search, Rust Sync Merging & fuse.js Elimination (Done)  
-- **v1.6.0**: WebAssembly & Isolated Runtime Plugin Ecosystem (Next Milestone)  
+- **v1.5.5**: Sync Pairing & P2P Stream Fallbacks, Multi-Mount Scope, Cross-Platform Stability (Done)  
+- **v1.6.0**: Native Modular Power Features: Template Exporters, Bionic Reading & Core Excellence (Next Milestone)  
+- **v2.0.0+**: WebAssembly & Sandboxed Community Plugin Ecosystem (Future Major Platform Release)  
 **Authors**: Theorem Core Team  
 
 ---
 
 ## 1. Executive Context & Architectural Vision
 
-Theorem’s strategic roadmap targets becoming the **"Obsidian of Reading Apps"** in **v1.6.0**—a high-performance, local-first reading hub featuring a modular, hot-reloadable plugin ecosystem. Community plugins will extend Theorem with Bionic reading, interlinear translation glosses, Zotero/BibTeX integration, Anki card synchronization, and custom document format loaders without bloating the core application.
+Theorem’s strategic vision is to become the premier local-first, high-performance reading environment. In **v1.6.0**, Theorem will deliver **Native Modular Power Features**—empowering users with fully customizable Mustache/Jinja-driven Markdown/Obsidian vault and Anki exports, built-in native Bionic/speed-reading typography, and external webhook integrations (Readwise, Notion, HTTP) directly within the fast native Rust and React engine. 
 
-However, an extensible plugin ecosystem cannot be safely mounted on an unstable or memory-bloated foundation. Prior to introducing third-party runtimes, declarative reader slots, and plugin APIs in v1.6.0, the core platform must resolve several architectural bottlenecks present up to v1.5.1:
+The full **WebAssembly community plugin ecosystem** has been strategically deferred to **v2.0.0+** to prevent premature public API freezing while SQLite virtualization, multi-window coordination, and reader layouts are still evolving. Delivering user-requested extensibility natively in v1.6.0 eliminates WASM boundary overhead, prevents memory fragmentation, and provides 100% desktop and mobile parity with zero configuration.
+
+Prior to introducing these modular systems, Theorem resolved critical architectural bottlenecks across the v1.5.x cycle:
 
 1. **Reader Layout Fragility**: Cross-page and cross-column selection in Foliate CSS multi-column paginated views must be mathematically robust so third-party overlays or highlight scripts do not trigger pagination oscillation or erratic page turns.
 2. **The Monolithic Persist Bottleneck**: Storing the entire library, RSS feed articles (up to 25MB of HTML), vocabulary, and reading stats in JavaScript Zustand memory and serializing giant monolithic JSON strings to SQLite `kv_store` on every mutation creates severe V8 heap bloat (~150MB+) and 100–300ms GC stalls.
@@ -323,7 +327,23 @@ Adopting the 5 techniques from Cloudflare’s 1.1.1.1 DNS cache optimization (Au
 │    - Complete elimination of Last-Write-Wins (LWW) array clobbers on offline concurrent sync    │
 │                                                                                                 │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
-│  MILESTONE 3: THEOREM v1.6.0 — Sandboxed Extensibility (The Plugin Ecosystem) [UPCOMING]        │
+│  MILESTONE 3: THEOREM v1.6.0 — Native Modular Power Features & Core Excellence [UPCOMING]        │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  • Customizable Vault & Note Exporter:                                                          │
+│    - Native Jinja/Mustache template engine in Settings for per-book Markdown export              │
+│    - User-configurable frontmatter, quote callouts, tag transformations, and note structure      │
+│  • Native Bionic & Speed-Reading Engine:                                                        │
+│    - High-performance typographic fixation/saccade emphasis directly in reader viewport        │
+│    - Zero-allocation overlayer styling across EPUB, MOBI, and PDF                               │
+│  • Anki Flashcard Generator & Spaced Repetition:                                                │
+│    - One-click flashcard generation for highlighted passages and saved vocabulary terms         │
+│  • Webhooks & External Integrations:                                                            │
+│    - Automated event-driven export to Readwise, Notion, and generic HTTP endpoints              │
+│  • Storage & Performance Polishing:                                                             │
+│    - Complete database virtualization, multi-window sync hardening, and zero-copy caching       │
+│                                                                                                 │
+│  ════════════════════════════════════════════════════════════════════════════════════════════   │
+│  MILESTONE 4: THEOREM v2.0.0+ — Sandboxed Extensibility (The Plugin Ecosystem) [FUTURE MAJOR]   │
 │  ════════════════════════════════════════════════════════════════════════════════════════════   │
 │  • WebAssembly Sandbox Runtime (Wasmtime / Extism in Rust)                                      │
 │  • Declarative Reader Overlay Slot Architecture (Foliate & PDF.js)                              │

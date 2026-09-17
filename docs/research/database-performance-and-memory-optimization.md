@@ -1,7 +1,7 @@
 # High-Scale Database Performance, Memory Optimization & Architecture Blueprint
 
 **Target**: Ultra-fast performance and minimal memory consumption for large libraries (1,000 to 50,000+ books)  
-**Context**: Preparation for Theorem v1.5.2 $\rightarrow$ v1.5.3 $\rightarrow$ v1.6.0 (Plugin Ecosystem)  
+**Context**: Preparation for Theorem v1.5.2 $\rightarrow$ v1.5.3 $\rightarrow$ v1.5.5 $\rightarrow$ v1.6.0 (Native Modular Power Features) $\rightarrow$ v2.0.0 (Plugin Ecosystem)  
 **Date**: 2026-09-13  
 **Status**: Research & Architecture Specification  
 
@@ -250,9 +250,10 @@ To ensure nothing breaks during this performance transformation:
 3. **Atomic P2P Sync**:
    - Migrate Iroh sync to individual keys (`anno:<id>`) merged in Rust.
 
-### Phase C (v1.6.0): Plugin Readiness
-1. Plugins interact with the library via clean, paginated SDK queries (`app.library.getBooks({ limit: 50 })`).
-2. Because the data layer is backed by SQLite with transactional safety, third-party plugins cannot corrupt store state or crash the UI.
+### Phase C (v1.6.0): Native Template Extensibility & Core Data Layer
+1. Native template compilers and export pipelines interact with the library via clean, paginated SQLite queries (`sqlite_query_books_window({ limit: 50 })`).
+2. Vault sync and note export pipelines execute off-thread in Rust via Rayon without holding large JSON payloads in JavaScript heap.
+3. This rock-solid data layer ensures that when third-party WebAssembly plugins arrive in **v2.0.0+**, they cannot corrupt database state or crash the UI.
 
 ---
 

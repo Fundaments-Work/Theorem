@@ -146,3 +146,11 @@ In the **Headless CLI**, a JSON snapshot can be exported headlessly:
 theorem export --out ~/backup/reading_data.json
 ```
 Markdown/vault export is GUI-only — there is no headless `vault` subcommand.
+
+## Roadmap: v1.6.0 Template-Driven Customization
+
+In **v1.6.0**, Theorem will introduce native user-customizable export templates:
+- **Jinja/Mustache Syntax**: Customize Markdown output templates in Settings → Devices & Export (e.g. `{{author}}/{{title}}.md`, custom YAML frontmatter fields, Obsidian callout formatting `> [!quote]`).
+- **Anki / Spaced Repetition Exporter**: Export highlighted sentences and saved vocabulary words directly into Anki-ready flashcard formats.
+- **Outgoing Webhooks**: Automatically push highlights to Readwise, Notion, or custom HTTP endpoints upon creation.
+
