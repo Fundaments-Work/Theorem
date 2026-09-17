@@ -408,7 +408,7 @@ export function DiscoverPage() {
                         {heroBook && (
                             <div
                                 onClick={() => setSelectedBook(heroBook)}
-                                className="relative overflow-hidden border border-[var(--color-border)] bg-gradient-to-br from-[var(--color-surface)] via-[var(--color-surface-muted)] to-[var(--color-surface)] p-6 sm:p-8 cursor-pointer group shadow-sm hover:shadow-md transition-all duration-200"
+                                className="relative overflow-hidden border border-[var(--color-border)] bg-gradient-to-br from-[var(--color-surface)] via-[var(--color-surface-muted)] to-[var(--color-surface)] p-6 sm:p-8 cursor-pointer group shadow-sm hover:shadow-md transition-[box-shadow,border-color] duration-200 ease-out"
                             >
                                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
                                     <div className="aspect-[2/3] w-32 sm:w-40 shrink-0 overflow-hidden border border-[var(--color-border)] shadow-lg group-hover:scale-105 transition-transform duration-300">

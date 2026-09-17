@@ -112,7 +112,7 @@ function MobileMenu({ isOpen, onClose, items, triggerRef: _triggerRef }: MenuPro
                 }}
             />
             <div
-                className="absolute right-2 top-full mt-1.5 z-[161] min-w-[13rem] max-w-[calc(100vw-1rem)] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl shadow-xl py-1 overflow-hidden transition-all duration-200"
+                className="absolute right-2 top-full mt-1.5 z-[161] min-w-[13rem] max-w-[calc(100vw-1rem)] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl shadow-xl py-1 overflow-hidden transition-[opacity,transform] duration-200 ease-out"
             >
                 {items.map((item, index) => (
                     <button

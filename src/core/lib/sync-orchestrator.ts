@@ -764,7 +764,7 @@ export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
     for (const peerId of peerIds) {
         if (_syncCancelled) break;
         try {
-            console.log(`[file-xfer] Attempting download of ${bookId} from peer ${peerId}...`);
+            debug(`[file-xfer] Attempting download of ${bookId} from peer ${peerId}...`);
             await downloadBookFile(peerId, bookId, destPath);
             try {
                 await sqliteRegisterMaterializedBook(bookId);

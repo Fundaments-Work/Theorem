@@ -227,7 +227,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                         {currentIndex + 1} <span className="opacity-40">/</span> {wordCount}
                     </span>
                     <div className="w-24 sm:w-36 h-1 overflow-hidden bg-[var(--color-surface-muted)] rounded-full border border-[var(--color-border)]">
-                        <div className="h-full bg-[var(--color-accent)] transition-all duration-150 rounded-full" style={{ width: `${progress}%` }} />
+                        <div className="h-full bg-[var(--color-accent)] transition-[width] duration-150 ease-out rounded-full" style={{ width: `${progress}%` }} />
                     </div>
                 </div>
 
@@ -291,7 +291,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                     {showContext && (
                         <div
                             ref={contextScrollRef}
-                            className="w-full h-48 sm:h-60 md:h-72 overflow-y-auto px-5 sm:px-8 py-4 sm:py-6 bg-[var(--color-surface)] border-2 border-[var(--color-border)] rounded-xl text-base sm:text-lg md:text-xl leading-relaxed sm:leading-loose custom-scrollbar shadow-md select-text transition-all duration-300"
+                            className="w-full h-48 sm:h-60 md:h-72 overflow-y-auto px-5 sm:px-8 py-4 sm:py-6 bg-[var(--color-surface)] border-2 border-[var(--color-border)] rounded-xl text-base sm:text-lg md:text-xl leading-relaxed sm:leading-loose custom-scrollbar shadow-md select-text transition-[border-color,box-shadow] duration-300 ease-out"
                             style={{ width: "100%" }}
                         >
                             <div className="flex flex-wrap gap-x-2 gap-y-2">
@@ -305,7 +305,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                                             ref={isCurrent ? activeWordRef : null}
                                             onClick={() => handleWordClick(idx)}
                                             className={cn(
-                                                "cursor-pointer rounded-md transition-all duration-150",
+                                                "cursor-pointer rounded-md transition-[color,background-color,transform,box-shadow] duration-150 ease-out",
                                                 isCurrent
                                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] font-black px-2.5 py-1 shadow-md ring-2 ring-[var(--color-accent)]/50 scale-110 inline-block mx-1"
                                                     : isPast

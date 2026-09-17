@@ -2741,7 +2741,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5">{currentPage}</span>
+                        <span className="font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5">
+                            {presentationMode === 'two-page' ? (
+                                (() => {
+                                    const spreadStart = currentPage % 2 === 1 ? currentPage : currentPage - 1;
+                                    const spreadEnd = Math.min(totalPages, spreadStart + 1);
+                                    return spreadStart === spreadEnd ? `${spreadStart}` : `${spreadStart}–${spreadEnd}`;
+                                })()
+                            ) : currentPage}
+                        </span>
                         <span className="text-[color:var(--color-text-muted)]">/</span>
                         <span className="tabular-nums px-0.5">{totalPages}</span>
                         <button

@@ -189,7 +189,7 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
     let mut cover_data_url = None;
     if let Some(href) = cover_href {
         let full_cover_path = if opf_dir.is_empty() {
-            href.clone()
+            href
         } else {
             format!("{opf_dir}/{href}")
         };
@@ -589,7 +589,7 @@ pub async fn ingest_books_native(
                 let now = chrono::Utc::now().to_rfc3339();
 
                 let book = NativeBookRecord {
-                    id: id.clone(),
+                    id,
                     title: metadata.title,
                     author: metadata.author,
                     file_path: raw_path.clone(),

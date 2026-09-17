@@ -392,7 +392,7 @@ pub mod engine {
             flags.insert(book_id.clone(), flag.clone());
         }
 
-        let task_book_id = book_id.clone();
+        let task_book_id = book_id;
         tokio::spawn(async move {
             let result =
                 run_generation(&app, &task_book_id, sections, &voice, speed, &lang, flag).await;

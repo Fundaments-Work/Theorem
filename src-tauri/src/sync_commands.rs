@@ -34,7 +34,7 @@ pub fn init_sync(
     let paired_devices = iroh_sync::load_paired_devices_from_disk(&app_data_dir);
 
     let transport_state = Arc::new(SyncTransportState {
-        app_handle: app_handle.clone(),
+        app_handle,
         device_id,
         fingerprint,
         device_name,
@@ -83,7 +83,7 @@ pub(crate) async fn get_or_init_iroh(
     );
     let mut guard = IROH_ENDPOINT.lock().unwrap();
     if guard.is_none() {
-        *guard = Some(ep.clone());
+        *guard = Some(ep);
     }
     // Return the cached endpoint so every caller talks to the same transport
     // the accept loop uses (a concurrently-built endpoint would be orphaned).
@@ -619,7 +619,7 @@ pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(
 
 async fn get_docs_api(app: &tauri::AppHandle) -> Result<iroh_docs::api::DocsApi, String> {
     let snapshot = get_docs_snapshot(app).await?;
-    Ok(snapshot.api.clone())
+    Ok(snapshot.api)
 }
 
 async fn get_docs_author(app: &tauri::AppHandle) -> Result<iroh_docs::AuthorId, String> {
@@ -629,7 +629,7 @@ async fn get_docs_author(app: &tauri::AppHandle) -> Result<iroh_docs::AuthorId, 
 
 async fn get_blobs_store(app: &tauri::AppHandle) -> Result<iroh_blobs::api::Store, String> {
     let snapshot = get_docs_snapshot(app).await?;
-    Ok(snapshot.blobs.clone())
+    Ok(snapshot.blobs)
 }
 
 async fn get_docs_snapshot(app: &tauri::AppHandle) -> Result<DocsApiSnapshot, String> {

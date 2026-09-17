@@ -62,7 +62,7 @@ export function DiscoverBookCard({
             )}
         >
             {/* Book Cover Container */}
-            <div className="relative aspect-[2/3] bg-[var(--color-surface-muted)] mb-2.5 overflow-hidden border border-[var(--color-border)] transition-all duration-300 group-hover:shadow-lg group-hover:-translate-y-1">
+            <div className="relative aspect-[2/3] bg-[var(--color-surface-muted)] mb-2.5 overflow-hidden border border-[var(--color-border)] transition-[transform,box-shadow] duration-300 ease-out group-hover:shadow-lg group-hover:-translate-y-1">
                 <TheoremBookCover
                     title={entry.title}
                     author={entry.author}
@@ -74,7 +74,7 @@ export function DiscoverBookCard({
                     onClick={handleGet}
                     disabled={isDownloading}
                     className={cn(
-                        "absolute bottom-2 right-2 z-20 flex items-center justify-center rounded-sm transition-all duration-200 shadow-md",
+                        "absolute bottom-2 right-2 z-20 flex items-center justify-center rounded-sm transition-[color,background-color,border-color,transform,box-shadow] duration-200 ease-out shadow-md",
                         isBookInLibrary
                             ? "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] font-bold border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]"
                             : "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] font-bold border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] active:scale-95"

@@ -520,7 +520,7 @@ pub fn export_vault_snapshot_impl(
 
     // Vocabulary file
     let vocab_content = build_vocabulary_markdown(&payload.vocabulary_terms, &generated_at);
-    files_to_write.push((vocab_path.clone(), vocab_content));
+    files_to_write.push((vocab_path, vocab_content));
 
     // Parallel multi-threaded write using Rayon
     let write_errors: Vec<String> = files_to_write

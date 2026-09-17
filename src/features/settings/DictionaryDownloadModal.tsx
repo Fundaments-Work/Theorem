@@ -199,7 +199,7 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
                                             </div>
                                             <div className="w-full h-2 bg-[var(--color-surface-muted)] overflow-hidden">
                                                 <div
-                                                    className="h-full bg-[var(--color-accent)] transition-all duration-150"
+                                                    className="h-full bg-[var(--color-accent)] transition-[width] duration-150 ease-out"
                                                     style={{ width: `${activeDownload.progress.percent}%` }}
                                                 />
                                             </div>
@@ -217,7 +217,7 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
                                         onClick={() => handleDownload(dict)}
                                         disabled={activeDownload !== null || isInstalled}
                                         className={cn(
-                                            "inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold shrink-0 border transition-all duration-150 touch-manipulation whitespace-nowrap",
+                                            "inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold shrink-0 border transition-[color,background-color,border-color,opacity,transform] duration-150 ease-out touch-manipulation whitespace-nowrap",
                                             "w-full sm:w-auto",
                                             isInstalled
                                                 ? "border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)] cursor-default opacity-80"

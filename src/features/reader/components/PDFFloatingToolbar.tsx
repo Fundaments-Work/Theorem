@@ -59,7 +59,7 @@ export function PDFFloatingToolbar({
             
             <div
                 className={cn(
-                    "flex flex-col gap-2 transition-all duration-300 ease-out origin-bottom-right pointer-events-auto",
+                    "flex flex-col gap-2 transition-[transform,opacity] duration-300 ease-out origin-bottom-right pointer-events-auto",
                     isOpen ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-90 translate-y-8 pointer-events-none"
                 )}
             >
@@ -70,7 +70,7 @@ export function PDFFloatingToolbar({
                         <button
                             onClick={() => onAnnotationModeChange(annotationMode === 'highlight' ? 'none' : 'highlight')}
                             className={cn(
-                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200",
+                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-[color,background-color,transform,box-shadow] duration-200 ease-out",
                                 annotationMode === 'highlight'
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-sm scale-105"
                                     : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-primary)]"
@@ -84,7 +84,7 @@ export function PDFFloatingToolbar({
                         <button
                             onClick={() => onAnnotationModeChange(annotationMode === 'pen' ? 'none' : 'pen')}
                             className={cn(
-                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200",
+                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-[color,background-color,transform,box-shadow] duration-200 ease-out",
                                 annotationMode === 'pen'
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-sm scale-105"
                                     : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-primary)]"
@@ -98,7 +98,7 @@ export function PDFFloatingToolbar({
                         <button
                             onClick={() => onAnnotationModeChange(annotationMode === 'text' ? 'none' : 'text')}
                             className={cn(
-                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200",
+                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-[color,background-color,transform,box-shadow] duration-200 ease-out",
                                 annotationMode === 'text'
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-sm scale-105"
                                     : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-primary)]"
@@ -112,7 +112,7 @@ export function PDFFloatingToolbar({
                         <button
                             onClick={() => onAnnotationModeChange(annotationMode === 'erase' ? 'none' : 'erase')}
                             className={cn(
-                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200",
+                                "relative w-9 h-9 rounded-xl flex items-center justify-center transition-[color,background-color,transform,box-shadow] duration-200 ease-out",
                                 annotationMode === 'erase'
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-sm scale-105"
                                     : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-primary)]"
@@ -150,7 +150,7 @@ export function PDFFloatingToolbar({
             <button
                 onClick={toggleOpen}
                 className={cn(
-                    "pointer-events-auto flex items-center justify-center w-11 h-11 rounded-full shadow-lg transition-all duration-300",
+                    "pointer-events-auto flex items-center justify-center w-11 h-11 rounded-full shadow-lg transition-[color,background-color,transform,box-shadow] duration-300 ease-out",
                     isOpen
                         ? "bg-[var(--color-surface)]/95 backdrop-blur-xl text-[color:var(--color-text-primary)] border border-[var(--color-border)] rotate-90"
                         : "bg-[var(--color-surface)]/95 backdrop-blur-xl text-[color:var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-surface)] hover:scale-105 active:scale-95"

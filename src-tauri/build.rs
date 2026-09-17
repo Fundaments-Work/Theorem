@@ -29,7 +29,7 @@ fn main() {
                 Some((hash.trim().to_string(), ref_path))
             }
             // Detached HEAD: the file holds the raw commit hash.
-            None => Some((head.trim().to_string(), head_path.clone())),
+            None => Some((head.trim().to_string(), head_path)),
         }
     }
 

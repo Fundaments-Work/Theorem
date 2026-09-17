@@ -1957,7 +1957,7 @@ export function LibraryPage() {
                             if (nonBookmarks.length === 0 || selectedShelf || showFavoritesOnly || isSelecting) return null;
                             const daySeed = new Date().toISOString().split("T")[0].split("-").reduce((a, b) => a + parseInt(b), 0);
                             const hl = nonBookmarks[daySeed % nonBookmarks.length];
-                            const hlBook = books.find((b) => b.id === hl.bookId);
+                            const hlBook = useLibraryStore.getState().getBook(hl.bookId);
                             if (!hl) return null;
                             return (
                                 <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">

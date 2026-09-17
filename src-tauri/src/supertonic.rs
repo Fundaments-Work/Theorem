@@ -249,7 +249,7 @@ pub mod desktop {
             let te_out = self
                 .text_encoder
                 .run(ort::inputs![
-                    "text_ids" => Value::from_array(text_ids.clone()).map_err(|e| e.to_string())?,
+                    "text_ids" => Value::from_array(text_ids).map_err(|e| e.to_string())?,
                     "style_ttl" => Value::from_array(style.ttl.clone()).map_err(|e| e.to_string())?,
                     "text_mask" => Value::from_array(text_mask.clone()).map_err(|e| e.to_string())?,
                 ])
@@ -733,9 +733,8 @@ pub mod desktop {
             let duration_sec = samples.len() as f32 / engine.sample_rate as f32;
 
             write_wav(&out_path, &samples, engine.sample_rate)?;
-            let dir_clone = dir.clone();
             std::thread::spawn(move || {
-                trim_cache(&dir_clone, CACHE_LIMIT_BYTES);
+                trim_cache(&dir, CACHE_LIMIT_BYTES);
             });
 
             Ok(SynthesisResult {

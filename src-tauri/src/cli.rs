@@ -1763,8 +1763,7 @@ fn highlights_delete(output: &Output, app: &tauri::AppHandle, annotation_id: &st
             .iter()
             .map(|v| serde_json::to_string(v).unwrap_or_default())
             .collect();
-        let _ =
-            crate::database::sqlite_save_book_annotations(app.clone(), book_id.clone(), serialized);
+        let _ = crate::database::sqlite_save_book_annotations(app.clone(), book_id, serialized);
     }
 
     let mut kv = LibraryKv::load(app).ok().unwrap_or_else(|| LibraryKv {
@@ -2078,7 +2077,7 @@ fn feeds_add(output: &Output, app: &tauri::AppHandle, url: &str) -> i32 {
 
     let xml = match fetch_url_blocking(url) {
         Ok(xml) => xml,
-        Err(e) => return output.error(&e.to_string()),
+        Err(e) => return output.error(&e),
     };
     let items = parse_feed_items(&xml);
     let title = items

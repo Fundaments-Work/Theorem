@@ -645,7 +645,7 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             removeBook: async (bookId) => {
-                const book = get().books.find((b) => b.id === bookId);
+                const book = get().getBook(bookId);
 
                 if (book && !book.syncedWithoutFile) {
                     if (isTauri()) {
@@ -912,7 +912,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 }),
 
             markBookCompleted: (bookId, source = "manual") => {
-                const book = get().books.find((b) => b.id === bookId);
+                const book = get().getBook(bookId);
                 if (!book) return null;
 
                 if (source === "auto" && book.manualCompletionState === "unread") {
@@ -971,7 +971,7 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             markBookUnread: (bookId) => {
-                const book = get().books.find((b) => b.id === bookId);
+                const book = get().getBook(bookId);
                 if (!book) return false;
 
                 const isAlreadyUnread = !book.completedAt && book.manualCompletionState === "unread";
