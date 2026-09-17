@@ -34,8 +34,8 @@ export interface PDFJsEngineProps {
     initialPage?: number;
     initialZoom?: number;
     initialZoomMode?: PdfZoomMode;
-    presentationMode?: 'scroll' | 'paged';
-    onPresentationModeChange?: (mode: 'scroll' | 'paged') => void;
+    presentationMode?: 'scroll' | 'paged' | 'two-page';
+    onPresentationModeChange?: (mode: 'scroll' | 'paged' | 'two-page') => void;
     onLoad?: (info: PDFDocumentInfo) => void;
     onError?: (error: Error) => void;
     onPageChange?: (page: number, totalPages: number, scale: number) => void;
@@ -90,8 +90,8 @@ export interface PDFJsEngineRef {
     rotateCounterClockwise: () => void;
     zoomFitPage: () => void;
     zoomFitWidth: () => void;
-    setPresentationMode: (mode: 'scroll' | 'paged') => void;
-    getPresentationMode: () => 'scroll' | 'paged';
+    setPresentationMode: (mode: 'scroll' | 'paged' | 'two-page') => void;
+    getPresentationMode: () => 'scroll' | 'paged' | 'two-page';
     search: (query: string) => AsyncGenerator<SearchResult | { progress: number } | "done">;
     clearSearch: () => void;
 }
@@ -505,20 +505,22 @@ function getCachedPdfDocumentInfo(cacheKey: string, totalPages: number): PDFDocu
     return cached;
 }
 
-function getFitWidthScale(container: HTMLElement, page: PDFPageProxy): number {
+function getFitWidthScale(container: HTMLElement, page: PDFPageProxy, isTwoPage = false): number {
     const viewportPadding = container.clientWidth < 768 ? 16 : 32;
-    const containerWidth = container.clientWidth - viewportPadding;
+    const spreadGap = isTwoPage ? 24 : 0;
+    const containerWidth = (container.clientWidth - viewportPadding - spreadGap) / (isTwoPage ? 2 : 1);
     if (containerWidth <= 0) return DEFAULT_SCALE;
     const viewport = page.getViewport({ scale: PDF_TO_CSS_UNITS });
     if (viewport.width <= 0) return DEFAULT_SCALE;
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, containerWidth / viewport.width));
 }
 
-function getFitPageScale(container: HTMLElement, page: PDFPageProxy): number {
+function getFitPageScale(container: HTMLElement, page: PDFPageProxy, isTwoPage = false): number {
     const horizontalPadding = container.clientWidth < 768 ? 16 : 32;
+    const spreadGap = isTwoPage ? 24 : 0;
     const verticalPadding = container.clientHeight < 768 ? 24 : 40;
     const containerHeight = container.clientHeight - verticalPadding;
-    const containerWidth = container.clientWidth - horizontalPadding;
+    const containerWidth = (container.clientWidth - horizontalPadding - spreadGap) / (isTwoPage ? 2 : 1);
     if (containerWidth <= 0 || containerHeight <= 0) return DEFAULT_SCALE;
     const viewport = page.getViewport({ scale: PDF_TO_CSS_UNITS });
     if (viewport.width <= 0 || viewport.height <= 0) return DEFAULT_SCALE;
@@ -531,31 +533,23 @@ function getPdfSearchLocation(pageNumber: number): string { return `pdf:page:${p
  * Build a `Float64Array` of length `totalPages` where each entry is the
  * cumulative scroll-top (in CSS pixels) of that page's *top* edge, given a
  * uniform page height derived from the pre-fetched default aspect ratio.
- *
- * The first-pass layout is uniform (all pages same height).  Once PDF.js
- * returns actual `PDFPageProxy` objects the caller can refine individual
- * entries as real viewports become available.
- *
- * @param totalPages   Number of pages in the document.
- * @param widthPt      Page width  in PDF user-space points.
- * @param heightPt     Page height in PDF user-space points.
- * @param scale        Current CSS render scale (e.g. 1.0 → 1 CSS px per unit).
- * @param gap          Vertical gap in CSS pixels between pages (matches the
- *                     Tailwind `space-y-2 sm:space-y-4` classes, ~16 px).
- * @param topPad       Top padding of the scroll container in CSS pixels.
  */
 function computeVirtualPageTops(
     totalPages: number,
     heightPt: number,
     scale: number,
+    isTwoPage = false,
     gap = 16,
     topPad = 16,
 ): Float64Array {
     const tops = new Float64Array(totalPages);
-    // CSS height of one page: PDF points → CSS pixels via PDF_TO_CSS_UNITS × scale + 2px borders
     const cssHeight = Math.max(1, heightPt * PDF_TO_CSS_UNITS * scale) + 2;
     for (let i = 0; i < totalPages; i++) {
-        tops[i] = topPad + i * (cssHeight + gap);
+        const pageNum = i + 1;
+        const rowIndex = isTwoPage
+            ? Math.floor((pageNum - 1) / 2)
+            : i;
+        tops[i] = topPad + rowIndex * (cssHeight + gap);
     }
     return tops;
 }
@@ -565,12 +559,81 @@ function computeVirtualPageTops(
  * `PDFPageProxy` is available) so we can apply the correct initial zoom
  * from the very first render.
  */
-function getFitWidthScaleFromPts(container: HTMLElement, widthPt: number): number {
+function getFitWidthScaleFromPts(container: HTMLElement, widthPt: number, isTwoPage = false): number {
     const viewportPadding = container.clientWidth < 768 ? 16 : 32;
-    const containerWidth = container.clientWidth - viewportPadding;
+    const spreadGap = isTwoPage ? 24 : 0;
+    const containerWidth = (container.clientWidth - viewportPadding - spreadGap) / (isTwoPage ? 2 : 1);
     if (containerWidth <= 0 || widthPt <= 0) return DEFAULT_SCALE;
     const cssPtWidth = widthPt * PDF_TO_CSS_UNITS;
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, containerWidth / cssPtWidth));
+}
+
+function clearSearchHighlights(textLayerDiv: HTMLElement) {
+    const matches = textLayerDiv.querySelectorAll<HTMLSpanElement>(".pdf-search-match");
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        const text = match.textContent ?? "";
+        const parent = match.parentNode;
+        if (parent) {
+            parent.replaceChild(document.createTextNode(text), match);
+            parent.normalize();
+        }
+    }
+}
+
+function applySearchHighlights(textLayerDiv: HTMLElement, query: string) {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return;
+
+    const walker = document.createTreeWalker(textLayerDiv, NodeFilter.SHOW_TEXT);
+    const targetNodes: Text[] = [];
+    let currNode = walker.nextNode();
+    while (currNode) {
+        if (currNode.textContent && currNode.textContent.toLowerCase().includes(normalizedQuery)) {
+            targetNodes.push(currNode as Text);
+        }
+        currNode = walker.nextNode();
+    }
+
+    for (const textNode of targetNodes) {
+        const parent = textNode.parentElement;
+        if (!parent || parent.classList.contains("pdf-search-match")) continue;
+        const originalText = textNode.textContent ?? "";
+        const lowerText = originalText.toLowerCase();
+        let startIndex = 0;
+        let matchIdx = lowerText.indexOf(normalizedQuery, startIndex);
+        if (matchIdx === -1) continue;
+
+        const frag = document.createDocumentFragment();
+        while (matchIdx !== -1) {
+            if (matchIdx > startIndex) {
+                frag.appendChild(document.createTextNode(originalText.slice(startIndex, matchIdx)));
+            }
+            const span = document.createElement("span");
+            span.className = "pdf-search-match";
+            span.textContent = originalText.slice(matchIdx, matchIdx + normalizedQuery.length);
+            frag.appendChild(span);
+            startIndex = matchIdx + normalizedQuery.length;
+            matchIdx = lowerText.indexOf(normalizedQuery, startIndex);
+        }
+        if (startIndex < originalText.length) {
+            frag.appendChild(document.createTextNode(originalText.slice(startIndex)));
+        }
+        parent.replaceChild(frag, textNode);
+    }
+}
+
+function getSpreads(pageCount: number): number[][] {
+    if (pageCount <= 0) return [];
+    const spreads: number[][] = [];
+    for (let p = 1; p <= pageCount; p += 2) {
+        if (p + 1 <= pageCount) {
+            spreads.push([p, p + 1]);
+        } else {
+            spreads.push([p]);
+        }
+    }
+    return spreads;
 }
 
 function createPdfSearchExcerpt(pageText: string, query: string, knownMatchIndex?: number): string {
@@ -788,6 +851,7 @@ interface PageCanvasProps {
     snapCssToPixels: boolean;
     useStreamTextLayer: boolean;
     calibrateTextLayerWidths: boolean;
+    searchQuery?: string;
     onAnnotationAdd?: (annotation: Partial<Annotation>) => void;
     onAnnotationChange?: (annotation: Annotation) => void;
     onAnnotationRemove?: (id: string) => void;
@@ -797,7 +861,7 @@ const PageCanvas = memo(function PageCanvas({
     page, scale, rotation, isRenderActive, forceRenderActive = false, inactiveReleaseDelayMs, getRenderPriority,
     annotations = [], annotationMode = "none", highlightColor, penColor, penWidth,
     enableTextLayer, preferSharpCanvas, reduceRenderQuality, snapCssToPixels, useStreamTextLayer,
-    calibrateTextLayerWidths, onAnnotationAdd, onAnnotationChange, onAnnotationRemove,
+    calibrateTextLayerWidths, searchQuery, onAnnotationAdd, onAnnotationChange, onAnnotationRemove,
 }: PageCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1006,6 +1070,9 @@ const PageCanvas = memo(function PageCanvas({
                         endOfContent.className = "endOfContent";
                         textLayerDiv.append(endOfContent);
                         registerTextLayer(textLayerDiv, endOfContent);
+                        if (searchQuery) {
+                            applySearchHighlights(textLayerDiv, searchQuery);
+                        }
                     } catch (textError) {
                         const isAbortError = textError instanceof Error && (textError.name === "AbortException" || textError.message.toLowerCase().includes("abort") || textError.message.toLowerCase().includes("cancel"));
                         if (!isAbortError) {  }
@@ -1038,7 +1105,16 @@ const PageCanvas = memo(function PageCanvas({
                 if (textLayerRef.current) unregisterTextLayer(textLayerRef.current);
             }
         };
-    }, [page, scale, rotation, shouldRender, enableTextLayer, preferSharpCanvas, reduceRenderQuality, snapCssToPixels, useStreamTextLayer, calibrateTextLayerWidths, getRenderPriority]);
+    }, [page, scale, rotation, shouldRender, enableTextLayer, preferSharpCanvas, reduceRenderQuality, snapCssToPixels, useStreamTextLayer, calibrateTextLayerWidths, getRenderPriority, searchQuery]);
+
+    useEffect(() => {
+        const textLayerDiv = textLayerRef.current;
+        if (!textLayerDiv || !enableTextLayer) return;
+        clearSearchHighlights(textLayerDiv);
+        if (searchQuery) {
+            applySearchHighlights(textLayerDiv, searchQuery);
+        }
+    }, [searchQuery, enableTextLayer]);
 
     return (
         <div ref={containerRef} className="pdf-page-container">
@@ -1095,13 +1171,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const [totalPages, setTotalPages] = useState(0);
         const [scale, setScale] = useState(DEFAULT_SCALE);
         const [rotation, setRotation] = useState(0);
-        const [presentationMode, setPresentationModeState] = useState<'scroll' | 'paged'>(initialPresentationMode);
-        const presentationModeRef = useRef<'scroll' | 'paged'>(initialPresentationMode);
+        const [presentationMode, setPresentationModeState] = useState<'scroll' | 'paged' | 'two-page'>(initialPresentationMode);
+        const presentationModeRef = useRef<'scroll' | 'paged' | 'two-page'>(initialPresentationMode);
+        const [activeSearchQuery, setActiveSearchQuery] = useState<string>("");
 
-        useEffect(() => {
-            setPresentationModeState(initialPresentationMode);
-            presentationModeRef.current = initialPresentationMode;
-        }, [initialPresentationMode]);
+
         const [isViewportInteracting, setIsViewportInteracting] = useState(false);
         const [isInitialRenderStabilizing, setIsInitialRenderStabilizing] = useState(false);
         const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
@@ -1156,7 +1230,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             ? Math.max(WEBKIT_TEXT_LAYER_PAGE_WINDOW, canvasRenderWindow)
             : Math.max(1, canvasRenderWindow);
         const enableTextLayer = true;
-        const domRenderWindow = canvasRenderWindow + 4;
         const useStreamTextLayer = !isDesktopWebKit;
 
         const callbacksRef = useRef({ onLoad, onError, onPageChange, onZoomModeChange });
@@ -1344,8 +1417,9 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 struct.total_pages,
                 struct.default_height_pt,
                 scale,
+                presentationModeRef.current === 'two-page',
             );
-        }, [scale]);
+        }, [scale, presentationMode]);
 
         useEffect(() => {
             const container = containerRef.current;
@@ -1358,10 +1432,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         rebuildPageLayout();
                         const fp = pages[0];
                         if (fp && containerRef.current) {
+                            const isTwoPage = presentationModeRef.current === 'two-page';
                             if (zoomModeRef.current === 'width-fit') {
-                                applyZoom(getFitWidthScale(containerRef.current, fp), { preserveMode: true });
+                                applyZoom(getFitWidthScale(containerRef.current, fp, isTwoPage), { preserveMode: true });
                             } else if (zoomModeRef.current === 'page-fit') {
-                                applyZoom(getFitPageScale(containerRef.current, fp), { preserveMode: true });
+                                applyZoom(getFitPageScale(containerRef.current, fp, isTwoPage), { preserveMode: true });
                             }
                         }
                     });
@@ -1373,6 +1448,29 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (resizeDebounceTimerRef.current !== null) { clearTimeout(resizeDebounceTimerRef.current); resizeDebounceTimerRef.current = null; }
             };
         }, [rebuildPageLayout, applyZoom, pages]);
+
+        useEffect(() => {
+            if (presentationModeRef.current === initialPresentationMode) return;
+            presentationModeRef.current = initialPresentationMode;
+            setPresentationModeState(initialPresentationMode);
+            const isTwoPage = initialPresentationMode === 'two-page';
+            const fp = pages[0];
+            if (containerRef.current && fp) {
+                if (initialPresentationMode === 'paged') {
+                    applyZoom(getFitPageScale(containerRef.current, fp, false), { mode: "page-fit", preserveMode: true });
+                } else if (isTwoPage) {
+                    const nextScale = zoomModeRef.current === 'page-fit'
+                        ? getFitPageScale(containerRef.current, fp, true)
+                        : getFitWidthScale(containerRef.current, fp, true);
+                    applyZoom(nextScale, { mode: zoomModeRef.current, preserveMode: true });
+                } else {
+                    const nextScale = zoomModeRef.current === 'page-fit'
+                        ? getFitPageScale(containerRef.current, fp, false)
+                        : getFitWidthScale(containerRef.current, fp, false);
+                    applyZoom(nextScale, { mode: zoomModeRef.current, preserveMode: true });
+                }
+            }
+        }, [initialPresentationMode, pages, applyZoom]);
 
         const getLoadedPageNumbers = useCallback(() => new Set(pages.map((page) => page.pageNumber)), [pages]);
 
@@ -1451,7 +1549,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             placeholderObserverRef.current?.observe(node);
         }, []);
 
-        const clearSearch = useCallback(() => { searchSessionRef.current += 1; }, []);
+        const clearSearch = useCallback(() => {
+            searchSessionRef.current += 1;
+            setActiveSearchQuery("");
+        }, []);
 
         const restoreInitialPageWithRetry = useCallback((targetPage: number, attempts = 0) => {
             const container = containerRef.current;
@@ -1482,6 +1583,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
         const search = useCallback(async function* (query: string): AsyncGenerator<SearchResult | { progress: number } | "done"> {
             const normalizedQuery = query.trim();
+            setActiveSearchQuery(normalizedQuery);
             if (!normalizedQuery) { yield "done"; return; }
             const activePdfDocument = pdfDocument;
             if (!activePdfDocument) { yield "done"; return; }
@@ -1686,9 +1788,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         // If zoom mode is width-fit we can compute the initial scale now from
                         // the container width and the default page width in pts.
                         const container = containerRef.current;
+                        const isInitialTwoPage = initialPresentationMode === 'two-page';
                         let initialScaleForTops = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
                         if (container && (initialZoomMode === 'width-fit' || initialZoomMode === 'page-fit')) {
-                            initialScaleForTops = getFitWidthScaleFromPts(container, prefetched.default_width_pt);
+                            initialScaleForTops = getFitWidthScaleFromPts(container, prefetched.default_width_pt, isInitialTwoPage);
                         }
                         scaleRef.current = initialScaleForTops;
                         setScale(initialScaleForTops);
@@ -1697,6 +1800,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             prefetched.total_pages,
                             prefetched.default_height_pt,
                             initialScaleForTops,
+                            isInitialTwoPage,
                         );
                         // Set totalPages immediately so N placeholder divs render right away
                         totalPagesRef.current = prefetched.total_pages;
@@ -1879,8 +1983,9 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 const firstPage = pages[0];
                 if (!firstPage) return;
                 const normalizedMode = initialZoomMode;
-                const nextScale = normalizedMode === "page-fit" ? getFitPageScale(container, firstPage)
-                    : normalizedMode === "width-fit" ? getFitWidthScale(container, firstPage)
+                const isTwoPage = presentationModeRef.current === 'two-page';
+                const nextScale = normalizedMode === "page-fit" ? getFitPageScale(container, firstPage, isTwoPage)
+                    : normalizedMode === "width-fit" ? getFitWidthScale(container, firstPage, isTwoPage)
                     : Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
                 hasAppliedInitialViewStateRef.current = true;
                 applyZoom(nextScale, { mode: normalizedMode, preserveMode: normalizedMode !== "custom" });
@@ -2161,22 +2266,36 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             const selection = window.getSelection();
             if (selection && !selection.isCollapsed && selection.toString().trim().length > 0) return;
 
-            if (presentationModeRef.current === 'paged') {
+            if (presentationModeRef.current === 'paged' || presentationModeRef.current === 'two-page') {
                 const container = containerRef.current;
                 if (container) {
                     const rect = container.getBoundingClientRect();
                     const clickX = event.clientX - rect.left;
                     const width = rect.width;
-                    // Left 25% tap zone: Previous page
+                    // Left 25% tap zone: Previous
                     if (clickX < width * 0.25) {
-                        if (currentPageRef.current > 1) {
+                        if (presentationModeRef.current === 'two-page') {
+                            const currentSpreadStart = currentPageRef.current % 2 === 1 ? currentPageRef.current : currentPageRef.current - 1;
+                            const prev = Math.max(1, currentSpreadStart - 2);
+                            if (prev >= 1 && prev !== currentPageRef.current) {
+                                navigateToPage(prev, "smooth");
+                                return;
+                            }
+                        } else if (currentPageRef.current > 1) {
                             navigateToPage(currentPageRef.current - 1, "smooth");
                             return;
                         }
                     }
-                    // Right 25% tap zone: Next page
+                    // Right 25% tap zone: Next
                     if (clickX > width * 0.75) {
-                        if (currentPageRef.current < totalPagesRef.current) {
+                        if (presentationModeRef.current === 'two-page') {
+                            const currentSpreadStart = currentPageRef.current % 2 === 1 ? currentPageRef.current : currentPageRef.current - 1;
+                            const next = currentSpreadStart + 2;
+                            if (next <= totalPagesRef.current) {
+                                navigateToPage(next, "smooth");
+                                return;
+                            }
+                        } else if (currentPageRef.current < totalPagesRef.current) {
                             navigateToPage(currentPageRef.current + 1, "smooth");
                             return;
                         }
@@ -2196,7 +2315,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             let isSwiping = false;
 
             const onTouchStart = (e: TouchEvent) => {
-                if (e.touches.length === 1 && presentationModeRef.current === 'paged') {
+                if (e.touches.length === 1 && (presentationModeRef.current === 'paged' || presentationModeRef.current === 'two-page')) {
                     touchStartX = e.touches[0].clientX;
                     touchStartY = e.touches[0].clientY;
                     isSwiping = true;
@@ -2204,15 +2323,39 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             };
 
             const onTouchEnd = (e: TouchEvent) => {
-                if (!isSwiping || presentationModeRef.current !== 'paged' || e.changedTouches.length === 0) return;
+                if (!isSwiping || (presentationModeRef.current !== 'paged' && presentationModeRef.current !== 'two-page') || e.changedTouches.length === 0) return;
                 isSwiping = false;
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
                 const deltaY = e.changedTouches[0].clientY - touchStartY;
                 if (Math.abs(deltaX) > 48 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
-                    if (deltaX < 0 && currentPageRef.current < totalPagesRef.current) {
-                        navigateToPage(currentPageRef.current + 1, "smooth");
-                    } else if (deltaX > 0 && currentPageRef.current > 1) {
-                        navigateToPage(currentPageRef.current - 1, "smooth");
+                    const container = containerRef.current;
+                    const isHorizontallyScrollable = container ? (container.scrollWidth > container.clientWidth + 16) : false;
+
+                    // If the container is horizontally scrollable (spread wider than viewport or zoomed in),
+                    // allow smooth horizontal panning without accidentally flipping pages, unless swiping at the edges.
+                    if (isHorizontallyScrollable && container) {
+                        const atLeftEdge = container.scrollLeft <= 16;
+                        const atRightEdge = container.scrollLeft + container.clientWidth >= container.scrollWidth - 16;
+                        if (deltaX < 0 && !atRightEdge) return;
+                        if (deltaX > 0 && !atLeftEdge) return;
+                    }
+
+                    if (deltaX < 0) {
+                        if (presentationModeRef.current === 'two-page') {
+                            const currentSpreadStart = currentPageRef.current % 2 === 1 ? currentPageRef.current : currentPageRef.current - 1;
+                            const next = currentSpreadStart + 2;
+                            if (next <= totalPagesRef.current) navigateToPage(next, "smooth");
+                        } else if (currentPageRef.current < totalPagesRef.current) {
+                            navigateToPage(currentPageRef.current + 1, "smooth");
+                        }
+                    } else if (deltaX > 0) {
+                        if (presentationModeRef.current === 'two-page') {
+                            const currentSpreadStart = currentPageRef.current % 2 === 1 ? currentPageRef.current : currentPageRef.current - 1;
+                            const prev = Math.max(1, currentSpreadStart - 2);
+                            if (prev >= 1) navigateToPage(prev, "smooth");
+                        } else if (currentPageRef.current > 1) {
+                            navigateToPage(currentPageRef.current - 1, "smooth");
+                        }
                     }
                 }
             };
@@ -2261,7 +2404,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     if (event.key === "0") {
                         event.preventDefault();
                         if (container && firstLoadedPage) {
-                            applyZoom(getFitPageScale(container, firstLoadedPage), { mode: "page-fit", preserveMode: true });
+                            applyZoom(getFitPageScale(container, firstLoadedPage, presentationModeRef.current === 'two-page'), { mode: "page-fit", preserveMode: true });
                         }
                         return;
                     }
@@ -2273,7 +2416,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     if (event.key === "2") {
                         event.preventDefault();
                         if (container && firstLoadedPage) {
-                            applyZoom(getFitWidthScale(container, firstLoadedPage), { mode: "width-fit", preserveMode: true });
+                            applyZoom(getFitWidthScale(container, firstLoadedPage, presentationModeRef.current === 'two-page'), { mode: "width-fit", preserveMode: true });
                         }
                         return;
                     }
@@ -2298,7 +2441,13 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (event.key === "ArrowLeft" || event.key === "PageUp" || (event.key === " " && event.shiftKey) || event.key === "k") {
                     if (currentPageRef.current <= 1) return;
                     event.preventDefault();
-                    navigateToPage(currentPageRef.current - 1, "smooth");
+                    if (presentationModeRef.current === 'two-page') {
+                        const currentSpreadStart = currentPageRef.current % 2 === 1 ? currentPageRef.current : currentPageRef.current - 1;
+                        const prev = Math.max(1, currentSpreadStart - 2);
+                        if (prev >= 1) navigateToPage(prev, "smooth");
+                    } else {
+                        navigateToPage(currentPageRef.current - 1, "smooth");
+                    }
                     return;
                 }
 
@@ -2306,7 +2455,13 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (event.key === "ArrowRight" || event.key === "PageDown" || (event.key === " " && !event.shiftKey) || event.key === "j") {
                     if (currentPageRef.current >= totalPagesRef.current) return;
                     event.preventDefault();
-                    navigateToPage(currentPageRef.current + 1, "smooth");
+                    if (presentationModeRef.current === 'two-page') {
+                        const currentSpreadStart = currentPageRef.current % 2 === 1 ? currentPageRef.current : currentPageRef.current - 1;
+                        const next = currentSpreadStart + 2;
+                        if (next <= totalPagesRef.current) navigateToPage(next, "smooth");
+                    } else {
+                        navigateToPage(currentPageRef.current + 1, "smooth");
+                    }
                     return;
                 }
 
@@ -2338,11 +2493,29 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             goToPage: (page: number) => { if (page >= 1 && page <= totalPagesRef.current) navigateToPage(page, "auto"); },
             nextPage: () => {
                 const page = currentPageRef.current;
-                if (page < totalPagesRef.current) navigateToPage(page + 1, "smooth");
+                if (presentationModeRef.current === 'two-page') {
+                    const currentSpreadStart = page % 2 === 1 ? page : page - 1;
+                    const next = currentSpreadStart + 2;
+                    if (next <= totalPagesRef.current) {
+                        navigateToPage(next, "smooth");
+                    } else if (page < totalPagesRef.current) {
+                        navigateToPage(totalPagesRef.current, "smooth");
+                    }
+                } else if (page < totalPagesRef.current) {
+                    navigateToPage(page + 1, "smooth");
+                }
             },
             prevPage: () => {
                 const page = currentPageRef.current;
-                if (page > 1) navigateToPage(page - 1, "smooth");
+                if (presentationModeRef.current === 'two-page') {
+                    const currentSpreadStart = page % 2 === 1 ? page : page - 1;
+                    const prev = Math.max(1, currentSpreadStart - 2);
+                    if (prev >= 1 && prev !== page) {
+                        navigateToPage(prev, "smooth");
+                    }
+                } else if (page > 1) {
+                    navigateToPage(page - 1, "smooth");
+                }
             },
             zoomIn: () => { applyZoom(scaleRef.current + ZOOM_STEP); },
             zoomOut: () => {
@@ -2360,9 +2533,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             getTotalPages: () => totalPagesRef.current,
             rotateClockwise: () => { setRotation((prev) => (prev + 90) % 360); },
             rotateCounterClockwise: () => { setRotation((prev) => (prev - 90 + 360) % 360); },
-            zoomFitPage: () => { if (!containerRef.current || !firstLoadedPage) return; applyZoom(getFitPageScale(containerRef.current, firstLoadedPage), { mode: "page-fit", preserveMode: true }); },
-            zoomFitWidth: () => { if (!containerRef.current || !firstLoadedPage) return; applyZoom(getFitWidthScale(containerRef.current, firstLoadedPage), { mode: "width-fit", preserveMode: true }); },
-            setPresentationMode: (mode: 'scroll' | 'paged') => {
+            zoomFitPage: () => {
+                if (!containerRef.current || !firstLoadedPage) return;
+                applyZoom(getFitPageScale(containerRef.current, firstLoadedPage, presentationModeRef.current === 'two-page'), { mode: "page-fit", preserveMode: true });
+            },
+            zoomFitWidth: () => {
+                if (!containerRef.current || !firstLoadedPage) return;
+                applyZoom(getFitWidthScale(containerRef.current, firstLoadedPage, presentationModeRef.current === 'two-page'), { mode: "width-fit", preserveMode: true });
+            },
+            setPresentationMode: (mode: 'scroll' | 'paged' | 'two-page') => {
                 if (presentationModeRef.current === mode) return;
                 presentationModeRef.current = mode;
                 setPresentationModeState(mode);
@@ -2374,7 +2553,21 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         return kept;
                     });
                     if (containerRef.current && firstLoadedPage) {
-                        applyZoom(getFitPageScale(containerRef.current, firstLoadedPage), { mode: "page-fit", preserveMode: true });
+                        applyZoom(getFitPageScale(containerRef.current, firstLoadedPage, false), { mode: "page-fit", preserveMode: true });
+                    }
+                } else if (mode === 'two-page') {
+                    if (containerRef.current && firstLoadedPage) {
+                        const nextScale = zoomModeRef.current === 'page-fit'
+                            ? getFitPageScale(containerRef.current, firstLoadedPage, true)
+                            : getFitWidthScale(containerRef.current, firstLoadedPage, true);
+                        applyZoom(nextScale, { mode: zoomModeRef.current, preserveMode: true });
+                    }
+                } else {
+                    if (containerRef.current && firstLoadedPage) {
+                        const nextScale = zoomModeRef.current === 'page-fit'
+                            ? getFitPageScale(containerRef.current, firstLoadedPage, false)
+                            : getFitWidthScale(containerRef.current, firstLoadedPage, false);
+                        applyZoom(nextScale, { mode: zoomModeRef.current, preserveMode: true });
                     }
                 }
                 onPresentationModeChange?.(mode);
@@ -2394,14 +2587,69 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             return m;
         }, [pages]);
 
+        const spreads = useMemo(() => getSpreads(totalPages), [totalPages]);
+
         // In paged mode: only render the current page's proxy (or its placeholder).
-        // In scroll mode: render all N page slots using pre-fetched structure for sizing.
+        // In scroll/two-page mode: render page slots using pre-fetched structure or first loaded page for sizing.
         const prefetchedStruct = prefetchedStructureRef.current;
-        const hasVirtualLayout = prefetchedStruct !== null && totalPages > 0 && presentationMode !== 'paged';
+        const defaultWidthPt = prefetchedStruct?.default_width_pt ?? (firstLoadedPage ? firstLoadedPage.getViewport({ scale: 1 }).width / PDF_TO_CSS_UNITS : 612);
+        const defaultHeightPt = prefetchedStruct?.default_height_pt ?? (firstLoadedPage ? firstLoadedPage.getViewport({ scale: 1 }).height / PDF_TO_CSS_UNITS : 792);
+        const hasVirtualLayout = totalPages > 0 && presentationMode !== 'paged';
 
         // Compute placeholder dimensions from pre-fetched aspect ratio (CSS units)
-        const placeholderCssWidth  = prefetchedStruct ? Math.max(1, getCssDimension(prefetchedStruct.default_width_pt  * PDF_TO_CSS_UNITS * scale, isDesktopWebKit)) : 0;
-        const placeholderCssHeight = prefetchedStruct ? Math.max(1, getCssDimension(prefetchedStruct.default_height_pt * PDF_TO_CSS_UNITS * scale, isDesktopWebKit)) : 0;
+        const placeholderCssWidth  = Math.max(1, getCssDimension(defaultWidthPt  * PDF_TO_CSS_UNITS * scale, isDesktopWebKit));
+        const placeholderCssHeight = Math.max(1, getCssDimension(defaultHeightPt * PDF_TO_CSS_UNITS * scale, isDesktopWebKit));
+
+        const renderPageSlot = (pageNumber: number) => {
+            const page = pageProxyMap.get(pageNumber);
+            const pageDistanceFromCurrent = Math.abs(pageNumber - currentPage);
+            const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
+            const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
+            const pageUseStreamTextLayer = isDesktopWebKit ? pageNumber !== currentPage : useStreamTextLayer;
+
+            if (page) {
+                return (
+                    <div
+                        key={`page-${pageNumber}`}
+                        className="pdf-page-wrapper"
+                        data-page-number={pageNumber}
+                    >
+                        <PageCanvas
+                            page={page} scale={scale} rotation={rotation}
+                            isRenderActive={pageIsInCanvasRenderWindow}
+                            forceRenderActive={isInitialRenderStabilizing}
+                            inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
+                            getRenderPriority={getRenderPriority}
+                            enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
+                            reduceRenderQuality={isViewportInteracting}
+                            snapCssToPixels={isDesktopWebKit} useStreamTextLayer={pageUseStreamTextLayer}
+                            calibrateTextLayerWidths={isDesktopWebKit && pageNumber === currentPage}
+                            annotations={annotationsByPage.get(pageNumber) ?? EMPTY_ANNOTATIONS}
+                            annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
+                            onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
+                            searchQuery={activeSearchQuery}
+                        />
+                    </div>
+                );
+            }
+
+            if (hasVirtualLayout) {
+                const cssW = placeholderCssWidth;
+                const cssH = placeholderCssHeight;
+
+                return (
+                    <div
+                        key={`page-${pageNumber}`}
+                        ref={registerPlaceholderRef}
+                        className="pdf-page-wrapper"
+                        data-page-number={pageNumber}
+                        style={{ width: `${cssW}px`, height: `${cssH}px` }}
+                    />
+                );
+            }
+
+            return null;
+        };
 
         return (
             <div className={cn("relative w-full h-full", className)}>
@@ -2438,146 +2686,54 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         ref={zoomContainerRef}
                         className={cn(
                             "pdf-zoom-container flex flex-col items-center min-h-full py-2 sm:py-4 px-1 sm:px-0 mx-auto",
-                            presentationMode === 'paged' ? "justify-center min-h-full space-y-0" : "justify-start space-y-2 sm:space-y-4"
+                            presentationMode === 'paged'
+                                ? "justify-center min-h-full space-y-0"
+                                : presentationMode === 'two-page'
+                                    ? "justify-start space-y-3 sm:space-y-6"
+                                    : "justify-start space-y-2 sm:space-y-4"
                         )}
                     >
                         {presentationMode === 'paged' ? (
-                            // Paged mode: show only the current page proxy or a placeholder
-                            (() => {
-                                const page = pageProxyMap.get(currentPage);
-                                if (!page) return null;
-                                return (
-                                    <div
-                                        key={`page-${currentPage}`}
-                                        className="pdf-page-wrapper m-auto shadow-sm"
-                                        data-page-number={currentPage}
-                                    >
-                                        <PageCanvas
-                                            page={page} scale={scale} rotation={rotation}
-                                            isRenderActive={true}
-                                            forceRenderActive={isInitialRenderStabilizing}
-                                            inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
-                                            getRenderPriority={getRenderPriority}
-                                            enableTextLayer={enableTextLayer} preferSharpCanvas={isDesktopWebKit}
-                                            reduceRenderQuality={isViewportInteracting}
-                                            snapCssToPixels={isDesktopWebKit} useStreamTextLayer={!isDesktopWebKit}
-                                            calibrateTextLayerWidths={isDesktopWebKit}
-                                            annotations={annotationsByPage.get(currentPage) ?? EMPTY_ANNOTATIONS}
-                                            annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
-                                            onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
-                                        />
-                                    </div>
-                                );
-                            })()
+                            // Paged mode: show only the current page proxy or placeholder
+                            renderPageSlot(currentPage)
+                        ) : presentationMode === 'two-page' ? (
+                            // Two-page facing spread mode
+                            spreads.map((spread) => (
+                                <div
+                                    key={`spread-${spread[0]}`}
+                                    className="pdf-spread-row flex flex-row flex-nowrap items-center gap-2 sm:gap-4 my-1 sm:my-2 mx-auto"
+                                >
+                                    {spread.map((pageNum) => renderPageSlot(pageNum))}
+                                </div>
+                            ))
                         ) : hasVirtualLayout ? (
-                            // Scroll mode with Rust pre-fetch: render all N page slots immediately.
-                            // If a page proxy is loaded in memory, render PageCanvas.
-                            // Otherwise, render a sized placeholder observed by placeholderObserver.
-                            Array.from({ length: totalPages }, (_, i) => {
-                                const pageNumber = i + 1;
-                                const page = pageProxyMap.get(pageNumber);
-                                const pageDistanceFromCurrent = Math.abs(pageNumber - currentPage);
-                                const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
-                                const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
-                                const pageUseStreamTextLayer = isDesktopWebKit ? pageNumber !== currentPage : useStreamTextLayer;
-
-                                if (page) {
-                                    return (
-                                        <div
-                                            key={`page-${pageNumber}`}
-                                            className="pdf-page-wrapper"
-                                            data-page-number={pageNumber}
-                                        >
-                                            <PageCanvas
-                                                page={page} scale={scale} rotation={rotation}
-                                                isRenderActive={pageIsInCanvasRenderWindow}
-                                                forceRenderActive={isInitialRenderStabilizing}
-                                                inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
-                                                getRenderPriority={getRenderPriority}
-                                                enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
-                                                reduceRenderQuality={isViewportInteracting}
-                                                snapCssToPixels={isDesktopWebKit} useStreamTextLayer={pageUseStreamTextLayer}
-                                                calibrateTextLayerWidths={isDesktopWebKit && pageNumber === currentPage}
-                                                annotations={annotationsByPage.get(pageNumber) ?? EMPTY_ANNOTATIONS}
-                                                annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
-                                                onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
-                                            />
-                                        </div>
-                                    );
-                                }
-
-                                const cssW = placeholderCssWidth;
-                                const cssH = placeholderCssHeight;
-
-                                return (
-                                    <div
-                                        key={`page-${pageNumber}`}
-                                        ref={registerPlaceholderRef}
-                                        className="pdf-page-wrapper"
-                                        data-page-number={pageNumber}
-                                        style={{ width: `${cssW}px`, height: `${cssH}px` }}
-                                    />
-                                );
-                            })
+                            // Scroll mode with Rust pre-fetch: render all N page slots immediately
+                            Array.from({ length: totalPages }, (_, i) => renderPageSlot(i + 1))
                         ) : (
-                            // Fallback (no Rust pre-fetch / browser env): render only loaded proxies
-                            pages.map((page) => {
-                                const pageDistanceFromCurrent = Math.abs(page.pageNumber - currentPage);
-                                const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
-                                const pageIsInDOMWindow = pageDistanceFromCurrent <= domRenderWindow;
-                                const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
-                                const pageUseStreamTextLayer = isDesktopWebKit ? page.pageNumber !== currentPage : useStreamTextLayer;
-
-                                if (!pageIsInDOMWindow) {
-                                    const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
-                                    return (
-                                        <div
-                                            key={`page-${page.pageNumber}`}
-                                            className="pdf-page-wrapper"
-                                            data-page-number={page.pageNumber}
-                                            style={{
-                                                width: `${getCssDimension(viewport.width, isDesktopWebKit)}px`,
-                                                height: `${getCssDimension(viewport.height, isDesktopWebKit)}px`,
-                                            }}
-                                        />
-                                    );
-                                }
-
-                                return (
-                                    <div
-                                        key={`page-${page.pageNumber}`}
-                                        className="pdf-page-wrapper"
-                                        data-page-number={page.pageNumber}
-                                    >
-                                        <PageCanvas
-                                            page={page} scale={scale} rotation={rotation}
-                                            isRenderActive={pageIsInCanvasRenderWindow}
-                                            forceRenderActive={isInitialRenderStabilizing}
-                                            inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
-                                            getRenderPriority={getRenderPriority}
-                                            enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
-                                            reduceRenderQuality={isViewportInteracting}
-                                            snapCssToPixels={isDesktopWebKit} useStreamTextLayer={pageUseStreamTextLayer}
-                                            calibrateTextLayerWidths={isDesktopWebKit && page.pageNumber === currentPage}
-                                            annotations={annotationsByPage.get(page.pageNumber) ?? EMPTY_ANNOTATIONS}
-                                            annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
-                                            onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
-                                        />
-                                    </div>
-                                );
-                            })
+                            // Fallback (no Rust pre-fetch / browser env): render loaded proxies
+                            pages.map((page) => renderPageSlot(page.pageNumber))
                         )}
                     </div>
                 </div>
                 {!isLoading && !error && totalPages > 0 && (
                     <div
+                        data-no-viewport-tap
                         className={cn(
                             "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1.5 rounded-full bg-[var(--color-surface)]/95 backdrop-blur-xl border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
                             showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
                         )}
                     >
                         <button
-                            onClick={(e) => { e.stopPropagation(); if (currentPage > 1) navigateToPage(currentPage - 1, "smooth"); }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (presentationModeRef.current === 'two-page') {
+                                    const currentSpreadStart = currentPage % 2 === 1 ? currentPage : currentPage - 1;
+                                    const prev = Math.max(1, currentSpreadStart - 2);
+                                    if (prev >= 1) navigateToPage(prev, "smooth");
+                                } else if (currentPage > 1) {
+                                    navigateToPage(currentPage - 1, "smooth");
+                                }
+                            }}
                             disabled={currentPage <= 1}
                             className="p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
                             title="Previous page"
@@ -2589,7 +2745,16 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         <span className="text-[color:var(--color-text-muted)]">/</span>
                         <span className="tabular-nums px-0.5">{totalPages}</span>
                         <button
-                            onClick={(e) => { e.stopPropagation(); if (currentPage < totalPages) navigateToPage(currentPage + 1, "smooth"); }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (presentationModeRef.current === 'two-page') {
+                                    const currentSpreadStart = currentPage % 2 === 1 ? currentPage : currentPage - 1;
+                                    const next = currentSpreadStart + 2;
+                                    if (next <= totalPages) navigateToPage(next, "smooth");
+                                } else if (currentPage < totalPages) {
+                                    navigateToPage(currentPage + 1, "smooth");
+                                }
+                            }}
                             disabled={currentPage >= totalPages}
                             className="p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
                             title="Next page"
@@ -2607,10 +2772,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             value={String(Math.round(scale * 100))}
                             placeholder={`${Math.round(scale * 100)}%`}
                             onChange={(v) => {
+                                const isTwoPage = presentationModeRef.current === 'two-page';
                                 if (v === 'fitW' && containerRef.current && firstLoadedPage) {
-                                    applyZoom(getFitWidthScale(containerRef.current, firstLoadedPage), { mode: "width-fit", preserveMode: true });
+                                    applyZoom(getFitWidthScale(containerRef.current, firstLoadedPage, isTwoPage), { mode: "width-fit", preserveMode: true });
                                 } else if (v === 'fitP' && containerRef.current && firstLoadedPage) {
-                                    applyZoom(getFitPageScale(containerRef.current, firstLoadedPage), { mode: "page-fit", preserveMode: true });
+                                    applyZoom(getFitPageScale(containerRef.current, firstLoadedPage, isTwoPage), { mode: "page-fit", preserveMode: true });
                                 } else if (v === '100') {
                                     applyZoom(DEFAULT_SCALE, { mode: "custom" });
                                 }

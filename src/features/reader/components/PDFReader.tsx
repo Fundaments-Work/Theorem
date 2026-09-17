@@ -27,9 +27,9 @@ interface PDFReaderProps {
     
     initialZoomMode?: PdfZoomMode;
     
-    presentationMode?: 'scroll' | 'paged';
+    presentationMode?: 'scroll' | 'paged' | 'two-page';
     
-    onPresentationModeChange?: (mode: 'scroll' | 'paged') => void;
+    onPresentationModeChange?: (mode: 'scroll' | 'paged' | 'two-page') => void;
     
     theme?: ReaderTheme;
     
@@ -192,7 +192,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                 yield "done" as const;
             })(),
             clearSearch: () => engineRef.current?.clearSearch(),
-            setPresentationMode: (mode: 'scroll' | 'paged') => engineRef.current?.setPresentationMode(mode),
+            setPresentationMode: (mode: 'scroll' | 'paged' | 'two-page') => engineRef.current?.setPresentationMode(mode),
             getPresentationMode: () => engineRef.current?.getPresentationMode() ?? 'scroll',
         }));
 

@@ -184,14 +184,13 @@ const BookReaderPage = memo(function BookReaderPage() {
         defaultHeight: 56,
         minHeight: 44,
     });
-    const navbarContainerRef = useRef<HTMLDivElement>(null);
 
     // PDF-specific state for titlebar controls
     const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
     const [pdfTotalPages, setPdfTotalPages] = useState(0);
     const [pdfZoom, setPdfZoom] = useState(DEFAULT_PDF_ZOOM);
     const [pdfZoomMode, setPdfZoomMode] = useState<PdfZoomMode>(DEFAULT_PDF_ZOOM_MODE);
-    const [pdfPresentationMode, setPdfPresentationMode] = useState<'scroll' | 'paged'>('scroll');
+    const [pdfPresentationMode, setPdfPresentationMode] = useState<'scroll' | 'paged' | 'two-page'>('scroll');
     const [pdfInitialPage, setPdfInitialPage] = useState(1);
     const [pdfInitialZoom, setPdfInitialZoom] = useState(DEFAULT_PDF_ZOOM);
     const [pdfInitialZoomMode, setPdfInitialZoomMode] = useState<PdfZoomMode>(DEFAULT_PDF_ZOOM_MODE);
@@ -266,7 +265,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         totalPages: number;
         zoom: number;
         zoomMode: PdfZoomMode;
-        presentationMode: 'scroll' | 'paged';
+        presentationMode: 'scroll' | 'paged' | 'two-page';
     } | null>(null);
     const progressSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingProgressUpdateRef = useRef<PendingProgressUpdate | null>(null);
@@ -299,11 +298,6 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [immersionMode, audioTrack]);
 
     const isPdfFormat = currentBook?.format === 'pdf';
-    const navbarHeight = useToolbarHeight(navbarContainerRef, {
-        defaultHeight: 56,
-        minHeight: 48,
-        enabled: !isPdfFormat,
-    });
 
     const effectiveReaderSettings = useMemo<ReaderSettingsState>(() => {
         if (isPdfFormat) {
@@ -1487,6 +1481,31 @@ const BookReaderPage = memo(function BookReaderPage() {
         return m;
     }, [annotations]);
 
+    const activePdfTocHref = useMemo(() => {
+        if (!isPdfFormat || toc.length === 0) return undefined;
+        let bestHref: string | undefined = undefined;
+        let bestPage = 0;
+
+        const scan = (items: TocItem[]) => {
+            for (const item of items) {
+                const match = item.href?.match(/pdf:page:(\d+)/);
+                if (match) {
+                    const itemPage = parseInt(match[1], 10);
+                    if (itemPage <= pdfCurrentPage && itemPage >= bestPage) {
+                        bestPage = itemPage;
+                        bestHref = item.href;
+                    }
+                }
+                if (item.subitems && item.subitems.length > 0) {
+                    scan(item.subitems);
+                }
+            }
+        };
+
+        scan(toc);
+        return bestHref ?? toc[0]?.href;
+    }, [isPdfFormat, toc, pdfCurrentPage]);
+
     const [showNoteEditor, setShowNoteEditor] = useState(false);
     const [noteEditorPosition, setNoteEditorPosition] = useState({ x: 0, y: 0 });
     const [editingNote, setEditingNote] = useState('');
@@ -1608,7 +1627,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         setPdfZoomMode('width-fit');
     }, []);
 
-    const handlePdfPresentationModeChange = useCallback((mode: 'scroll' | 'paged') => {
+    const handlePdfPresentationModeChange = useCallback((mode: 'scroll' | 'paged' | 'two-page') => {
         setPdfPresentationMode((prev) => {
             if (prev === mode) return prev;
             return mode;
@@ -2538,15 +2557,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 />
             </div>
 
-            <div
-                className="absolute inset-x-0 overflow-hidden z-0 isolate transition-[top,bottom] duration-150 ease-out"
-                style={{
-                    top: shouldShowReaderChrome ? toolbarHeight : 0,
-                    bottom: shouldShowReaderChrome
-                        ? (!isPdfFormat ? navbarHeight : (immersionMode && audioTrack ? 64 : 0))
-                        : 0,
-                }}
-            >
+            <div className="absolute inset-0 overflow-hidden z-0 isolate">
                 {isPdfFormat ? (
                     <Suspense fallback={<div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">Loading PDF...</div>}>
                         {resolvedPdfPath || pdfData ? (
@@ -2661,36 +2672,34 @@ const BookReaderPage = memo(function BookReaderPage() {
                         theme={settings.readerSettings.theme}
                     />
                     
-                    <div ref={navbarContainerRef}>
-                        <ReaderNavbar
-                            location={location}
-                            toc={toc}
-                            sectionFractions={sectionFractions}
-                            onSeek={handleSeek}
-                            totalPages={location?.pageInfo?.totalPages}
-                            onToggleToc={() => togglePanel('toc')}
-                            immersionMode={immersionMode && !audioTrack}
-                            ttsState={ttsState}
-                            onTtsPlay={handleTtsPlay}
-                            onTtsPause={handleTtsPause}
-                            onTtsStop={handleTtsStop}
-                            neuralReady={neuralReady}
-                            showNeuralInstall={showNeuralInstall}
-                            ttsVoice={settings.tts.voice}
-                            ttsSpeed={settings.tts.speed}
-                            onTtsVoiceChange={handleTtsVoiceChange}
-                            onTtsSpeedChange={handleTtsSpeedChange}
-                            onOpenNeuralSettings={handleOpenNeuralSettings}
-                            onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
-                            audioGenProgress={audioGenProgress}
-                            className={cn(
-                                "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
-                                immersionMode
-                                    ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
-                                    : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
-                            )}
-                        />
-                    </div>
+                    <ReaderNavbar
+                        location={location}
+                        toc={toc}
+                        sectionFractions={sectionFractions}
+                        onSeek={handleSeek}
+                        totalPages={location?.pageInfo?.totalPages}
+                        onToggleToc={() => togglePanel('toc')}
+                        immersionMode={immersionMode && !audioTrack}
+                        ttsState={ttsState}
+                        onTtsPlay={handleTtsPlay}
+                        onTtsPause={handleTtsPause}
+                        onTtsStop={handleTtsStop}
+                        neuralReady={neuralReady}
+                        showNeuralInstall={showNeuralInstall}
+                        ttsVoice={settings.tts.voice}
+                        ttsSpeed={settings.tts.speed}
+                        onTtsVoiceChange={handleTtsVoiceChange}
+                        onTtsSpeedChange={handleTtsSpeedChange}
+                        onOpenNeuralSettings={handleOpenNeuralSettings}
+                        onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
+                        audioGenProgress={audioGenProgress}
+                        className={cn(
+                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
+                            immersionMode
+                                ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
+                                : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
+                        )}
+                    />
 
                     {immersionMode && audioTrack && (
                         <AudiobookBar
@@ -2710,7 +2719,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 visible={activePanel === 'toc'}
                 onClose={() => setActivePanel(null)}
                 onNavigate={goTo}
-                currentHref={isPdfFormat ? `pdf:page:${pdfCurrentPage}` : location?.tocItem?.href}
+                currentHref={isPdfFormat ? activePdfTocHref : location?.tocItem?.href}
                 isPdf={isPdfFormat}
                 pdfHasOutline={pdfHasOutline}
             />

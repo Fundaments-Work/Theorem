@@ -40,7 +40,7 @@ export const BookSchema = z.object({
             totalPages: z.number().int().nonnegative(),
             zoom: z.number().positive(),
             zoomMode: z.enum(["custom", "page-fit", "width-fit"]),
-            presentationMode: z.enum(["scroll", "paged"]).optional(),
+            presentationMode: z.enum(["scroll", "paged", "two-page"]).optional(),
         })
         .optional(),
     locations: z.string().optional(),

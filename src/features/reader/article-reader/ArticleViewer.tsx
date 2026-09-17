@@ -22,7 +22,7 @@ import { TableOfContents } from "../components/TableOfContents";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { HighlightColorPicker } from "../components/highlights/HighlightColorPicker";
 import { NoteEditor } from "../components/highlights/NoteEditor";
-import { useReaderFullscreen, useToolbarHeight } from "../hooks";
+import { useReaderFullscreen } from "../hooks";
 import { ArticleReaderContent } from "./ArticleReaderContent";
 import { ArticleReaderInfoPanel } from "./ArticleReaderInfoPanel";
 import type { ArticleHeading, ArticleReaderPanel } from "./types";
@@ -689,11 +689,6 @@ export const ArticleViewer = memo(function ArticleViewer({
 
     const contentRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const toolbarContainerRef = useRef<HTMLDivElement>(null);
-    const toolbarHeight = useToolbarHeight(toolbarContainerRef, {
-        defaultHeight: 48,
-        minHeight: 44,
-    });
     const selectedRangeRef = useRef<Range | null>(null);
     const selectionSnapshotRef = useRef<TextSelectionSnapshot | null>(null);
     
@@ -1559,7 +1554,6 @@ export const ArticleViewer = memo(function ArticleViewer({
                 data-reading-mode="scroll"
             >
                 <div
-                    ref={toolbarContainerRef}
                     className={cn(
                         "absolute left-0 right-0 top-0 z-[140] transition-transform duration-300",
                         shouldShowReaderChrome ? "translate-y-0" : "-translate-y-full",
@@ -1586,10 +1580,7 @@ export const ArticleViewer = memo(function ArticleViewer({
                 </div>
 
                 <div
-                    className="absolute inset-x-0 bottom-0 overflow-hidden z-0 isolate transition-[top] duration-150 ease-out"
-                    style={{
-                        top: shouldShowReaderChrome ? toolbarHeight : 0,
-                    }}
+                    className="absolute inset-0 overflow-hidden"
                     onClick={() => {
                         const sel = window.getSelection();
                         if (!sel || sel.isCollapsed) {

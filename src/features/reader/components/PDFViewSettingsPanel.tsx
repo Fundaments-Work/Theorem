@@ -1,4 +1,4 @@
-import { FileText, Maximize2, RotateCw, Scroll, SlidersHorizontal, X, ZoomIn, ZoomOut } from "lucide-react";
+import { BookOpen, FileText, Maximize2, RotateCw, Scroll, SlidersHorizontal, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import type { PdfZoomMode } from "../../../core/types";
 import { Backdrop, FloatingPanel } from "../../../ui";
@@ -7,7 +7,7 @@ interface PDFViewSettingsPanelProps {
     visible: boolean;
     zoom: number;
     zoomMode: PdfZoomMode;
-    presentationMode?: 'scroll' | 'paged';
+    presentationMode?: 'scroll' | 'paged' | 'two-page';
     onClose: () => void;
     onZoomIn: () => void;
     onZoomOut: () => void;
@@ -15,7 +15,7 @@ interface PDFViewSettingsPanelProps {
     onFitPage?: () => void;
     onFitWidth?: () => void;
     onRotate: () => void;
-    onPresentationModeChange?: (mode: 'scroll' | 'paged') => void;
+    onPresentationModeChange?: (mode: 'scroll' | 'paged' | 'two-page') => void;
     className?: string;
 }
 
@@ -70,107 +70,121 @@ export function PDFViewSettingsPanel({
 
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-5 [content-visibility:auto] overscroll-contain">
                     {/* Layout / Presentation Mode */}
-                    <section className="space-y-3">
+                    <section className="space-y-2">
                         <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Layout</p>
-                        <div className="grid grid-cols-2 gap-2">
-                            <button
-                                onClick={() => onPresentationModeChange?.("scroll")}
-                                className="ui-chip-btn"
-                                data-active={presentationMode === "scroll"}
-                            >
-                                <span className="inline-flex items-center justify-center gap-1.5">
-                                    <Scroll className="w-4 h-4" />
-                                    <span>Continuous</span>
-                                </span>
-                            </button>
-                            <button
-                                onClick={() => onPresentationModeChange?.("paged")}
-                                className="ui-chip-btn"
-                                data-active={presentationMode === "paged"}
-                            >
-                                <span className="inline-flex items-center justify-center gap-1.5">
-                                    <FileText className="w-4 h-4" />
-                                    <span>Single Page</span>
-                                </span>
-                            </button>
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                                { id: "scroll" as const, label: "Continuous", icon: Scroll },
+                                { id: "paged" as const, label: "Single", icon: FileText },
+                                { id: "two-page" as const, label: "Facing", icon: BookOpen },
+                            ].map(({ id, label, icon: Icon }) => {
+                                const active = presentationMode === id;
+                                return (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        onClick={() => onPresentationModeChange?.(id)}
+                                        className={cn(
+                                            "flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-none border text-center transition-colors min-h-[52px] select-none",
+                                            active
+                                                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-contrast)] font-medium"
+                                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text-primary)]"
+                                        )}
+                                        data-active={active}
+                                        aria-pressed={active}
+                                        title={`${label} view`}
+                                    >
+                                        <Icon className="w-4 h-4 shrink-0" />
+                                        <span className="text-[11px] leading-tight truncate max-w-full px-0.5">
+                                            {label}
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
                     </section>
 
                     {/* Zoom Controls */}
-                    <section className="space-y-3">
+                    <section className="space-y-2">
                         <div className="flex items-center justify-between">
                             <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Zoom</p>
                             <span className="text-xs text-[color:var(--color-text-secondary)]">{zoomLabel}</span>
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-3 gap-1.5">
                             <button
+                                type="button"
                                 onClick={onZoomOut}
-                                className="ui-chip-btn"
+                                className="ui-chip-btn !px-1.5 !py-2"
                                 title="Zoom out"
                             >
-                                <span className="inline-flex items-center justify-center gap-1.5">
-                                    <ZoomOut className="w-4 h-4" />
-                                    <span>Out</span>
+                                <span className="inline-flex items-center justify-center gap-1">
+                                    <ZoomOut className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="text-xs">Out</span>
                                 </span>
                             </button>
                             <button
+                                type="button"
                                 onClick={onZoomReset}
-                                className="ui-chip-btn"
+                                className="ui-chip-btn !px-1.5 !py-2 text-xs truncate"
                                 title="Reset zoom to 100%"
                             >
                                 {zoomLabel}
                             </button>
                             <button
+                                type="button"
                                 onClick={onZoomIn}
-                                className="ui-chip-btn"
+                                className="ui-chip-btn !px-1.5 !py-2"
                                 title="Zoom in"
                             >
-                                <span className="inline-flex items-center justify-center gap-1.5">
-                                    <ZoomIn className="w-4 h-4" />
-                                    <span>In</span>
+                                <span className="inline-flex items-center justify-center gap-1">
+                                    <ZoomIn className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="text-xs">In</span>
                                 </span>
                             </button>
                         </div>
                     </section>
 
                     {/* Fit Controls */}
-                    <section className="space-y-3">
+                    <section className="space-y-2">
                         <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Fit</p>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-1.5">
                             <button
+                                type="button"
                                 onClick={onFitPage}
-                                className="ui-chip-btn"
+                                className="ui-chip-btn !px-2 !py-2"
                                 data-active={zoomMode === "page-fit"}
                             >
                                 <span className="inline-flex items-center justify-center gap-1.5">
-                                    <Maximize2 className="w-4 h-4" />
-                                    <span>Fit Page</span>
+                                    <Maximize2 className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="text-xs">Fit Page</span>
                                 </span>
                             </button>
                             <button
+                                type="button"
                                 onClick={onFitWidth}
-                                className="ui-chip-btn"
+                                className="ui-chip-btn !px-2 !py-2"
                                 data-active={zoomMode === "width-fit"}
                             >
                                 <span className="inline-flex items-center justify-center gap-1.5">
-                                    <Maximize2 className="w-4 h-4" />
-                                    <span>Fit Width</span>
+                                    <Maximize2 className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="text-xs">Fit Width</span>
                                 </span>
                             </button>
                         </div>
                     </section>
 
                     {/* Page Rotation */}
-                    <section className="space-y-3">
+                    <section className="space-y-2">
                         <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Page</p>
                         <button
+                            type="button"
                             onClick={onRotate}
-                            className="ui-chip-btn w-full"
+                            className="ui-chip-btn w-full !py-2"
                             title="Rotate clockwise"
                         >
                             <span className="inline-flex items-center justify-center gap-1.5">
-                                <RotateCw className="w-4 h-4" />
-                                <span>Rotate Clockwise</span>
+                                <RotateCw className="w-3.5 h-3.5 shrink-0" />
+                                <span className="text-xs">Rotate Clockwise</span>
                             </span>
                         </button>
                     </section>

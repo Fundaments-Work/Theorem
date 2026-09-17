@@ -2,7 +2,10 @@
 
 
 .pdf-zoom-container {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .pdf-page-wrapper {
@@ -145,5 +148,51 @@
     .pdf-page-wrapper {
         border-width: 0;
         box-shadow: none;
+    }
+}
+
+.pdf-spread-row {
+    width: max-content;
+    min-width: 100%;
+    display: flex;
+    flex-direction: row;
+    flex-nowrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    justify-content: safe center;
+    box-sizing: border-box;
+    padding: 0 0.5rem;
+}
+
+.pdf-spread-row .pdf-page-wrapper {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.textLayer span.pdf-search-match {
+    position: static !important;
+    display: inline !important;
+    background-color: color-mix(in srgb, var(--color-accent) 35%, transparent) !important;
+    box-shadow: 0 0 0 1.5px var(--color-accent);
+    border-radius: 2px;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    user-select: text;
+    -webkit-user-select: text;
+    animation: pdf-match-pulse 2s ease-in-out infinite;
+}
+
+@keyframes pdf-match-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 1.5px var(--color-accent);
+    }
+    50% {
+        box-shadow: 0 0 0 2.5px var(--color-accent), 0 0 6px color-mix(in srgb, var(--color-accent) 40%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .textLayer span.pdf-search-match {
+        animation: none;
     }
 }
