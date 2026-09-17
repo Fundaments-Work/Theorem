@@ -241,6 +241,17 @@ export const BookCard = memo(function BookCard({
                 }
             },
         }] : []),
+        ...(book.syncedWithoutFile ? [{
+            id: "download-file",
+            label: "Download File",
+            icon: <Download className="w-4 h-4" />,
+            onClick: () => {
+                useUIStore.getState().setDownloadingBook(book.id);
+                import("../../core/lib/sync-orchestrator").then(({ downloadBookOnDemand }) => {
+                    downloadBookOnDemand(book.id).catch(() => {});
+                });
+            },
+        }] : []),
         {
             id: "separator1",
             label: "",

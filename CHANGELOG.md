@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-09-17 (Beta)
+
+### Fixed
+
+- **P2P Device Sync PDF & Non-Materialized On-Demand File Transfers** — Fixed persistent *"Book File Not Available"* errors when attempting to open or download PDFs and EPUBs synced from paired devices:
+  - **SQLite Persistence Key Alignment**: Fixed `find_in_db` in `src-tauri/src/file_transfer.rs` querying `persist:theorem-library`. Theorem stores state under `zustand:theorem-library` via `SQLITE_PERSIST_KEY_PREFIX`. Updated queries to check `zustand:theorem-library` (and fallback variations) to accurately extract desktop-imported book file paths (`filePath`, `storagePath`).
+  - **File Path Normalization & Percent-Decoding**: Added `normalize_candidate_path` in `file_transfer.rs` handling `file://` scheme prefixes, percent-encoded spaces and symbols (`percent_decode_str`), and Windows drive formats (`/C:/...` -> `C:/...`).
+  - **Direct LAN IP/Port Connection Fallback**: Configured `EndpointAddr` with `last_ip` and `last_port` socket addresses in `connect_and_request` to ensure reliable direct peer connections on local networks when relays are delayed or unreachable. Refreshes and persists verified socket addresses upon successful transfers.
+  - **Two-Way Pairing Address Capture**: Updated `PairingProtocolHandler::accept` in `src-tauri/src/iroh_sync.rs` to extract remote IP and port from `conn.paths()` and record them in `PairedDevice`, establishing direct LAN addressing immediately upon pairing.
+  - **Atomic Safe Downloads**: Updated `download_book_file` to stream incoming bytes into a `.download.tmp` temporary file before atomically renaming to `.book`, cleaning up incomplete artifacts on network timeout or failure.
+  - **Reader & Library On-Demand UX**: In `Reader.tsx`, eliminated 120s stall loops when downloads fail and wired the "Try Again" error button to immediately re-trigger `downloadBookOnDemand`. Added a dedicated "Download File" action in `Library.tsx`'s context menu for non-materialized books.
+
 ## [1.5.5] - 2026-09-14 (Beta)
 
 ### Fixed

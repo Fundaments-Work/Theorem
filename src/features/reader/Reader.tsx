@@ -498,8 +498,17 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [storeTitle]);
 
     const handlePdfError = useCallback((err: Error) => {
+        const book = currentBookId ? getBook(currentBookId) : null;
+        const msg = err.message.toLowerCase();
+        if (book && (msg.includes('not found') || msg.includes('no such file') || msg.includes('failed to read pdf') || msg.includes('404'))) {
+            updateBook(book.id, { syncedWithoutFile: true });
+            setLoadError('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
+            loadedBookIdRef.current = null;
+            return;
+        }
         setLoadError(err.message);
-    }, []);
+        loadedBookIdRef.current = null;
+    }, [currentBookId, getBook, updateBook]);
 
     const handlePdfPageChange = useCallback((page: number, total: number, scale: number) => {
         // 
@@ -656,6 +665,11 @@ const BookReaderPage = memo(function BookReaderPage() {
                     const current = getBook(currentBookId);
                     if (!current) return;
                     book = current;
+                    if (!useUIStore.getState().downloadingBookId && book.syncedWithoutFile) {
+                        setLoadError('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
+                        loadedBookIdRef.current = null;
+                        return;
+                    }
                 }
             }
             if (!book) {
@@ -750,7 +764,15 @@ const BookReaderPage = memo(function BookReaderPage() {
                     const data = await getBookData(book.id, storagePath);
                     if (isCancelled) return;
                     if (!data || data.byteLength === 0) {
-                        throw new Error('Could not read PDF file from storage - data is empty.');
+                        updateBook(book.id, { syncedWithoutFile: true });
+                        useUIStore.getState().setDownloadingBook(book.id);
+                        const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
+                        const downloaded = await downloadBookOnDemand(book.id);
+                        if (downloaded && !isCancelled) {
+                            setLoadAttempt(v => v + 1);
+                            return;
+                        }
+                        throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
                     }
                     setResolvedPdfPath("");
                     setPdfData(new Uint8Array(data));
@@ -767,7 +789,15 @@ const BookReaderPage = memo(function BookReaderPage() {
                 const blob = await getBookBlob(book.id, storagePath);
                 if (isCancelled) return;
                 if (!blob) {
-                    throw new Error('Could not read book file from storage.');
+                    updateBook(book.id, { syncedWithoutFile: true });
+                    useUIStore.getState().setDownloadingBook(book.id);
+                    const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
+                    const downloaded = await downloadBookOnDemand(book.id);
+                    if (downloaded && !isCancelled) {
+                        setLoadAttempt(v => v + 1);
+                        return;
+                    }
+                    throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
                 }
                 const expectedMimeType = getMimeTypeForBookFormat(book.format);
                 
@@ -2419,6 +2449,10 @@ const BookReaderPage = memo(function BookReaderPage() {
                             onClick={() => {
                                 setLoadError(null);
                                 loadedBookIdRef.current = null;
+                                useUIStore.getState().setDownloadingBook(currentBookId);
+                                import("../../core/lib/sync-orchestrator").then(({ downloadBookOnDemand }) => {
+                                    downloadBookOnDemand(currentBookId).catch(() => {});
+                                });
                                 setLoadAttempt(v => v + 1);
                             }}
                             className="ui-btn-secondary"

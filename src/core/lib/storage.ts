@@ -181,7 +181,19 @@ async function readExternalFile(path: string): Promise<ArrayBuffer | null> {
 export async function getBookMaterializedPath(id: string, filePath?: string): Promise<string | null> {
     const normalizedPath = filePath ? normalizeFilePath(filePath) : undefined;
     if (normalizedPath && isExternalFilePath(normalizedPath)) {
-        return normalizedPath;
+        if (isTauri()) {
+            const fs = await getTauriFs();
+            if (fs) {
+                try {
+                    const exists = await fs.exists(normalizedPath);
+                    if (exists) return normalizedPath;
+                } catch {
+                    // fall through to sqlite materialized check
+                }
+            }
+        } else {
+            return normalizedPath;
+        }
     }
 
     if (!isTauri()) {

@@ -415,55 +415,60 @@ class View {
         }
     }
     expand() {
-        const doc = this.document
-        if (!doc?.documentElement || !doc?.body) return
-        const { documentElement } = doc
-        if (this.#column) {
-            const side = this.#vertical ? 'height' : 'width'
-            const otherSide = this.#vertical ? 'width' : 'height'
-            const contentRect = this.#contentRange.getBoundingClientRect()
-            const rootRect = documentElement.getBoundingClientRect()
-            
-            const contentStart = this.#vertical ? 0
-                : this.#rtl ? rootRect.right - contentRect.right : contentRect.left - rootRect.left
-            const contentSize = contentStart + contentRect[side]
-            const pageCount = Math.ceil(contentSize / this.#size)
-            const expandedSize = pageCount * this.#size
-            this.#element.style.padding = '0'
-            this.#iframe.style[side] = `${expandedSize}px`
-            this.#element.style[side] = `${expandedSize + this.#size * 2}px`
-            this.#iframe.style[otherSide] = '100%'
-            this.#element.style[otherSide] = '100%'
-            documentElement.style[side] = `${this.#size}px`
-            if (this.#overlayer) {
-                this.#overlayer.element.style.margin = '0'
-                this.#overlayer.element.style.left = this.#vertical ? '0' : `${this.#size}px`
-                this.#overlayer.element.style.top = this.#vertical ? `${this.#size}px` : '0'
-                this.#overlayer.element.style[side] = `${expandedSize}px`
-                this.#overlayer.redraw()
+        try {
+            const doc = this.document
+            if (!doc?.documentElement || !doc?.body || !doc?.defaultView) return
+            const { documentElement } = doc
+            if (this.#column) {
+                const side = this.#vertical ? 'height' : 'width'
+                const otherSide = this.#vertical ? 'width' : 'height'
+                const contentRect = this.#contentRange?.getBoundingClientRect()
+                if (!contentRect) return
+                const rootRect = documentElement.getBoundingClientRect()
+                
+                const contentStart = this.#vertical ? 0
+                    : this.#rtl ? rootRect.right - contentRect.right : contentRect.left - rootRect.left
+                const contentSize = contentStart + contentRect[side]
+                const pageCount = Math.ceil(contentSize / this.#size)
+                const expandedSize = pageCount * this.#size
+                this.#element.style.padding = '0'
+                this.#iframe.style[side] = `${expandedSize}px`
+                this.#element.style[side] = `${expandedSize + this.#size * 2}px`
+                this.#iframe.style[otherSide] = '100%'
+                this.#element.style[otherSide] = '100%'
+                documentElement.style[side] = `${this.#size}px`
+                if (this.#overlayer) {
+                    this.#overlayer.element.style.margin = '0'
+                    this.#overlayer.element.style.left = this.#vertical ? '0' : `${this.#size}px`
+                    this.#overlayer.element.style.top = this.#vertical ? `${this.#size}px` : '0'
+                    this.#overlayer.element.style[side] = `${expandedSize}px`
+                    this.#overlayer.redraw()
+                }
+            } else {
+                const side = this.#vertical ? 'width' : 'height'
+                const otherSide = this.#vertical ? 'height' : 'width'
+                const contentSize = documentElement.getBoundingClientRect()[side]
+                const expandedSize = contentSize
+                const { margin } = this.#layout
+                // Add a generous bottom buffer (64px) in scrolled mode so fixed bottom chrome never obscures the last lines of text
+                const padding = this.#vertical ? `0 ${margin + 64}px 0 ${margin}px` : `${margin}px 0 ${margin + 64}px 0`
+                this.#element.style.padding = padding
+                this.#iframe.style[side] = `${expandedSize}px`
+                this.#element.style[side] = `${expandedSize}px`
+                this.#iframe.style[otherSide] = '100%'
+                this.#element.style[otherSide] = '100%'
+                if (this.#overlayer) {
+                    this.#overlayer.element.style.margin = padding
+                    this.#overlayer.element.style.left = '0'
+                    this.#overlayer.element.style.top = '0'
+                    this.#overlayer.element.style[side] = `${expandedSize}px`
+                    this.#overlayer.redraw()
+                }
             }
-        } else {
-            const side = this.#vertical ? 'width' : 'height'
-            const otherSide = this.#vertical ? 'height' : 'width'
-            const contentSize = documentElement.getBoundingClientRect()[side]
-            const expandedSize = contentSize
-            const { margin } = this.#layout
-            // Add a generous bottom buffer (64px) in scrolled mode so fixed bottom chrome never obscures the last lines of text
-            const padding = this.#vertical ? `0 ${margin + 64}px 0 ${margin}px` : `${margin}px 0 ${margin + 64}px 0`
-            this.#element.style.padding = padding
-            this.#iframe.style[side] = `${expandedSize}px`
-            this.#element.style[side] = `${expandedSize}px`
-            this.#iframe.style[otherSide] = '100%'
-            this.#element.style[otherSide] = '100%'
-            if (this.#overlayer) {
-                this.#overlayer.element.style.margin = padding
-                this.#overlayer.element.style.left = '0'
-                this.#overlayer.element.style.top = '0'
-                this.#overlayer.element.style[side] = `${expandedSize}px`
-                this.#overlayer.redraw()
-            }
+            this.onExpand?.()
+        } catch {
+            // Silently ignore layout calculation errors if iframe is unmounting or detached
         }
-        this.onExpand()
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer

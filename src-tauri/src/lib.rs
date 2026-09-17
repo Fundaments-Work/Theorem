@@ -281,17 +281,47 @@ fn read_cbr_as_cbz(path: String) -> Result<Response, String> {
     }
 }
 
+fn normalize_pdf_path(raw: &str) -> PathBuf {
+    let mut p = raw.trim();
+    if let Some(stripped) = p.strip_prefix("file://") {
+        p = stripped;
+    }
+    let decoded = percent_encoding::percent_decode_str(p)
+        .decode_utf8_lossy()
+        .to_string();
+    let s = decoded.as_str();
+    let s_clean = if s.len() >= 3 && s.starts_with('/') && s.chars().nth(2) == Some(':') {
+        &s[1..]
+    } else {
+        s
+    };
+    PathBuf::from(s_clean)
+}
+
 #[tauri::command]
 fn read_pdf_file(path: String) -> Result<Response, String> {
-    let data = fs::read(&path).map_err(|e| format!("Failed to read PDF file '{}': {}", path, e))?;
+    let clean = normalize_pdf_path(&path);
+    let target = if clean.exists() {
+        clean
+    } else {
+        PathBuf::from(&path)
+    };
+    let data =
+        fs::read(&target).map_err(|e| format!("Failed to read PDF file '{target:?}': {e}"))?;
     Ok(Response::new(data))
 }
 
 #[tauri::command]
 fn read_pdf_file_size(path: String) -> Result<u64, String> {
-    fs::metadata(&path)
+    let clean = normalize_pdf_path(&path);
+    let target = if clean.exists() {
+        clean
+    } else {
+        PathBuf::from(&path)
+    };
+    fs::metadata(&target)
         .map(|metadata| metadata.len())
-        .map_err(|e| format!("Failed to read PDF file metadata '{}': {}", path, e))
+        .map_err(|e| format!("Failed to read PDF file metadata '{target:?}': {e}"))
 }
 
 #[tauri::command]
@@ -300,8 +330,15 @@ fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<Response, St
         return Ok(Response::new(Vec::new()));
     }
 
-    let metadata = fs::metadata(&path)
-        .map_err(|e| format!("Failed to read PDF file metadata '{}': {}", path, e))?;
+    let clean = normalize_pdf_path(&path);
+    let target = if clean.exists() {
+        clean
+    } else {
+        PathBuf::from(&path)
+    };
+
+    let metadata = fs::metadata(&target)
+        .map_err(|e| format!("Failed to read PDF file metadata '{target:?}': {e}"))?;
     let file_size = metadata.len();
     if offset >= file_size {
         return Ok(Response::new(Vec::new()));
@@ -315,14 +352,14 @@ fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<Response, St
         )
     })?;
 
-    let mut file =
-        fs::File::open(&path).map_err(|e| format!("Failed to open PDF file '{}': {}", path, e))?;
+    let mut file = fs::File::open(&target)
+        .map_err(|e| format!("Failed to open PDF file '{target:?}': {e}"))?;
     file.seek(SeekFrom::Start(offset))
-        .map_err(|e| format!("Failed to seek PDF file '{}': {}", path, e))?;
+        .map_err(|e| format!("Failed to seek PDF file '{target:?}': {e}"))?;
 
     let mut buffer = vec![0_u8; read_len];
     file.read_exact(&mut buffer)
-        .map_err(|e| format!("Failed to read PDF range from '{}': {}", path, e))?;
+        .map_err(|e| format!("Failed to read PDF range from '{target:?}': {e}"))?;
 
     Ok(Response::new(buffer))
 }

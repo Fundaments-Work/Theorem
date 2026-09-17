@@ -9,6 +9,7 @@ const FILE_TRANSFER_ALPN: &[u8] = b"theorem-file/v1";
 
 pub const ALPN_BYTES: &[u8] = FILE_TRANSFER_ALPN;
 
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const FILE_TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 #[derive(serde::Serialize, Clone)]
@@ -29,44 +30,90 @@ async fn connect_and_request(
     let ep = get_or_init_iroh(app).await?;
     let sync_state = get_sync_state(app)?;
 
-    let (peer_pk, relay_url) = {
+    let (peer_pk, relay_url, last_ip, last_port, canonical_device_id) = {
         let devices = sync_state.transport_state.paired_devices.lock().await;
         let peer = devices
             .get(peer_device_id)
-            .ok_or("peer not found".to_string())?;
+            .or_else(|| {
+                devices
+                    .values()
+                    .find(|d| d.device_id == peer_device_id || d.iroh_node_id == peer_device_id)
+            })
+            .or_else(|| {
+                if devices.len() == 1 {
+                    devices.values().next()
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| format!("peer '{peer_device_id}' not found among paired devices"))?;
         let pk: iroh::PublicKey = peer
             .iroh_node_id
             .parse()
             .map_err(|e| format!("parse peer key: {e}"))?;
-        (pk, peer.peer_relay_url.clone())
+        (
+            pk,
+            peer.peer_relay_url.clone(),
+            peer.last_ip.clone(),
+            peer.last_port,
+            peer.device_id.clone(),
+        )
     };
 
-    let peer_addr = iroh::EndpointAddr::new(peer_pk);
+    let mut peer_addr = iroh::EndpointAddr::new(peer_pk);
 
-    let peer_addr = if !relay_url.is_empty() {
-        if let Ok(url) = relay_url.parse::<iroh::RelayUrl>() {
-            peer_addr.with_relay_url(url)
-        } else {
-            peer_addr
+    if !last_ip.is_empty() && last_port > 0 {
+        if let Ok(ip) = last_ip.parse::<std::net::IpAddr>() {
+            peer_addr = peer_addr.with_ip_addr(std::net::SocketAddr::new(ip, last_port));
         }
-    } else {
-        peer_addr
-    };
+    }
+
+    if !relay_url.is_empty() {
+        if let Ok(url) = relay_url.parse::<iroh::RelayUrl>() {
+            peer_addr = peer_addr.with_relay_url(url);
+        }
+    }
 
     let conn = tokio::time::timeout(
-        FILE_TRANSFER_TIMEOUT,
+        CONNECT_TIMEOUT,
         ep.endpoint.connect(peer_addr, FILE_TRANSFER_ALPN),
     )
     .await
-    .map_err(|_| "connect timed out".to_string())?
-    .map_err(|e| format!("connect: {e}"))?;
+    .map_err(|_| format!("connect to peer '{canonical_device_id}' timed out after 15s"))?
+    .map_err(|e| format!("connect to peer '{canonical_device_id}': {e}"))?;
 
-    let (mut send, recv) = tokio::time::timeout(FILE_TRANSFER_TIMEOUT, conn.open_bi())
+    // Refresh last known IP/port from active connection paths
+    let (connected_ip, connected_port) = {
+        let paths = conn.paths();
+        let mut direct = None;
+        for p in paths.iter() {
+            if let iroh::TransportAddr::Ip(addr) = p.remote_addr() {
+                direct = Some((addr.ip().to_string(), addr.port()));
+                break;
+            }
+        }
+        direct.unwrap_or_default()
+    };
+
+    if !connected_ip.is_empty() && connected_port > 0 {
+        let mut devices = sync_state.transport_state.paired_devices.lock().await;
+        if let Some(peer_entry) = devices.get_mut(&canonical_device_id) {
+            peer_entry.last_ip = connected_ip;
+            peer_entry.last_port = connected_port;
+            let _ = crate::iroh_sync::save_paired_devices_to_disk(
+                &sync_state.transport_state.app_data_dir,
+                &devices,
+            );
+        }
+    }
+
+    let (mut send, recv) = tokio::time::timeout(CONNECT_TIMEOUT, conn.open_bi())
         .await
         .map_err(|_| "open bi timed out".to_string())?
         .map_err(|e| format!("open bi: {e}"))?;
 
-    let request = format!("{}\n", book_id);
+    let clean_book_id = book_id.trim();
+    let request = format!("{}\n", clean_book_id);
     send.write_all(request.as_bytes())
         .await
         .map_err(|e| format!("send: {e}"))?;
@@ -119,10 +166,64 @@ impl FileTransferHandler {
         .map_err(|e| format!("open db: {e}"))?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
-             PRAGMA foreign_keys = ON;",
+             PRAGMA foreign_keys = ON;
+             PRAGMA busy_timeout = 5000;",
         )
         .map_err(|e| format!("pragma: {e}"))?;
         Ok(conn)
+    }
+
+    fn normalize_candidate_path(p_str: &str, data_dir: &Path) -> Vec<PathBuf> {
+        let mut results = Vec::new();
+        let trimmed = p_str.trim();
+        if trimmed.is_empty() || trimmed.starts_with("idb://") {
+            return results;
+        }
+
+        // Handle sqlite://<id>
+        if let Some(sqlite_id) = trimmed.strip_prefix("sqlite://") {
+            results.push(
+                data_dir
+                    .join("book-cache")
+                    .join(format!("{sqlite_id}.book")),
+            );
+            results.push(data_dir.join("book-cache").join(sqlite_id));
+            return results;
+        }
+
+        let mut clean_str = trimmed;
+        if let Some(stripped) = clean_str.strip_prefix("file://") {
+            clean_str = stripped;
+        }
+
+        let decoded = percent_encoding::percent_decode_str(clean_str)
+            .decode_utf8_lossy()
+            .to_string();
+
+        let variants = if decoded != clean_str {
+            vec![decoded, clean_str.to_string()]
+        } else {
+            vec![clean_str.to_string()]
+        };
+
+        for s in variants {
+            // Windows file:///C:/path leaves /C:/path
+            let s_trimmed = if s.len() >= 3 && s.starts_with('/') && s.chars().nth(2) == Some(':') {
+                &s[1..]
+            } else {
+                &s
+            };
+
+            let pb = PathBuf::from(s_trimmed);
+            if pb.is_absolute() {
+                results.push(pb);
+            } else {
+                results.push(data_dir.join(&pb));
+                results.push(pb);
+            }
+        }
+
+        results
     }
 
     fn find_in_db(data_dir: &Path, book_id: &str) -> (Option<Vec<u8>>, Vec<PathBuf>) {
@@ -140,7 +241,9 @@ impl FileTransferHandler {
             if let Ok(blob) =
                 stmt.query_row(rusqlite::params![book_id], |row| row.get::<_, Vec<u8>>(0))
             {
-                data = Some(blob);
+                if !blob.is_empty() {
+                    data = Some(blob);
+                }
             }
         }
 
@@ -154,27 +257,42 @@ impl FileTransferHandler {
                 if let Ok(meta_val) = serde_json::from_str::<serde_json::Value>(&meta_str) {
                     for key in &["filePath", "file_path", "storagePath", "storage_path"] {
                         if let Some(p_str) = meta_val.get(*key).and_then(|v| v.as_str()) {
-                            paths.push(PathBuf::from(p_str));
+                            paths.extend(Self::normalize_candidate_path(p_str, data_dir));
                         }
                     }
                 }
             }
         }
 
-        // 3. Check kv_store table for 'persist:theorem-library'
-        if let Ok(mut stmt) =
-            conn.prepare("SELECT value FROM kv_store WHERE key = 'persist:theorem-library'")
-        {
-            if let Ok(lib_str) = stmt.query_row([], |row| row.get::<_, String>(0)) {
-                if let Ok(lib_val) = serde_json::from_str::<serde_json::Value>(&lib_str) {
-                    if let Some(books) = lib_val.pointer("/state/books").and_then(|b| b.as_array())
-                    {
-                        for b in books {
-                            if b.get("id").and_then(|v| v.as_str()) == Some(book_id) {
-                                for key in &["filePath", "file_path", "storagePath", "storage_path"]
-                                {
-                                    if let Some(p_str) = b.get(*key).and_then(|v| v.as_str()) {
-                                        paths.push(PathBuf::from(p_str));
+        // 3. Check kv_store table for library state (check both zustand: and persist: prefixes)
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT value FROM kv_store WHERE key IN ('zustand:theorem-library', 'persist:theorem-library') OR key LIKE '%theorem-library'"
+        ) {
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0));
+            if let Ok(rows) = rows {
+                for row in rows.flatten() {
+                    if let Ok(lib_val) = serde_json::from_str::<serde_json::Value>(&row) {
+                        let candidate_arrays: Vec<&Vec<serde_json::Value>> = vec![
+                            lib_val.pointer("/state/books").and_then(|b| b.as_array()),
+                            lib_val.get("books").and_then(|b| b.as_array()),
+                            lib_val.pointer("/state/recentBooksCache").and_then(|b| b.as_array()),
+                            lib_val.get("recentBooksCache").and_then(|b| b.as_array()),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect();
+
+                        for arr in candidate_arrays {
+                            for b in arr {
+                                let id_match = b.get("id").and_then(|v| v.as_str()) == Some(book_id);
+                                let content_match = b.get("contentHash").and_then(|v| v.as_str()) == Some(book_id);
+                                let blob_match = b.get("blobHash").and_then(|v| v.as_str()) == Some(book_id);
+
+                                if id_match || content_match || blob_match {
+                                    for key in &["filePath", "file_path", "storagePath", "storage_path"] {
+                                        if let Some(p_str) = b.get(*key).and_then(|v| v.as_str()) {
+                                            paths.extend(Self::normalize_candidate_path(p_str, data_dir));
+                                        }
                                     }
                                 }
                             }
@@ -188,12 +306,12 @@ impl FileTransferHandler {
     }
 
     async fn locate_book(data_dir: &Path, book_id: &str) -> Result<BookSource, String> {
-        // 1. Check book-cache/{book_id}.book
-        let cache_file = data_dir
-            .join("book-cache")
-            .join(format!("{}.book", book_id));
+        let clean_id = book_id.trim();
+
+        // 1. Direct check in book-cache/{book_id}.book
+        let cache_file = data_dir.join("book-cache").join(format!("{clean_id}.book"));
         if let Ok(metadata) = tokio::fs::metadata(&cache_file).await {
-            if metadata.is_file() {
+            if metadata.is_file() && metadata.len() > 0 {
                 let file = tokio::fs::File::open(&cache_file)
                     .await
                     .map_err(|e| format!("open cache file: {e}"))?;
@@ -201,10 +319,10 @@ impl FileTransferHandler {
             }
         }
 
-        // 2. Check book-cache/{book_id}
-        let cache_file_raw = data_dir.join("book-cache").join(book_id);
+        // 2. Direct check in book-cache/{book_id}
+        let cache_file_raw = data_dir.join("book-cache").join(clean_id);
         if let Ok(metadata) = tokio::fs::metadata(&cache_file_raw).await {
-            if metadata.is_file() {
+            if metadata.is_file() && metadata.len() > 0 {
                 let file = tokio::fs::File::open(&cache_file_raw)
                     .await
                     .map_err(|e| format!("open cache raw file: {e}"))?;
@@ -212,31 +330,51 @@ impl FileTransferHandler {
             }
         }
 
-        // 3. Query SQLite via spawn_blocking to keep accept Send-compliant
+        // 3. Check for any file in book-cache starting with book_id (e.g. {clean_id}.pdf, {clean_id}.epub)
+        let cache_dir = data_dir.join("book-cache");
+        if let Ok(mut entries) = tokio::fs::read_dir(&cache_dir).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let file_name = entry.file_name();
+                let name_str = file_name.to_string_lossy();
+                if name_str.starts_with(clean_id) {
+                    if let Ok(meta) = entry.metadata().await {
+                        if meta.is_file() && meta.len() > 0 {
+                            if let Ok(file) = tokio::fs::File::open(entry.path()).await {
+                                return Ok(BookSource::File(file, meta.len()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Query SQLite via spawn_blocking to locate data or paths
         let dir_clone = data_dir.to_path_buf();
-        let id_clone = book_id.to_string();
+        let id_clone = clean_id.to_string();
         let (db_data, candidate_paths) =
             tokio::task::spawn_blocking(move || Self::find_in_db(&dir_clone, &id_clone))
                 .await
                 .map_err(|e| format!("spawn_blocking: {e}"))?;
 
         if let Some(data) = db_data {
-            return Ok(BookSource::Memory(data));
+            if !data.is_empty() {
+                return Ok(BookSource::Memory(data));
+            }
         }
 
         for p in candidate_paths {
             if let Ok(metadata) = tokio::fs::metadata(&p).await {
-                if metadata.is_file() {
+                if metadata.is_file() && metadata.len() > 0 {
                     let file = tokio::fs::File::open(&p)
                         .await
-                        .map_err(|e| format!("open book file: {e}"))?;
+                        .map_err(|e| format!("open book file '{p:?}': {e}"))?;
                     return Ok(BookSource::File(file, metadata.len()));
                 }
             }
         }
 
         Err(format!(
-            "book '{book_id}' not found in book-cache, sqlite blob, or referenced file paths"
+            "book '{clean_id}' not found in book-cache, sqlite blob, or referenced file paths"
         ))
     }
 }
@@ -256,22 +394,29 @@ impl ProtocolHandler for FileTransferHandler {
                 Ok(_) => line.trim().to_string(),
             };
 
+            eprintln!("[file-transfer] Incoming request for book '{request}'");
             let result = Self::locate_book(&self.data_dir, &request).await;
 
             match result {
                 Ok(BookSource::File(mut file, len)) => {
+                    eprintln!("[file-transfer] Serving book '{request}' from file ({len} bytes)");
                     let header = format!("OK {}\n", len);
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut send, header.as_bytes()).await;
                     let _ = tokio::io::copy(&mut file, &mut send).await;
                     let _ = send.finish();
                 }
                 Ok(BookSource::Memory(data)) => {
+                    eprintln!(
+                        "[file-transfer] Serving book '{request}' from memory ({} bytes)",
+                        data.len()
+                    );
                     let header = format!("OK {}\n", data.len());
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut send, header.as_bytes()).await;
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut send, &data).await;
                     let _ = send.finish();
                 }
                 Err(e) => {
+                    eprintln!("[file-transfer] Failed to locate book '{request}': {e}");
                     let msg = format!("ERR {}\n", e);
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut send, msg.as_bytes()).await;
                     let _ = send.finish();
@@ -311,9 +456,12 @@ pub async fn download_book_file(
             .await
             .map_err(|e| format!("create dir: {e}"))?;
     }
-    let mut file = tokio::fs::File::create(&dest)
+
+    let tmp_dest = dest.with_extension("download.tmp");
+    let mut file = tokio::fs::File::create(&tmp_dest)
         .await
-        .map_err(|e| format!("create file: {e}"))?;
+        .map_err(|e| format!("create tmp file: {e}"))?;
+
     let total = size;
     let mut remaining = total;
     let mut downloaded: usize = 0;
@@ -321,18 +469,32 @@ pub async fn download_book_file(
     let book_id_for_emit = book_id.clone();
     let start_instant = std::time::Instant::now();
     let mut last_emitted_pct = -1i32;
+
     while remaining > 0 {
         let to_read = remaining.min(buf.len());
-        let n = tokio::time::timeout(
+        let read_res = tokio::time::timeout(
             FILE_TRANSFER_TIMEOUT,
             reader.read_exact(&mut buf[..to_read]),
         )
-        .await
-        .map_err(|_| "read chunk timed out".to_string())?
-        .map_err(|e| format!("read chunk: {e}"))?;
-        tokio::io::AsyncWriteExt::write_all(&mut file, &buf[..n])
-            .await
-            .map_err(|e| format!("write chunk: {e}"))?;
+        .await;
+
+        let n = match read_res {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => {
+                let _ = tokio::fs::remove_file(&tmp_dest).await;
+                return Err(format!("read chunk: {e}"));
+            }
+            Err(_) => {
+                let _ = tokio::fs::remove_file(&tmp_dest).await;
+                return Err("read chunk timed out".to_string());
+            }
+        };
+
+        if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &buf[..n]).await {
+            let _ = tokio::fs::remove_file(&tmp_dest).await;
+            return Err(format!("write chunk: {e}"));
+        }
+
         downloaded += n;
         remaining -= n;
         if total > 0 {
@@ -354,5 +516,15 @@ pub async fn download_book_file(
             }
         }
     }
+
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
+        .map_err(|e| format!("flush file: {e}"))?;
+    drop(file);
+
+    tokio::fs::rename(&tmp_dest, &dest)
+        .await
+        .map_err(|e| format!("rename to final dest: {e}"))?;
+
     Ok(())
 }

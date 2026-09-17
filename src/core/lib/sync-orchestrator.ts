@@ -754,22 +754,28 @@ export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
         if (!peerIds.includes(d.deviceId)) peerIds.push(d.deviceId);
     }
 
+    if (peerIds.length === 0) {
+        console.warn(`[file-xfer] No paired devices found to download ${bookId}`);
+        useUIStore.getState().setDownloadingBook(undefined);
+        setStatus("idle", "Book download failed — no paired devices");
+        return false;
+    }
+
     for (const peerId of peerIds) {
         if (_syncCancelled) break;
         try {
+            console.log(`[file-xfer] Attempting download of ${bookId} from peer ${peerId}...`);
             await downloadBookFile(peerId, bookId, destPath);
             try {
                 await sqliteRegisterMaterializedBook(bookId);
             } catch (e) {
                 debug(`[file-xfer] failed to register ${bookId} in sqlite: ${e}`);
             }
-            useLibraryStore.setState((state) => ({
-                books: state.books.map((b) =>
-                    b.id === bookId
-                        ? { ...b, syncedWithoutFile: false, filePath: destPath, storagePath: destPath }
-                        : b,
-                ),
-            }));
+            useLibraryStore.getState().updateBook(bookId, {
+                syncedWithoutFile: false,
+                filePath: destPath,
+                storagePath: destPath,
+            });
             useUIStore.getState().setDownloadingBook(undefined);
             setStatus("synced", "Book downloaded");
             return true;
@@ -811,13 +817,11 @@ async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
                     } catch (e) {
                         debug(`[file-xfer] failed to register ${book.id} in sqlite: ${e}`);
                     }
-                    useLibraryStore.setState((state) => ({
-                        books: state.books.map((b) =>
-                            b.id === book.id
-                                ? { ...b, syncedWithoutFile: false, filePath: destPath, storagePath: destPath }
-                                : b,
-                        ),
-                    }));
+                    useLibraryStore.getState().updateBook(book.id, {
+                        syncedWithoutFile: false,
+                        filePath: destPath,
+                        storagePath: destPath,
+                    });
                 } catch {
                     // download failed silently for prefetch — will retry on-demand
                 }

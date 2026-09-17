@@ -438,7 +438,7 @@ export class View extends HTMLElement {
         this.#emit('relocate', this.lastLocation)
     }
     #onLoad({ doc, index }) {
-        
+        if (!doc?.documentElement) return;
         doc.documentElement.lang ||= this.language.canonical ?? ''
         if (!this.language.isCJK)
             doc.documentElement.dir ||= this.language.direction ?? ''

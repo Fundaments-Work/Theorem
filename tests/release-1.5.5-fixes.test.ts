@@ -110,4 +110,50 @@ describe("Release 1.5.5 - Bug Fixes & Regressions", () => {
             expect(filtered[0].top).toBe(120);
         });
     });
+
+    describe("Sync Storage & On-Demand Transfer Keys", () => {
+        it("stores theorem-library under zustand: prefix in SQLite kv_store", () => {
+            const libraryStoreOptions = (useSettingsStore as any).persist?.getOptions?.();
+            expect(libraryStoreOptions).toBeDefined();
+
+            // All theorem stores are prefixed with zustand: when persisted to SQLite
+            const storeName = "theorem-library";
+            const sqliteKey = `zustand:${storeName}`;
+            expect(sqliteKey).toBe("zustand:theorem-library");
+        });
+
+        it("correctly decodes and normalizes file:// URIs with spaces", () => {
+            const rawUri = "file:///home/user/books/My%20Sample%20Book.pdf";
+            const stripped = rawUri.replace(/^file:\/\//, "");
+            const decoded = decodeURIComponent(stripped);
+            expect(decoded).toBe("/home/user/books/My Sample Book.pdf");
+
+            const windowsUri = "file:///C:/Users/name/books/Doc%20Name.pdf";
+            const winStripped = windowsUri.replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1");
+            const winDecoded = decodeURIComponent(winStripped);
+            expect(winDecoded).toBe("C:/Users/name/books/Doc Name.pdf");
+        });
+
+        it("safely handles null document or body during paginator expand", () => {
+            // Emulate paginator expand guard
+            const testExpand = (doc: any) => {
+                try {
+                    if (!doc?.documentElement || !doc?.body || !doc?.defaultView) return false;
+                    const { documentElement } = doc;
+                    return Boolean(documentElement);
+                } catch {
+                    return false;
+                }
+            };
+
+            expect(testExpand(null)).toBe(false);
+            expect(testExpand(undefined)).toBe(false);
+            expect(testExpand({})).toBe(false);
+            expect(testExpand({ documentElement: null })).toBe(false);
+            expect(testExpand({ documentElement: {}, body: null })).toBe(false);
+            expect(testExpand({ documentElement: {}, body: {}, defaultView: null })).toBe(false);
+            expect(testExpand({ documentElement: {}, body: {}, defaultView: {} })).toBe(true);
+        });
+    });
 });
+

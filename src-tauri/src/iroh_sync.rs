@@ -431,7 +431,19 @@ impl ProtocolHandler for PairingProtocolHandler {
                 continue;
             }
 
-            let resp_val = handle_pair_req(&self.state, &env.data).await;
+            let (remote_ip, remote_port) = {
+                let paths = conn.paths();
+                let mut direct = None;
+                for p in paths.iter() {
+                    if let iroh::TransportAddr::Ip(addr) = p.remote_addr() {
+                        direct = Some((addr.ip().to_string(), addr.port()));
+                        break;
+                    }
+                }
+                direct.unwrap_or_default()
+            };
+
+            let resp_val = handle_pair_req(&self.state, &env.data, remote_ip, remote_port).await;
             let resp_env = IrohEnvelope {
                 msg_type: "pair_resp".to_string(),
                 data: resp_val,
@@ -735,6 +747,8 @@ pub fn start_accept_loop(
 async fn handle_pair_req(
     state: &Arc<SyncTransportState>,
     data: &serde_json::Value,
+    remote_ip: String,
+    remote_port: u16,
 ) -> serde_json::Value {
     let pairing_req: PairingRequest = match serde_json::from_value(data.clone()) {
         Ok(r) => r,
@@ -757,8 +771,8 @@ async fn handle_pair_req(
         device_name: pairing_req.device_name.clone(),
         iroh_node_id: scanner_node_id,
 
-        last_ip: String::new(),
-        last_port: 0,
+        last_ip: remote_ip.clone(),
+        last_port: remote_port,
         paired_at: format!("{}Z", now),
         last_sync_at: None,
         fingerprint: pairing_req.fingerprint.clone(),
@@ -811,7 +825,18 @@ async fn handle_pair_req(
                     subscribe_doc_events(state.app_handle.clone(), doc.clone(), blobs);
 
                     if let Ok(peer_pk) = pairing_req.node_id.parse::<iroh::PublicKey>() {
-                        let peer_addr = iroh::EndpointAddr::new(peer_pk);
+                        let mut peer_addr = iroh::EndpointAddr::new(peer_pk);
+                        if !remote_ip.is_empty() && remote_port > 0 {
+                            if let Ok(ip) = remote_ip.parse::<std::net::IpAddr>() {
+                                peer_addr = peer_addr
+                                    .with_ip_addr(std::net::SocketAddr::new(ip, remote_port));
+                            }
+                        }
+                        if !pairing_req.relay_url.is_empty() {
+                            if let Ok(url) = pairing_req.relay_url.parse::<iroh::RelayUrl>() {
+                                peer_addr = peer_addr.with_relay_url(url);
+                            }
+                        }
                         let _ = doc.start_sync(vec![peer_addr]).await;
                     }
 
