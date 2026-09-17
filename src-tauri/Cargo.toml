@@ -114,7 +114,7 @@ rand = "0.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
-jni = { version = "0.22", default-features = false, features = ["invocation"] }
+jni = { version = "0.21.1", default-features = false, features = ["invocation"] }
 
 # Optimize for release (reduces binary size significantly)
 [profile.release]
