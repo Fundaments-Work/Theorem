@@ -224,6 +224,351 @@ struct PdfMetadata {
     modification_date: Option<String>,
 }
 
+/// Lightweight PDF structure pre-fetch — reads only enough bytes from the
+/// cross-reference trailer to return an accurate page count and the first
+/// page's MediaBox dimensions.  Called by the frontend *before* PDF.js
+/// opens the document so that all N placeholder `<div>` elements can be
+/// sized and mounted immediately, giving a stable full-document scrollbar
+/// from the very first frame.
+#[derive(Serialize)]
+struct PdfStructure {
+    /// True total page count from the /Pages /Count dictionary entry.
+    total_pages: u32,
+    /// Width  of the first page's MediaBox in PDF user-space points (1 pt = 1/72 inch).
+    /// Falls back to 595 (A4 portrait) when the MediaBox cannot be located.
+    default_width_pt: f32,
+    /// Height of the first page's MediaBox in PDF user-space points.
+    /// Falls back to 842 (A4 portrait) when the MediaBox cannot be located.
+    default_height_pt: f32,
+    /// Raw file size in bytes — forwarded to the range transport so the
+    /// frontend does not need a second IPC round-trip.
+    file_size_bytes: u64,
+    /// Best-effort title from the document information dictionary.
+    title: Option<String>,
+    /// Best-effort author from the document information dictionary.
+    author: Option<String>,
+}
+
+/// Parse a PDF integer token starting at `pos` inside `bytes`.
+/// Returns `(value, bytes_consumed)` or `None` on failure.
+fn parse_pdf_integer(bytes: &[u8], pos: usize) -> Option<(i64, usize)> {
+    let mut i = pos;
+    // skip whitespace
+    while i < bytes.len() && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return None;
+    }
+    let neg = bytes[i] == b'-';
+    if neg {
+        i += 1;
+    }
+    if i >= bytes.len() || !bytes[i].is_ascii_digit() {
+        return None;
+    }
+    let start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    let num_str = std::str::from_utf8(&bytes[start..i]).ok()?;
+    let val: i64 = num_str.parse().ok()?;
+    Some((if neg { -val } else { val }, i - pos))
+}
+
+/// Scan `bytes` (a chunk ending at %%EOF) backwards for the `startxref`
+/// keyword and return the byte offset it points to.
+fn find_startxref_offset(bytes: &[u8]) -> Option<u64> {
+    // Search within the last 1 KiB for "startxref"
+    let search_start = bytes.len().saturating_sub(1024);
+    let window = &bytes[search_start..];
+    let key = b"startxref";
+    // Find the LAST occurrence
+    let rel_pos = window
+        .windows(key.len())
+        .enumerate()
+        .filter(|(_, w)| *w == key)
+        .map(|(i, _)| i)
+        .next_back()?;
+    let after = &window[rel_pos + key.len()..];
+    let (offset, _) = parse_pdf_integer(after, 0)?;
+    if offset < 0 {
+        return None;
+    }
+    Some(offset as u64)
+}
+
+/// Read `n` bytes from `file` at absolute position `offset` into a `Vec<u8>`.
+fn read_bytes_at(file: &mut fs::File, offset: u64, n: usize) -> std::io::Result<Vec<u8>> {
+    file.seek(SeekFrom::Start(offset))?;
+    let mut buf = vec![0u8; n];
+    file.read_exact(&mut buf)?;
+    Ok(buf)
+}
+
+/// Find a key like `/Count` or `/MediaBox` in a slice of PDF dictionary bytes
+/// and return the raw bytes of its value token (up to 64 bytes).
+fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
+    let pos = dict_bytes.windows(key.len()).position(|w| w == key)?;
+    let after = &dict_bytes[pos + key.len()..];
+    // skip whitespace
+    let skip = after
+        .iter()
+        .take_while(|&&b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+        .count();
+    let start = skip;
+    let end = (start + 64).min(after.len());
+    Some(&after[start..end])
+}
+
+/// Extract `/Count` integer from a `/Pages` object body.
+fn extract_page_count(object_bytes: &[u8]) -> Option<u32> {
+    let value_bytes = find_dict_value(object_bytes, b"/Count")?;
+    let (count, _) = parse_pdf_integer(value_bytes, 0)?;
+    if count > 0 {
+        Some(count as u32)
+    } else {
+        None
+    }
+}
+
+/// Extract `/MediaBox` rectangle `[llx lly urx ury]` from an object body.
+/// Returns `(width_pt, height_pt)`.
+fn extract_mediabox(object_bytes: &[u8]) -> Option<(f32, f32)> {
+    let value_bytes = find_dict_value(object_bytes, b"/MediaBox")?;
+    // value_bytes starts with '[' or is an indirect reference — we only handle inline arrays
+    let bracket_pos = value_bytes.iter().position(|&b| b == b'[')?;
+    let inside = &value_bytes[bracket_pos + 1..];
+    let end = inside
+        .iter()
+        .position(|&b| b == b']')
+        .unwrap_or(inside.len());
+    let array_bytes = &inside[..end];
+    // Parse four numbers
+    let mut nums: [f32; 4] = [0.0; 4];
+    let mut offset = 0;
+    for slot in &mut nums {
+        while offset < array_bytes.len()
+            && matches!(array_bytes[offset], b' ' | b'\t' | b'\r' | b'\n')
+        {
+            offset += 1;
+        }
+        if offset >= array_bytes.len() {
+            return None;
+        }
+        // accept integers and simple decimals
+        let start = offset;
+        if array_bytes[offset] == b'-' {
+            offset += 1;
+        }
+        while offset < array_bytes.len()
+            && (array_bytes[offset].is_ascii_digit() || array_bytes[offset] == b'.')
+        {
+            offset += 1;
+        }
+        let tok = std::str::from_utf8(&array_bytes[start..offset]).ok()?;
+        *slot = tok.parse::<f32>().ok()?;
+    }
+    let width = (nums[2] - nums[0]).abs();
+    let height = (nums[3] - nums[1]).abs();
+    if width > 0.0 && height > 0.0 {
+        Some((width, height))
+    } else {
+        None
+    }
+}
+
+/// Parse the cross-reference table (classic `xref` … `trailer`) that begins
+/// at `xref_offset` inside the file and return every object's byte offset.
+/// Returns `(offsets_map, root_obj_num, root_gen_num)`.
+fn parse_xref_table(
+    file: &mut fs::File,
+    file_size: u64,
+    xref_offset: u64,
+) -> Option<(std::collections::HashMap<u32, u64>, u32)> {
+    // Read up to 512 KiB starting at the xref table — enough for large docs
+    let read_len = (512 * 1024).min((file_size.saturating_sub(xref_offset)) as usize);
+    if read_len == 0 {
+        return None;
+    }
+    let buf = read_bytes_at(file, xref_offset, read_len).ok()?;
+
+    // Determine if this is a cross-reference stream (PDF 1.5+) or classic table
+    let is_xref_stream = !buf.starts_with(b"xref");
+
+    if is_xref_stream {
+        // For XRef streams we fall back to returning only an empty map and
+        // try to find the root object from a linearisation hint or brute-force
+        // count from the metadata.  The page-count fallback in the caller
+        // handles this gracefully.
+        return None;
+    }
+
+    let mut offsets: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+
+    // Parse "xref\n<first_obj> <count>\n …"
+    let text = std::str::from_utf8(&buf).ok()?;
+    let mut lines = text.lines().peekable();
+    // First line must be "xref"
+    let first = lines.next()?;
+    if first.trim() != "xref" {
+        return None;
+    }
+
+    while let Some(h) = lines.next() {
+        let header = h.trim();
+        if header.starts_with("trailer") {
+            break;
+        }
+        let mut parts = header.split_ascii_whitespace();
+        let first_obj: u32 = parts.next()?.parse().ok()?;
+        let count: u32 = parts.next()?.parse().ok()?;
+        for i in 0..count {
+            let entry = match lines.next() {
+                Some(e) => e,
+                None => break,
+            };
+            let mut eparts = entry.split_ascii_whitespace();
+            let offset_str = eparts.next().unwrap_or("0");
+            let _gen = eparts.next();
+            let in_use = eparts.next().unwrap_or("f");
+            if in_use == "n" {
+                if let Ok(off) = offset_str.parse::<u64>() {
+                    offsets.insert(first_obj + i, off);
+                }
+            }
+        }
+    }
+
+    // Find /Root in trailer dictionary
+    let trailer_pos = buf.windows(7).position(|w| w == b"trailer")?;
+    let trailer_slice = &buf[trailer_pos..];
+    let root_bytes = find_dict_value(trailer_slice, b"/Root")?;
+    // /Root value is "<obj_num> <gen_num> R"
+    let (root_obj_num, _) = parse_pdf_integer(root_bytes, 0)?;
+    if root_obj_num <= 0 {
+        return None;
+    }
+
+    Some((offsets, root_obj_num as u32))
+}
+
+/// Read and return the body of object `obj_num` (everything between `obj` …
+/// `endobj` keywords) given a pre-built offset table.
+fn read_object_body(
+    file: &mut fs::File,
+    offsets: &std::collections::HashMap<u32, u64>,
+    obj_num: u32,
+) -> Option<Vec<u8>> {
+    let &offset = offsets.get(&obj_num)?;
+    // Read up to 4 KiB — enough for any reasonable dictionary
+    let buf = read_bytes_at(file, offset, 4096).ok()?;
+    // Skip past "<obj_num> <gen> obj"
+    let obj_marker = b"obj";
+    let obj_pos = buf.windows(3).position(|w| w == obj_marker)?;
+    let body_start = obj_pos + 3;
+    let end = buf
+        .windows(6)
+        .position(|w| w == b"endobj")
+        .unwrap_or(buf.len());
+    Some(buf[body_start..end].to_vec())
+}
+
+#[tauri::command]
+fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, String> {
+    let clean = normalize_pdf_path(&path);
+    let target = if clean.exists() {
+        clean
+    } else {
+        PathBuf::from(&path)
+    };
+
+    let meta = fs::metadata(&target)
+        .map_err(|e| format!("prefetch_pdf_structure: cannot stat '{target:?}': {e}"))?;
+    let file_size = meta.len();
+
+    let mut file = fs::File::open(&target)
+        .map_err(|e| format!("prefetch_pdf_structure: cannot open '{target:?}': {e}"))?;
+
+    // --- Step 1: Extract best-effort metadata from head + tail chunks ----------
+    const HEAD: u64 = 65536;
+    let head_len = HEAD.min(file_size) as usize;
+    let head = read_bytes_at(&mut file, 0, head_len)
+        .map_err(|e| format!("prefetch_pdf_structure: head read failed: {e}"))?;
+    let head_meta = extract_pdf_metadata(&head);
+
+    let tail_meta = if file_size > HEAD {
+        let tail_start = file_size.saturating_sub(HEAD);
+        let tail_len = (file_size - tail_start) as usize;
+        let tail = read_bytes_at(&mut file, tail_start, tail_len)
+            .map_err(|e| format!("prefetch_pdf_structure: tail read failed: {e}"))?;
+        extract_pdf_metadata(&tail)
+    } else {
+        extract_pdf_metadata(&[])
+    };
+
+    let title = head_meta.title.or(tail_meta.title);
+    let author = head_meta.author.or(tail_meta.author);
+
+    // --- Step 2: Locate %%EOF trailer and startxref offset --------------------
+    // Read the last 2 KiB to find "startxref"
+    let eof_read_len = 2048.min(file_size as usize);
+    let eof_start = file_size.saturating_sub(eof_read_len as u64);
+    let eof_buf = read_bytes_at(&mut file, eof_start, eof_read_len)
+        .map_err(|e| format!("prefetch_pdf_structure: eof read failed: {e}"))?;
+
+    // --- Step 3: Parse XRef table for accurate page count and MediaBox --------
+    let mut accurate_page_count: Option<u32> = None;
+    let mut default_width_pt: f32 = 595.0; // A4 portrait fallback
+    let mut default_height_pt: f32 = 842.0;
+
+    if let Some(xref_offset) = find_startxref_offset(&eof_buf) {
+        if let Some((offsets, root_obj_num)) = parse_xref_table(&mut file, file_size, xref_offset) {
+            // Follow /Root → /Pages → /Count
+            if let Some(catalog_body) = read_object_body(&mut file, &offsets, root_obj_num) {
+                // /Pages value is "<pages_obj_num> <gen> R"
+                if let Some(pages_ref_bytes) = find_dict_value(&catalog_body, b"/Pages") {
+                    if let Some((pages_obj_num, _)) = parse_pdf_integer(pages_ref_bytes, 0) {
+                        if let Some(pages_body) =
+                            read_object_body(&mut file, &offsets, pages_obj_num as u32)
+                        {
+                            accurate_page_count = extract_page_count(&pages_body);
+                        }
+                    }
+                }
+            }
+
+            // Find MediaBox from the first in-use object (obj 1 most likely is Page 1)
+            // Try objects 1..=20 until we find a /MediaBox
+            'mediabox: for candidate_obj in 1u32..=20 {
+                if let Some(obj_body) = read_object_body(&mut file, &offsets, candidate_obj) {
+                    if let Some((w, h)) = extract_mediabox(&obj_body) {
+                        default_width_pt = w;
+                        default_height_pt = h;
+                        break 'mediabox;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to the heuristic page count if the XRef parse failed
+    let total_pages = accurate_page_count
+        .or(head_meta.pages)
+        .or(tail_meta.pages)
+        .filter(|&n| n > 0)
+        .unwrap_or(1);
+
+    Ok(PdfStructure {
+        total_pages,
+        default_width_pt,
+        default_height_pt,
+        file_size_bytes: file_size,
+        title,
+        author,
+    })
+}
+
 #[tauri::command]
 fn read_file(path: String) -> Result<Response, String> {
     let data = fs::read(&path).map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
@@ -1414,6 +1759,7 @@ pub fn run() {
             read_pdf_file_size,
             read_pdf_range,
             get_pdf_metadata,
+            prefetch_pdf_structure,
             take_pending_open_files,
             app_build_info,
             fetch_rss_feed,

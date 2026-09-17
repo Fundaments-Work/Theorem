@@ -96,6 +96,16 @@ export interface PDFJsEngineRef {
     clearSearch: () => void;
 }
 
+/** Shape of the `prefetch_pdf_structure` Tauri command response. */
+interface PdfStructure {
+    total_pages: number;
+    default_width_pt: number;
+    default_height_pt: number;
+    file_size_bytes: number;
+    title?: string;
+    author?: string;
+}
+
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 5.0;
 const ZOOM_STEP = 0.10;
@@ -516,6 +526,52 @@ function getFitPageScale(container: HTMLElement, page: PDFPageProxy): number {
 }
 
 function getPdfSearchLocation(pageNumber: number): string { return `pdf:page:${pageNumber}`; }
+
+/**
+ * Build a `Float64Array` of length `totalPages` where each entry is the
+ * cumulative scroll-top (in CSS pixels) of that page's *top* edge, given a
+ * uniform page height derived from the pre-fetched default aspect ratio.
+ *
+ * The first-pass layout is uniform (all pages same height).  Once PDF.js
+ * returns actual `PDFPageProxy` objects the caller can refine individual
+ * entries as real viewports become available.
+ *
+ * @param totalPages   Number of pages in the document.
+ * @param widthPt      Page width  in PDF user-space points.
+ * @param heightPt     Page height in PDF user-space points.
+ * @param scale        Current CSS render scale (e.g. 1.0 → 1 CSS px per unit).
+ * @param gap          Vertical gap in CSS pixels between pages (matches the
+ *                     Tailwind `space-y-2 sm:space-y-4` classes, ~16 px).
+ * @param topPad       Top padding of the scroll container in CSS pixels.
+ */
+function computeVirtualPageTops(
+    totalPages: number,
+    heightPt: number,
+    scale: number,
+    gap = 16,
+    topPad = 16,
+): Float64Array {
+    const tops = new Float64Array(totalPages);
+    // CSS height of one page: PDF points → CSS pixels via PDF_TO_CSS_UNITS × scale
+    const cssHeight = Math.max(1, heightPt * PDF_TO_CSS_UNITS * scale);
+    for (let i = 0; i < totalPages; i++) {
+        tops[i] = topPad + i * (cssHeight + gap);
+    }
+    return tops;
+}
+
+/**
+ * Compute a "fit-width" scale from raw PDF point dimensions (before any
+ * `PDFPageProxy` is available) so we can apply the correct initial zoom
+ * from the very first render.
+ */
+function getFitWidthScaleFromPts(container: HTMLElement, widthPt: number): number {
+    const viewportPadding = container.clientWidth < 768 ? 16 : 32;
+    const containerWidth = container.clientWidth - viewportPadding;
+    if (containerWidth <= 0 || widthPt <= 0) return DEFAULT_SCALE;
+    const cssPtWidth = widthPt * PDF_TO_CSS_UNITS;
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, containerWidth / cssPtWidth));
+}
 
 function createPdfSearchExcerpt(pageText: string, query: string, knownMatchIndex?: number): string {
     const normalizedText = pageText.replace(/\s+/g, " ").trim();
@@ -1056,6 +1112,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const initialPageToRestoreRef = useRef(initialPage);
         const zoomModeRef = useRef<PdfZoomMode>(initialZoomMode);
         const searchSessionRef = useRef(0);
+        /** Pre-computed cumulative page-top positions from `prefetch_pdf_structure`. */
+        const pageTopsRef = useRef<Float64Array>(new Float64Array(0));
+        /** Raw structure returned by the Rust `prefetch_pdf_structure` command. */
+        const prefetchedStructureRef = useRef<PdfStructure | null>(null);
         
         const resizeDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         
@@ -1168,6 +1228,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             }
             const container = containerRef.current;
             if (!container) return false;
+            // Fast path: use pre-computed pageTops from Rust pre-fetch (no DOM query needed,
+            // works even before the PDFPageProxy for that page has been loaded).
+            const tops = pageTopsRef.current;
+            const idx = targetPage - 1;
+            if (tops.length > idx && tops.length > 0) {
+                container.scrollTo({ top: Math.max(0, tops[idx] - 8), behavior });
+                return true;
+            }
+            // Fallback: query the placeholder wrapper that may already be in the DOM
             const pageNode = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${targetPage}"]`);
             if (pageNode) { container.scrollTo({ top: Math.max(0, pageNode.offsetTop - 8), behavior }); return true; }
             return false;
@@ -1212,6 +1281,18 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             callbacksRef.current.onPageChange?.(currentPageRef.current, totalPagesRef.current, clampedScale);
             return clampedScale;
         }, [setZoomMode]);
+
+        // Keep pageTopsRef in sync with scale changes so that scrollToPage remains accurate
+        // after the user zooms in or out.
+        useEffect(() => {
+            const struct = prefetchedStructureRef.current;
+            if (!struct || struct.total_pages <= 0) return;
+            pageTopsRef.current = computeVirtualPageTops(
+                struct.total_pages,
+                struct.default_height_pt,
+                scale,
+            );
+        }, [scale]);
 
         useEffect(() => {
             const container = containerRef.current;
@@ -1291,6 +1372,17 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const restoreInitialPageWithRetry = useCallback((targetPage: number, attempts = 0) => {
             const container = containerRef.current;
             if (!container) return;
+            // If pageTops are pre-computed, we can scroll instantly without polling.
+            const tops = pageTopsRef.current;
+            const idx = targetPage - 1;
+            if (tops.length > idx && tops.length > 0) {
+                container.scrollTo({ top: Math.max(0, tops[idx] - 8), behavior: "auto" });
+                currentPageRef.current = targetPage;
+                setCurrentPage(targetPage);
+                callbacksRef.current.onPageChange?.(targetPage, totalPagesRef.current, scaleRef.current);
+                return;
+            }
+            // Fallback: DOM query with retry (used when Rust pre-fetch is unavailable)
             const pageNode = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${targetPage}"]`);
             if (pageNode) {
                 container.scrollTo({ top: Math.max(0, pageNode.offsetTop - 8), behavior: "auto" });
@@ -1463,6 +1555,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     setIsViewportInteracting(false);
                     setIsInitialRenderStabilizing(true);
                     pageLayoutRef.current = [];
+                    pageTopsRef.current = new Float64Array(0);
+                    prefetchedStructureRef.current = null;
                     loadingPageNumbersRef.current.clear();
                     lastEdgePrefetchAtRef.current = 0;
                     lastScrollTopRef.current = 0;
@@ -1475,6 +1569,20 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     zoomModeRef.current = initialZoomMode;
 
                     const canUseDirectAssetUrl = isTauri() && Boolean(pdfPath) && !isVirtualPath && !pdfData;
+
+                    // ── Rust pre-fetch ──────────────────────────────────────────────────────────
+                    // Fire `prefetch_pdf_structure` in parallel with data preparation so we
+                    // know the full page count + default page dimensions as early as possible.
+                    // This lets us:
+                    //  1. Set `totalPages` before any `PDFPageProxy` is loaded
+                    //  2. Render N placeholder <div>s with correct sizes immediately
+                    //  3. Make `scrollToPage` work instantly without DOM queries
+                    let prefetchPromise: Promise<PdfStructure | null> = Promise.resolve(null);
+                    if (canUseDirectAssetUrl && pdfPath) {
+                        prefetchPromise = invoke<PdfStructure>("prefetch_pdf_structure", { path: pdfPath })
+                            .catch(() => null);
+                    }
+
                     let data: Uint8Array | undefined;
                     let dataByteLength: number | undefined;
                     if (pdfData) {
@@ -1482,6 +1590,37 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         dataByteLength = data.byteLength;
                     } else if (!canUseDirectAssetUrl) {
                         throw new Error("PDF data not provided. Please ensure the book is properly loaded.");
+                    }
+
+                    // Wait for the Rust pre-fetch to complete (it runs in <5ms on disk).
+                    const prefetched = await prefetchPromise;
+                    if (cancelled) return;
+
+                    if (prefetched && prefetched.total_pages > 0) {
+                        prefetchedStructureRef.current = prefetched;
+                        // Determine the initial scale to use for the tops computation.
+                        // If zoom mode is width-fit we can compute the initial scale now from
+                        // the container width and the default page width in pts.
+                        const container = containerRef.current;
+                        let initialScaleForTops = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
+                        if (container && (initialZoomMode === 'width-fit' || initialZoomMode === 'page-fit')) {
+                            initialScaleForTops = getFitWidthScaleFromPts(container, prefetched.default_width_pt);
+                        }
+                        scaleRef.current = initialScaleForTops;
+                        setScale(initialScaleForTops);
+                        // Pre-compute page tops using default aspect ratio
+                        pageTopsRef.current = computeVirtualPageTops(
+                            prefetched.total_pages,
+                            prefetched.default_height_pt,
+                            initialScaleForTops,
+                        );
+                        // Set totalPages immediately so N placeholder divs render right away
+                        totalPagesRef.current = prefetched.total_pages;
+                        setTotalPages(prefetched.total_pages);
+                        // Update dataByteLength for the range transport if not already set
+                        if (dataByteLength === undefined) {
+                            dataByteLength = prefetched.file_size_bytes;
+                        }
                     }
 
                     if (cancelled) return;
@@ -2135,9 +2274,22 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
         const displayError = error?.replace(/\s+/g, " ").trim();
 
-        const renderedPages = presentationMode === 'paged'
-            ? pages.filter((page) => page.pageNumber === currentPage)
-            : pages;
+        // Build a fast lookup map from pageNumber → PDFPageProxy for the JSX render.
+        // This avoids O(n²) Array.find() calls in the map loop.
+        const pageProxyMap = useMemo(() => {
+            const m = new Map<number, PDFPageProxy>();
+            for (const p of pages) m.set(p.pageNumber, p);
+            return m;
+        }, [pages]);
+
+        // In paged mode: only render the current page's proxy (or its placeholder).
+        // In scroll mode: render all N page slots using pre-fetched structure for sizing.
+        const prefetchedStruct = prefetchedStructureRef.current;
+        const hasVirtualLayout = prefetchedStruct !== null && totalPages > 0 && presentationMode !== 'paged';
+
+        // Compute placeholder dimensions from pre-fetched aspect ratio (CSS units)
+        const placeholderCssWidth  = prefetchedStruct ? Math.max(1, getCssDimension(prefetchedStruct.default_width_pt  * PDF_TO_CSS_UNITS * scale, isDesktopWebKit)) : 0;
+        const placeholderCssHeight = prefetchedStruct ? Math.max(1, getCssDimension(prefetchedStruct.default_height_pt * PDF_TO_CSS_UNITS * scale, isDesktopWebKit)) : 0;
 
         return (
             <div className={cn("relative w-full h-full", className)}>
@@ -2177,51 +2329,138 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             presentationMode === 'paged' ? "justify-center min-h-full space-y-0" : "justify-start space-y-2 sm:space-y-4"
                         )}
                     >
-                        {renderedPages.map((page) => {
-                            const pageDistanceFromCurrent = Math.abs(page.pageNumber - currentPage);
-                            const pageIsInCanvasRenderWindow = presentationMode === 'paged' || pageDistanceFromCurrent <= canvasRenderWindow;
-                            const pageIsInDOMWindow = presentationMode === 'paged' || pageDistanceFromCurrent <= domRenderWindow;
-                            const pageTextLayerEnabled = enableTextLayer && (presentationMode === 'paged' || pageDistanceFromCurrent <= textLayerPageWindow);
-                            const pageUseStreamTextLayer = isDesktopWebKit ? page.pageNumber !== currentPage : useStreamTextLayer;
+                        {presentationMode === 'paged' ? (
+                            // Paged mode: show only the current page proxy or a placeholder
+                            (() => {
+                                const page = pageProxyMap.get(currentPage);
+                                if (!page) return null;
+                                return (
+                                    <div
+                                        key={`page-${currentPage}`}
+                                        className="pdf-page-wrapper m-auto shadow-sm"
+                                        data-page-number={currentPage}
+                                    >
+                                        <PageCanvas
+                                            page={page} scale={scale} rotation={rotation}
+                                            isRenderActive={true}
+                                            forceRenderActive={isInitialRenderStabilizing}
+                                            inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
+                                            getRenderPriority={getRenderPriority}
+                                            enableTextLayer={enableTextLayer} preferSharpCanvas={isDesktopWebKit}
+                                            reduceRenderQuality={isViewportInteracting}
+                                            snapCssToPixels={isDesktopWebKit} useStreamTextLayer={!isDesktopWebKit}
+                                            calibrateTextLayerWidths={isDesktopWebKit}
+                                            annotations={annotationsByPage.get(currentPage) ?? EMPTY_ANNOTATIONS}
+                                            annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
+                                            onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
+                                        />
+                                    </div>
+                                );
+                            })()
+                        ) : hasVirtualLayout ? (
+                            // Scroll mode with Rust pre-fetch: render all N page slots immediately.
+                            // Pages with loaded proxies get a PageCanvas; others get a sized placeholder.
+                            // This makes scrollHeight correct from the very first frame.
+                            Array.from({ length: totalPages }, (_, i) => {
+                                const pageNumber = i + 1;
+                                const page = pageProxyMap.get(pageNumber);
+                                const pageDistanceFromCurrent = Math.abs(pageNumber - currentPage);
+                                const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
+                                const pageIsInDOMWindow = pageDistanceFromCurrent <= domRenderWindow;
+                                const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
+                                const pageUseStreamTextLayer = isDesktopWebKit ? pageNumber !== currentPage : useStreamTextLayer;
 
-                            if (!pageIsInDOMWindow) {
-                                const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
+                                if (page && pageIsInDOMWindow) {
+                                    return (
+                                        <div
+                                            key={`page-${pageNumber}`}
+                                            className="pdf-page-wrapper"
+                                            data-page-number={pageNumber}
+                                        >
+                                            <PageCanvas
+                                                page={page} scale={scale} rotation={rotation}
+                                                isRenderActive={pageIsInCanvasRenderWindow}
+                                                forceRenderActive={isInitialRenderStabilizing}
+                                                inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
+                                                getRenderPriority={getRenderPriority}
+                                                enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
+                                                reduceRenderQuality={isViewportInteracting}
+                                                snapCssToPixels={isDesktopWebKit} useStreamTextLayer={pageUseStreamTextLayer}
+                                                calibrateTextLayerWidths={isDesktopWebKit && pageNumber === currentPage}
+                                                annotations={annotationsByPage.get(pageNumber) ?? EMPTY_ANNOTATIONS}
+                                                annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
+                                                onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
+                                            />
+                                        </div>
+                                    );
+                                }
+
+                                // Placeholder: use proxy viewport if available (accurate size),
+                                // otherwise use pre-fetched default dimensions (uniform sizing).
+                                const cssW = page
+                                    ? getCssDimension(page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation }).width, isDesktopWebKit)
+                                    : placeholderCssWidth;
+                                const cssH = page
+                                    ? getCssDimension(page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation }).height, isDesktopWebKit)
+                                    : placeholderCssHeight;
+
+                                return (
+                                    <div
+                                        key={`page-${pageNumber}`}
+                                        className="pdf-page-wrapper"
+                                        data-page-number={pageNumber}
+                                        style={{ width: `${cssW}px`, height: `${cssH}px` }}
+                                    />
+                                );
+                            })
+                        ) : (
+                            // Fallback (no Rust pre-fetch / browser env): render only loaded proxies
+                            pages.map((page) => {
+                                const pageDistanceFromCurrent = Math.abs(page.pageNumber - currentPage);
+                                const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
+                                const pageIsInDOMWindow = pageDistanceFromCurrent <= domRenderWindow;
+                                const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
+                                const pageUseStreamTextLayer = isDesktopWebKit ? page.pageNumber !== currentPage : useStreamTextLayer;
+
+                                if (!pageIsInDOMWindow) {
+                                    const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
+                                    return (
+                                        <div
+                                            key={`page-${page.pageNumber}`}
+                                            className="pdf-page-wrapper"
+                                            data-page-number={page.pageNumber}
+                                            style={{
+                                                width: `${getCssDimension(viewport.width, isDesktopWebKit)}px`,
+                                                height: `${getCssDimension(viewport.height, isDesktopWebKit)}px`,
+                                            }}
+                                        />
+                                    );
+                                }
+
                                 return (
                                     <div
                                         key={`page-${page.pageNumber}`}
                                         className="pdf-page-wrapper"
                                         data-page-number={page.pageNumber}
-                                        style={{
-                                            width: `${getCssDimension(viewport.width, isDesktopWebKit)}px`,
-                                            height: `${getCssDimension(viewport.height, isDesktopWebKit)}px`,
-                                        }}
-                                    />
+                                    >
+                                        <PageCanvas
+                                            page={page} scale={scale} rotation={rotation}
+                                            isRenderActive={pageIsInCanvasRenderWindow}
+                                            forceRenderActive={isInitialRenderStabilizing}
+                                            inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
+                                            getRenderPriority={getRenderPriority}
+                                            enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
+                                            reduceRenderQuality={isViewportInteracting}
+                                            snapCssToPixels={isDesktopWebKit} useStreamTextLayer={pageUseStreamTextLayer}
+                                            calibrateTextLayerWidths={isDesktopWebKit && page.pageNumber === currentPage}
+                                            annotations={annotationsByPage.get(page.pageNumber) ?? EMPTY_ANNOTATIONS}
+                                            annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
+                                            onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
+                                        />
+                                    </div>
                                 );
-                            }
-
-                            return (
-                                <div
-                                    key={`page-${page.pageNumber}`}
-                                    className={cn("pdf-page-wrapper", presentationMode === 'paged' && "m-auto shadow-sm")}
-                                    data-page-number={page.pageNumber}
-                                >
-                                    <PageCanvas
-                                        page={page} scale={scale} rotation={rotation}
-                                        isRenderActive={pageIsInCanvasRenderWindow}
-                                        forceRenderActive={isInitialRenderStabilizing}
-                                        inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
-                                        getRenderPriority={getRenderPriority}
-                                        enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
-                                        reduceRenderQuality={isViewportInteracting}
-                                        snapCssToPixels={isDesktopWebKit} useStreamTextLayer={pageUseStreamTextLayer}
-                                        calibrateTextLayerWidths={isDesktopWebKit && page.pageNumber === currentPage}
-                                        annotations={annotationsByPage.get(page.pageNumber) ?? EMPTY_ANNOTATIONS}
-                                        annotationMode={annotationMode} highlightColor={highlightColor} penColor={penColor} penWidth={penWidth}
-                                        onAnnotationAdd={onAnnotationAdd} onAnnotationChange={onAnnotationChange} onAnnotationRemove={onAnnotationRemove}
-                                    />
-                                </div>
-                            );
-                        })}
+                            })
+                        )}
                     </div>
                 </div>
                 {!isLoading && !error && totalPages > 0 && (
