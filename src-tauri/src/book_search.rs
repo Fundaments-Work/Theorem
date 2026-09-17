@@ -14,17 +14,17 @@ pub struct NativeSearchMatch {
     #[serde(rename = "sectionIndex")]
     pub section_index: usize,
     #[serde(rename = "sectionHref")]
-    pub section_href: String,
-    pub snippet: String,
+    pub section_href: Box<str>,
+    pub snippet: Box<str>,
     #[serde(rename = "matchText")]
-    pub match_text: String,
+    pub match_text: Box<str>,
     #[serde(rename = "charOffset")]
     pub char_offset: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookSearchResult {
-    pub matches: Vec<NativeSearchMatch>,
+    pub matches: Box<[NativeSearchMatch]>,
     pub total: usize,
     #[serde(rename = "durationMs")]
     pub duration_ms: f64,
@@ -207,9 +207,9 @@ pub fn search_epub_spine(
 
                 matches.push(NativeSearchMatch {
                     section_index: *sec_idx,
-                    section_href: sec_href.clone(),
-                    snippet,
-                    match_text: q.to_string(),
+                    section_href: sec_href.clone().into_boxed_str(),
+                    snippet: snippet.into_boxed_str(),
+                    match_text: q.to_string().into_boxed_str(),
                     char_offset: running_char_offset,
                 });
 
@@ -776,9 +776,9 @@ pub fn search_pdf_content(
 
                 matches.push(NativeSearchMatch {
                     section_index: page_idx,
-                    section_href: format!("page={}", page_idx + 1),
-                    snippet,
-                    match_text: q.to_string(),
+                    section_href: format!("page={}", page_idx + 1).into_boxed_str(),
+                    snippet: snippet.into_boxed_str(),
+                    match_text: q.to_string().into_boxed_str(),
                     char_offset: running_char_offset,
                 });
 
@@ -839,7 +839,7 @@ pub async fn search_book_content(
     let total = matches.len();
 
     Ok(BookSearchResult {
-        matches,
+        matches: matches.into_boxed_slice(),
         total,
         duration_ms,
     })

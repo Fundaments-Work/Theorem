@@ -5,69 +5,69 @@ use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpdsLinkDto {
-    pub rel: String,
-    pub href: String,
+    pub rel: Box<str>,
+    pub href: Box<str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<String>,
+    pub r#type: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
+    pub title: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpdsEntryDto {
-    pub id: String,
-    pub title: String,
+    pub id: Box<str>,
+    pub title: Box<str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<String>,
+    pub author: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
+    pub summary: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
+    pub content: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated: Option<String>,
+    pub updated: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub published: Option<String>,
+    pub published: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<String>,
+    pub language: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub publisher: Option<String>,
+    pub publisher: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cover_url: Option<String>,
+    pub cover_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail_url: Option<String>,
+    pub thumbnail_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_url: Option<String>,
+    pub download_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_format: Option<String>,
+    pub download_format: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nav_url: Option<String>,
+    pub nav_url: Option<Box<str>>,
     pub is_navigation: bool,
-    pub links: Vec<OpdsLinkDto>,
+    pub links: Box<[OpdsLinkDto]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpdsFeedDto {
-    pub id: String,
-    pub title: String,
+    pub id: Box<str>,
+    pub title: Box<str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub subtitle: Option<String>,
+    pub subtitle: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
+    pub icon: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated: Option<String>,
+    pub updated: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub self_url: Option<String>,
+    pub self_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_url: Option<String>,
+    pub next_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev_url: Option<String>,
+    pub prev_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub up_url: Option<String>,
+    pub up_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_url: Option<String>,
+    pub start_url: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub search_url_template: Option<String>,
-    pub entries: Vec<OpdsEntryDto>,
+    pub search_url_template: Option<Box<str>>,
+    pub entries: Box<[OpdsEntryDto]>,
     pub duration_ms: f64,
 }
 
@@ -200,17 +200,17 @@ pub fn parse_opds_xml(xml: &str, base_url: &str) -> Result<OpdsFeedDto, String> 
 
                         if in_entry {
                             let link_dto = OpdsLinkDto {
-                                rel: rel.clone(),
-                                href: resolved.clone(),
+                                rel: rel.clone().into_boxed_str(),
+                                href: resolved.clone().into_boxed_str(),
                                 r#type: if mime_type.is_empty() {
                                     None
                                 } else {
-                                    Some(mime_type.clone())
+                                    Some(mime_type.clone().into_boxed_str())
                                 },
                                 title: if title.is_empty() {
                                     None
                                 } else {
-                                    Some(title.clone())
+                                    Some(title.clone().into_boxed_str())
                                 },
                             };
                             cur_entry_links.push(link_dto);
@@ -352,27 +352,34 @@ pub fn parse_opds_xml(xml: &str, base_url: &str) -> Result<OpdsFeedDto, String> 
                     }
 
                     if !cur_entry_title.is_empty() || !cur_entry_id.is_empty() {
+                        let id = if cur_entry_id.is_empty() {
+                            cur_entry_title.clone().into_boxed_str()
+                        } else {
+                            cur_entry_id.clone().into_boxed_str()
+                        };
                         entries.push(OpdsEntryDto {
-                            id: if cur_entry_id.is_empty() {
-                                cur_entry_title.clone()
-                            } else {
-                                cur_entry_id.clone()
-                            },
-                            title: cur_entry_title.clone(),
-                            author: cur_entry_author.clone(),
-                            summary: cur_entry_summary.clone(),
-                            content: cur_entry_content.clone(),
-                            updated: cur_entry_updated.clone(),
-                            published: cur_entry_published.clone(),
-                            language: cur_entry_language.clone(),
-                            publisher: cur_entry_publisher.clone(),
-                            cover_url: cur_entry_cover_url.clone(),
-                            thumbnail_url: cur_entry_thumbnail_url.clone(),
-                            download_url: cur_entry_download_url.clone(),
-                            download_format: cur_entry_download_format.clone(),
-                            nav_url: cur_entry_nav_url.clone(),
+                            id,
+                            title: cur_entry_title.clone().into_boxed_str(),
+                            author: cur_entry_author.clone().map(|s| s.into_boxed_str()),
+                            summary: cur_entry_summary.clone().map(|s| s.into_boxed_str()),
+                            content: cur_entry_content.clone().map(|s| s.into_boxed_str()),
+                            updated: cur_entry_updated.clone().map(|s| s.into_boxed_str()),
+                            published: cur_entry_published.clone().map(|s| s.into_boxed_str()),
+                            language: cur_entry_language.clone().map(|s| s.into_boxed_str()),
+                            publisher: cur_entry_publisher.clone().map(|s| s.into_boxed_str()),
+                            cover_url: cur_entry_cover_url.clone().map(|s| s.into_boxed_str()),
+                            thumbnail_url: cur_entry_thumbnail_url
+                                .clone()
+                                .map(|s| s.into_boxed_str()),
+                            download_url: cur_entry_download_url
+                                .clone()
+                                .map(|s| s.into_boxed_str()),
+                            download_format: cur_entry_download_format
+                                .clone()
+                                .map(|s| s.into_boxed_str()),
+                            nav_url: cur_entry_nav_url.clone().map(|s| s.into_boxed_str()),
                             is_navigation: cur_entry_is_nav,
-                            links: std::mem::take(&mut cur_entry_links),
+                            links: std::mem::take(&mut cur_entry_links).into_boxed_slice(),
                         });
                     }
                 } else if local == "author" || local == "creator" {
@@ -391,25 +398,25 @@ pub fn parse_opds_xml(xml: &str, base_url: &str) -> Result<OpdsFeedDto, String> 
 
     Ok(OpdsFeedDto {
         id: if feed_id.is_empty() {
-            base_url.to_string()
+            base_url.to_string().into_boxed_str()
         } else {
-            feed_id
+            feed_id.into_boxed_str()
         },
         title: if feed_title.is_empty() {
-            "OPDS Catalog".to_string()
+            "OPDS Catalog".to_string().into_boxed_str()
         } else {
-            feed_title
+            feed_title.into_boxed_str()
         },
-        subtitle: feed_subtitle,
-        icon: feed_icon,
-        updated: feed_updated,
-        self_url,
-        next_url,
-        prev_url,
-        up_url,
-        start_url,
-        search_url_template,
-        entries,
+        subtitle: feed_subtitle.map(|s| s.into_boxed_str()),
+        icon: feed_icon.map(|s| s.into_boxed_str()),
+        updated: feed_updated.map(|s| s.into_boxed_str()),
+        self_url: self_url.map(|s| s.into_boxed_str()),
+        next_url: next_url.map(|s| s.into_boxed_str()),
+        prev_url: prev_url.map(|s| s.into_boxed_str()),
+        up_url: up_url.map(|s| s.into_boxed_str()),
+        start_url: start_url.map(|s| s.into_boxed_str()),
+        search_url_template: search_url_template.map(|s| s.into_boxed_str()),
+        entries: entries.into_boxed_slice(),
         duration_ms,
     })
 }
@@ -476,11 +483,11 @@ mod tests {
 
         let res =
             parse_opds_xml(sample, "https://standardebooks.org/feeds/atom/new-releases").unwrap();
-        assert_eq!(res.title, "Standard Ebooks - New Releases");
+        assert_eq!(&*res.title, "Standard Ebooks - New Releases");
         assert_eq!(res.entries.len(), 1);
 
         let entry = &res.entries[0];
-        assert_eq!(entry.title, "Pride and Prejudice");
+        assert_eq!(&*entry.title, "Pride and Prejudice");
         assert_eq!(entry.author.as_deref(), Some("Jane Austen"));
         assert_eq!(entry.download_format.as_deref(), Some("epub"));
         assert!(entry
@@ -510,7 +517,7 @@ mod tests {
         let res = parse_opds_xml(sample, "https://www.gutenberg.org/").unwrap();
         assert_eq!(res.entries.len(), 1);
         let entry = &res.entries[0];
-        assert_eq!(entry.title, "The Great Gatsby");
+        assert_eq!(&*entry.title, "The Great Gatsby");
         assert_eq!(entry.author.as_deref(), Some("F. Scott Fitzgerald"));
         assert_eq!(entry.download_format.as_deref(), Some("epub"));
     }

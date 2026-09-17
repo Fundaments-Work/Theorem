@@ -5,11 +5,11 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MobiMetadata {
-    pub title: String,
-    pub author: Option<String>,
-    pub publisher: Option<String>,
-    pub description: Option<String>,
-    pub isbn: Option<String>,
+    pub title: Box<str>,
+    pub author: Option<Box<str>>,
+    pub publisher: Option<Box<str>>,
+    pub description: Option<Box<str>>,
+    pub isbn: Option<Box<str>>,
     #[serde(rename = "compressionType")]
     pub compression_type: u16,
     #[serde(rename = "textLength")]
@@ -129,7 +129,7 @@ pub fn parse_mobi_file(path: &Path) -> Result<MobiMetadata, String> {
     }
 
     Ok(MobiMetadata {
-        title: full_title,
+        title: full_title.into_boxed_str(),
         author: None,
         publisher: None,
         description: None,

@@ -30,7 +30,7 @@ export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverPr
 
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("mousedown", handleClickOutside);
-        window.addEventListener("touchstart", handleClickOutside);
+        window.addEventListener("touchstart", handleClickOutside, { passive: true });
 
         return () => {
             window.removeEventListener("keydown", handleKeyDown);

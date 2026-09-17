@@ -243,6 +243,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const removeBook = useLibraryStore((state) => state.removeBook);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
     const updateBook = useLibraryStore((state) => state.updateBook);
+    const getBook = useLibraryStore((state) => state.getBook);
     const markBookCompleted = useLibraryStore((state) => state.markBookCompleted);
     const markBookUnread = useLibraryStore((state) => state.markBookUnread);
 
@@ -476,7 +477,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                 onOpenBook: handleOpenBook,
                                 onToggleFavorite: toggleFavorite,
                                 onDeleteBook: (id: string) => {
-                                    const book = shelfBooks.find(b => b.id === id);
+                                    const book = getBook(id);
                                     if (book) setDeleteBookInfo({ bookId: book.id, title: book.title });
                                 },
                                 onShowInfo: (b: Book) => { setInfoModalBook(b); setIsInfoModalOpen(true); },

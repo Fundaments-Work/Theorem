@@ -11,19 +11,19 @@ use tauri::{AppHandle, Manager};
 /// MDict header metadata
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MdxHeader {
-    pub title: String,
-    pub description: String,
-    pub version: String,
-    pub encoding: String,
-    pub format: String,
+    pub title: Box<str>,
+    pub description: Box<str>,
+    pub version: Box<str>,
+    pub encoding: Box<str>,
+    pub format: Box<str>,
     pub num_entries: u64,
 }
 
 /// In-memory keyword block summary for fast O(log N) binary search
 #[derive(Debug, Clone)]
 struct KeyBlockMeta {
-    first_word: String,
-    last_word: String,
+    first_word: Box<str>,
+    last_word: Box<str>,
     comp_size: usize,
     decomp_size: usize,
     file_offset: usize,
@@ -84,8 +84,8 @@ impl RecordLruCache {
 pub struct MdxDictionary {
     pub header: MdxHeader,
     mmap: Mmap,
-    key_blocks: Vec<KeyBlockMeta>,
-    record_blocks: Vec<RecordBlockMeta>,
+    key_blocks: Box<[KeyBlockMeta]>,
+    record_blocks: Box<[RecordBlockMeta]>,
     record_lru: Mutex<RecordLruCache>,
     utf16: bool,
 }
@@ -183,8 +183,8 @@ impl MdxDictionary {
         Ok(Self {
             header: final_header,
             mmap,
-            key_blocks,
-            record_blocks,
+            key_blocks: key_blocks.into_boxed_slice(),
+            record_blocks: record_blocks.into_boxed_slice(),
             record_lru: Mutex::new(RecordLruCache::new(24)),
             utf16,
         })
@@ -294,8 +294,8 @@ impl MdxDictionary {
         }
 
         Ok(Some(MdxEntryResult {
-            term: word.to_string(),
-            html: definition_html,
+            term: word.to_string().into_boxed_str(),
+            html: definition_html.into_boxed_str(),
             dictionary_name: self.header.title.clone(),
         }))
     }
@@ -424,11 +424,11 @@ fn parse_mdx_header(raw: &[u8]) -> Result<(MdxHeader, bool), String> {
 
     Ok((
         MdxHeader {
-            title,
-            description,
-            version,
-            encoding,
-            format,
+            title: title.into_boxed_str(),
+            description: description.into_boxed_str(),
+            version: version.into_boxed_str(),
+            encoding: encoding.into_boxed_str(),
+            format: format.into_boxed_str(),
             num_entries: 0,
         },
         content_utf16,
@@ -498,8 +498,8 @@ fn parse_key_block_metas(
         offset += 8;
 
         metas.push(KeyBlockMeta {
-            first_word,
-            last_word,
+            first_word: first_word.into_boxed_str(),
+            last_word: last_word.into_boxed_str(),
             comp_size,
             decomp_size,
             file_offset: block_file_offset,
@@ -607,9 +607,9 @@ fn parse_record_block_metas(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MdxEntryResult {
-    pub term: String,
-    pub html: String,
-    pub dictionary_name: String,
+    pub term: Box<str>,
+    pub html: Box<str>,
+    pub dictionary_name: Box<str>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -669,7 +669,7 @@ pub async fn mdx_lookup(
     app: AppHandle,
     dictionary_ids: Vec<String>,
     term: String,
-) -> Result<Vec<MdxEntryResult>, String> {
+) -> Result<Box<[MdxEntryResult]>, String> {
     tokio::task::spawn_blocking(move || {
         let mut results = Vec::new();
         for id in dictionary_ids {
@@ -679,7 +679,7 @@ pub async fn mdx_lookup(
                 }
             }
         }
-        Ok(results)
+        Ok(results.into_boxed_slice())
     })
     .await
     .map_err(|e| format!("MDX lookup task failed: {e}"))?
@@ -802,7 +802,7 @@ mod tests {
 
         // 4. Test MdxDictionary
         let dict = MdxDictionary::open(&mdx_path).unwrap();
-        assert_eq!(dict.header.title, "Synthetic Comprehensive Wiktionary");
+        assert_eq!(&*dict.header.title, "Synthetic Comprehensive Wiktionary");
         assert_eq!(dict.header.num_entries, 3);
 
         // Exact match

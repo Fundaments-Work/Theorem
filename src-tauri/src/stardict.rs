@@ -11,21 +11,21 @@ use tauri::{AppHandle, Manager};
 /// StarDict `.ifo` metadata
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StarDictIfo {
-    pub bookname: String,
+    pub bookname: Box<str>,
     pub wordcount: u32,
     pub idxfilesize: u64,
     pub idxoffsetbits: u8, // 32 or 64
-    pub sametypesequence: Option<String>,
+    pub sametypesequence: Option<Box<str>>,
     pub synwordcount: Option<u32>,
-    pub author: Option<String>,
-    pub description: Option<String>,
-    pub version: Option<String>,
+    pub author: Option<Box<str>>,
+    pub description: Option<Box<str>>,
+    pub version: Option<Box<str>>,
 }
 
 impl StarDictIfo {
     pub fn parse(content: &str) -> Self {
         let mut ifo = Self {
-            bookname: "StarDict Dictionary".to_string(),
+            bookname: "StarDict Dictionary".into(),
             idxoffsetbits: 32,
             ..Default::default()
         };
@@ -39,15 +39,17 @@ impl StarDictIfo {
                 let key = key.trim();
                 let val = val.trim();
                 match key {
-                    "bookname" => ifo.bookname = val.to_string(),
+                    "bookname" => ifo.bookname = val.to_string().into_boxed_str(),
                     "wordcount" => ifo.wordcount = val.parse().unwrap_or(0),
                     "idxfilesize" => ifo.idxfilesize = val.parse().unwrap_or(0),
                     "idxoffsetbits" => ifo.idxoffsetbits = val.parse().unwrap_or(32),
-                    "sametypesequence" => ifo.sametypesequence = Some(val.to_string()),
+                    "sametypesequence" => {
+                        ifo.sametypesequence = Some(val.to_string().into_boxed_str())
+                    }
                     "synwordcount" => ifo.synwordcount = val.parse().ok(),
-                    "author" => ifo.author = Some(val.to_string()),
-                    "description" => ifo.description = Some(val.to_string()),
-                    "version" => ifo.version = Some(val.to_string()),
+                    "author" => ifo.author = Some(val.to_string().into_boxed_str()),
+                    "description" => ifo.description = Some(val.to_string().into_boxed_str()),
+                    "version" => ifo.version = Some(val.to_string().into_boxed_str()),
                     _ => {}
                 }
             }
@@ -61,8 +63,8 @@ impl StarDictIfo {
 #[derive(Debug, Clone)]
 struct DictZipHeader {
     chunk_len: usize,
-    chunk_offsets: Vec<u64>,
-    chunk_sizes: Vec<u32>,
+    chunk_offsets: Box<[u64]>,
+    chunk_sizes: Box<[u32]>,
 }
 
 impl DictZipHeader {
@@ -165,8 +167,8 @@ impl DictZipHeader {
 
         Ok(Self {
             chunk_len,
-            chunk_offsets,
-            chunk_sizes,
+            chunk_offsets: chunk_offsets.into_boxed_slice(),
+            chunk_sizes: chunk_sizes.into_boxed_slice(),
         })
     }
 
@@ -527,9 +529,9 @@ impl StarDict {
             parse_stardict_payload(&raw_bytes, self.ifo.sametypesequence.as_deref());
 
         Ok(Some(StarDictEntryResult {
-            word: matched_word,
+            word: matched_word.into_boxed_str(),
             dictionary_name: self.ifo.bookname.clone(),
-            meanings: parsed_meanings,
+            meanings: parsed_meanings.into_boxed_slice(),
         }))
     }
 }
@@ -537,22 +539,22 @@ impl StarDict {
 /// Meaning result returned from native StarDict
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeVocabularyMeaning {
-    pub part_of_speech: String,
-    pub definitions: Vec<String>,
+    pub part_of_speech: Box<str>,
+    pub definitions: Box<[Box<str>]>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub examples: Option<Vec<String>>,
+    pub examples: Option<Box<[Box<str>]>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub synonyms: Option<Vec<String>>,
+    pub synonyms: Option<Box<[Box<str>]>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub antonyms: Option<Vec<String>>,
-    pub provider: String,
+    pub antonyms: Option<Box<[Box<str>]>>,
+    pub provider: Box<str>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StarDictEntryResult {
-    pub word: String,
-    pub dictionary_name: String,
-    pub meanings: Vec<NativeVocabularyMeaning>,
+    pub word: Box<str>,
+    pub dictionary_name: Box<str>,
+    pub meanings: Box<[NativeVocabularyMeaning]>,
 }
 
 /// Parse StarDict definition payload according to sametypesequence or leading type byte
@@ -765,13 +767,17 @@ fn parse_wiktionary_text(raw: &str) -> Vec<NativeVocabularyMeaning> {
         }
 
         if !unique_defs.is_empty() {
+            let defs_boxed: Box<[Box<str>]> = unique_defs
+                .into_iter()
+                .map(|s| s.into_boxed_str())
+                .collect();
             results.push(NativeVocabularyMeaning {
-                part_of_speech: pos,
-                definitions: unique_defs,
+                part_of_speech: pos.into_boxed_str(),
+                definitions: defs_boxed,
                 examples: None,
                 synonyms: None,
                 antonyms: None,
-                provider: "stardict".to_string(),
+                provider: "stardict".into(),
             });
         }
     }
@@ -780,12 +786,12 @@ fn parse_wiktionary_text(raw: &str) -> Vec<NativeVocabularyMeaning> {
         let fallback = clean_wiktionary_line(raw.trim());
         if !fallback.is_empty() {
             results.push(NativeVocabularyMeaning {
-                part_of_speech: "General".to_string(),
-                definitions: vec![fallback],
+                part_of_speech: "General".into(),
+                definitions: vec![fallback.into_boxed_str()].into_boxed_slice(),
                 examples: None,
                 synonyms: None,
                 antonyms: None,
-                provider: "stardict".to_string(),
+                provider: "stardict".into(),
             });
         }
     }

@@ -2289,7 +2289,7 @@ fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selec
 
     output.note(&format!("downloading '{}'...", entry.title));
     let bytes = {
-        let response = match crate::shared_http_client().get(download_url).send() {
+        let response = match crate::shared_http_client().get(&**download_url).send() {
             Ok(response) => response,
             Err(e) => return output.error(&e.to_string()),
         };

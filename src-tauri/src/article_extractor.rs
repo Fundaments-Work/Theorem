@@ -3,20 +3,20 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeExtractedArticle {
-    pub title: String,
+    pub title: Box<str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub byline: Option<String>,
-    pub content: String,
+    pub byline: Option<Box<str>>,
+    pub content: Box<str>,
     #[serde(rename = "textContent", skip_serializing_if = "Option::is_none")]
-    pub text_content: Option<String>,
+    pub text_content: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub excerpt: Option<String>,
+    pub excerpt: Option<Box<str>>,
     #[serde(rename = "siteName", skip_serializing_if = "Option::is_none")]
-    pub site_name: Option<String>,
+    pub site_name: Option<Box<str>>,
     #[serde(rename = "leadImageUrl", skip_serializing_if = "Option::is_none")]
-    pub lead_image_url: Option<String>,
+    pub lead_image_url: Option<Box<str>>,
     #[serde(rename = "publishedTime", skip_serializing_if = "Option::is_none")]
-    pub published_time: Option<String>,
+    pub published_time: Option<Box<str>>,
 }
 
 /// Extract clean readability article from raw HTML string
@@ -55,14 +55,14 @@ pub fn extract_article_from_html(html: &str, base_url: &str) -> NativeExtractedA
     let text_content = strip_all_tags(&cleaned_body);
 
     NativeExtractedArticle {
-        title: title.trim().to_string(),
-        byline,
-        content: cleaned_body,
-        text_content: Some(text_content),
-        excerpt,
-        site_name,
-        lead_image_url,
-        published_time,
+        title: title.trim().to_string().into_boxed_str(),
+        byline: byline.map(|s| s.into_boxed_str()),
+        content: cleaned_body.into_boxed_str(),
+        text_content: Some(text_content.into_boxed_str()),
+        excerpt: excerpt.map(|s| s.into_boxed_str()),
+        site_name: site_name.map(|s| s.into_boxed_str()),
+        lead_image_url: lead_image_url.map(|s| s.into_boxed_str()),
+        published_time: published_time.map(|s| s.into_boxed_str()),
     }
 }
 
@@ -284,15 +284,15 @@ mod tests {
         "#;
 
         let article = extract_article_from_html(html, "https://example.com/post");
-        assert_eq!(article.title, "Quantum Computing Breakthrough");
-        assert_eq!(article.byline, Some("Dr. Jane Doe".to_string()));
+        assert_eq!(&*article.title, "Quantum Computing Breakthrough");
+        assert_eq!(article.byline.as_deref(), Some("Dr. Jane Doe"));
         assert_eq!(
-            article.excerpt,
-            Some("A new quantum algorithm achieves supremacy.".to_string())
+            article.excerpt.as_deref(),
+            Some("A new quantum algorithm achieves supremacy.")
         );
         assert_eq!(
-            article.lead_image_url,
-            Some("https://example.com/cover.jpg".to_string())
+            article.lead_image_url.as_deref(),
+            Some("https://example.com/cover.jpg")
         );
         assert!(article.content.contains("Scientists have demonstrated"));
     }

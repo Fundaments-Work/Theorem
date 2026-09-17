@@ -12,23 +12,23 @@ use std::io::{Read, Seek, SeekFrom};
 
 #[derive(Serialize)]
 pub struct AudiobookChapter {
-    pub id: String,
-    pub title: String,
+    pub id: Box<str>,
+    pub title: Box<str>,
     pub start_sec: f64,
     pub end_sec: f64,
 }
 
 #[derive(Serialize)]
 pub struct AudiobookMetadata {
-    pub format: String,
+    pub format: Box<str>,
     /// Total duration in seconds (0 when the container doesn't report one;
     /// the frontend corrects it from the decoded audio element)
     pub duration_sec: f64,
-    pub title: Option<String>,
-    pub author: Option<String>,
+    pub title: Option<Box<str>>,
+    pub author: Option<Box<str>>,
     /// Cover art as a data URL, when the file embeds any
-    pub cover_data_url: Option<String>,
-    pub chapters: Vec<AudiobookChapter>,
+    pub cover_data_url: Option<Box<str>>,
+    pub chapters: Box<[AudiobookChapter]>,
 }
 
 /// std-only base64 (no extra crate): covers are at most a few MB and this
@@ -380,8 +380,8 @@ fn chapters_from_moov(file: &mut std::fs::File, audio_duration_sec: f64) -> Vec<
             .filter(|end| *end > start_sec)
             .unwrap_or(audio_duration_sec.max(start_sec + 1.0));
         chapters.push(AudiobookChapter {
-            id: format!("ch-{idx:03}"),
-            title,
+            id: format!("ch-{idx:03}").into_boxed_str(),
+            title: title.into_boxed_str(),
             start_sec,
             end_sec,
         });
@@ -452,12 +452,12 @@ fn parse_m4b(path: &str) -> Result<AudiobookMetadata, String> {
     let chapters = chapters_from_moov(&mut file, duration_sec);
 
     Ok(AudiobookMetadata {
-        format: "m4b".to_string(),
+        format: "m4b".into(),
         duration_sec,
-        title: tagged.title().map(|s| s.to_string()),
-        author: tagged.artist().map(|s| s.to_string()),
-        cover_data_url,
-        chapters,
+        title: tagged.title().map(|s| s.to_string().into_boxed_str()),
+        author: tagged.artist().map(|s| s.to_string().into_boxed_str()),
+        cover_data_url: cover_data_url.map(|s| s.into_boxed_str()),
+        chapters: chapters.into_boxed_slice(),
     })
 }
 
@@ -472,8 +472,8 @@ fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
         .chapters()
         .enumerate()
         .map(|(idx, chap)| AudiobookChapter {
-            id: format!("ch-{idx:03}"),
-            title: chap.element_id.trim().to_string(),
+            id: format!("ch-{idx:03}").into_boxed_str(),
+            title: chap.element_id.trim().to_string().into_boxed_str(),
             start_sec: ms_to_sec(u64::from(chap.start_time)),
             end_sec: ms_to_sec(u64::from(chap.end_time)),
         })
@@ -483,18 +483,17 @@ fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
     // the best static estimate and the frontend corrects it after decode.
     let duration_sec = chapters.last().map(|c| c.end_sec).unwrap_or(0.0);
 
-    let cover_data_url = tag
-        .pictures()
-        .next()
-        .map(|pic| format!("data:{};base64,{}", pic.mime_type, base64_encode(&pic.data)));
+    let cover_data_url = tag.pictures().next().map(|pic| {
+        format!("data:{};base64,{}", pic.mime_type, base64_encode(&pic.data)).into_boxed_str()
+    });
 
     Ok(AudiobookMetadata {
-        format: "mp3".to_string(),
+        format: "mp3".into(),
         duration_sec,
-        title: tag.title().map(|s| s.to_string()),
-        author: tag.artist().map(|s| s.to_string()),
+        title: tag.title().map(|s| s.to_string().into_boxed_str()),
+        author: tag.artist().map(|s| s.to_string().into_boxed_str()),
         cover_data_url,
-        chapters,
+        chapters: chapters.into_boxed_slice(),
     })
 }
 

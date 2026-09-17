@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { BookOpen, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useLibraryStore, useUIStore } from "../../../core/store";
@@ -12,15 +12,21 @@ export interface DiscoverDetailModalProps {
 }
 
 export function DiscoverDetailModal({ entry, onClose }: DiscoverDetailModalProps) {
-    const books = useLibraryStore((state) => state.books);
     const setRoute = useUIStore((state) => state.setRoute);
     const [isDownloading, setIsDownloading] = useState(false);
 
-    if (!entry) return null;
-
-    const existingBook = books.find(
-        (b) => b.title.toLowerCase().trim() === entry.title.toLowerCase().trim()
+    const existingBook = useLibraryStore(
+        useCallback(
+            (state: ReturnType<typeof useLibraryStore.getState>) => {
+                if (!entry) return undefined;
+                const target = entry.title.toLowerCase().trim();
+                return state.books.find((b) => b.title.toLowerCase().trim() === target);
+            },
+            [entry]
+        )
     );
+
+    if (!entry) return null;
 
     const handleDownload = async () => {
         setIsDownloading(true);

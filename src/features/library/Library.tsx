@@ -994,8 +994,7 @@ export function LibraryPage() {
     const performImportedBookMetadataExtraction = useCallback(async (book: Book) => {
         const latestBook = useLibraryStore
             .getState()
-            .books
-            .find((candidate) => candidate.id === book.id) ?? book;
+            .getBook(book.id) ?? book;
 
         if (latestBook.coverExtractionDone && latestBook.coverPath) {
             return;
