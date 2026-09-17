@@ -7773,7 +7773,7 @@ version = "1.5.6"
 dependencies = [
  "audiopus",
  "audiopus_sys 0.2.2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bzip2 0.4.4",
  "chrono",
  "clap",
