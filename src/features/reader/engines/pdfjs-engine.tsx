@@ -150,7 +150,7 @@ const VIEWPORT_INTERACTION_IDLE_MS = 150;
 const WHEEL_ZOOM_RENDER_INTERVAL_MS = 90;
 const DESKTOP_PDF_RANGE_CHUNK_SIZE = 262_144;
 const MOBILE_PDF_RANGE_CHUNK_SIZE = 131_072;
-const INITIAL_RENDER_STABILIZATION_MS = 2500;
+const INITIAL_RENDER_STABILIZATION_MS = 300;
 const INACTIVE_CANVAS_RELEASE_DELAY_MS = 600;
 const DESKTOP_WEBKIT_INACTIVE_RELEASE_DELAY_MS = 1200;
 
@@ -552,8 +552,8 @@ function computeVirtualPageTops(
     topPad = 16,
 ): Float64Array {
     const tops = new Float64Array(totalPages);
-    // CSS height of one page: PDF points → CSS pixels via PDF_TO_CSS_UNITS × scale
-    const cssHeight = Math.max(1, heightPt * PDF_TO_CSS_UNITS * scale);
+    // CSS height of one page: PDF points → CSS pixels via PDF_TO_CSS_UNITS × scale + 2px borders
+    const cssHeight = Math.max(1, heightPt * PDF_TO_CSS_UNITS * scale) + 2;
     for (let i = 0; i < totalPages; i++) {
         tops[i] = topPad + i * (cssHeight + gap);
     }
@@ -807,7 +807,7 @@ const PageCanvas = memo(function PageCanvas({
     const inactiveReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastCanvasRenderKeyRef = useRef<string>("");
     const hasRenderedCanvasRef = useRef(false);
-    const [isNearViewport, setIsNearViewport] = useState(page.pageNumber <= 3);
+    const [isNearViewport, setIsNearViewport] = useState(() => isRenderActive || forceRenderActive || page.pageNumber <= 3);
     const shouldRenderAnnotationLayer = annotationMode !== "none" || annotations.length > 0;
     const shouldRender = isNearViewport || isRenderActive || forceRenderActive;
 
@@ -928,20 +928,32 @@ const PageCanvas = memo(function PageCanvas({
                     cancelQueuedRenderSlot = null;
                     if (cancelled) { releaseRenderSlot(); releaseRenderSlot = null; return; }
 
-                    canvas.width = sizing.canvasWidth;
-                    canvas.height = sizing.canvasHeight;
-                    const ctx = canvas.getContext("2d", { alpha: false });
-                    if (!ctx || cancelled) { releaseRenderSlot(); releaseRenderSlot = null; return; }
+                    // Double-buffered rendering: draw to offscreen canvas first so the on-screen
+                    // canvas maintains its previous content (smoothly scaled via CSS width/height)
+                    // without any blank white flash during zoom or resolution changes.
+                    const offscreen = document.createElement("canvas");
+                    offscreen.width = sizing.canvasWidth;
+                    offscreen.height = sizing.canvasHeight;
+                    const offscreenCtx = offscreen.getContext("2d", { alpha: false });
+                    if (!offscreenCtx || cancelled) { releaseRenderSlot(); releaseRenderSlot = null; return; }
 
                     const renderTask = page.render({
                         canvas: null,
-                        canvasContext: ctx,
+                        canvasContext: offscreenCtx,
                         viewport,
                         transform: [sizing.renderScaleX, 0, 0, sizing.renderScaleY, 0, 0]
                     });
                     renderTaskRef.current = renderTask;
                     await renderTask.promise;
                     if (cancelled) return;
+
+                    // Atomically blit the completed offscreen image onto the visible canvas in a single frame
+                    canvas.width = sizing.canvasWidth;
+                    canvas.height = sizing.canvasHeight;
+                    const mainCtx = canvas.getContext("2d", { alpha: false });
+                    if (mainCtx) {
+                        mainCtx.drawImage(offscreen, 0, 0);
+                    }
 
                     hasRenderedCanvasRef.current = true;
                     lastCanvasRenderKeyRef.current = canvasRenderKey;
@@ -1116,6 +1128,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const pageTopsRef = useRef<Float64Array>(new Float64Array(0));
         /** Raw structure returned by the Rust `prefetch_pdf_structure` command. */
         const prefetchedStructureRef = useRef<PdfStructure | null>(null);
+        /** Target page currently being navigated to via programmatic jump. Suppresses intermediate scroll overwrites. */
+        const isNavigatingPageRef = useRef<number | null>(null);
+        const navigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        /** IntersectionObserver watching placeholder divs for lazy pre-fetching */
+        const placeholderObserverRef = useRef<IntersectionObserver | null>(null);
         
         const resizeDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         
@@ -1211,14 +1228,28 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             if (!container) { pageLayoutRef.current = []; return; }
             const pageNodes = container.querySelectorAll<HTMLElement>(".pdf-page-wrapper");
             if (pageNodes.length === 0) { pageLayoutRef.current = []; return; }
-            pageLayoutRef.current = Array.from(pageNodes)
-                .map((node) => {
-                    const pageNumber = Number(node.dataset.pageNumber);
-                    if (!Number.isFinite(pageNumber)) return null;
-                    return { pageNumber, top: node.offsetTop, bottom: node.offsetTop + node.offsetHeight } satisfies PageLayoutEntry;
-                })
-                .filter((entry): entry is PageLayoutEntry => entry !== null)
-                .sort((l, r) => l.pageNumber - r.pageNumber);
+            const entries: PageLayoutEntry[] = [];
+            for (let i = 0; i < pageNodes.length; i++) {
+                const node = pageNodes[i];
+                const pageNumber = Number(node.dataset.pageNumber);
+                if (!Number.isFinite(pageNumber)) continue;
+                entries.push({ pageNumber, top: node.offsetTop, bottom: node.offsetTop + node.offsetHeight });
+            }
+            entries.sort((l, r) => l.pageNumber - r.pageNumber);
+            pageLayoutRef.current = entries;
+
+            // Synchronize pageTopsRef with true measured DOM positions
+            if (entries.length > 0) {
+                const maxPage = entries[entries.length - 1].pageNumber;
+                const tops = new Float64Array(Math.max(totalPagesRef.current, maxPage));
+                for (let i = 0; i < entries.length; i++) {
+                    const e = entries[i];
+                    if (e.pageNumber - 1 < tops.length) {
+                        tops[e.pageNumber - 1] = e.top;
+                    }
+                }
+                pageTopsRef.current = tops;
+            }
         }, []);
 
         const scrollToPage = useCallback((targetPage: number, behavior: ScrollBehavior = "smooth"): boolean => {
@@ -1228,17 +1259,22 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             }
             const container = containerRef.current;
             if (!container) return false;
-            // Fast path: use pre-computed pageTops from Rust pre-fetch (no DOM query needed,
-            // works even before the PDFPageProxy for that page has been loaded).
+
+            // 1. Primary: query the exact DOM node for targetPage (100% pixel-perfect layout)
+            const pageNode = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${targetPage}"]`);
+            if (pageNode) {
+                container.scrollTo({ top: Math.max(0, pageNode.offsetTop - 8), behavior });
+                return true;
+            }
+
+            // 2. Fallback: use pre-computed or measured pageTops
             const tops = pageTopsRef.current;
             const idx = targetPage - 1;
-            if (tops.length > idx && tops.length > 0) {
+            if (tops.length > idx && tops.length > 0 && tops[idx] > 0) {
                 container.scrollTo({ top: Math.max(0, tops[idx] - 8), behavior });
                 return true;
             }
-            // Fallback: query the placeholder wrapper that may already be in the DOM
-            const pageNode = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${targetPage}"]`);
-            if (pageNode) { container.scrollTo({ top: Math.max(0, pageNode.offsetTop - 8), behavior }); return true; }
+
             return false;
         }, []);
 
@@ -1263,7 +1299,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 container.scrollTop = scrollAdjustment.top;
                 pendingScrollAdjustmentRef.current = null;
             }
-        }, [scale]);
+            rebuildPageLayout();
+        }, [scale, rebuildPageLayout]);
 
         const setZoomMode = useCallback((mode: PdfZoomMode, force = false) => {
             if (!force && zoomModeRef.current === mode) return;
@@ -1276,7 +1313,23 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             if (options?.mode) setZoomMode(options.mode);
             else if (!options?.preserveMode) setZoomMode("custom");
             if (Math.abs(clampedScale - scaleRef.current) < 0.0001) return scaleRef.current;
+
+            const oldScale = scaleRef.current;
             scaleRef.current = clampedScale;
+
+            // Anchor zoom to the center of the current viewport so the reader doesn't jump to a random location
+            const container = containerRef.current;
+            if (container && pendingScrollAdjustmentRef.current === null && Math.abs(clampedScale - oldScale) > 0.0001) {
+                const ratio = clampedScale / oldScale;
+                const centerY = container.scrollTop + (container.clientHeight / 2);
+                const centerX = container.scrollLeft + (container.clientWidth / 2);
+                pendingScrollAdjustmentRef.current = {
+                    left: Math.max(0, centerX * ratio - (container.clientWidth / 2)),
+                    top: Math.max(0, centerY * ratio - (container.clientHeight / 2)),
+                    scale: clampedScale,
+                };
+            }
+
             setScale(clampedScale);
             callbacksRef.current.onPageChange?.(currentPageRef.current, totalPagesRef.current, clampedScale);
             return clampedScale;
@@ -1367,22 +1420,43 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             }
         }, [getLoadedPageNumbers, pdfDocument, prunePageProxyCache]);
 
+        useEffect(() => {
+            if (typeof IntersectionObserver === "undefined") return;
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    const pagesToLoad: number[] = [];
+                    for (const entry of entries) {
+                        if (entry.isIntersecting) {
+                            const pn = Number((entry.target as HTMLElement).dataset.pageNumber);
+                            if (pn && !loadingPageNumbersRef.current.has(pn)) {
+                                pagesToLoad.push(pn);
+                            }
+                        }
+                    }
+                    if (pagesToLoad.length > 0) {
+                        void loadSpecificPages(pagesToLoad);
+                    }
+                },
+                { root: null, rootMargin: "120% 0px" }
+            );
+            placeholderObserverRef.current = observer;
+            return () => {
+                observer.disconnect();
+                placeholderObserverRef.current = null;
+            };
+        }, [loadSpecificPages]);
+
+        const registerPlaceholderRef = useCallback((node: HTMLElement | null) => {
+            if (!node) return;
+            placeholderObserverRef.current?.observe(node);
+        }, []);
+
         const clearSearch = useCallback(() => { searchSessionRef.current += 1; }, []);
 
         const restoreInitialPageWithRetry = useCallback((targetPage: number, attempts = 0) => {
             const container = containerRef.current;
             if (!container) return;
-            // If pageTops are pre-computed, we can scroll instantly without polling.
-            const tops = pageTopsRef.current;
-            const idx = targetPage - 1;
-            if (tops.length > idx && tops.length > 0) {
-                container.scrollTo({ top: Math.max(0, tops[idx] - 8), behavior: "auto" });
-                currentPageRef.current = targetPage;
-                setCurrentPage(targetPage);
-                callbacksRef.current.onPageChange?.(targetPage, totalPagesRef.current, scaleRef.current);
-                return;
-            }
-            // Fallback: DOM query with retry (used when Rust pre-fetch is unavailable)
+            // Primary: exact DOM node offset
             const pageNode = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${targetPage}"]`);
             if (pageNode) {
                 container.scrollTo({ top: Math.max(0, pageNode.offsetTop - 8), behavior: "auto" });
@@ -1391,9 +1465,19 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 callbacksRef.current.onPageChange?.(targetPage, totalPagesRef.current, scaleRef.current);
                 return;
             }
-            if (attempts >= 200) return;
+            // Fallback: pre-computed or measured pageTops
+            const tops = pageTopsRef.current;
+            const idx = targetPage - 1;
+            if (tops.length > idx && tops.length > 0 && tops[idx] > 0) {
+                container.scrollTo({ top: Math.max(0, tops[idx] - 8), behavior: "auto" });
+                currentPageRef.current = targetPage;
+                setCurrentPage(targetPage);
+                callbacksRef.current.onPageChange?.(targetPage, totalPagesRef.current, scaleRef.current);
+                return;
+            }
+            if (attempts >= 100) return;
             if (initialPageRestoreTimeoutRef.current) clearTimeout(initialPageRestoreTimeoutRef.current);
-            initialPageRestoreTimeoutRef.current = setTimeout(() => { restoreInitialPageWithRetry(targetPage, attempts + 1); }, 75);
+            initialPageRestoreTimeoutRef.current = setTimeout(() => { restoreInitialPageWithRetry(targetPage, attempts + 1); }, 50);
         }, []);
 
         const search = useCallback(async function* (query: string): AsyncGenerator<SearchResult | { progress: number } | "done"> {
@@ -1841,6 +1925,17 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 rafId = window.requestAnimationFrame(() => {
                     rafId = null;
                     if (isInitialRenderStabilizing) return;
+
+                    // If programmatic navigation is in flight, do not let intermediate scroll frames overwrite currentPage!
+                    if (isNavigatingPageRef.current !== null) {
+                        const target = isNavigatingPageRef.current;
+                        const targetNode = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${target}"]`);
+                        if (targetNode && Math.abs(container.scrollTop - (targetNode.offsetTop - 8)) < 24) {
+                            isNavigatingPageRef.current = null;
+                        }
+                        return;
+                    }
+
                     const scrollTop = container.scrollTop;
                     const scrollDelta = scrollTop - lastScrollTopRef.current;
                     const scrollDirection = scrollDelta > 0 ? 1 : scrollDelta < 0 ? -1 : 0;
@@ -2020,25 +2115,42 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const navigateToPage = useCallback((targetPage: number, behavior: ScrollBehavior = "smooth") => {
             const totalPageCount = totalPagesRef.current;
             if (targetPage < 1 || targetPage > totalPageCount) return;
+
+            // If jumping more than 2 pages (TOC, search result, direct jump), use "auto"
+            // to instantly land on the exact page without smooth-scroll delay or intermediate drift.
+            const pageDiff = Math.abs(targetPage - currentPageRef.current);
+            const effectiveBehavior: ScrollBehavior = pageDiff > 2 ? "auto" : behavior;
+
             if (targetPage !== currentPageRef.current && totalPageCount > 0) {
                 currentPageRef.current = targetPage; setCurrentPage(targetPage);
                 callbacksRef.current.onPageChange?.(targetPage, totalPageCount, scaleRef.current);
             }
-            if (presentationModeRef.current === 'paged') {
-                containerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-                const nearTargets: number[] = [targetPage];
-                if (targetPage - 1 >= 1) nearTargets.push(targetPage - 1);
-                if (targetPage + 1 <= totalPageCount) nearTargets.push(targetPage + 1);
-                void loadSpecificPages(nearTargets);
-                return;
-            }
-            if (scrollToPage(targetPage, behavior)) { pendingScrollPageRef.current = null; return; }
-            pendingScrollPageRef.current = targetPage;
+
+            // Lock navigation so handleScroll does NOT fight the jump
+            isNavigatingPageRef.current = targetPage;
+            if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
+            navigationTimeoutRef.current = setTimeout(() => {
+                isNavigatingPageRef.current = null;
+            }, effectiveBehavior === "smooth" ? 400 : 120);
+
+            // ALWAYS immediately load the target page and surrounding pages!
             const nearTargets: number[] = [targetPage];
             for (let offset = 1; offset <= PAGE_LOAD_AHEAD_THRESHOLD; offset++) {
-                nearTargets.push(targetPage + offset, targetPage - offset);
+                if (targetPage + offset <= totalPageCount) nearTargets.push(targetPage + offset);
+                if (targetPage - offset >= 1) nearTargets.push(targetPage - offset);
             }
             void loadSpecificPages(nearTargets);
+
+            if (presentationModeRef.current === 'paged') {
+                containerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+                return;
+            }
+
+            if (scrollToPage(targetPage, effectiveBehavior)) {
+                pendingScrollPageRef.current = null;
+                return;
+            }
+            pendingScrollPageRef.current = targetPage;
         }, [loadSpecificPages, scrollToPage]);
 
         const handleViewportClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -2173,12 +2285,12 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 // Jump to start / end
                 if (event.key === "Home") {
                     event.preventDefault();
-                    navigateToPage(1, "smooth");
+                    navigateToPage(1, "auto");
                     return;
                 }
                 if (event.key === "End") {
                     event.preventDefault();
-                    navigateToPage(totalPagesRef.current, "smooth");
+                    navigateToPage(totalPagesRef.current, "auto");
                     return;
                 }
 
@@ -2223,7 +2335,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         }, [applyZoom, error, firstLoadedPage, isLoading, markViewportInteracting, navigateToPage]);
 
         useImperativeHandle(ref, () => ({
-            goToPage: (page: number) => { if (page >= 1 && page <= totalPagesRef.current) navigateToPage(page, "smooth"); },
+            goToPage: (page: number) => { if (page >= 1 && page <= totalPagesRef.current) navigateToPage(page, "auto"); },
             nextPage: () => {
                 const page = currentPageRef.current;
                 if (page < totalPagesRef.current) navigateToPage(page + 1, "smooth");
@@ -2359,18 +2471,17 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             })()
                         ) : hasVirtualLayout ? (
                             // Scroll mode with Rust pre-fetch: render all N page slots immediately.
-                            // Pages with loaded proxies get a PageCanvas; others get a sized placeholder.
-                            // This makes scrollHeight correct from the very first frame.
+                            // If a page proxy is loaded in memory, render PageCanvas.
+                            // Otherwise, render a sized placeholder observed by placeholderObserver.
                             Array.from({ length: totalPages }, (_, i) => {
                                 const pageNumber = i + 1;
                                 const page = pageProxyMap.get(pageNumber);
                                 const pageDistanceFromCurrent = Math.abs(pageNumber - currentPage);
                                 const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
-                                const pageIsInDOMWindow = pageDistanceFromCurrent <= domRenderWindow;
                                 const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
                                 const pageUseStreamTextLayer = isDesktopWebKit ? pageNumber !== currentPage : useStreamTextLayer;
 
-                                if (page && pageIsInDOMWindow) {
+                                if (page) {
                                     return (
                                         <div
                                             key={`page-${pageNumber}`}
@@ -2395,18 +2506,13 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     );
                                 }
 
-                                // Placeholder: use proxy viewport if available (accurate size),
-                                // otherwise use pre-fetched default dimensions (uniform sizing).
-                                const cssW = page
-                                    ? getCssDimension(page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation }).width, isDesktopWebKit)
-                                    : placeholderCssWidth;
-                                const cssH = page
-                                    ? getCssDimension(page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation }).height, isDesktopWebKit)
-                                    : placeholderCssHeight;
+                                const cssW = placeholderCssWidth;
+                                const cssH = placeholderCssHeight;
 
                                 return (
                                     <div
                                         key={`page-${pageNumber}`}
+                                        ref={registerPlaceholderRef}
                                         className="pdf-page-wrapper"
                                         data-page-number={pageNumber}
                                         style={{ width: `${cssW}px`, height: `${cssH}px` }}
