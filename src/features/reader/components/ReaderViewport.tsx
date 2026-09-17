@@ -630,7 +630,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
 
             <div
                 ref={containerRef}
-                className={cn('absolute inset-0 z-0 reader-viewport')}
+                className={cn('absolute inset-0 z-0 isolate reader-viewport custom-scrollbar')}
                 style={{ 
                     touchAction: settings.flow === 'scroll' ? 'pan-y pinch-zoom' : 'manipulation',
                     overflow: settings.flow === 'scroll' ? 'auto' : 'hidden',

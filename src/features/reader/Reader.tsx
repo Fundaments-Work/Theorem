@@ -184,6 +184,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         defaultHeight: 56,
         minHeight: 44,
     });
+    const navbarContainerRef = useRef<HTMLDivElement>(null);
 
     // PDF-specific state for titlebar controls
     const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
@@ -298,6 +299,11 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [immersionMode, audioTrack]);
 
     const isPdfFormat = currentBook?.format === 'pdf';
+    const navbarHeight = useToolbarHeight(navbarContainerRef, {
+        defaultHeight: 56,
+        minHeight: 48,
+        enabled: !isPdfFormat,
+    });
 
     const effectiveReaderSettings = useMemo<ReaderSettingsState>(() => {
         if (isPdfFormat) {
@@ -2532,7 +2538,15 @@ const BookReaderPage = memo(function BookReaderPage() {
                 />
             </div>
 
-            <div className="absolute inset-0 overflow-hidden">
+            <div
+                className="absolute inset-x-0 overflow-hidden z-0 isolate transition-[top,bottom] duration-150 ease-out"
+                style={{
+                    top: shouldShowReaderChrome ? toolbarHeight : 0,
+                    bottom: shouldShowReaderChrome
+                        ? (!isPdfFormat ? navbarHeight : (immersionMode && audioTrack ? 64 : 0))
+                        : 0,
+                }}
+            >
                 {isPdfFormat ? (
                     <Suspense fallback={<div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">Loading PDF...</div>}>
                         {resolvedPdfPath || pdfData ? (
@@ -2647,34 +2661,36 @@ const BookReaderPage = memo(function BookReaderPage() {
                         theme={settings.readerSettings.theme}
                     />
                     
-                    <ReaderNavbar
-                        location={location}
-                        toc={toc}
-                        sectionFractions={sectionFractions}
-                        onSeek={handleSeek}
-                        totalPages={location?.pageInfo?.totalPages}
-                        onToggleToc={() => togglePanel('toc')}
-                        immersionMode={immersionMode && !audioTrack}
-                        ttsState={ttsState}
-                        onTtsPlay={handleTtsPlay}
-                        onTtsPause={handleTtsPause}
-                        onTtsStop={handleTtsStop}
-                        neuralReady={neuralReady}
-                        showNeuralInstall={showNeuralInstall}
-                        ttsVoice={settings.tts.voice}
-                        ttsSpeed={settings.tts.speed}
-                        onTtsVoiceChange={handleTtsVoiceChange}
-                        onTtsSpeedChange={handleTtsSpeedChange}
-                        onOpenNeuralSettings={handleOpenNeuralSettings}
-                        onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
-                        audioGenProgress={audioGenProgress}
-                        className={cn(
-                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
-                            immersionMode
-                                ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
-                                : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
-                        )}
-                    />
+                    <div ref={navbarContainerRef}>
+                        <ReaderNavbar
+                            location={location}
+                            toc={toc}
+                            sectionFractions={sectionFractions}
+                            onSeek={handleSeek}
+                            totalPages={location?.pageInfo?.totalPages}
+                            onToggleToc={() => togglePanel('toc')}
+                            immersionMode={immersionMode && !audioTrack}
+                            ttsState={ttsState}
+                            onTtsPlay={handleTtsPlay}
+                            onTtsPause={handleTtsPause}
+                            onTtsStop={handleTtsStop}
+                            neuralReady={neuralReady}
+                            showNeuralInstall={showNeuralInstall}
+                            ttsVoice={settings.tts.voice}
+                            ttsSpeed={settings.tts.speed}
+                            onTtsVoiceChange={handleTtsVoiceChange}
+                            onTtsSpeedChange={handleTtsSpeedChange}
+                            onOpenNeuralSettings={handleOpenNeuralSettings}
+                            onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
+                            audioGenProgress={audioGenProgress}
+                            className={cn(
+                                "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
+                                immersionMode
+                                    ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
+                                    : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
+                            )}
+                        />
+                    </div>
 
                     {immersionMode && audioTrack && (
                         <AudiobookBar

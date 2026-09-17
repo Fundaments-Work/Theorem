@@ -22,7 +22,7 @@ import { TableOfContents } from "../components/TableOfContents";
 import { WindowTitlebar } from "../components/WindowTitlebar";
 import { HighlightColorPicker } from "../components/highlights/HighlightColorPicker";
 import { NoteEditor } from "../components/highlights/NoteEditor";
-import { useReaderFullscreen } from "../hooks";
+import { useReaderFullscreen, useToolbarHeight } from "../hooks";
 import { ArticleReaderContent } from "./ArticleReaderContent";
 import { ArticleReaderInfoPanel } from "./ArticleReaderInfoPanel";
 import type { ArticleHeading, ArticleReaderPanel } from "./types";
@@ -690,6 +690,10 @@ export const ArticleViewer = memo(function ArticleViewer({
     const contentRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const toolbarContainerRef = useRef<HTMLDivElement>(null);
+    const toolbarHeight = useToolbarHeight(toolbarContainerRef, {
+        defaultHeight: 48,
+        minHeight: 44,
+    });
     const selectedRangeRef = useRef<Range | null>(null);
     const selectionSnapshotRef = useRef<TextSelectionSnapshot | null>(null);
     
@@ -1581,6 +1585,35 @@ export const ArticleViewer = memo(function ArticleViewer({
                     />
                 </div>
 
+                <div
+                    className="absolute inset-x-0 bottom-0 overflow-hidden z-0 isolate transition-[top] duration-150 ease-out"
+                    style={{
+                        top: shouldShowReaderChrome ? toolbarHeight : 0,
+                    }}
+                    onClick={() => {
+                        const sel = window.getSelection();
+                        if (!sel || sel.isCollapsed) {
+                            setShowChrome(s => !s);
+                        }
+                    }}
+                >
+                    <ArticleReaderContent
+                        article={article}
+                        feedTitle={feedTitle}
+                        fontSize={fontSize}
+                        lineHeight={lineHeight}
+                        fontFamily={fontFamily}
+                        textAlign={textAlign}
+                        letterSpacing={letterSpacing}
+                        wordSpacing={wordSpacing}
+                        contentRef={contentRef}
+                        scrollContainerRef={scrollContainerRef}
+                        onTextSelect={handleTextSelect}
+                        onHeadingsChange={setHeadings}
+                        sanitizedContent={sanitizedContent}
+                    />
+                </div>
+
                 <Backdrop visible={activePanel !== null && !usesSharedPanelBackdrop} onClick={closePanel} blur />
 
                 <TableOfContents
@@ -1620,32 +1653,6 @@ export const ArticleViewer = memo(function ArticleViewer({
                     feedTitle={feedTitle}
                     onClose={closePanel}
                 />
-
-                <div
-                    className="absolute inset-0 overflow-hidden"
-                    onClick={() => {
-                        const sel = window.getSelection();
-                        if (!sel || sel.isCollapsed) {
-                            setShowChrome(s => !s);
-                        }
-                    }}
-                >
-                    <ArticleReaderContent
-                        article={article}
-                        feedTitle={feedTitle}
-                        fontSize={fontSize}
-                        lineHeight={lineHeight}
-                        fontFamily={fontFamily}
-                        textAlign={textAlign}
-                        letterSpacing={letterSpacing}
-                        wordSpacing={wordSpacing}
-                        contentRef={contentRef}
-                        scrollContainerRef={scrollContainerRef}
-                        onTextSelect={handleTextSelect}
-                        onHeadingsChange={setHeadings}
-                        sanitizedContent={sanitizedContent}
-                    />
-                </div>
             </div>
 
             <HighlightColorPicker

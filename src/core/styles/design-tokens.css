@@ -121,7 +121,7 @@
     --transition-slow: var(--duration-slow) cubic-bezier(0.22, 1, 0.36, 1);
 
     
-    --z-backdrop: 40;
+    --z-backdrop: 145;
     --z-dropdown: 50;
     --z-sticky: 100;
     --z-nav: 110;
