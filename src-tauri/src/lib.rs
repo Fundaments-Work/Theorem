@@ -2227,7 +2227,7 @@ fn trim_memory(app: tauri::AppHandle) {
     #[cfg(target_os = "android")]
     unsafe {
         extern "C" {
-            fn mallopt(param: libc::c_int, value: libc::c_int) -> libc::c_int;
+            fn mallopt(param: std::ffi::c_int, value: std::ffi::c_int) -> std::ffi::c_int;
         }
         mallopt(-101, 0);
     }
