@@ -3,6 +3,7 @@
     "version": "1.5.7",
     "description": "Local-first desktop reader for PDFs, EPUBs, MOBI, and RSS with neural TTS, highlights, vocabulary building, and Markdown export.",
     "private": true,
+    "type": "module",
     "author": "Fundamentals",
     "license": "MIT",
     "homepage": "https://github.com/fundaments-work/theorem",

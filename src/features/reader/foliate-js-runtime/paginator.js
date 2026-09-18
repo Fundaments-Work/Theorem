@@ -240,8 +240,7 @@ class View {
         Object.assign(this.#iframe.style, {
             overflow: 'hidden',
             border: '0',
-            display: 'block',
-            visibility: 'hidden',
+            display: 'none',
             width: '100%', height: '100%',
             background: 'transparent',
             backgroundColor: 'transparent',
@@ -278,6 +277,7 @@ class View {
                 const layout = beforeRender?.({ vertical, rtl, background })
 
                 this.#iframe.style.display = 'block'
+                this.#iframe.style.visibility = 'visible'
                 this.render(layout)
                 this.#observer.observe(doc.body)
                 doc.fonts.ready.then(() => this.expand())

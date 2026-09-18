@@ -98,7 +98,10 @@ function getBookLookup(books: Book[]): Map<string, Book> {
     if (existingLookup) {
         return existingLookup;
     }
-    const nextLookup = new Map(books.map((book) => [book.id, book]));
+    const nextLookup = new Map<string, Book>();
+    for (const book of books) {
+        nextLookup.set(book.id, book);
+    }
     bookLookupCache.set(books, nextLookup);
     return nextLookup;
 }
