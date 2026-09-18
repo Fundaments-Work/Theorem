@@ -1744,6 +1744,7 @@ pub fn run() {
             supertonic::tts_prefetch,
             supertonic::tts_neural_status,
             supertonic::tts_engine_unload,
+            trim_memory,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,
@@ -2212,4 +2213,12 @@ async fn fetch_online_definition(term: String) -> Result<serde_json::Value, Stri
         .map_err(|e| format!("JSON parse error: {e}"))?;
 
     Ok(json)
+}
+
+#[tauri::command]
+fn trim_memory() {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::malloc_trim(0);
+    }
 }

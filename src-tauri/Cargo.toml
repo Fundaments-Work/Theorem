@@ -116,6 +116,9 @@ rand = "0.8"
 ndk-context = "0.1.1"
 jni = { version = "0.21.1", default-features = false, features = ["invocation"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 # Optimize for release (reduces binary size significantly)
 [profile.release]
 opt-level = "z"         # Aggressive size optimization (smaller than "s")

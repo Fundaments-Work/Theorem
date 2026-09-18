@@ -518,6 +518,10 @@ pub mod desktop {
     pub fn unload_engine() -> Result<(), String> {
         let mut slot = engine_slot().lock().map_err(|e| e.to_string())?;
         *slot = None;
+        #[cfg(target_os = "linux")]
+        unsafe {
+            libc::malloc_trim(0);
+        }
         Ok(())
     }
 

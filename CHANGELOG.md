@@ -5,20 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.6] - 2026-09-17 (Beta)
+## [1.5.6] - 2026-09-18 (Beta)
 
 ### Fixed
 
+- **Memory & CPU Spike on Book Opening** — Eliminated excessive ~1.3GB memory consumption and CPU pegging when opening books:
+  - In `src/features/reader/Reader.tsx`, decoupled `tts_engine_preload` from unconditional book open hooks so neural ONNX models are compiled only when Immersion Reading is actively enabled.
+  - Added an unmount hook that triggers `tts_engine_unload` and a new native `trim_memory` command calling `libc::malloc_trim(0)`, releasing dormant glibc thread arenas back to the OS kernel.
+  - Reaped Linux `spd-say` and `killall` child processes in `src-tauri/src/tts_linux.rs` via detached wait threads, preventing `<defunct>` zombie process accumulation.
 - **P2P Device Sync PDF & Non-Materialized On-Demand File Transfers** — Fixed persistent *"Book File Not Available"* errors when attempting to open or download PDFs and EPUBs synced from paired devices:
   - **SQLite Persistence Key Alignment**: Fixed `find_in_db` in `src-tauri/src/file_transfer.rs` querying `persist:theorem-library`. Theorem stores state under `zustand:theorem-library` via `SQLITE_PERSIST_KEY_PREFIX`. Updated queries to check `zustand:theorem-library` (and fallback variations) to accurately extract desktop-imported book file paths (`filePath`, `storagePath`).
   - **File Path Normalization & Percent-Decoding**: Added `normalize_candidate_path` in `file_transfer.rs` handling `file://` scheme prefixes, percent-encoded spaces and symbols (`percent_decode_str`), and Windows drive formats (`/C:/...` -> `C:/...`).
   - **Direct LAN IP/Port Connection Fallback**: Configured `EndpointAddr` with `last_ip` and `last_port` socket addresses in `connect_and_request` to ensure reliable direct peer connections on local networks when relays are delayed or unreachable. Refreshes and persists verified socket addresses upon successful transfers.
   - **Two-Way Pairing Address Capture**: Updated `PairingProtocolHandler::accept` in `src-tauri/src/iroh_sync.rs` to extract remote IP and port from `conn.paths()` and record them in `PairedDevice`, establishing direct LAN addressing immediately upon pairing.
   - **Atomic Safe Downloads**: Updated `download_book_file` to stream incoming bytes into a `.download.tmp` temporary file before atomically renaming to `.book`, cleaning up incomplete artifacts on network timeout or failure.
-  - **Reader & Library On-Demand UX**: In `Reader.tsx`, eliminated 120s stall loops when downloads fail and wired the "Try Again" error button to immediately re-trigger `downloadBookOnDemand`. Added a dedicated "Download File" action in `Library.tsx`'s context menu for non-materialized books.
+  - **Immediate Progress & Reload Flow**: Emitted an initial `0.0%` event immediately upon connection in `file_transfer.rs` and attached the progress listener on mount in `Reader.tsx`. Cleared `loadedBookIdRef.current` upon transfer completion so the reader seamlessly mounts the newly acquired book without stalling on "Book File Not Available".
+- **Mobile EPUB Navigation & Touch Gesture Handling** — Restored smooth EPUB navigation and thumb gesture ergonomics:
+  - In `foliate-js-runtime/paginator.js`, restored GPU-promoted 300ms CSS transform slide transitions for page turns and snap releases while keeping transitions cleanly disabled during finger drags and frame-by-frame JS interpolation.
+  - Refined gesture axis arbitration (`absDx > 16 && absDx > absDy * 1.3`) so natural curved thumb swipes reliably turn pages without locking into vertical scroll.
+  - Set `touchAction: 'none'` on paginated viewport containers in `ReaderViewport.tsx`, eliminating mobile WebView gesture arbitration delays.
+- **Download Failure UI Polish** — Removed the extraneous "Go to Sync Settings" button from the reader download failure modal, establishing a clean, unified two-button action group (*Back to Library* and *Try Again*).
 
 ### Improved & Performance
 
+- **Dependency Modernization** —
+  - Removed deprecated `@types/dompurify` and `@types/uuid` (types are now bundled upstream).
+  - Updated frontend dependencies to latest versions, including `vitest` & `@vitest/coverage-v8` `5.0.1`, `@tanstack/react-virtual` `3.14.13`, `zod` `4.6.5`, `react-i18next` `17.0.14`, `lucide-react` `1.47.0`, and `jsdom` `30.1.0`.
+  - Updated 44 Rust crates via `cargo update` to latest compatible releases.
 - **Dynamic Deferred Sentry Loading** — Refactored `src/core/lib/sentry.ts` and `src/main.tsx` to dynamically import `@sentry/react` only when a valid Sentry DSN is resolved at runtime. Sheds **270 KB (88 KB gzip)** from the synchronous critical startup path for local, offline, and dev instances.
 - **React Re-render Isolation & Fine-Grained Selectors** —
   - In `Library.tsx`, extracted `<DailyHighlightBanner />` as an isolated memoized component, removing the `annotations` array subscription from `LibraryPage`. Prevents full library re-renders (1,000+ cards) when annotations are created, updated, or synced.

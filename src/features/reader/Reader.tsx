@@ -537,16 +537,21 @@ const BookReaderPage = memo(function BookReaderPage() {
     useEffect(() => {
         if (!downloadingBookId) {
             setDownloadProgress(null);
-            return;
         }
-        setDownloadProgress(null);
+    }, [downloadingBookId]);
+
+    useEffect(() => {
+        if (!isTauri()) return;
+        let unlisten: (() => void) | null = null;
         let cancelled = false;
+
         import("@tauri-apps/api/event").then(({ listen }) => {
             if (cancelled) return;
             listen<{ book_id: string; progress: number; downloaded: number; total: number }>(
                 "download-progress",
                 (event) => {
-                    if (event.payload.book_id === downloadingBookId) {
+                    const activeDownloading = useUIStore.getState().downloadingBookId;
+                    if (activeDownloading && event.payload.book_id === activeDownloading) {
                         setDownloadProgress({
                             progress: event.payload.progress,
                             downloaded: event.payload.downloaded,
@@ -554,13 +559,17 @@ const BookReaderPage = memo(function BookReaderPage() {
                         });
                     }
                 },
-            ).catch(() => {});
+            ).then((fn) => {
+                if (cancelled) fn();
+                else unlisten = fn;
+            }).catch(() => {});
         }).catch(() => {});
+
         return () => {
             cancelled = true;
-            setDownloadProgress(null);
+            unlisten?.();
         };
-    }, [downloadingBookId]);
+    }, []);
 
     // Load book file
     useEffect(() => {
@@ -780,6 +789,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
                         const downloaded = await downloadBookOnDemand(book.id);
                         if (downloaded && !isCancelled) {
+                            loadedBookIdRef.current = null;
                             setLoadAttempt(v => v + 1);
                             return;
                         }
@@ -805,6 +815,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                     const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
                     const downloaded = await downloadBookOnDemand(book.id);
                     if (downloaded && !isCancelled) {
+                        loadedBookIdRef.current = null;
                         setLoadAttempt(v => v + 1);
                         return;
                     }
@@ -1172,15 +1183,29 @@ const BookReaderPage = memo(function BookReaderPage() {
         getNeuralStatus().then((status) => {
             if (cancelled) return;
             setNeuralReady(status.available);
-            // Warm the engine (ORT init + model loads) in the background so
-            // the first Play starts audio in a couple of seconds, not 20+.
-            if (status.available) {
-                import("@tauri-apps/api/core").then(({ invoke }) =>
-                    invoke("tts_engine_preload").catch(() => { /* best effort */ }),
-                );
-            }
         });
         return () => { cancelled = true; };
+    }, []);
+
+    // Only warm the neural engine when immersion mode is actually active,
+    // avoiding heavy CPU spikes and 800MB RAM allocation when opening books just to read.
+    useEffect(() => {
+        if (!isTauriDesktop() || !immersionMode || !neuralReady) return;
+        import("@tauri-apps/api/core").then(({ invoke }) =>
+            invoke("tts_engine_preload").catch(() => { /* best effort */ }),
+        );
+    }, [immersionMode, neuralReady]);
+
+    // When leaving the reader, ensure any loaded neural models are unloaded and memory is trimmed.
+    useEffect(() => {
+        return () => {
+            if (isTauriDesktop()) {
+                import("@tauri-apps/api/core").then(({ invoke }) => {
+                    invoke("tts_engine_unload").catch(() => {});
+                    invoke("trim_memory").catch(() => {});
+                });
+            }
+        };
     }, []);
 
     const handleTtsVoiceChange = useCallback((voice: string) => {
@@ -2445,14 +2470,6 @@ const BookReaderPage = memo(function BookReaderPage() {
                         >
                             Try Again
                         </button>
-                        {isSyncedWithoutFile && (
-                            <button
-                                onClick={() => setRoute('settings')}
-                                className="ui-btn-secondary"
-                            >
-                                Go to Sync Settings
-                            </button>
-                        )}
                     </div>
                 </div>
             </div>

@@ -467,8 +467,19 @@ pub async fn download_book_file(
     let mut downloaded: usize = 0;
     let mut buf = vec![0u8; 1_048_576];
     let book_id_for_emit = book_id.clone();
-    let start_instant = std::time::Instant::now();
     let mut last_emitted_pct = -1i32;
+
+    if total > 0 {
+        let _ = app.emit(
+            "download-progress",
+            DownloadProgress {
+                book_id: book_id_for_emit.clone(),
+                progress: 0.0,
+                downloaded: 0,
+                total,
+            },
+        );
+    }
 
     while remaining > 0 {
         let to_read = remaining.min(buf.len());
@@ -501,18 +512,15 @@ pub async fn download_book_file(
             let pct = ((downloaded as f64 / total as f64) * 100.0) as i32;
             if pct != last_emitted_pct {
                 last_emitted_pct = pct;
-                let elapsed = start_instant.elapsed().as_secs_f64();
-                if elapsed > 0.0 {
-                    let _ = app.emit(
-                        "download-progress",
-                        DownloadProgress {
-                            book_id: book_id_for_emit.clone(),
-                            progress: (downloaded as f64 / total as f64) * 100.0,
-                            downloaded,
-                            total,
-                        },
-                    );
-                }
+                let _ = app.emit(
+                    "download-progress",
+                    DownloadProgress {
+                        book_id: book_id_for_emit.clone(),
+                        progress: (downloaded as f64 / total as f64) * 100.0,
+                        downloaded,
+                        total,
+                    },
+                );
             }
         }
     }

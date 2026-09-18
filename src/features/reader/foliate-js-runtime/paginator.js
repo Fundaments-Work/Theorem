@@ -423,24 +423,24 @@ class View {
                 const side = this.#vertical ? 'height' : 'width'
                 const otherSide = this.#vertical ? 'width' : 'height'
                 const contentRect = this.#contentRange?.getBoundingClientRect()
-                if (!contentRect) return
                 const rootRect = documentElement.getBoundingClientRect()
                 
                 const contentStart = this.#vertical ? 0
-                    : this.#rtl ? rootRect.right - contentRect.right : contentRect.left - rootRect.left
-                const contentSize = contentStart + contentRect[side]
-                const pageCount = Math.ceil(contentSize / this.#size)
-                const expandedSize = pageCount * this.#size
+                    : this.#rtl ? (contentRect ? rootRect.right - contentRect.right : 0) : (contentRect ? contentRect.left - rootRect.left : 0)
+                const contentSize = contentStart + (contentRect && contentRect[side] > 0 ? contentRect[side] : (rootRect[side] || 1))
+                const columnSize = this.#size || (this.#vertical ? rootRect.height : rootRect.width) || 1
+                const pageCount = Math.max(1, Math.ceil(contentSize / columnSize))
+                const expandedSize = pageCount * columnSize
                 this.#element.style.padding = '0'
                 this.#iframe.style[side] = `${expandedSize}px`
-                this.#element.style[side] = `${expandedSize + this.#size * 2}px`
+                this.#element.style[side] = `${expandedSize + columnSize * 2}px`
                 this.#iframe.style[otherSide] = '100%'
                 this.#element.style[otherSide] = '100%'
-                documentElement.style[side] = `${this.#size}px`
+                documentElement.style[side] = `${columnSize}px`
                 if (this.#overlayer) {
                     this.#overlayer.element.style.margin = '0'
-                    this.#overlayer.element.style.left = this.#vertical ? '0' : `${this.#size}px`
-                    this.#overlayer.element.style.top = this.#vertical ? `${this.#size}px` : '0'
+                    this.#overlayer.element.style.left = this.#vertical ? '0' : `${columnSize}px`
+                    this.#overlayer.element.style.top = this.#vertical ? `${columnSize}px` : '0'
                     this.#overlayer.element.style[side] = `${expandedSize}px`
                     this.#overlayer.redraw()
                 }
@@ -999,17 +999,22 @@ export class Paginator extends HTMLElement {
         const dx = state.x - x, dy = state.y - y
         const dt = e.timeStamp - state.t
 
-        // Determine axis lock on intentional movement past 12px with horizontal dominance
+        // If finger was held for >200ms with negligible movement, consider it a text selection hold
+        if (!state.axis && dt > 200 && Math.hypot(state.startX - x, state.startY - y) < 10) {
+            state.axis = 'hold'
+            return
+        }
+        if (state.axis === 'hold') return
+
+        // Determine axis lock on intentional movement past 16px with clear horizontal dominance
+        // Natural thumb arcs have vertical wobble; requiring absDx > absDy * 1.3 ensures diagonal swipes don't cancel.
         if (!state.axis) {
             const absDx = Math.abs(state.startX - x)
             const absDy = Math.abs(state.startY - y)
-            if (absDx > 12 && absDx > absDy) {
+            if (absDx > 16 && absDx > absDy * 1.3) {
                 state.axis = 'h'
-            } else if (absDy > 12 && absDy > absDx) {
+            } else if (absDy > 16 && absDy > absDx * 1.3) {
                 state.axis = 'v'
-            } else if (dt > 400 && absDx < 10 && absDy < 10) {
-                state.axis = 'hold'
-                return
             }
         }
 
@@ -1071,16 +1076,16 @@ export class Paginator extends HTMLElement {
         }
 
         requestAnimationFrame(() => {
-            if (globalThis.visualViewport.scale !== 1) return
+            if (globalThis.visualViewport && Math.abs(globalThis.visualViewport.scale - 1) > 0.05) return
             const state = this.#touchState
             const size = this.size
             // Commit the page turn if:
             //   - displacement exceeded 20% of screen width (smooth thumb drag completion), OR
-            //   - flick velocity exceeded 0.2 px/ms (quick swipe)
+            //   - flick velocity exceeded 0.15 px/ms (quick swipe)
             const totalDx = state.totalDx ?? 0
             const velocity = state.vx ?? 0
             const displaced = Math.abs(totalDx) > size * 0.2
-            const flicked = Math.abs(velocity) > 0.2
+            const flicked = Math.abs(velocity) > 0.15
             if (displaced || flicked) {
                 // Use velocity for snap direction; fall back to displacement direction
                 const effectiveVx = Math.abs(velocity) > 0.05
@@ -1129,27 +1134,27 @@ export class Paginator extends HTMLElement {
         const cur = () => scrolled
             ? this.#container[this.scrollProp]
             : this.#pageOffset
-        const apply = x => scrolled
+        const apply = (x, animate = true) => scrolled
             ? this.#container[this.scrollProp] = x
-            : this.#setViewPosition(x, false)
+            : this.#setViewPosition(x, animate)
         if (cur() === offset) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
             
-            if (!scrolled) apply(offset)
+            if (!scrolled) apply(offset, false)
             return
         }
         
         if (scrolled && this.#vertical) offset = -offset
         if ((reason === 'snap' || smooth) && this.hasAttribute('animated')) return animate(
             cur(), offset, 300, easeOutQuad,
-            apply,
+            x => apply(x, false),
         ).then(() => {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
         })
         else {
-            apply(offset)
+            apply(offset, reason === 'snap' || reason === 'page' || Boolean(smooth))
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
         }
