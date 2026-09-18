@@ -900,7 +900,7 @@ trailer\n\
         let matches = search_pdf_content(&pdf_path, "SQLite persistence", false).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].section_index, 0);
-        assert_eq!(matches[0].section_href, "page=1");
+        assert_eq!(matches[0].section_href.as_ref(), "page=1");
         assert!(matches[0].snippet.contains("SQLite persistence"));
     }
 
@@ -939,7 +939,7 @@ trailer\n\
         let matches = search_pdf_content(&pdf_path, "Quantum Computing", false).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].section_index, 0);
-        assert_eq!(matches[0].section_href, "page=1");
+        assert_eq!(matches[0].section_href.as_ref(), "page=1");
         assert!(matches[0].snippet.contains("Quantum Computing"));
     }
 

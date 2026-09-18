@@ -261,7 +261,7 @@ fn build_unique_file_name(source: &ExportSource, used_names: &mut HashSet<String
 pub fn build_book_page_markdown(
     source: &ExportSource,
     annotations: &[VaultAnnotation],
-    generated_at: &str,
+    _generated_at: &str,
 ) -> String {
     let mut sorted = annotations.to_vec();
     sorted.sort_by(|a, b| {
@@ -270,27 +270,15 @@ pub fn build_book_page_markdown(
             .then_with(|| a.id.cmp(&b.id))
     });
 
-    let highlights_count = sorted.iter().filter(|a| a.r#type == "highlight").count();
-    let notes_count = sorted.iter().filter(|a| a.r#type == "note").count();
-
-    let mut lines = Vec::with_capacity(sorted.len() * 8 + 20);
+    let mut lines = Vec::with_capacity(sorted.len() * 4 + 16);
     lines.push("---".to_string());
     lines.push(format!("title: {}", to_yaml_string(&source.title)));
     lines.push("type: \"theorem-book-highlights\"".to_string());
     lines.push(format!("author: {}", to_yaml_string(&source.author)));
-    lines.push(format!("format: {}", to_yaml_string(&source.format)));
-    lines.push(format!(
-        "source_path: {}",
-        to_yaml_string(&source.file_path)
-    ));
-    lines.push(format!("generated_at: {}", to_yaml_string(generated_at)));
-    lines.push(format!("annotations_total: {}", sorted.len()));
-    lines.push(format!("highlights_total: {highlights_count}"));
-    lines.push(format!("notes_total: {notes_count}"));
+    lines.push(format!("total_highlights: {}", sorted.len()));
     lines.push("tags:".to_string());
     lines.push("  - theorem".to_string());
     lines.push("  - highlights".to_string());
-    lines.push("  - notes".to_string());
     lines.push("---".to_string());
     lines.push(String::new());
     lines.push(format!("# {}", source.title));
@@ -300,34 +288,16 @@ pub fn build_book_page_markdown(
     }
 
     lines.push(String::new());
-    lines.push(format!("- Format: {}", source.format));
-    lines.push(format!("- Exported at: {generated_at}"));
-    lines.push(String::new());
-    lines.push("## Highlights and Notes".to_string());
+    lines.push("## Highlights".to_string());
     lines.push(String::new());
 
     if sorted.is_empty() {
-        lines.push("_No highlights or notes yet._".to_string());
+        lines.push("_No highlights yet._".to_string());
         lines.push(String::new());
         return lines.join("\n");
     }
 
-    for (idx, anno) in sorted.iter().enumerate() {
-        let kind = if anno.r#type == "note" {
-            "Note"
-        } else {
-            "Highlight"
-        };
-        let color = anno.color.as_deref().unwrap_or("yellow");
-
-        lines.push(format!("### {}. {kind}", idx + 1));
-        lines.push(format!("- Created: {}", anno.created_at));
-        if let Some(ref upd) = anno.updated_at {
-            lines.push(format!("- Updated: {upd}"));
-        }
-        lines.push(format!("- Color: {color}"));
-        lines.push(String::new());
-
+    for anno in &sorted {
         if let Some(ref quote) = anno.selected_text {
             let clean_quote = quote.trim();
             if !clean_quote.is_empty() {
@@ -349,9 +319,6 @@ pub fn build_book_page_markdown(
                 lines.push(String::new());
             }
         }
-
-        lines.push("---".to_string());
-        lines.push(String::new());
     }
 
     lines.join("\n")
@@ -588,5 +555,53 @@ mod tests {
         assert!(md.contains("### ephemeral"));
         assert!(md.contains("^fsrs-vocab-vocab-1"));
         assert!(md.contains("**adjective**: Lasting for a very short time."));
+    }
+
+    #[test]
+    fn test_build_book_page_markdown() {
+        let source = ExportSource {
+            id: "book-1".to_string(),
+            title: "Dune".to_string(),
+            author: "Frank Herbert".to_string(),
+            format: "epub".to_string(),
+            file_path: "/books/dune.epub".to_string(),
+        };
+
+        let annotations = vec![
+            VaultAnnotation {
+                id: "anno-1".to_string(),
+                book_id: "book-1".to_string(),
+                r#type: "highlight".to_string(),
+                selected_text: Some("Fear is the mind-killer.".to_string()),
+                note_content: None,
+                color: Some("yellow".to_string()),
+                created_at: "2026-09-01T12:00:00Z".to_string(),
+                updated_at: None,
+            },
+            VaultAnnotation {
+                id: "anno-2".to_string(),
+                book_id: "book-1".to_string(),
+                r#type: "note".to_string(),
+                selected_text: Some("I must not fear.".to_string()),
+                note_content: Some("The Litany Against Fear.".to_string()),
+                color: Some("blue".to_string()),
+                created_at: "2026-09-01T12:05:00Z".to_string(),
+                updated_at: None,
+            },
+        ];
+
+        let md = build_book_page_markdown(&source, &annotations, "2026-09-13T12:00:00Z");
+        assert!(md.contains("title: \"Dune\""));
+        assert!(md.contains("author: \"Frank Herbert\""));
+        assert!(md.contains("total_highlights: 2"));
+        assert!(!md.contains("annotations_total:"));
+        assert!(!md.contains("highlights_total:"));
+        assert!(!md.contains("format:"));
+        assert!(!md.contains("source_path:"));
+        assert!(!md.contains("Color:"));
+        assert!(!md.contains("### 1. Highlight"));
+        assert!(md.contains("> ==Fear is the mind-killer.=="));
+        assert!(md.contains("> ==I must not fear.=="));
+        assert!(md.contains("The Litany Against Fear."));
     }
 }

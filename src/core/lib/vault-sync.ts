@@ -70,21 +70,6 @@ function toMultilineText(value: string | undefined): string {
     return (value || "").replace(/\r\n/g, "\n").trim();
 }
 
-function toIso(value: Date | string | undefined): string {
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-        return value.toISOString();
-    }
-
-    if (value !== undefined) {
-        const parsed = new Date(value);
-        if (!Number.isNaN(parsed.getTime())) {
-            return parsed.toISOString();
-        }
-    }
-
-    return new Date().toISOString();
-}
-
 function toYamlString(value: string): string {
     const escaped = value
         .replace(/\\/g, "\\\\")
@@ -336,27 +321,19 @@ function buildUniqueFileName(
 export function buildBookPageMarkdown(
     source: ExportSource,
     annotations: Annotation[],
-    generatedAt: string,
+    _generatedAt?: string,
 ): string {
     const sorted = sortAnnotations(annotations);
-    const highlightsCount = sorted.filter((annotation) => annotation.type === "highlight").length;
-    const notesCount = sorted.filter((annotation) => annotation.type === "note").length;
 
     const lines: string[] = [
         "---",
         `title: ${toYamlString(source.title)}`,
         `type: ${toYamlString("theorem-book-highlights")}`,
         `author: ${toYamlString(source.author)}`,
-        `format: ${toYamlString(source.format)}`,
-        `source_path: ${toYamlString(source.filePath)}`,
-        `generated_at: ${toYamlString(generatedAt)}`,
-        `annotations_total: ${sorted.length}`,
-        `highlights_total: ${highlightsCount}`,
-        `notes_total: ${notesCount}`,
+        `total_highlights: ${sorted.length}`,
         "tags:",
         "  - theorem",
         "  - highlights",
-        "  - notes",
         "---",
         "",
         `# ${source.title}`,
@@ -368,41 +345,28 @@ export function buildBookPageMarkdown(
 
     lines.push(
         "",
-        `- Format: ${source.format}`,
-        `- Exported at: ${generatedAt}`,
-        "",
-        "## Highlights and Notes",
+        "## Highlights",
         "",
     );
 
     if (sorted.length === 0) {
-        lines.push("_No highlights or notes yet._", "");
+        lines.push("_No highlights yet._", "");
         return lines.join("\n");
     }
 
-    sorted.forEach((annotation, index) => {
-        const annotationKind = annotation.type === "note" ? "Note" : "Highlight";
+    sorted.forEach((annotation) => {
         const quote = toMultilineText(annotation.selectedText);
         const note = toMultilineText(annotation.noteContent);
-        const color = annotation.color || "yellow";
-
-        lines.push(`### ${index + 1}. ${annotationKind}`);
-        lines.push(`- Created: ${toIso(annotation.createdAt)}`);
-        if (annotation.updatedAt) {
-            lines.push(`- Updated: ${toIso(annotation.updatedAt)}`);
-        }
-        lines.push(`- Color: ${color}`);
-        lines.push("");
 
         if (quote) {
-            lines.push(toHighlightedQuote(quote), "");
+            lines.push(toHighlightedQuote(quote));
+            lines.push("");
         }
 
         if (note) {
-            lines.push(note, "");
+            lines.push(note);
+            lines.push("");
         }
-
-        lines.push("---", "");
     });
 
     return lines.join("\n");

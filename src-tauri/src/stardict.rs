@@ -1102,12 +1102,12 @@ idxoffsetbits=32
 author=Wiktionary Contributors
 "#;
         let ifo = StarDictIfo::parse(ifo_text);
-        assert_eq!(ifo.bookname, "English-Wiktionary");
+        assert_eq!(ifo.bookname.as_ref(), "English-Wiktionary");
         assert_eq!(ifo.wordcount, 150000);
         assert_eq!(ifo.idxfilesize, 3200000);
         assert_eq!(ifo.idxoffsetbits, 32);
-        assert_eq!(ifo.sametypesequence, Some("m".to_string()));
-        assert_eq!(ifo.version, Some("2.4.2".to_string()));
+        assert_eq!(ifo.sametypesequence.as_deref(), Some("m"));
+        assert_eq!(ifo.version.as_deref(), Some("2.4.2"));
     }
 
     #[test]
@@ -1122,11 +1122,17 @@ author=Wiktionary Contributors
 "#;
         let parsed = parse_wiktionary_text(text);
         assert_eq!(parsed.len(), 2);
-        let noun = parsed.iter().find(|m| m.part_of_speech == "Noun").unwrap();
+        let noun = parsed
+            .iter()
+            .find(|m| m.part_of_speech.as_ref() == "Noun")
+            .unwrap();
         assert_eq!(noun.definitions.len(), 2);
         assert!(noun.definitions[0].contains("moment of sudden revelation"));
 
-        let verb = parsed.iter().find(|m| m.part_of_speech == "Verb").unwrap();
+        let verb = parsed
+            .iter()
+            .find(|m| m.part_of_speech.as_ref() == "Verb")
+            .unwrap();
         assert_eq!(verb.definitions.len(), 1);
         assert!(verb.definitions[0].contains("sudden revelation"));
     }
@@ -1171,20 +1177,20 @@ author=Wiktionary Contributors
 
         // 4. Open and lookup
         let dict = StarDict::open(dir_path).unwrap();
-        assert_eq!(dict.ifo.bookname, "TestDict");
+        assert_eq!(dict.ifo.bookname.as_ref(), "TestDict");
 
         let res1 = dict.lookup("bloom").unwrap().unwrap();
-        assert_eq!(res1.word, "bloom");
+        assert_eq!(res1.word.as_ref(), "bloom");
         assert_eq!(
-            res1.meanings[0].definitions[0],
+            res1.meanings[0].definitions[0].as_ref(),
             "A state of flourishing, thriving, or good fortune."
         );
 
         // Case-insensitive lookup
         let res2 = dict.lookup("Epiphany").unwrap().unwrap();
-        assert_eq!(res2.word, "epiphany");
+        assert_eq!(res2.word.as_ref(), "epiphany");
         assert_eq!(
-            res2.meanings[0].definitions[0],
+            res2.meanings[0].definitions[0].as_ref(),
             "A moment of sudden revelation or insight."
         );
 

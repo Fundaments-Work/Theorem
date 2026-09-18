@@ -170,9 +170,14 @@ describe("Vault Sync — Obsidian Book Highlights & Notes", () => {
         // Frontmatter
         expect(md).toContain('title: "Dune"');
         expect(md).toContain('author: "Frank Herbert"');
-        expect(md).toContain("highlights_total: 2");
-        expect(md).toContain("notes_total: 1");
-        expect(md).toContain("annotations_total: 3");
+        expect(md).toContain("total_highlights: 3");
+        expect(md).not.toContain("annotations_total:");
+        expect(md).not.toContain("highlights_total:");
+        expect(md).not.toContain("notes_total:");
+        expect(md).not.toContain("source_path:");
+        expect(md).not.toContain("format:");
+        expect(md).not.toContain("Color:");
+        expect(md).not.toContain("### 1. Highlight");
     });
 
     it("contains no raw HTML mark tags or dead deep links", () => {

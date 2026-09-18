@@ -560,6 +560,6 @@ mod tests {
         );
 
         assert_eq!(feed.entries.len(), 1000);
-        assert_eq!(feed.entries[999].title, "Book Title Number 999");
+        assert_eq!(feed.entries[999].title.as_ref(), "Book Title Number 999");
     }
 }
