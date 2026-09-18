@@ -80,6 +80,9 @@ importers:
       idb-keyval:
         specifier: ^6.3.0
         version: 6.3.0
+      knap:
+        specifier: ^0.6.0
+        version: 0.6.0
       lucide-react:
         specifier: ^1.47.0
         version: 1.47.0(react@19.3.0)
@@ -1235,6 +1238,9 @@ packages:
   date-fns@4.4.0:
     resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
 
+  dayjs@1.11.23:
+    resolution: {integrity: sha512-QDTCU0M0MxR3hQfnlDJfwekQiaanm1ubOD231u73WBckQ/fsamwRLiE2GBz6D3a/xF1NgfiDLJjXBa1hYOYTtQ==}
+
   decimal.js@10.6.0:
     resolution: {integrity: sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg==}
 
@@ -1366,6 +1372,11 @@ packages:
     peerDependenciesMeta:
       canvas:
         optional: true
+
+  knap@0.6.0:
+    resolution: {integrity: sha512-FpuNFQ67rrgbZu3prheLA05/ND0gdHchRBC43Abn5CmROwn8XdYdar5+fRcylN/jrDnSNKj3aFdg92qvQJbYZA==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -2799,6 +2810,8 @@ snapshots:
 
   date-fns@4.4.0: {}
 
+  dayjs@1.11.23: {}
+
   decimal.js@10.6.0: {}
 
   detect-libc@2.1.2: {}
@@ -2923,6 +2936,10 @@ snapshots:
       xml-name-validator: 5.0.0
     transitivePeerDependencies:
       - '@noble/hashes'
+
+  knap@0.6.0:
+    dependencies:
+      dayjs: 1.11.23
 
   lightningcss-android-arm64@1.32.0:
     optional: true

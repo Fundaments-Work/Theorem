@@ -819,6 +819,12 @@ const BookReaderPage = memo(function BookReaderPage() {
                         setLoadAttempt(v => v + 1);
                         return;
                     }
+                    const currentBookStillExists = useLibraryStore.getState().getBook(book.id);
+                    if (!currentBookStillExists) {
+                        toast.info("This book was deleted on the source device.");
+                        setRoute("library");
+                        return;
+                    }
                     throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
                 }
                 const expectedMimeType = getMimeTypeForBookFormat(book.format);
@@ -829,7 +835,16 @@ const BookReaderPage = memo(function BookReaderPage() {
                 setFile(typedBlob);
             } catch (err) {
                 if (!isCancelled) {
-                    setLoadError(err instanceof Error ? err.message : 'Unknown error loading book');
+                    const msg = err instanceof Error ? err.message : 'Unknown error loading book';
+                    if (msg.includes('PEER_BOOK_DELETED')) {
+                        if (currentBookId) {
+                            useLibraryStore.getState().removeBook(currentBookId);
+                        }
+                        toast.info("This book was deleted on the source device.");
+                        setRoute("library");
+                        return;
+                    }
+                    setLoadError(msg);
                     
                     loadedBookIdRef.current = null;
                 }

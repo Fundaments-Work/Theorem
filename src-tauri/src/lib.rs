@@ -2216,9 +2216,19 @@ async fn fetch_online_definition(term: String) -> Result<serde_json::Value, Stri
 }
 
 #[tauri::command]
-fn trim_memory() {
+fn trim_memory(app: tauri::AppHandle) {
+    let _ = database::sqlite_shrink_memory(app);
+
     #[cfg(target_os = "linux")]
     unsafe {
         libc::malloc_trim(0);
+    }
+
+    #[cfg(target_os = "android")]
+    unsafe {
+        extern "C" {
+            fn mallopt(param: libc::c_int, value: libc::c_int) -> libc::c_int;
+        }
+        mallopt(-101, 0);
     }
 }

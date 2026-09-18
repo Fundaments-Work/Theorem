@@ -780,7 +780,15 @@ export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
             setStatus("synced", "Book downloaded");
             return true;
         } catch (e) {
-            console.error(`[file-xfer] download failed for ${bookId} from ${peerId}: ${e}`);
+            const errStr = String(e);
+            console.error(`[file-xfer] download failed for ${bookId} from ${peerId}: ${errStr}`);
+            if (errStr.includes("PEER_BOOK_DELETED")) {
+                console.warn(`[file-xfer] Book ${bookId} was deleted on peer; purging ghost card locally`);
+                useLibraryStore.getState().removeBook(bookId);
+                useUIStore.getState().setDownloadingBook(undefined);
+                setStatus("idle", "Book was deleted on peer");
+                return false;
+            }
         }
     }
     useUIStore.getState().setDownloadingBook(undefined);
@@ -903,6 +911,26 @@ export async function initDocsLiveListener(): Promise<() => void> {
     // `docs-entry-batch` events instead of one event per entry.
     const handleIncomingEntry = (key: string, value: string) => {
         if (isSelfOriginatedKey(key)) {
+            return;
+        }
+
+        if (key === "deletion_tombstones") {
+            try {
+                const incoming = JSON.parse(value);
+                if (Array.isArray(incoming)) {
+                    const state = useLibraryStore.getState();
+                    const mergedTombstones = mergeTombstones(incoming, state.deletionTombstones);
+                    const prunedBooks = mergeBooks([], state.books, mergedTombstones);
+                    const prunedAnns = mergeAnnotations([], state.annotations, mergedTombstones);
+                    const prunedCols = mergeCollections([], state.collections, mergedTombstones);
+                    useLibraryStore.setState({
+                        deletionTombstones: mergedTombstones,
+                        books: prunedBooks,
+                        annotations: prunedAnns,
+                        collections: prunedCols,
+                    });
+                }
+            } catch {}
             return;
         }
 

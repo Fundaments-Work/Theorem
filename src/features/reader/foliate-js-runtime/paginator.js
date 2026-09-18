@@ -277,32 +277,11 @@ class View {
 
                 const layout = beforeRender?.({ vertical, rtl, background })
 
-                // Pre-layout image settlement barrier: wait for all images
-                // to finish GPU decoding (max 120ms) before measuring column
-                // geometry. Without this, images start at 0px height, column
-                // page count is calculated wrong, and the reader jumps/reflows
-                // when images finish loading asynchronously.
-                const images = Array.from(doc.body.querySelectorAll('img'))
-                const decodeAll = images.map(img =>
-                    img.complete
-                        ? Promise.resolve()
-                        : img.decode().catch(() => {}))
-                const timeout = new Promise(r => setTimeout(r, 120))
-                Promise.race([
-                    Promise.allSettled(decodeAll),
-                    timeout,
-                ]).then(async () => {
-                    this.#iframe.style.visibility = 'hidden'
-                    this.#iframe.style.display = 'block'
-                    this.render(layout)
-                    this.#observer.observe(doc.body)
-                    try {
-                        await Promise.race([doc.fonts.ready, wait(120)])
-                        this.expand()
-                    } catch {}
-                    this.#iframe.style.visibility = 'visible'
-                    resolve()
-                })
+                this.#iframe.style.display = 'block'
+                this.render(layout)
+                this.#observer.observe(doc.body)
+                doc.fonts.ready.then(() => this.expand())
+                resolve()
             }, { once: true })
             this.#iframe.src = src
         })
@@ -371,47 +350,23 @@ class View {
         const vertical = this.#vertical
         const doc = this.document
         if (!doc?.body || !doc?.defaultView) return
-        // Leave a 32px safety buffer below image max so parent paragraph margins
-        // and captions never push the total block past the column height, which
-        // would force the browser to fragment the image across two columns.
-        const safeHeight = Math.max(100, height - margin * 2 - 32)
-        const safeWidth = Math.max(100, width - margin * 2)
+        const maxH = Math.max(100, height - margin * 2)
+        const maxW = Math.max(100, width - margin * 2)
         for (const el of doc.body.querySelectorAll('img, svg, video')) {
             const { maxHeight, maxWidth } = doc.defaultView.getComputedStyle(el)
             setStylesImportant(el, {
                 'max-height': vertical
                     ? (maxHeight !== 'none' && maxHeight !== '0px' ? maxHeight : '100%')
-                    : `${safeHeight}px`,
+                    : `${maxH}px`,
                 'max-width': vertical
-                    ? `${safeWidth}px`
+                    ? `${maxW}px`
                     : (maxWidth !== 'none' && maxWidth !== '0px' ? maxWidth : '100%'),
-                'height': 'auto',
-                'width': 'auto',
                 'object-fit': 'contain',
                 'page-break-inside': 'avoid',
                 '-webkit-column-break-inside': 'avoid',
                 'break-inside': 'avoid',
                 'box-sizing': 'border-box',
-                'display': 'block',
             })
-        }
-        // Apply break-inside: avoid to common EPUB image parent containers
-        // (figure, p, div, section) so the container block itself is also
-        // prevented from being split across column boundaries.
-        const breakAvoidStyles = {
-            'page-break-inside': 'avoid',
-            '-webkit-column-break-inside': 'avoid',
-            'break-inside': 'avoid',
-        }
-        for (const el of doc.body.querySelectorAll('figure')) {
-            setStylesImportant(el, breakAvoidStyles)
-        }
-        // Target dedicated image paragraphs (where the paragraph's sole content is the media)
-        for (const el of doc.body.querySelectorAll('p > img, p > svg, p > video')) {
-            const parent = el.parentElement
-            if (parent && parent !== doc.body && parent.children.length === 1 && !parent.textContent.trim()) {
-                setStylesImportant(parent, breakAvoidStyles)
-            }
         }
     }
     expand() {
@@ -1006,14 +961,13 @@ export class Paginator extends HTMLElement {
         }
         if (state.axis === 'hold') return
 
-        // Determine axis lock on intentional movement past 16px with clear horizontal dominance
-        // Natural thumb arcs have vertical wobble; requiring absDx > absDy * 1.3 ensures diagonal swipes don't cancel.
+        // Determine axis lock on intentional movement past 10px with horizontal dominance
         if (!state.axis) {
             const absDx = Math.abs(state.startX - x)
             const absDy = Math.abs(state.startY - y)
-            if (absDx > 16 && absDx > absDy * 1.3) {
+            if (absDx > 10 && absDx > absDy) {
                 state.axis = 'h'
-            } else if (absDy > 16 && absDy > absDx * 1.3) {
+            } else if (absDy > 10 && absDy > absDx) {
                 state.axis = 'v'
             }
         }

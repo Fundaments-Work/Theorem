@@ -240,12 +240,47 @@ function App() {
         const handleVisibilityChange = () => {
             if (document.visibilityState === "hidden") {
                 void sqliteShrinkMemory();
+                void import("@tauri-apps/api/core").then(({ invoke }) => {
+                    invoke("trim_memory").catch(() => {});
+                });
             }
         };
 
         document.addEventListener("visibilitychange", handleVisibilityChange);
         return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
     }, []);
+
+    useEffect(() => {
+        if (!isTauri()) return;
+        let unlisten: (() => void) | null = null;
+        const setupCloseHandler = async () => {
+            try {
+                const win = getCurrentWebviewWindow();
+                unlisten = await win.onCloseRequested((event) => {
+                    const handled = dispatchBackAction();
+                    if (handled) {
+                        event.preventDefault();
+                        return;
+                    }
+                    const currentUIState = useUIStore.getState();
+                    if (currentUIState.currentRoute === "reader") {
+                        event.preventDefault();
+                        setRoute("library", undefined, false);
+                        return;
+                    }
+                    if (currentUIState.currentRoute !== "library") {
+                        event.preventDefault();
+                        setRoute("library", undefined, false);
+                        return;
+                    }
+                });
+            } catch {}
+        };
+        void setupCloseHandler();
+        return () => {
+            unlisten?.();
+        };
+    }, [setRoute]);
 
     // CLI auto-heal: if the user enabled the Terminal CLI and the
     // ~/.local/bin/theorem symlink went missing (e.g. a fresh AppImage mount),

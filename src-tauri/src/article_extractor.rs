@@ -21,8 +21,37 @@ pub struct NativeExtractedArticle {
 
 /// Extract clean readability article from raw HTML string
 pub fn extract_article_from_html(html: &str, base_url: &str) -> NativeExtractedArticle {
+    let parsed_url = url::Url::parse(base_url)
+        .unwrap_or_else(|_| url::Url::parse("https://example.com/article").unwrap());
+
+    let (readability_title, readability_content, readability_text) = {
+        let mut cursor = std::io::Cursor::new(html.as_bytes());
+        match readability::extractor::extract(&mut cursor, &parsed_url) {
+            Ok(product) => {
+                let t = if !product.title.trim().is_empty() {
+                    Some(product.title)
+                } else {
+                    None
+                };
+                let c = if !product.content.trim().is_empty() {
+                    Some(product.content)
+                } else {
+                    None
+                };
+                let txt = if !product.text.trim().is_empty() {
+                    Some(product.text)
+                } else {
+                    None
+                };
+                (t, c, txt)
+            }
+            Err(_) => (None, None, None),
+        }
+    };
+
     // 1. Extract metadata from <meta> and <title> tags
-    let mut title = extract_tag_content(html, "title").unwrap_or_default();
+    let mut title =
+        readability_title.unwrap_or_else(|| extract_tag_content(html, "title").unwrap_or_default());
     let og_title = extract_meta_content(html, "og:title");
     if let Some(t) = og_title {
         if !t.trim().is_empty() {
@@ -51,8 +80,8 @@ pub fn extract_article_from_html(html: &str, base_url: &str) -> NativeExtractedA
     let published_time = extract_meta_content(html, "article:published_time");
 
     // 2. Clean HTML content
-    let cleaned_body = clean_html_content(html, base_url);
-    let text_content = strip_all_tags(&cleaned_body);
+    let cleaned_body = readability_content.unwrap_or_else(|| clean_html_content(html, base_url));
+    let text_content = readability_text.unwrap_or_else(|| strip_all_tags(&cleaned_body));
 
     NativeExtractedArticle {
         title: title.trim().to_string().into_boxed_str(),

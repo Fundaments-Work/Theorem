@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "theorem"
-version = "1.5.6"
+version = "1.5.7"
 description = "Local-first desktop reader for PDFs, EPUBs, MOBI, and RSS."
 authors = ["Fundamentals"]
 license = "MIT"
@@ -87,6 +87,8 @@ iroh-docs = "0.101.0"
 iroh-blobs = { version = "0.103.0", features = ["fs-store"] }
 iroh-gossip = "0.101.0"
 iroh-mdns-address-lookup = "0.4.0"
+readability = { version = "0.3.0", default-features = false }
+url = "2.5.8"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 unrar-ng = "0.7.7"

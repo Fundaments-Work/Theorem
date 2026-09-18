@@ -156,6 +156,11 @@ enum BookSource {
     Memory(Vec<u8>),
 }
 
+enum BookLookup {
+    Found(Option<Vec<u8>>, Vec<PathBuf>),
+    Deleted,
+}
+
 impl FileTransferHandler {
     fn open_read_db(data_dir: &Path) -> Result<rusqlite::Connection, String> {
         let db_path = data_dir.join("theorem.db");
@@ -226,13 +231,82 @@ impl FileTransferHandler {
         results
     }
 
-    fn find_in_db(data_dir: &Path, book_id: &str) -> (Option<Vec<u8>>, Vec<PathBuf>) {
-        let mut data = None;
-        let mut paths = Vec::new();
+    fn find_in_db(data_dir: &Path, book_id: &str) -> BookLookup {
         let conn = match Self::open_read_db(data_dir) {
             Ok(c) => c,
-            Err(_) => return (None, paths),
+            Err(_) => return BookLookup::Found(None, Vec::new()),
         };
+
+        // 0. Check deletion tombstones first
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT value FROM kv_store WHERE key = 'deletion_tombstones'")
+        {
+            if let Ok(val) = stmt.query_row([], |row| row.get::<_, String>(0)) {
+                if let Ok(tombstones) = serde_json::from_str::<Vec<serde_json::Value>>(&val) {
+                    for ts in tombstones {
+                        let id = ts.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let entity_type =
+                            ts.get("entityType").and_then(|v| v.as_str()).unwrap_or("");
+                        if id == book_id && (entity_type.is_empty() || entity_type == "book") {
+                            return BookLookup::Deleted;
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut data = None;
+        let mut paths = Vec::new();
+
+        // Check deletion tombstones in library state
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT value FROM kv_store WHERE key IN ('zustand:theorem-library', 'persist:theorem-library') OR key LIKE '%theorem-library'"
+        ) {
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0));
+            if let Ok(rows) = rows {
+                for row in rows.flatten() {
+                    if let Ok(lib_val) = serde_json::from_str::<serde_json::Value>(&row) {
+                        if let Some(ts_arr) = lib_val
+                            .pointer("/state/deletionTombstones")
+                            .and_then(|t| t.as_array())
+                            .or_else(|| lib_val.get("deletionTombstones").and_then(|t| t.as_array()))
+                        {
+                            for ts in ts_arr {
+                                if ts.get("id").and_then(|v| v.as_str()) == Some(book_id) {
+                                    return BookLookup::Deleted;
+                                }
+                            }
+                        }
+
+                        let candidate_arrays: Vec<&Vec<serde_json::Value>> = vec![
+                            lib_val.pointer("/state/books").and_then(|b| b.as_array()),
+                            lib_val.get("books").and_then(|b| b.as_array()),
+                            lib_val.pointer("/state/recentBooksCache").and_then(|b| b.as_array()),
+                            lib_val.get("recentBooksCache").and_then(|b| b.as_array()),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect();
+
+                        for arr in candidate_arrays {
+                            for b in arr {
+                                let id_match = b.get("id").and_then(|v| v.as_str()) == Some(book_id);
+                                let content_match = b.get("contentHash").and_then(|v| v.as_str()) == Some(book_id);
+                                let blob_match = b.get("blobHash").and_then(|v| v.as_str()) == Some(book_id);
+
+                                if id_match || content_match || blob_match {
+                                    for key in &["filePath", "file_path", "storagePath", "storage_path"] {
+                                        if let Some(p_str) = b.get(*key).and_then(|v| v.as_str()) {
+                                            paths.extend(Self::normalize_candidate_path(p_str, data_dir));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 1. Check books.data BLOB
         if let Ok(mut stmt) =
@@ -264,45 +338,7 @@ impl FileTransferHandler {
             }
         }
 
-        // 3. Check kv_store table for library state (check both zustand: and persist: prefixes)
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT value FROM kv_store WHERE key IN ('zustand:theorem-library', 'persist:theorem-library') OR key LIKE '%theorem-library'"
-        ) {
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0));
-            if let Ok(rows) = rows {
-                for row in rows.flatten() {
-                    if let Ok(lib_val) = serde_json::from_str::<serde_json::Value>(&row) {
-                        let candidate_arrays: Vec<&Vec<serde_json::Value>> = vec![
-                            lib_val.pointer("/state/books").and_then(|b| b.as_array()),
-                            lib_val.get("books").and_then(|b| b.as_array()),
-                            lib_val.pointer("/state/recentBooksCache").and_then(|b| b.as_array()),
-                            lib_val.get("recentBooksCache").and_then(|b| b.as_array()),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect();
-
-                        for arr in candidate_arrays {
-                            for b in arr {
-                                let id_match = b.get("id").and_then(|v| v.as_str()) == Some(book_id);
-                                let content_match = b.get("contentHash").and_then(|v| v.as_str()) == Some(book_id);
-                                let blob_match = b.get("blobHash").and_then(|v| v.as_str()) == Some(book_id);
-
-                                if id_match || content_match || blob_match {
-                                    for key in &["filePath", "file_path", "storagePath", "storage_path"] {
-                                        if let Some(p_str) = b.get(*key).and_then(|v| v.as_str()) {
-                                            paths.extend(Self::normalize_candidate_path(p_str, data_dir));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        (data, paths)
+        BookLookup::Found(data, paths)
     }
 
     async fn locate_book(data_dir: &Path, book_id: &str) -> Result<BookSource, String> {
@@ -348,27 +384,36 @@ impl FileTransferHandler {
             }
         }
 
-        // 4. Query SQLite via spawn_blocking to locate data or paths
+        // 4. Query SQLite via spawn_blocking to locate data or paths or verify tombstone
         let dir_clone = data_dir.to_path_buf();
         let id_clone = clean_id.to_string();
-        let (db_data, candidate_paths) =
+        let lookup_res =
             tokio::task::spawn_blocking(move || Self::find_in_db(&dir_clone, &id_clone))
                 .await
                 .map_err(|e| format!("spawn_blocking: {e}"))?;
 
-        if let Some(data) = db_data {
-            if !data.is_empty() {
-                return Ok(BookSource::Memory(data));
+        match lookup_res {
+            BookLookup::Deleted => {
+                return Err(format!(
+                    "PEER_BOOK_DELETED: book '{clean_id}' has been deleted on this device"
+                ));
             }
-        }
+            BookLookup::Found(db_data, candidate_paths) => {
+                if let Some(data) = db_data {
+                    if !data.is_empty() {
+                        return Ok(BookSource::Memory(data));
+                    }
+                }
 
-        for p in candidate_paths {
-            if let Ok(metadata) = tokio::fs::metadata(&p).await {
-                if metadata.is_file() && metadata.len() > 0 {
-                    let file = tokio::fs::File::open(&p)
-                        .await
-                        .map_err(|e| format!("open book file '{p:?}': {e}"))?;
-                    return Ok(BookSource::File(file, metadata.len()));
+                for p in candidate_paths {
+                    if let Ok(metadata) = tokio::fs::metadata(&p).await {
+                        if metadata.is_file() && metadata.len() > 0 {
+                            let file = tokio::fs::File::open(&p)
+                                .await
+                                .map_err(|e| format!("open book file '{p:?}': {e}"))?;
+                            return Ok(BookSource::File(file, metadata.len()));
+                        }
+                    }
                 }
             }
         }

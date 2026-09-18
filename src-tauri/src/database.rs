@@ -1493,7 +1493,7 @@ pub fn sqlite_merge_sync_entries(
 #[tauri::command]
 pub fn sqlite_shrink_memory(app: AppHandle) -> Result<(), String> {
     with_connection(&app, |connection| {
-        connection.execute_batch("PRAGMA shrink_memory;")
+        connection.execute_batch("PRAGMA shrink_memory; PRAGMA wal_checkpoint(PASSIVE);")
     })
 }
 

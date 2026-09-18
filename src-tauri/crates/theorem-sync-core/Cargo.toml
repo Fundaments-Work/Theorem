@@ -1,6 +1,6 @@
 [package]
 name = "theorem-sync-core"
-version = "1.5.6"
+version = "1.5.7"
 edition = "2021"
 description = "Theorem sync core library — device identity, QR pairing, and sync protocol types"
 

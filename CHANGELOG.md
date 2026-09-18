@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-09-18 (Beta)
+
+### Fixed
+
+- **Mobile EPUB Navigation & Image Rendering Stabilization** — Restored immediate, fluid page turns and eliminated blank pages across illustrated and media-rich EPUBs:
+  - In `foliate-js-runtime/paginator.js`, eliminated the blocking pre-layout image decoding wait and 200ms `visibility: hidden` blanking, restoring immediate synchronous layout rendering and zero-latency `#turnPage` resolution.
+  - Fixed CSS multi-column fragmentation: removed `break-inside: avoid` and `-webkit-column-break-inside: avoid` on parent `<p>`, `<div>`, and `<figure>` containers that caused the browser column formatter to abandon columns and generate blank pages before images.
+  - Removed `display: block` and `height: auto !important` overrides on `img` elements, preserving natural aspect ratios and fluid column fitting with `object-fit: contain`.
+  - Calibrated touch gesture axis locking to 10px with natural horizontal dominance, preventing swipe drops on diagonal thumb arcs.
+  - Preserved chapter blob URLs during active reading sessions to prevent broken image assets on previous-chapter navigation.
+- **Ghost Book Elimination on P2P Sync Deletions** — Fixed ghost book cards remaining in the library when a book was deleted on a paired peer:
+  - In `src-tauri/src/file_transfer.rs`, added checks against `deletion_tombstones` and `deletedAt` metadata, returning an explicit `PEER_BOOK_DELETED` status if a requested book has been deleted.
+  - In `src/core/lib/sync-orchestrator.ts`, immediately merged incoming `deletion_tombstones` over Iroh gossip and purged deleted book cards from local state without delay.
+  - In `src/features/reader/Reader.tsx`, handled `PEER_BOOK_DELETED` by pruning the local ghost card, displaying an informative toast (*"This book was deleted on the source device."*), and routing to the Library.
+- **Android Hardware Back Button Navigation Stack** — Intercepted Tauri `onCloseRequested` / hardware back button events in `src/App.tsx`:
+  - Dismisses active overlays, sheets, and reader panels in LIFO order via `dispatchBackAction()`.
+  - Navigates from Reader view back to Library before closing.
+  - Minimizes or exits the app only when on the root Library route with no active overlays.
+
+### Improved & Performance
+
+- **Note Export Clean Typography & Knap AST Templating** —
+  - In `src-tauri/src/vault_export.rs` and `src/core/lib/vault-sync.ts`, cleaned YAML frontmatter to include only essential properties (`title`, `author`, `type: "theorem-book-highlights"`, single `total_highlights: N`, and `tags: [theorem, highlights]`), removing internal paths, formats, and redundant duplicate counts.
+  - Overhauled Markdown body formatting: removed artificial numbered headings (`### 1. Highlight`), redundant color labels, timestamps, and divider lines. Quotes are formatted cleanly as `> ==quote==` with user notes placed directly underneath.
+  - Integrated `@obsidianmd/knap` AST template engine in frontend export settings for safe, custom Markdown templates with 0 bytes added to the native Rust binary.
+- **SQLite Memory Reclaim & Low-Memory OS Trimming** —
+  - Enhanced native `trim_memory` command in `src-tauri/src/database.rs` and `lib.rs` to run `PRAGMA shrink_memory;` and `PRAGMA wal_checkpoint(PASSIVE);` on SQLite connections alongside `libc::malloc_trim(0)` on Linux and Android Bionic `mallopt(-101, 0)` (`M_PURGE`).
+  - Wired `document.visibilityState === 'hidden'` in `src/App.tsx` to automatically trigger `trim_memory` whenever Theorem is minimized or backgrounded, preventing background process termination by the Android OS Low Memory Killer (LMK).
+- **Native Rust Readability Engine** — Integrated Mozilla's Readability port in Rust (`readability` crate) with full DOM scoring into `src-tauri/src/article_extractor.rs`, parsing and scoring article HTML in Rust in <3ms.
+
 ## [1.5.6] - 2026-09-18 (Beta)
 
 ### Fixed
