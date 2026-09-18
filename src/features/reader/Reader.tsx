@@ -170,17 +170,13 @@ const BookReaderPage = memo(function BookReaderPage() {
     const saveVocabularyTerm = useVocabularyStore((state) => state.saveVocabularyTerm);
     const installedDictionaryCount = useVocabularyStore((state) => state.installedDictionaries.length);
 
-    const { readerSettings, tts, vocabulary, speedReadEnabled } = useSettingsStore(
+    const settings = useSettingsStore(
         useShallow((state) => ({
             readerSettings: state.settings.readerSettings,
             tts: state.settings.tts,
             vocabulary: state.settings.vocabulary,
             speedReadEnabled: state.settings.speedReadEnabled,
         }))
-    );
-    const settings = useMemo(
-        () => ({ readerSettings, tts, vocabulary, speedReadEnabled }),
-        [readerSettings, tts, vocabulary, speedReadEnabled]
     );
     const updateReaderSettings = useSettingsStore((state) => state.updateReaderSettings);
     const updateStats = useSettingsStore((state) => state.updateStats);

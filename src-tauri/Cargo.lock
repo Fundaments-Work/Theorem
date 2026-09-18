@@ -7901,7 +7901,7 @@ dependencies = [
 
 [[package]]
 name = "theorem"
-version = "1.5.7"
+version = "1.5.8"
 dependencies = [
  "audiopus",
  "audiopus_sys 0.2.2",
@@ -7971,7 +7971,7 @@ dependencies = [
 
 [[package]]
 name = "theorem-sync-core"
-version = "1.5.7"
+version = "1.5.8"
 dependencies = [
  "hex",
  "qrcode",

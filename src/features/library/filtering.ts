@@ -105,41 +105,44 @@ export function getFilteredAndSortedBooks({
         return result;
     }
 
-    const sorted = [...result];
-    sorted.sort((a, b) => {
+    // Schwartzian transform: pre-compute timestamps once, sort on numbers,
+    // then strip the precomputed fields. Avoids O(n log n) Date allocations
+    // that occurred when new Date() was called inside the comparator.
+    type WithTimestamps = { book: Book; addedAt: number; lastReadAt: number };
+    const decorated: WithTimestamps[] = result.map((book) => ({
+        book,
+        addedAt: book.addedAt instanceof Date
+            ? book.addedAt.getTime()
+            : new Date(book.addedAt as string).getTime(),
+        lastReadAt: book.lastReadAt
+            ? (book.lastReadAt instanceof Date
+                ? book.lastReadAt.getTime()
+                : new Date(book.lastReadAt as string).getTime())
+            : 0,
+    }));
+
+    decorated.sort((a, b) => {
         let comparison = 0;
 
         switch (sortBy) {
             case "title":
-                comparison = a.title.localeCompare(b.title);
+                comparison = a.book.title.localeCompare(b.book.title);
                 break;
             case "author":
-                comparison = normalizeAuthor(a.author).localeCompare(normalizeAuthor(b.author));
+                comparison = normalizeAuthor(a.book.author).localeCompare(normalizeAuthor(b.book.author));
                 break;
-            case "dateAdded": {
-                const aAdded = a.addedAt instanceof Date ? a.addedAt : new Date(a.addedAt);
-                const bAdded = b.addedAt instanceof Date ? b.addedAt : new Date(b.addedAt);
-                comparison = aAdded.getTime() - bAdded.getTime();
+            case "dateAdded":
+                comparison = a.addedAt - b.addedAt;
                 break;
-            }
-            case "lastRead": {
-                const aLastRead = a.lastReadAt
-                    ? (a.lastReadAt instanceof Date ? a.lastReadAt : new Date(a.lastReadAt))
-                    : null;
-                const bLastRead = b.lastReadAt
-                    ? (b.lastReadAt instanceof Date ? b.lastReadAt : new Date(b.lastReadAt))
-                    : null;
-                const aTime = aLastRead?.getTime() || 0;
-                const bTime = bLastRead?.getTime() || 0;
-                comparison = aTime - bTime;
+            case "lastRead":
+                comparison = a.lastReadAt - b.lastReadAt;
                 break;
-            }
             case "progress":
-                comparison = a.progress - b.progress;
+                comparison = a.book.progress - b.book.progress;
                 break;
             case "rating": {
-                const aRating = a.rating || 0;
-                const bRating = b.rating || 0;
+                const aRating = a.book.rating || 0;
+                const bRating = b.book.rating || 0;
                 comparison = aRating - bRating;
                 break;
             }
@@ -148,5 +151,6 @@ export function getFilteredAndSortedBooks({
         return sortOrder === "asc" ? comparison : -comparison;
     });
 
-    return sorted;
+    return decorated.map((d) => d.book);
+
 }

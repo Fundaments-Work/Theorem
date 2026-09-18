@@ -110,20 +110,27 @@ const BookmarkCard = memo(function BookmarkCard({ bookmark, book, searchQuery, o
 
 export function BookmarksPage() {
     const annotations = useLibraryStore((state) => state.annotations);
-    const books = useLibraryStore((state) => state.books);
+    const getBook = useLibraryStore((state) => state.getBook);
     const removeAnnotation = useLibraryStore((state) => state.removeAnnotation);
     const setRoute = useUIStore((state) => state.setRoute);
     const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
+
+    // Derive lookup from bookmark bookIds only — avoids subscribing to the
+    // entire books array which re-renders on every progress tick.
+    const bookmarks = useMemo(() => annotations.filter((a) => a.type === "bookmark"), [annotations]);
     const bookLookup = useMemo(
-        () => new Map(books.map((book) => [book.id, book])),
-        [books],
+        () => {
+            const lookup = new Map<string, ReturnType<typeof getBook>>();
+            for (const bm of bookmarks) {
+                if (!lookup.has(bm.bookId)) lookup.set(bm.bookId, getBook(bm.bookId));
+            }
+            return lookup;
+        },
+        [bookmarks, getBook],
     );
 
-    const bookmarks = useMemo(() => {
-        return annotations.filter((a) => a.type === "bookmark");
-    }, [annotations]);
 
     const filteredBookmarks = useMemo(() => {
         let filtered = [...bookmarks];

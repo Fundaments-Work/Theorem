@@ -42,7 +42,7 @@ const READER_NAVIGATION_TIMEOUT_MS = 6000;
 // path or filename+size) so repeat opens skip EPUB OPF/nav re-parsing. The
 // Book keeps its source File/Blob alive, so the cache is intentionally small.
 const BOOK_MODEL_CACHE_LIMIT = 2;
-const bookModelCache = new Map<string, any>();
+const bookModelCache = new Map<string, { book: unknown; cleanup: () => void }>();
 
 interface ReaderSearchExcerpt {
     pre?: string;
@@ -300,18 +300,26 @@ export class FoliateEngine {
             }
 
             const bookCacheKey = nativeFilePath ?? `${_filename}:${file.size}`;
-            const cachedBook = bookModelCache.get(bookCacheKey);
-            if (cachedBook) {
-                this.book = cachedBook;
+            const cachedEntry = bookModelCache.get(bookCacheKey);
+            if (cachedEntry) {
+                this.book = cachedEntry.book;
             } else {
                 this.book = await makeBook(file,
                     nativeFilePath ? import('../../../core/lib/tauri-epub-bridge')
                         .then(m => m.tryNativePrefetchEpub(nativeFilePath)) : undefined
                 );
-                bookModelCache.set(bookCacheKey, this.book);
+                // Build a cleanup fn that destroys the book's internal resources
+                const bookRef = this.book;
+                const cleanup = () => {
+                    try { (bookRef as { destroy?: () => void }).destroy?.(); } catch { /* ignore */ }
+                };
+                bookModelCache.set(bookCacheKey, { book: this.book, cleanup });
                 if (bookModelCache.size > BOOK_MODEL_CACHE_LIMIT) {
-                    const oldestKey = bookModelCache.keys().next().value;
-                    if (oldestKey !== undefined) bookModelCache.delete(oldestKey);
+                    const [oldestKey, oldestEntry] = bookModelCache.entries().next().value as [string, { book: unknown; cleanup: () => void }];
+                    if (oldestKey !== undefined) {
+                        oldestEntry.cleanup();
+                        bookModelCache.delete(oldestKey);
+                    }
                 }
             }
             this.searchSectionCache = null;

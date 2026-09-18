@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2026-09-18 (Beta)
+
+### Performance
+
+- **Fuzzy Search: Eliminated N×keys RegExp Allocations** — In `src/core/lib/search/fuzzy.ts`, the word-boundary `RegExp` was previously constructed inside `scoreFieldMatch` for every book × every field on every keystroke. For a 1000-book library with 4 fields, that was 4000+ `RegExp` objects per keystroke. Introduced `scoreFieldMatchFast` which accepts a pre-compiled `RegExp` from the caller; `rankByFuzzyQuery` now compiles it once per query and passes it into the inner scorer, reducing per-search `RegExp` allocations to exactly 1.
+- **Library Sort: Schwartzian Transform Eliminates Date Allocations** — In `src/features/library/filtering.ts`, `new Date()` was called inside the sort comparator (O(n log n) calls = ~20,000 Date allocations per sort on a 1000-book library). Replaced with a Schwartzian transform: timestamps are pre-computed once before sorting into a decorated array, the sort operates on raw numbers, then the books are extracted back out. Zero transient Date allocations in the comparator.
+- **Book Model Cache: Cleanup on Eviction** — In `src/features/reader/engines/foliate-engine.ts`, the 2-entry LRU book model cache silently dropped evicted entries without calling any cleanup, leaving EPUB ZIP decompressor state and inflated chapter buffers alive (50–100MB leak per eviction). Cache now stores `{book, cleanup}` pairs and calls `cleanup()` → `book.destroy?.()` before evicting the oldest entry. Cache Map type narrowed from `Map<string, any>` to `Map<string, {book: unknown; cleanup: () => void}>`.
+- **Reader.tsx: Remove Redundant `useMemo` Wrapping `useShallow`** — `useShallow` already guarantees stable reference equality when values are shallowly equal. The additional `useMemo` wrapping its result added one extra object allocation and comparison per render. Removed; `settings` is now the direct `useShallow` result.
+- **Annotations & Bookmarks: Eliminate Whole-Books Array Subscription** — `AnnotationsPage` and `BookmarksPage` subscribed to the entire `books` array (`useLibraryStore(s => s.books)`), causing a re-render on every progress tick for any book in the library. Replaced with `getBook` (O(1) selector); each page now derives its title/book lookup only from the bookIds present in its own annotations/bookmarks via `useMemo`.
+- **Vite Bundle: Vendor Chunk Splits for `@tanstack`, `sonner`, `@radix-ui`** — These stable dependencies previously landed in the main app chunk, busting the browser cache on every app code change. Added `tanstack` and `ui-vendors` manual chunks to `vite.config.ts` so they get independent, long-lived cache entries.
+
 ## [1.5.7] - 2026-09-18 (Beta)
 
 ### Fixed

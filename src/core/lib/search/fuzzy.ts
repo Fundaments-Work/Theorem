@@ -86,69 +86,84 @@ function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Inner scorer used by multi-token recursion — constructs regex only when needed
+// for single-token calls (no outer regex available in that context).
 function scoreFieldMatch(fieldVal: string, query: string): number | null {
+    const text = fieldVal.toLowerCase();
+    const q = query.toLowerCase();
+    if (!text || !q) return null;
+    if (text === q) return 0.001;
+    if (text.startsWith(q)) return 0.03 + 0.03 * (1 - q.length / text.length);
+    const wordBoundaryRegex = new RegExp(`(?:^|\\s|[-_/])${escapeRegex(q)}`);
+    const wordBoundaryIdx = text.search(wordBoundaryRegex);
+    if (wordBoundaryIdx !== -1) return 0.06 + 0.04 * Math.min(1, wordBoundaryIdx / 50);
+    const subIdx = text.indexOf(q);
+    if (subIdx !== -1) return 0.10 + 0.08 * Math.min(1, subIdx / 50);
+    if (q.length >= 3) {
+        let qi = 0; let ti = 0;
+        const matchedIndices: number[] = [];
+        while (qi < q.length && ti < text.length) {
+            if (q[qi] === text[ti]) { matchedIndices.push(ti); qi++; }
+            ti++;
+        }
+        if (qi === q.length) {
+            const span = matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
+            return 0.18 + 0.12 * (1 - q.length / span);
+        }
+    }
+    return null;
+}
+
+// Hot-path scorer: accepts a pre-compiled word-boundary regex so it is not
+// reconstructed for every book × every field — O(1) allocations per query.
+function scoreFieldMatchFast(
+    fieldVal: string,
+    query: string,
+    compiledWordBoundaryRegex: RegExp,
+): number | null {
     const text = fieldVal.toLowerCase();
     const q = query.toLowerCase();
 
     if (!text || !q) return null;
 
     // 1. Exact match
-    if (text === q) {
-        return 0.001;
-    }
+    if (text === q) return 0.001;
 
     // 2. Prefix match
-    if (text.startsWith(q)) {
-        return 0.03 + 0.03 * (1 - q.length / text.length);
-    }
+    if (text.startsWith(q)) return 0.03 + 0.03 * (1 - q.length / text.length);
 
-    // 3. Word boundary match
-    const wordBoundaryRegex = new RegExp(`(?:^|\\s|[-_/])${escapeRegex(q)}`);
-    const wordBoundaryIdx = text.search(wordBoundaryRegex);
-    if (wordBoundaryIdx !== -1) {
-        return 0.06 + 0.04 * Math.min(1, wordBoundaryIdx / 50);
-    }
+    // 3. Word boundary match — zero allocation: uses the caller-compiled regex
+    const wordBoundaryIdx = text.search(compiledWordBoundaryRegex);
+    if (wordBoundaryIdx !== -1) return 0.06 + 0.04 * Math.min(1, wordBoundaryIdx / 50);
 
     // 4. Substring match
     const subIdx = text.indexOf(q);
-    if (subIdx !== -1) {
-        return 0.10 + 0.08 * Math.min(1, subIdx / 50);
-    }
+    if (subIdx !== -1) return 0.10 + 0.08 * Math.min(1, subIdx / 50);
 
-    // 5. Multi-token match
+    // 5. Multi-token match (recurse into scoreFieldMatch for individual tokens)
     const tokens = q.split(/\s+/).filter(Boolean);
     if (tokens.length > 1) {
         let allMatched = true;
         let tokenScoreSum = 0;
         for (const token of tokens) {
             const tokenScore = scoreFieldMatch(text, token);
-            if (tokenScore === null) {
-                allMatched = false;
-                break;
-            }
+            if (tokenScore === null) { allMatched = false; break; }
             tokenScoreSum += tokenScore;
         }
-        if (allMatched) {
-            return Math.min(0.25, 0.10 + (tokenScoreSum / tokens.length) * 0.5);
-        }
+        if (allMatched) return Math.min(0.25, 0.10 + (tokenScoreSum / tokens.length) * 0.5);
     }
 
     // 6. Fuzzy subsequence match
     if (q.length >= 3) {
-        let qi = 0;
-        let ti = 0;
+        let qi = 0; let ti = 0;
         const matchedIndices: number[] = [];
         while (qi < q.length && ti < text.length) {
-            if (q[qi] === text[ti]) {
-                matchedIndices.push(ti);
-                qi++;
-            }
+            if (q[qi] === text[ti]) { matchedIndices.push(ti); qi++; }
             ti++;
         }
         if (qi === q.length) {
             const span = matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
-            const density = q.length / span;
-            return 0.18 + 0.12 * (1 - density);
+            return 0.18 + 0.12 * (1 - q.length / span);
         }
     }
 
@@ -173,6 +188,11 @@ export function rankByFuzzyQuery<T>(
     const threshold = options.threshold ?? DEFAULT_FUZZY_THRESHOLD;
     const parsedKeys = parseKeys(options.keys);
 
+    // Compile once per query — eliminates N × keys.length RegExp allocations
+    const compiledWordBoundaryRegex = new RegExp(
+        `(?:^|\\s|[-_/])${escapeRegex(normalizedQuery.toLowerCase())}`
+    );
+
     const scoredItems: RankedFuzzyItem<T>[] = [];
 
     for (const item of items) {
@@ -182,7 +202,7 @@ export function rankByFuzzyQuery<T>(
             const fieldValue = extractFieldValue(item, name);
             if (!fieldValue) continue;
 
-            const fieldScore = scoreFieldMatch(fieldValue, normalizedQuery);
+            const fieldScore = scoreFieldMatchFast(fieldValue, normalizedQuery, compiledWordBoundaryRegex);
             if (fieldScore !== null && fieldScore <= threshold) {
                 const weightedScore = fieldScore / (1 + weight);
                 if (bestScore === null || weightedScore < bestScore) {
@@ -192,10 +212,7 @@ export function rankByFuzzyQuery<T>(
         }
 
         if (bestScore !== null) {
-            scoredItems.push({
-                item,
-                score: bestScore,
-            });
+            scoredItems.push({ item, score: bestScore });
         }
     }
 

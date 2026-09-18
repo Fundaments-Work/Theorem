@@ -59,6 +59,9 @@ export default defineConfig(async () => ({
                     // Separate icon library and error reporting to keep main app chunk lean
                     if (id.includes("lucide-react")) return "lucide";
                     if (id.includes("@sentry")) return "sentry";
+                    // Virtualizer, toast, and Radix primitives change rarely — own cache entry
+                    if (id.includes("@tanstack")) return "tanstack";
+                    if (id.includes("sonner") || id.includes("@radix-ui")) return "ui-vendors";
                 },
             },
         },

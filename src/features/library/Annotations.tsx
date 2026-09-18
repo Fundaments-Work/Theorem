@@ -244,7 +244,7 @@ const filterTabs = [
 
 export function AnnotationsPage() {
     const annotations = useLibraryStore((state) => state.annotations);
-    const books = useLibraryStore((state) => state.books);
+    const getBook = useLibraryStore((state) => state.getBook);
     const removeAnnotation = useLibraryStore((state) => state.removeAnnotation);
     const updateAnnotation = useLibraryStore((state) => state.updateAnnotation);
     const currentBookId = useUIStore((state) => state.currentBookId);
@@ -276,10 +276,22 @@ export function AnnotationsPage() {
     const cardTouchStartX = useRef(0);
     const cardTouchStartY = useRef(0);
 
+    // Derive title lookup from annotation bookIds only — avoids subscribing to
+    // the entire books array (which re-renders on every progress tick).
     const bookTitleLookup = useMemo(
-        () => new Map(books.map((book) => [book.id, book.title])),
-        [books],
+        () => {
+            const bookIds = new Set(annotations.map((a) => a.bookId));
+            const lookup = new Map<string, string>();
+            for (const id of bookIds) {
+                const title = getBook(id)?.title;
+                if (title) lookup.set(id, title);
+            }
+            return lookup;
+        },
+        // getBook is stable (store action ref), annotations changes drive re-derive
+        [annotations, getBook],
     );
+
 
     const filteredAnnotations = useMemo(() => {
         let filtered = annotations.filter((a) => a.type !== "bookmark");
