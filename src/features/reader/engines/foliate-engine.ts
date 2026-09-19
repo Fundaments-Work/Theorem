@@ -36,7 +36,8 @@ const MIN_PAGED_READER_ZOOM_LEVEL = 1.0;
 const MAX_READER_ZOOM_LEVEL = 4.0;
 const READER_ZOOM_STEP = 0.1;
 const READER_OPEN_TIMEOUT_MS = 20000;
-const READER_NAVIGATION_TIMEOUT_MS = 6000;
+const READER_INITIAL_NAVIGATION_TIMEOUT_MS = 15000;
+const READER_INITIAL_NAVIGATION_RETRIES = 1;
 
 // Parsed foliate Book models, keyed by stable book identity (materialized
 // path or filename+size) so repeat opens skip EPUB OPF/nav re-parsing. The
@@ -133,6 +134,29 @@ export class FoliateEngine {
                 clearTimeout(timeoutHandle);
             }
         }
+    }
+
+    // Initial open-path navigation runs while the spine, CSS, and native
+    // prefetch are still settling, so a single short timeout produces
+    // false-positive "Timed out" errors (#105). Retry once with the longer
+    // initial-navigation budget before surfacing.
+    private async goToWithRetry(
+        target: string | { index: number; fraction: number },
+        operation: string,
+    ): Promise<unknown> {
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= READER_INITIAL_NAVIGATION_RETRIES; attempt++) {
+            try {
+                return await this.withTimeout(
+                    this.view.goTo(target),
+                    READER_INITIAL_NAVIGATION_TIMEOUT_MS,
+                    operation,
+                );
+            } catch (err) {
+                lastError = err;
+            }
+        }
+        throw lastError;
     }
 
     private getMinZoomLevelForFlow(flow: ReadingFlow = this.flow): number {
@@ -374,25 +398,22 @@ export class FoliateEngine {
             try {
                 if (initialLocation) {
                     try {
-                        const result = await this.withTimeout(
-                            this.view.goTo(initialLocation),
-                            READER_NAVIGATION_TIMEOUT_MS,
+                        const result = await this.goToWithRetry(
+                            initialLocation,
                             'restoring saved location',
                         );
                         if (!result) {
                             
-                            await this.withTimeout(
-                                this.view.goTo({ index: 0, fraction: 0 }),
-                                READER_NAVIGATION_TIMEOUT_MS,
+                            await this.goToWithRetry(
+                                { index: 0, fraction: 0 },
                                 'navigating to the start',
                             );
                         } else {
                         }
                 } catch (err) {
                     
-                    await this.withTimeout(
-                        this.view.goTo({ index: 0, fraction: 0 }),
-                        READER_NAVIGATION_TIMEOUT_MS,
+                    await this.goToWithRetry(
+                        { index: 0, fraction: 0 },
                         'navigating to the start',
                     );
                     
@@ -401,9 +422,8 @@ export class FoliateEngine {
                     }
                 }
                 } else {
-                    await this.withTimeout(
-                        this.view.goTo({ index: 0, fraction: 0 }),
-                        READER_NAVIGATION_TIMEOUT_MS,
+                    await this.goToWithRetry(
+                        { index: 0, fraction: 0 },
                         'navigating to the start',
                     );
                 }
