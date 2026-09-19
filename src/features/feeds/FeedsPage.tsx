@@ -191,11 +191,11 @@ function ArticleCard({
     onToggleRead?: (articleId: string) => void;
 }) {
     const summaryHtml = useMemo(() => {
-        const text = article.summary || article.content;
+        const text = article.summary || article.content || article.fullContent;
         if (!text) return "";
         const html = sanitizeArticleHtml(text);
         return html;
-    }, [article.summary, article.content]);
+    }, [article.summary, article.content, article.fullContent]);
 
     const dateStr = formatArticleDate(article.publishedAt ?? article.fetchedAt);
 

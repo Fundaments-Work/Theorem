@@ -26,7 +26,7 @@ import { useReaderFullscreen } from "../hooks";
 import { ArticleReaderContent } from "./ArticleReaderContent";
 import { ArticleReaderInfoPanel } from "./ArticleReaderInfoPanel";
 import type { ArticleHeading, ArticleReaderPanel } from "./types";
-import { buildArticleDescription, formatArticleDate, sanitizeArticleHtml } from "./utils";
+import { buildArticleDescription, formatArticleDate, sanitizeArticleHtml, selectArticleBody } from "./utils";
 
 interface ArticleViewerProps {
     article: RssArticle | null;
@@ -703,8 +703,8 @@ export const ArticleViewer = memo(function ArticleViewer({
     );
 
     const sanitizedContent = useMemo(
-        () => sanitizeArticleHtml(article?.content || article?.summary || ""),
-        [article?.content, article?.summary],
+        () => sanitizeArticleHtml(selectArticleBody(article)),
+        [article?.fullContent, article?.content, article?.summary],
     );
 
     useEffect(() => {

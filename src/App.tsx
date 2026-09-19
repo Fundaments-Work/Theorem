@@ -240,9 +240,6 @@ function App() {
         const handleVisibilityChange = () => {
             if (document.visibilityState === "hidden") {
                 void sqliteShrinkMemory();
-                void import("@tauri-apps/api/core").then(({ invoke }) => {
-                    invoke("trim_memory").catch(() => {});
-                });
             }
         };
 

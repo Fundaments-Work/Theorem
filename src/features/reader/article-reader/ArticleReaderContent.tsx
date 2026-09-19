@@ -7,7 +7,7 @@ import type {
 } from "../../../core/types";
 import type { ArticleHeading } from "./types";
 import { setElementHtml } from "../../../core/lib/sanitize";
-import { formatArticleDate, sanitizeArticleHtml } from "./utils";
+import { formatArticleDate, sanitizeArticleHtml, selectArticleBody } from "./utils";
 
 interface ArticleReaderContentProps {
     article: RssArticle;
@@ -121,8 +121,8 @@ export function ArticleReaderContent({
     sanitizedContent: sanitizedContentProp,
 }: ArticleReaderContentProps) {
     const sanitizedContentFallback = useMemo(
-        () => sanitizeArticleHtml(article.content || article.summary || ""),
-        [article.content, article.summary],
+        () => sanitizeArticleHtml(selectArticleBody(article)),
+        [article.fullContent, article.content, article.summary],
     );
 
     const sanitizedContent = sanitizedContentProp ?? sanitizedContentFallback;

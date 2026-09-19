@@ -28,12 +28,46 @@ export function processArticleHtml(raw: string): string {
     return raw;
 }
 
+export function looksLikeDoubleEscapedHtml(value: string): boolean {
+    if (!/&lt;\s*\/?\s*[a-zA-Z][^;]*?&gt;/.test(value)) {
+        return false;
+    }
+    // Genuine markup present → not double-escaped, leave entities alone.
+    if (/<[a-zA-Z][^>]*>/.test(value)) {
+        return false;
+    }
+    return true;
+}
+
+export function decodeDoubleEscapedHtml(value: string): string {
+    if (!value || !looksLikeDoubleEscapedHtml(value)) {
+        return value;
+    }
+    return value
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, "&");
+}
+
+export interface ArticleBodySource {
+    fullContent?: string | null;
+    content?: string | null;
+    summary?: string | null;
+}
+
+export function selectArticleBody(article: ArticleBodySource | null | undefined): string {
+    if (!article) return "";
+    return article.fullContent || article.content || article.summary || "";
+}
+
 export function sanitizeArticleHtml(html: string): string {
     if (!html) {
         return "";
     }
 
-    let processed = html;
+    let processed = decodeDoubleEscapedHtml(html);
     if (looksLikeMarkdown(html) && !/<[a-zA-Z][^>]*>/.test(html)) {
         try {
             processed = md.render(html);

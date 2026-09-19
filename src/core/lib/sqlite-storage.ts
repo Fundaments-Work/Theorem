@@ -199,13 +199,28 @@ export async function sqliteGetBookAnnotations(bookId: string): Promise<string[]
     return invoke('sqlite_get_book_annotations', { bookId }) as Promise<string[]>;
 }
 
+let lastShrinkMemoryAt = 0;
+const SHRINK_MEMORY_THROTTLE_MS = 5000;
+
 export async function sqliteShrinkMemory(): Promise<void> {
     if (!isTauri()) return;
+    const now = Date.now();
+    if (now - lastShrinkMemoryAt < SHRINK_MEMORY_THROTTLE_MS) return;
+    lastShrinkMemoryAt = now;
     try {
         const invoke = await getInvoke();
-        await invoke('sqlite_shrink_memory');
+        // Prefer the single `trim_memory` entry point (SQLite shrink +
+        // WAL checkpoint + native malloc trim). Calling `sqlite_shrink_memory`
+        // directly from hot paths (visibilitychange, unmount) trips Tauri v2
+        // IPC access-control errors in the webview console (#102).
+        await invoke('trim_memory');
     } catch {
-        // Ignore if unsupported or pool busy
+        try {
+            const invoke = await getInvoke();
+            await invoke('sqlite_shrink_memory');
+        } catch {
+            // Ignore if unsupported or pool busy
+        }
     }
 }
 

@@ -301,7 +301,11 @@ export const BookCard = memo(function BookCard({
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            onOpenBook(book);
+                            if (isSelecting && onToggleSelect) {
+                                onToggleSelect(book.id);
+                            } else {
+                                onOpenBook(book);
+                            }
                         }
                     }}
                 >
@@ -309,7 +313,10 @@ export const BookCard = memo(function BookCard({
                     <div
                         className={cn(
                             "relative aspect-[2/3] bg-[var(--color-surface-muted)] mb-3 overflow-hidden",
-                            "border border-[var(--color-border)]",
+                            "border",
+                            isSelected
+                                ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
+                                : "border-[var(--color-border)]",
                             "transition-colors duration-300 group-hover:shadow-lg group-hover:-translate-y-1 cursor-pointer"
                         )}
                     >
@@ -382,20 +389,37 @@ export const BookCard = memo(function BookCard({
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            onOpenBook(book);
+                            if (isSelecting && onToggleSelect) {
+                                onToggleSelect(book.id);
+                            } else {
+                                onOpenBook(book);
+                            }
                         }
                     }}
                 >
                     
                     <div className={cn(
                         "relative w-12 h-16 flex-shrink-0 bg-[var(--color-surface-muted)] overflow-hidden",
-                        "border border-[var(--color-border)]"
+                        "border",
+                        isSelected
+                            ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
+                            : "border-[var(--color-border)]"
                     )}>
                         <TheoremBookCover
                             title={book.title}
                             author={book.author}
                             coverUrl={book.coverPath}
                         />
+                        {isSelecting && (
+                            <div className={cn(
+                                "absolute top-1 left-1 w-5 h-5 flex items-center justify-center transition-colors duration-200 z-10",
+                                isSelected
+                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                    : "bg-white/80 text-[color:var(--color-text-secondary)] border border-[var(--color-border)]"
+                            )}>
+                                {isSelected && <Check className="w-3 h-3" />}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -454,14 +478,23 @@ export const BookCard = memo(function BookCard({
         <ContextMenu items={contextMenuItems}>
             <div
                 onClick={handleCardClick}
-                className="group relative aspect-[2/3] bg-[var(--color-surface-muted)] overflow-hidden border border-[var(--color-border)] hover:shadow-lg transition-colors duration-200 w-full cursor-pointer select-none"
+                className={cn(
+                    "group relative aspect-[2/3] bg-[var(--color-surface-muted)] overflow-hidden border hover:shadow-lg transition-colors duration-200 w-full cursor-pointer select-none",
+                    isSelected
+                        ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
+                        : "border-[var(--color-border)]"
+                )}
                 role="button"
                 tabIndex={0}
                 aria-label={`Open ${book.title}`}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onOpenBook(book);
+                        if (isSelecting && onToggleSelect) {
+                            onToggleSelect(book.id);
+                        } else {
+                            onOpenBook(book);
+                        }
                     }
                 }}
             >
@@ -470,6 +503,17 @@ export const BookCard = memo(function BookCard({
                     author={book.author}
                     coverUrl={book.coverPath}
                 />
+
+                {isSelecting && (
+                    <div className={cn(
+                        "absolute top-1 left-1 w-5 h-5 flex items-center justify-center transition-colors duration-200 z-10",
+                        isSelected
+                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                            : "bg-white/80 text-[color:var(--color-text-secondary)] border border-[var(--color-border)]"
+                    )}>
+                        {isSelected && <Check className="w-3 h-3" />}
+                    </div>
+                )}
 
                 {book.progress > 0 && (
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-[var(--color-overlay-subtle)] z-10">
@@ -509,6 +553,8 @@ export const MemoizedBookCard = memo(BookCard, (prev, next) => {
         prev.book.title === next.book.title &&
         prev.book.author === next.book.author &&
         prev.book.syncedWithoutFile === next.book.syncedWithoutFile &&
+        prev.book.audioTrack === next.book.audioTrack &&
+        prev.book.rating === next.book.rating &&
         prev.viewMode === next.viewMode &&
         prev.isSelecting === next.isSelecting &&
         prev.isSelected === next.isSelected &&
@@ -1017,6 +1063,7 @@ export function LibraryPage() {
     const selectedBooks = useUIStore((state) => state.selectedBooks);
     const toggleBookSelection = useUIStore((state) => state.toggleBookSelection);
     const clearSelection = useUIStore((state) => state.clearSelection);
+    const selectedBookIds = useMemo(() => new Set(selectedBooks), [selectedBooks]);
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
 
@@ -1713,7 +1760,7 @@ export function LibraryPage() {
         const booksToExport = useLibraryStore
             .getState()
             .books
-            .filter((b) => selectedBooks.includes(b.id));
+            .filter((b) => selectedBookIds.has(b.id));
         if (booksToExport.length === 0) return;
 
         const result = await exportBooks(booksToExport);
@@ -1827,11 +1874,12 @@ export function LibraryPage() {
 
                 <div className="flex items-center gap-2 sm:gap-4 ml-auto">
                     <button
+                        data-action="toggle-select-mode"
                         onClick={() => {
                             if (isSelecting) {
                                 clearSelection();
                             }
-                            setIsSelecting(!isSelecting);
+                            setIsSelecting((prev) => !prev);
                         }}
                         className={cn(
                             TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
@@ -2036,7 +2084,7 @@ export function LibraryPage() {
                                                             key={rowItems[0].id}
                                                             book={rowItems[0]}
                                                             viewMode={settings.libraryViewMode}
-                                                            isSelected={selectedBooks.includes(rowItems[0].id)}
+                                                            isSelected={selectedBookIds.has(rowItems[0].id)}
                                                             titleHighlightIndices={matchHighlights.get(rowItems[0].id)?.titleIndices}
                                                             authorHighlightIndices={matchHighlights.get(rowItems[0].id)?.authorIndices}
                                                             {...cardProps}
@@ -2056,7 +2104,7 @@ export function LibraryPage() {
                                                                 key={book.id}
                                                                 book={book}
                                                                 viewMode={settings.libraryViewMode}
-                                                                isSelected={selectedBooks.includes(book.id)}
+                                                                isSelected={selectedBookIds.has(book.id)}
                                                                 titleHighlightIndices={matchHighlights.get(book.id)?.titleIndices}
                                                                 authorHighlightIndices={matchHighlights.get(book.id)?.authorIndices}
                                                                 {...cardProps}
