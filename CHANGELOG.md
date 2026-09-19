@@ -16,6 +16,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Annotations & Bookmarks: Eliminate Whole-Books Array Subscription** — `AnnotationsPage` and `BookmarksPage` subscribed to the entire `books` array (`useLibraryStore(s => s.books)`), causing a re-render on every progress tick for any book in the library. Replaced with `getBook` (O(1) selector); each page now derives its title/book lookup only from the bookIds present in its own annotations/bookmarks via `useMemo`.
 - **Vite Bundle: Vendor Chunk Splits for `@tanstack`, `sonner`, `@radix-ui`** — These stable dependencies previously landed in the main app chunk, busting the browser cache on every app code change. Added `tanstack` and `ui-vendors` manual chunks to `vite.config.ts` so they get independent, long-lived cache entries.
 
+### Fixed
+
+- **Library Multi-Select Repaired; Shelf Selection Mode Added (#109)** — Selection checkboxes and selected rings now render in grid, list, and compact views; keyboard Enter/Space toggles in selecting mode; toolbar toggle exposes `data-action="toggle-select-mode"` so Ctrl+A works; selection lookups use a `Set`. New shelf-detail selection mode: Select All, Shift+click range select, and a shelf-aware bar (Remove from Shelf, Add to Shelf, Mark Read/Unread, Delete with confirm). New single-set batch store actions (`addBooksToCollection`, `removeBooksFromCollection`, `markBooksCompleted`, `markBooksUnread`, `removeBooks`) so batch confirms dismiss instantly.
+- **Route Keep-Alive with Mount-on-First-Visit (#103)** — Non-reader routes stay mounted behind `hidden` toggles with per-route mount-on-first-visit, so back-navigation is an instant class toggle preserving scroll position, filters, and virtualizer caches. The reader stays exclusive so engines unmount on exit.
+- **Reader Open-Path Navigation Retry (#105)** — Initial `goTo` runs with a 15s budget plus one retry instead of a single 6s timeout that false-positived under spine/CSS load.
+- **RSS Renders All Entity Shapes (#107)** — Article body prefers `fullContent`; the sanitizer iteratively decodes named, decimal, hex, and double-encoded entities (including mixed genuine+escaped payloads) before sanitize, with markdown detection running on decoded text. Rust `article_epub` detects namespaced/attributed markup (`<p xmlns>`) instead of requiring exact `<p>`/`<div>`, so reader EPUB conversion no longer escapes real markup into visible tags.
+- **Updater Beta Channel (#106)** — Pre-release builds fall back to a GitHub Releases prerelease lookup with semver comparison; new "Beta Available → View Beta Release" UI. Stable path unchanged.
+- **IPC Access for Reader Windows (#102)** — `default.json` capability now covers `reader_*` windows (previously only `main`, so every invoke in second windows was ACL-denied). Frontend memory trim routes through `trim_memory` with a 5s throttle.
+- **Device-Local Vault Path Kept on Sync** — `mergeSettings` preserves `existing.vault` like `deviceSync`, so a peer's empty path no longer clobbers this device's export folder.
+
+### Performance
+
+- **Sync Bridge Persistent Identity Indexes** — The docs subscriber rebuilt Maps/Sets and re-serialized every entity on each notification. Now a single pass with O(1) referential-identity fast paths; only changed entities stringify. Exact deletion semantics preserved.
+- **Live Gossip Batching** — Annotation/collection keys coalesce over 200ms into one merge + one setState; tombstone re-merges trail 500ms into an idle callback; merged-book lookup uses an index Map instead of per-item `.find`.
+- **Persist Pipeline Off the `set()` Hot Path** — New deferred JSON storage adapter coalesces bursts and stringifies in an idle callback, with memoized `partialize` skipping rebuilds when persisted slices are unchanged. Rehydrate, migrations, and hide/unload flushes preserved.
+- **Absolute Virtual Rows Everywhere** — Library, Shelves, Bookmarks, and Annotations use absolute `translateY` rows with no per-row measuring.
+- **Shared Solid Scrollbar** — One `.scrollbar-solid` utility (opaque thumb, reserved gutter) on all list surfaces.
+- **Article Highlight Single Pass** — One text-index walk plus binary-search lookups replaces a full tree walk per highlight.
+- **Discover Indexed Title Checks** — Shared WeakMap-cached title Set replaces per-card books scans.
+- **Reader Navbar Composites Opaque** — Dropped `backdrop-blur-xl` over its solid surface.
+
 ## [1.5.7] - 2026-09-18 (Beta)
 
 ### Fixed

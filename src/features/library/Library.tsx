@@ -327,13 +327,14 @@ export const BookCard = memo(function BookCard({
                         />
 
                         {isSelecting && (
-                            <div className={cn(
-                                "absolute top-2 left-2 w-6 h-6 flex items-center justify-center transition-colors duration-200 z-10",
+                            <div aria-hidden="true" className={cn(
+                                "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200",
+                                "ring-1",
                                 isSelected
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] scale-100"
-                                    : "bg-white/80 text-[color:var(--color-text-secondary)] scale-100 border border-[var(--color-border)]"
+                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100 shadow-md"
+                                    : "bg-black/40 text-white ring-white/70 scale-90"
                             )}>
-                                {isSelected && <Check className="w-3.5 h-3.5" />}
+                                {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
                             </div>
                         )}
 
@@ -411,13 +412,14 @@ export const BookCard = memo(function BookCard({
                             coverUrl={book.coverPath}
                         />
                         {isSelecting && (
-                            <div className={cn(
-                                "absolute top-1 left-1 w-5 h-5 flex items-center justify-center transition-colors duration-200 z-10",
+                            <div aria-hidden="true" className={cn(
+                                "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200",
+                                "ring-1",
                                 isSelected
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
-                                    : "bg-white/80 text-[color:var(--color-text-secondary)] border border-[var(--color-border)]"
+                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100 shadow-md"
+                                    : "bg-black/40 text-white ring-white/70 scale-90"
                             )}>
-                                {isSelected && <Check className="w-3 h-3" />}
+                                {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
                             </div>
                         )}
                     </div>
@@ -505,13 +507,14 @@ export const BookCard = memo(function BookCard({
                 />
 
                 {isSelecting && (
-                    <div className={cn(
-                        "absolute top-1 left-1 w-5 h-5 flex items-center justify-center transition-colors duration-200 z-10",
+                    <div aria-hidden="true" className={cn(
+                        "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200",
+                        "ring-1",
                         isSelected
-                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
-                            : "bg-white/80 text-[color:var(--color-text-secondary)] border border-[var(--color-border)]"
+                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100 shadow-md"
+                            : "bg-black/40 text-white ring-white/70 scale-90"
                     )}>
-                        {isSelected && <Check className="w-3 h-3" />}
+                        {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
                     </div>
                 )}
 
