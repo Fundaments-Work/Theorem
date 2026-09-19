@@ -18,16 +18,19 @@ function looksLikeMarkdown(text: string): boolean {
 
 export function processArticleHtml(raw: string): string {
     if (!raw) return "";
-    if (looksLikeMarkdown(raw) && !/<[a-zA-Z][^>]*>/.test(raw)) {
+    const decoded = decodeDoubleEscapedHtml(raw);
+    if (looksLikeMarkdown(decoded) && !/<[a-zA-Z][^>]*>/.test(decoded)) {
         try {
-            return md.render(raw);
+            return md.render(decoded);
         } catch {
-            return raw;
+            return decoded;
         }
     }
-    return raw;
+    return decoded;
 }
 
+// Conservative detector: tag-shaped `&lt;...&gt;` escapes with no genuine
+// markup present. Used for diagnostics; the decoder below handles more.
 export function looksLikeDoubleEscapedHtml(value: string): boolean {
     if (!/&lt;\s*\/?\s*[a-zA-Z][^;]*?&gt;/.test(value)) {
         return false;
@@ -39,16 +42,47 @@ export function looksLikeDoubleEscapedHtml(value: string): boolean {
     return true;
 }
 
+function decodeEntitiesOnce(value: string): string {
+    return value
+        .replace(/&#(\d+);/g, (_, digits: string) => {
+            const code = Number(digits);
+            return Number.isFinite(code) ? String.fromCharCode(code) : _;
+        })
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&amp;/gi, "&");
+}
+
+// Feeds arrive entity-escaped anywhere from zero to two times depending on
+// transport (CDATA vs escaped text vs aggregator re-encoding), using named,
+// decimal, or hex entities, sometimes mixed with genuine markup. Decode
+// iteratively so `&amp;lt;` and `&#60;` converge to real tags; when genuine
+// markup is already present, decode only tag-shaped entities so prose
+// entities (`&amp;`) survive untouched.
 export function decodeDoubleEscapedHtml(value: string): string {
-    if (!value || !looksLikeDoubleEscapedHtml(value)) {
+    if (!value) {
         return value;
     }
-    return value
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&amp;/g, "&");
+    let prev = value;
+    for (let i = 0; i < 3; i++) {
+        let next: string;
+        if (/<[a-zA-Z][^>]*>/.test(prev)) {
+            next = prev
+                .replace(/&lt;(\s*\/?\s*[a-zA-Z][^;]*?)&gt;/gi, "<$1>")
+                .replace(/&#60;(\s*\/?\s*[a-zA-Z][^;]*?)&#62;/gi, "<$1>")
+                .replace(/&amp;(lt|gt|quot|amp);/gi, "&$1;");
+        } else {
+            next = decodeEntitiesOnce(prev);
+        }
+        if (next === prev) {
+            return next;
+        }
+        prev = next;
+    }
+    return prev;
 }
 
 export interface ArticleBodySource {
@@ -68,11 +102,11 @@ export function sanitizeArticleHtml(html: string): string {
     }
 
     let processed = decodeDoubleEscapedHtml(html);
-    if (looksLikeMarkdown(html) && !/<[a-zA-Z][^>]*>/.test(html)) {
+    if (looksLikeMarkdown(processed) && !/<[a-zA-Z][^>]*>/.test(processed)) {
         try {
-            processed = md.render(html);
+            processed = md.render(processed);
         } catch {
-            processed = html;
+            // Keep the decoded markup on renderer failure.
         }
     }
 

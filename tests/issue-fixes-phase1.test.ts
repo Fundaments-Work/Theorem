@@ -53,9 +53,28 @@ describe("double-escaped HTML detection and recovery", () => {
         );
     });
 
-    it("leaves normal text untouched", () => {
+    it("decodes prose entities to their rendered form", () => {
+        // Single-level entities decode (renders identically in the DOM).
         expect(decodeDoubleEscapedHtml("Fish &amp; chips")).toBe(
-            "Fish &amp; chips",
+            "Fish & chips",
+        );
+    });
+
+    it("decodes numeric and double-encoded tag entities", () => {
+        expect(decodeDoubleEscapedHtml("&#60;p&#62;Hi&#60;/p&#62;")).toBe(
+            "<p>Hi</p>",
+        );
+        expect(decodeDoubleEscapedHtml("&amp;lt;p&amp;gt;Hi&amp;lt;/p&amp;gt;")).toBe(
+            "<p>Hi</p>",
+        );
+    });
+
+    it("decodes escaped tags inside mixed markup, preserving prose entities", () => {
+        expect(
+            decodeDoubleEscapedHtml("<div>Real</div>&lt;p&gt;Escaped&lt;/p&gt;"),
+        ).toBe("<div>Real</div><p>Escaped</p>");
+        expect(decodeDoubleEscapedHtml("<p>Fish &amp; chips</p>")).toBe(
+            "<p>Fish &amp; chips</p>",
         );
     });
 });
@@ -80,6 +99,25 @@ describe("sanitizeArticleHtml renders escaped feeds as markup", () => {
         const out = sanitizeArticleHtml('<p>Plain <a href="https://example.com">link</a></p>');
         expect(out).toContain("<p>");
         expect(out).toContain("link");
+    });
+
+    it("escaped markup with markdown-like signals renders as markup, not literal tags", () => {
+        // Transport-escaped HTML wins over markdown: asterisks stay literal.
+        const out = sanitizeArticleHtml("&lt;p&gt;Hello **bold** text&lt;/p&gt;");
+        expect(out).toContain("Hello");
+        expect(out).not.toContain("&lt;p&gt;");
+    });
+
+    it("mixed genuine and escaped markup renders both as elements", () => {
+        const out = sanitizeArticleHtml("<div>Real</div>&lt;p&gt;Escaped&lt;/p&gt;");
+        expect(out).toContain("<div>Real</div>");
+        expect(out).toContain("<p>Escaped</p>");
+        expect(out).not.toContain("&lt;");
+    });
+
+    it("numeric and double-encoded entities render as elements", () => {
+        expect(sanitizeArticleHtml("&#60;p&#62;Hi&#60;/p&#62;")).toContain("<p>Hi</p>");
+        expect(sanitizeArticleHtml("&amp;lt;p&amp;gt;Hi&amp;lt;/p&amp;gt;")).toContain("<p>Hi</p>");
     });
 });
 
