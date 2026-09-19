@@ -1431,101 +1431,115 @@ export function subscribeZustandToIrohDocs(): () => void {
         });
     };
 
-    const _bookSerializedCache = new Map<string, string>();
+    // Persistent identity indexes: id -> { ref, serialized }. Zustand
+    // immutable updates preserve object identity for untouched entities,
+    // so a reference check skips re-serialization in O(1) without touching
+    // the payload. Per notification this is one linear pass of cheap
+    // pointer comparisons plus one JSON.stringify per actually-changed
+    // entity — optimal for action-agnostic diffing (exact blind diff has
+    // an Omega(n) lower bound: any skipped slot could hide a change).
+    // Stale entries from deleted ids are harmless: a re-added id fails the
+    // ref check and is treated as changed. They are swept only when the
+    // index outgrows the array, i.e. deletions happened (rare).
+    const bookIndex = new Map<string, { ref: unknown; serialized: string }>();
+    const annoIndex = new Map<string, { ref: unknown; serialized: string }>();
+    const collectionIndex = new Map<string, { ref: unknown; serialized: string }>();
+    // Persistent membership for exact deletion detection (a same-size
+    // delete+add must still trigger the full-doc rewrite).
+    let prevAnnoIds = new Set(useLibraryStore.getState().annotations.map(a => a.id));
+    let prevCollectionIds = new Set(useLibraryStore.getState().collections.map(c => c.id));
+
+    function sweepStaleIndex(
+        index: Map<string, { ref: unknown; serialized: string }>,
+        liveIds: Set<string>,
+    ): void {
+        for (const id of index.keys()) {
+            if (!liveIds.has(id)) index.delete(id);
+        }
+    }
 
     unsubs.push(useLibraryStore.subscribe((state) => {
         if (_bridgePaused) return;  
         if (state.books !== prevBooks) {
-            const oldBooks = prevBooks;
             prevBooks = state.books;
 
-            const oldMap = new Map(oldBooks.map(b => [b.id, b]));
-            const newIdSet = new Set(state.books.map(b => b.id));
-            const hasDeletions = oldBooks.length !== state.books.length
-                || oldBooks.some(b => !newIdSet.has(b.id));
-
-            if (!hasDeletions) {
-                
-                for (const book of state.books) {
-                    const oldBook = oldMap.get(book.id);
-                    if (!oldBook) {
-                        const serialized = serializeBook(book);
-                        _bookSerializedCache.set(book.id, serialized);
-                        scheduleDocsWrite("book:" + book.id, () =>
-                            docsSetEntry("book:" + book.id, serialized), "book:" + book.id);
-                    } else if (book !== oldBook) {
-                        const cached = _bookSerializedCache.get(book.id);
-                        if (cached === undefined) {
-                            const serialized = serializeBook(book);
-                            _bookSerializedCache.set(book.id, serialized);
-                            scheduleDocsWrite("book:" + book.id, () =>
-                                docsSetEntry("book:" + book.id, serialized), "book:" + book.id);
-                        } else {
-                            const currSerialized = serializeBook(book);
-                            if (currSerialized !== cached) {
-                                _bookSerializedCache.set(book.id, currSerialized);
-                                scheduleDocsWrite("book:" + book.id, () =>
-                                    docsSetEntry("book:" + book.id, currSerialized), "book:" + book.id);
-                            }
-                        }
-                    }
+            for (const book of state.books) {
+                const entry = bookIndex.get(book.id);
+                if (entry && entry.ref === book) continue;
+                const serialized = serializeBook(book);
+                if (!entry || entry.serialized !== serialized) {
+                    bookIndex.set(book.id, { ref: book, serialized });
+                    scheduleDocsWrite("book:" + book.id, () =>
+                        docsSetEntry("book:" + book.id, serialized), "book:" + book.id);
+                } else {
+                    entry.ref = book;
                 }
-            } else {
-                
-                _bookSerializedCache.clear();
-                for (const book of state.books) {
-                    const prevBook = oldMap.get(book.id);
-                    const currSerialized = serializeBook(book);
-                    _bookSerializedCache.set(book.id, currSerialized);
-                    if (!prevBook) {
-                        scheduleDocsWrite("book:" + book.id, () =>
-                            docsSetEntry("book:" + book.id, currSerialized), "book:" + book.id);
-                    } else {
-                        const prevSerialized = serializeBook(prevBook);
-                        if (currSerialized !== prevSerialized) {
-                            scheduleDocsWrite("book:" + book.id, () =>
-                                docsSetEntry("book:" + book.id, currSerialized), "book:" + book.id);
-                        }
-                    }
-                }
+            }
+            if (bookIndex.size > state.books.length) {
+                sweepStaleIndex(bookIndex, new Set(state.books.map(b => b.id)));
             }
         }
         if (state.annotations !== prevAnnotations) {
-            const prev = prevAnnotations;
             prevAnnotations = state.annotations;
-            const currMap = new Map(state.annotations.map(a => [a.id, a]));
-            const prevMap = new Map(prev.map(a => [a.id, a]));
-            const hasDeletions = [...prevMap.keys()].some(id => !currMap.has(id));
-            if (hasDeletions) {
-                scheduleDocsWrite("annotations", () =>
-                    docsSetEntry("annotations", JSON.stringify(state.annotations)), "annotations");
-            } else {
-                for (const [id, ann] of currMap) {
-                    if (!prevMap.has(id) || JSON.stringify(ann) !== JSON.stringify(prevMap.get(id)!)) {
-                        const serialized = JSON.stringify(ann);
-                        const annoKey = "anno:" + (ann.bookId || "global") + ":" + id;
-                        scheduleDocsWrite(annoKey, () =>
-                            docsSetEntry(annoKey, serialized), annoKey);
-                    }
+            const annotations = state.annotations;
+            const seenAnnoIds = new Set<string>();
+            for (const ann of annotations) {
+                seenAnnoIds.add(ann.id);
+                const entry = annoIndex.get(ann.id);
+                if (entry && entry.ref === ann) continue;
+                const serialized = JSON.stringify(ann);
+                if (!entry || entry.serialized !== serialized) {
+                    annoIndex.set(ann.id, { ref: ann, serialized });
+                    const annoKey = "anno:" + (ann.bookId || "global") + ":" + ann.id;
+                    scheduleDocsWrite(annoKey, () =>
+                        docsSetEntry(annoKey, serialized), annoKey);
+                } else {
+                    entry.ref = ann;
                 }
+            }
+            // Exact deletion detection against persistent membership: a
+            // same-size delete+add must still trigger the full-doc rewrite.
+            let annoDeletion = false;
+            for (const id of prevAnnoIds) {
+                if (!seenAnnoIds.has(id)) { annoDeletion = true; break; }
+            }
+            prevAnnoIds = seenAnnoIds;
+            if (annoDeletion) {
+                scheduleDocsWrite("annotations", () =>
+                    docsSetEntry("annotations", JSON.stringify(annotations)), "annotations");
+            }
+            if (annoIndex.size > annotations.length) {
+                sweepStaleIndex(annoIndex, seenAnnoIds);
             }
         }
         if (state.collections !== prevCollections) {
-            const prev = prevCollections;
             prevCollections = state.collections;
-            const currMap = new Map(state.collections.map(c => [c.id, c]));
-            const prevMap = new Map(prev.map(c => [c.id, c]));
-            const hasDeletions = [...prevMap.keys()].some(id => !currMap.has(id));
-            if (hasDeletions) {
-                scheduleDocsWrite("collections", () =>
-                    docsSetEntry("collections", JSON.stringify(state.collections)), "collections");
-            } else {
-                for (const [id, col] of currMap) {
-                    if (!prevMap.has(id) || JSON.stringify(col) !== JSON.stringify(prevMap.get(id)!)) {
-                        scheduleDocsWrite("collection:" + id, () =>
-                            docsSetEntry("collection:" + id, JSON.stringify(col)), "collection:" + id);
-                    }
+            const collections = state.collections;
+            const seenCollectionIds = new Set<string>();
+            for (const col of collections) {
+                seenCollectionIds.add(col.id);
+                const entry = collectionIndex.get(col.id);
+                if (entry && entry.ref === col) continue;
+                const serialized = JSON.stringify(col);
+                if (!entry || entry.serialized !== serialized) {
+                    collectionIndex.set(col.id, { ref: col, serialized });
+                    scheduleDocsWrite("collection:" + col.id, () =>
+                        docsSetEntry("collection:" + col.id, serialized), "collection:" + col.id);
+                } else {
+                    entry.ref = col;
                 }
+            }
+            let collectionDeletion = false;
+            for (const id of prevCollectionIds) {
+                if (!seenCollectionIds.has(id)) { collectionDeletion = true; break; }
+            }
+            prevCollectionIds = seenCollectionIds;
+            if (collectionDeletion) {
+                scheduleDocsWrite("collections", () =>
+                    docsSetEntry("collections", JSON.stringify(collections)), "collections");
+            }
+            if (collectionIndex.size > collections.length) {
+                sweepStaleIndex(collectionIndex, seenCollectionIds);
             }
         }
         if (state.deletionTombstones !== prevTombstones) {

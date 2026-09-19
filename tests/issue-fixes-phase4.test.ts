@@ -113,6 +113,35 @@ describe("shelf multi-select wiring", () => {
     });
 });
 
+describe("sync bridge persistent identity indexes", () => {
+    const orchestrator = readFileSync(
+        resolve("src/core/lib/sync-orchestrator.ts"),
+        "utf-8",
+    );
+
+    it("diffs via persistent indexes, not per-notification Map rebuilds", () => {
+        expect(orchestrator).toContain("bookIndex");
+        expect(orchestrator).toContain("annoIndex");
+        expect(orchestrator).toContain("collectionIndex");
+        expect(orchestrator).not.toContain("const oldMap");
+        expect(orchestrator).not.toContain("const newIdSet");
+        expect(orchestrator).not.toContain("_bookSerializedCache");
+    });
+
+    it("rebuilds membership only on the guarded stale-sweep path", () => {
+        expect(orchestrator).toContain("if (bookIndex.size > ");
+    });
+
+    it("skips re-serialization on referential identity", () => {
+        expect(orchestrator).toContain("entry.ref ===");
+    });
+
+    it("keeps exact deletion semantics with persistent membership", () => {
+        expect(orchestrator).toContain("prevAnnoIds");
+        expect(orchestrator).toContain("prevCollectionIds");
+        expect(orchestrator).toContain("sweepStaleIndex");
+    });
+});
 describe("batch store actions", () => {
     const store = readFileSync(
         resolve("src/core/store/libraryStore.ts"),
