@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { triggerVaultAutoSync } from "../lib/vault-sync";
-import { theoremPersistStorage } from "../lib/persist-storage";
+import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import { deleteBookStorage } from "../lib/storage-manager";
 import { getCoverImage } from "../lib/storage";
@@ -1390,7 +1390,7 @@ export const useLibraryStore = create<LibraryStore>()(
         {
             name: "theorem-library",
             version: 6,
-            storage: createJSONStorage(() => theoremPersistStorage),
+            storage: deferredJsonStorage,
             migrate: (persistedState, _version) => {
                 const persisted = (
                     typeof persistedState === "object" && persistedState !== null
@@ -1433,14 +1433,17 @@ export const useLibraryStore = create<LibraryStore>()(
                     recentBooksCache,
                 } as PersistedLibraryState;
             },
-            partialize: (state): PersistedLibraryState => ({
-                books: state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[],
-                collections: state.collections,
-                annotations: state.annotations,
-                deletionTombstones: state.deletionTombstones,
-                lastScannedAt: state.lastScannedAt,
-                recentBooksCache: state.recentBooksCache.map(({ coverPath: _, ...book }) => book) as CachedBookMetadata[],
-            }),
+            partialize: memoizePartialize(
+                (state) => [state.books, state.collections, state.annotations, state.deletionTombstones, state.lastScannedAt, state.recentBooksCache],
+                (state): PersistedLibraryState => ({
+                    books: state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[],
+                    collections: state.collections,
+                    annotations: state.annotations,
+                    deletionTombstones: state.deletionTombstones,
+                    lastScannedAt: state.lastScannedAt,
+                    recentBooksCache: state.recentBooksCache.map(({ coverPath: _, ...book }) => book) as CachedBookMetadata[],
+                }),
+            ),
             onRehydrateStorage: () => (state) => {
                 if (!state) {
                     useLibraryStore.setState({ coversHydrated: true });

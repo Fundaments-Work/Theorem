@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import { theoremPersistStorage } from "../lib/persist-storage";
+import { persist } from "zustand/middleware";
+import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { DEFAULT_OPDS_PRESETS } from "../services/OpdsService";
 import type { OpdsCatalog } from "../types";
 
@@ -116,11 +116,14 @@ export const useOpdsStore = create<OpdsState>()(
         {
             name: "theorem-opds",
             version: 2,
-            storage: createJSONStorage(() => theoremPersistStorage),
-            partialize: (state) => ({
-                catalogs: state.catalogs,
-                activeCatalogId: state.activeCatalogId,
-            }),
+            storage: deferredJsonStorage,
+            partialize: memoizePartialize(
+                (state) => [state.catalogs, state.activeCatalogId],
+                (state) => ({
+                    catalogs: state.catalogs,
+                    activeCatalogId: state.activeCatalogId,
+                }),
+            ),
             migrate: (persistedState: any, version: number) => {
                 if (version < 2 && persistedState) {
                     const catalogs = Array.isArray(persistedState.catalogs)

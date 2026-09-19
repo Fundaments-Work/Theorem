@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { applyAppTheme, applyReaderStyles, initReaderStyles } from "../lib/design-tokens";
-import { theoremPersistStorage } from "../lib/persist-storage";
+import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import type {
     AppSettings,
@@ -211,12 +211,15 @@ export const useSettingsStore = create<SettingsStore>()(
         {
             name: "theorem-settings",
             version: 12,
-            storage: createJSONStorage(() => theoremPersistStorage),
-            partialize: (state) => ({
-                settings: state.settings,
-                stats: state.stats,
-                settingsLastModifiedAt: state.settingsLastModifiedAt,
-            }),
+            storage: deferredJsonStorage,
+            partialize: memoizePartialize(
+                (state) => [state.settings, state.stats, state.settingsLastModifiedAt],
+                (state) => ({
+                    settings: state.settings,
+                    stats: state.stats,
+                    settingsLastModifiedAt: state.settingsLastModifiedAt,
+                }),
+            ),
             migrate: (persistedState, version) => {
                 const state = (
                     typeof persistedState === "object" && persistedState !== null

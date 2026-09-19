@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { isMobile } from "../lib/env";
-import { theoremPersistStorage } from "../lib/persist-storage";
+import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import type { AppRoute, UIState } from "../types";
 
 interface UIStore extends UIState {
@@ -110,12 +110,15 @@ export const useUIStore = create<UIStore>()(
         {
             name: 'theorem-ui',
             version: 1,
-            storage: createJSONStorage(() => theoremPersistStorage),
-            partialize: (state) => ({
-                currentRoute: state.currentRoute,
-                currentBookId: state.currentBookId,
-                sidebarOpen: state.sidebarOpen,
-            }),
+            storage: deferredJsonStorage,
+            partialize: memoizePartialize(
+                (state) => [state.currentRoute, state.currentBookId, state.sidebarOpen],
+                (state) => ({
+                    currentRoute: state.currentRoute,
+                    currentBookId: state.currentBookId,
+                    sidebarOpen: state.sidebarOpen,
+                }),
+            ),
         }
     )
 );

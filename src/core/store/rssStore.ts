@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import { theoremPersistStorage } from "../lib/persist-storage";
+import { persist } from "zustand/middleware";
+import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import {
     fetchAndParseFeed,
     materializeFeed,
@@ -524,8 +524,8 @@ export const useRssStore = create<RssStore>()(
         {
             name: 'theorem-rss',
             version: 1,
-            storage: createJSONStorage(() => theoremPersistStorage),
-            partialize: (state) => {
+            storage: deferredJsonStorage,
+            partialize: memoizePartialize((state) => [state.feeds, state.articles], (state) => {
                 const MAX_ARTICLES = 500;
                 const MAX_ARTICLE_AGE_DAYS = 30;
 
@@ -552,7 +552,7 @@ export const useRssStore = create<RssStore>()(
                     feeds: state.feeds,
                     articles: truncatedArticles,
                 };
-            },
+            }),
         },
     ),
 );

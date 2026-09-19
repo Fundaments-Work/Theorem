@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { isTauri } from "../lib/env";
-import { theoremPersistStorage } from "../lib/persist-storage";
+import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import {
     sqliteDeleteVocabularyTerm,
     sqliteGetVocabularyTerms,
@@ -332,7 +332,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
         {
             name: "theorem-vocabulary",
             version: 5,
-            storage: createJSONStorage(() => theoremPersistStorage),
+            storage: deferredJsonStorage,
             migrate: (persistedState, _version) => {
                 const persisted = isRecord(persistedState) ? persistedState : {};
                 const {
@@ -370,10 +370,13 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     activeDownload: null,
                 } as VocabularyStore;
             },
-            partialize: (state) => ({
-                vocabularyTerms: state.vocabularyTerms,
-                installedDictionaries: state.installedDictionaries,
-            }),
+            partialize: memoizePartialize(
+                (state) => [state.vocabularyTerms, state.installedDictionaries],
+                (state) => ({
+                    vocabularyTerms: state.vocabularyTerms,
+                    installedDictionaries: state.installedDictionaries,
+                }),
+            ),
             onRehydrateStorage: () => (state) => {
                 if (!state) {
                     return;

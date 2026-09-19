@@ -104,6 +104,7 @@ function installFlushHandlers(): void {
     window.addEventListener('visibilitychange', () => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
             void flushAllPersistWrites();
+            void flushDeferredPersistWrites(false);
         }
     });
 
@@ -111,13 +112,13 @@ function installFlushHandlers(): void {
         for (const [name, value] of pendingPersistWrites.entries()) {
             setLocalItem(name, value);
         }
+        flushDeferredPersistWrites(true);
     });
 
     flushHandlersInstalled = true;
 }
 
-export const theoremPersistStorage: StateStorage = {
-    async getItem(name) {
+export const theoremPersistStorage: StateStorage = {    async getItem(name) {
         installFlushHandlers();
 
         const pendingValue = pendingPersistWrites.get(name);
@@ -186,3 +187,151 @@ export const theoremPersistStorage: StateStorage = {
         removeLocalItem(name);
     },
 };
+
+// ─── Deferred JSON adapter ──────────────────────────────────────────────
+// zustand v5 persist runs partialize + JSON.stringify synchronously inside
+// every set() — the 350ms debounce in theoremPersistStorage only defers the
+// storage write, not the main-thread serialization. This adapter receives
+// the partialized { state, version } object, coalesces bursts on a trailing
+// timer, and moves JSON.stringify into an idle callback, so a set() costs
+// O(slices) identity checks (+ O(n) light allocs only when a persisted
+// slice actually changed) instead of O(n) string building every time.
+// Crash-consistency is preserved: pending values flush on tab hide and
+// synchronously on page unload, mirroring the string-storage behavior.
+
+interface DeferredPersistValue {
+    state: unknown;
+    version?: number;
+}
+
+const pendingDeferredWrites = new Map<string, DeferredPersistValue>();
+const pendingDeferredTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleIdleFlush(task: () => void): void {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => task(), { timeout: 1000 });
+    } else {
+        setTimeout(task, 0);
+    }
+}
+
+async function flushDeferredWrite(name: string): Promise<void> {
+    const pending = pendingDeferredWrites.get(name);
+    if (pending == null) {
+        return;
+    }
+    pendingDeferredWrites.delete(name);
+    const timer = pendingDeferredTimers.get(name);
+    if (timer) {
+        clearTimeout(timer);
+        pendingDeferredTimers.delete(name);
+    }
+    try {
+        const json = JSON.stringify(pending);
+        await theoremPersistStorage.setItem(name, json);
+    } catch {
+        // Best-effort background persistence; next flush retries.
+    }
+}
+
+function flushDeferredWriteSync(name: string): void {
+    const pending = pendingDeferredWrites.get(name);
+    if (pending == null) {
+        return;
+    }
+    pendingDeferredWrites.delete(name);
+    const timer = pendingDeferredTimers.get(name);
+    if (timer) {
+        clearTimeout(timer);
+        pendingDeferredTimers.delete(name);
+    }
+    try {
+        setLocalItem(name, JSON.stringify(pending));
+    } catch {
+        // Unload path: nothing left to try.
+    }
+}
+
+export function flushDeferredPersistWrites(sync: boolean): void {
+    const names = [...pendingDeferredWrites.keys()];
+    if (sync) {
+        for (const name of names) flushDeferredWriteSync(name);
+        return;
+    }
+    void Promise.allSettled(names.map((name) => flushDeferredWrite(name)));
+}
+
+function scheduleDeferredWrite(name: string, value: DeferredPersistValue): void {
+    const existing = pendingDeferredWrites.get(name);
+    if (existing && existing.state === value.state && existing.version === value.version) {
+        return;
+    }
+    pendingDeferredWrites.set(name, value);
+
+    if (pendingDeferredTimers.has(name)) {
+        return;
+    }
+    const timer = setTimeout(() => {
+        pendingDeferredTimers.delete(name);
+        scheduleIdleFlush(() => {
+            void flushDeferredWrite(name);
+        });
+    }, PERSIST_WRITE_DEBOUNCE_MS);
+    pendingDeferredTimers.set(name, timer);
+}
+
+export const deferredJsonStorage = {
+    async getItem(name: string): Promise<DeferredPersistValue | null> {
+        const pending = pendingDeferredWrites.get(name);
+        if (pending != null) {
+            return pending;
+        }
+        const raw = await theoremPersistStorage.getItem(name);
+        if (raw == null) return null;
+        try {
+            return JSON.parse(raw) as DeferredPersistValue;
+        } catch {
+            return null;
+        }
+    },
+    setItem(name: string, value: DeferredPersistValue): Promise<void> {
+        installFlushHandlers();
+        scheduleDeferredWrite(name, value);
+        return Promise.resolve();
+    },
+    async removeItem(name: string): Promise<void> {
+        pendingDeferredWrites.delete(name);
+        const timer = pendingDeferredTimers.get(name);
+        if (timer) {
+            clearTimeout(timer);
+            pendingDeferredTimers.delete(name);
+        }
+        await theoremPersistStorage.removeItem(name);
+    },
+};
+
+// Memoized partialize: rebuild the persisted shape only when one of the
+// selected slices changed identity. Unrelated sets hit the O(slices) fast
+// path and reuse the previous result object, which also lets the deferred
+// adapter skip rescheduling via the state-identity check above.
+export function memoizePartialize<S, P>(
+    selectSlices: (state: S) => unknown[],
+    build: (state: S) => P,
+): (state: S) => P {
+    let lastSlices: unknown[] | null = null;
+    let lastResult: P | null = null;
+    return (state: S): P => {
+        const slices = selectSlices(state);
+        if (
+            lastSlices !== null
+            && lastResult !== null
+            && slices.length === lastSlices.length
+            && slices.every((slice, index) => slice === lastSlices![index])
+        ) {
+            return lastResult;
+        }
+        lastSlices = slices;
+        lastResult = build(state);
+        return lastResult;
+    };
+}
