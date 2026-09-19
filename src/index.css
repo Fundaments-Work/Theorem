@@ -472,6 +472,14 @@ foliate-view * {
 .scrollbar-solid::-webkit-scrollbar-thumb:hover {
     background: var(--color-text-secondary);
 }
+/* Engines without scrollbar-gutter (e.g. WebKitGTK in the Linux desktop
+   build) would otherwise float an overlay thumb over content: fake the
+   rail with a border so the thumb sits over a track, never over books. */
+@supports not (scrollbar-gutter: stable) {
+    .scrollbar-solid {
+        border-right: 8px solid var(--color-surface-muted);
+    }
+}
 
 [data-reading-mode] .reader-toolbar-scroll {
     scrollbar-width: none;

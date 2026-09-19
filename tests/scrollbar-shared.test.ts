@@ -11,6 +11,11 @@ describe("scrollbar-solid shared by all list scrollers", () => {
         expect(css).toContain("scrollbar-gutter: stable");
     });
 
+    it("rails the thumb on engines without scrollbar-gutter (WebKitGTK)", () => {
+        const css = readFileSync(resolve("src/index.css"), "utf-8");
+        expect(css).toContain("@supports not (scrollbar-gutter: stable)");
+    });
+
     const surfaces: Array<[string, string[]]> = [
         ["src/App.tsx", ["scrollbar-solid"]],
         [
