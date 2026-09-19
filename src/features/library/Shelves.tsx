@@ -373,7 +373,6 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         getScrollElement: useCallback(() => scrollRef.current, []),
         estimateSize: getEstimateSize,
         overscan: 3,
-        measureElement: (el) => el.getBoundingClientRect().height,
     });
 
     const handleOpenBook = (book: Book) => {
@@ -463,7 +462,6 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     </div>
                 ) : (
                 <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                    <div style={{ paddingTop: `${rowVirtualizer.getVirtualItems()[0]?.start ?? 0}px` }}>
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const rowStart = virtualRow.index * (isListView ? 1 : effectiveCols);
                             const itemsInRow = isListView
@@ -490,7 +488,17 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                             };
 
                             return (
-                                <div key={virtualRow.key} data-index={virtualRow.index} ref={rowVirtualizer.measureElement}>
+                                <div
+                                    key={virtualRow.key}
+                                    data-index={virtualRow.index}
+                                    style={{
+                                        position: "absolute",
+                                        top: 0,
+                                        left: 0,
+                                        width: "100%",
+                                        transform: `translateY(${virtualRow.start}px)`,
+                                    }}
+                                >
                                     {isListView ? (
                                         <div className="pb-1">
                                             <MemoizedBookCard
@@ -516,7 +524,6 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                 </div>
                             );
                         })}
-                    </div>
                 </div>
                 )}
             </div>

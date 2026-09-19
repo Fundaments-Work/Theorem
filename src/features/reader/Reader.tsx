@@ -2532,7 +2532,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     return (
         <div
             className={cn(
-                "fixed inset-0 overflow-clip",
+                "fixed inset-0 overflow-clip flex flex-col",
                 !isPdfFormat && `theme-${settings.readerSettings.theme}`
             )}
             style={{
@@ -2544,10 +2544,12 @@ const BookReaderPage = memo(function BookReaderPage() {
             
             <div
                 ref={toolbarContainerRef}
-                className={cn(
-                    "absolute top-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out",
-                    shouldShowReaderChrome ? "translate-y-0" : "-translate-y-full"
-                )}
+                className="relative z-[140] shrink-0 overflow-hidden transition-[max-height,opacity] duration-150 ease-out"
+                style={{
+                    maxHeight: shouldShowReaderChrome ? toolbarHeight : 0,
+                    opacity: shouldShowReaderChrome ? 1 : 0,
+                }}
+                aria-hidden={!shouldShowReaderChrome}
             >
                 <WindowTitlebar
                     metadata={metadata}
@@ -2596,7 +2598,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 />
             </div>
 
-            <div className="absolute inset-0 overflow-hidden z-0 isolate">
+            <div className="relative z-0 isolate flex min-h-0 flex-1 flex-col overflow-hidden">
                 {isPdfFormat ? (
                     <Suspense fallback={<div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">Loading PDF...</div>}>
                         {resolvedPdfPath || pdfData ? (
@@ -2733,10 +2735,10 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
                         audioGenProgress={audioGenProgress}
                         className={cn(
-                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
-                            immersionMode
-                                ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
-                                : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
+                            "relative z-[140] shrink-0 overflow-hidden backdrop-blur-xl transition-[max-height,opacity] duration-150 ease-out",
+                            shouldShowReaderChrome
+                                ? "max-h-[320px] opacity-100"
+                                : "max-h-0 opacity-0 pointer-events-none",
                         )}
                     />
 

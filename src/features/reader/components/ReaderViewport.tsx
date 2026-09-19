@@ -595,7 +595,12 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
     const displayError = error?.message?.replace(/\s+/g, " ").trim();
 
     return (
-        <div className={cn('relative w-full h-full overflow-hidden', className)}>
+        <div
+            className={cn('relative w-full h-full overflow-hidden', className)}
+            style={{
+                filter: `brightness(${settings.brightness}%)`,
+            }}
+        >
             
             {isLoading && (
                 <PageLoader
@@ -630,11 +635,11 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
 
             <div
                 ref={containerRef}
-                className={cn('absolute inset-0 z-0 isolate reader-viewport custom-scrollbar')}
+                className={cn('absolute inset-0 z-0 isolate reader-viewport custom-scrollbar overscroll-contain')}
                 style={{ 
                     touchAction: settings.flow === 'scroll' ? 'pan-y pinch-zoom' : 'none',
                     overflow: settings.flow === 'scroll' ? 'auto' : 'hidden',
-                    filter: `brightness(${settings.brightness}%)`,
+                    overscrollBehavior: 'contain',
                 }}
             />
             

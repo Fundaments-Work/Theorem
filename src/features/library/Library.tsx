@@ -1056,6 +1056,7 @@ export function LibraryPage() {
     const markBookCompleted = useLibraryStore((state) => state.markBookCompleted);
     const markBookUnread = useLibraryStore((state) => state.markBookUnread);
     const addBookToCollection = useLibraryStore((state) => state.addBookToCollection);
+    const addBooksToCollection = useLibraryStore((state) => state.addBooksToCollection);
     const addCollection = useLibraryStore((state) => state.addCollection);
 
     const setRoute = useUIStore((state) => state.setRoute);
@@ -1394,7 +1395,6 @@ export function LibraryPage() {
         getScrollElement: useCallback(() => scrollRef.current, []),
         estimateSize: getEstimateSize,
         overscan: 3,
-        measureElement: (el) => el.getBoundingClientRect().height,
     });
 
     useEffect(() => {
@@ -1791,14 +1791,12 @@ export function LibraryPage() {
         if (bookId) {
             addBookToCollection(bookId, shelfId);
         } else {
-            
-            for (const id of selectedBooks) {
-                addBookToCollection(id, shelfId);
-            }
+            // Single batched store update — N individual sets freeze the UI (#104).
+            addBooksToCollection(selectedBooks, shelfId);
             clearSelection();
             setIsSelecting(false);
         }
-    }, [addBookToCollection, selectedBooks, clearSelection]);
+    }, [addBookToCollection, addBooksToCollection, selectedBooks, clearSelection]);
 
     const handleCreateShelf = useCallback((name: string) => {
         const newShelf: Collection = {
@@ -2066,7 +2064,6 @@ export function LibraryPage() {
                             </div>
                         ) : (
                             <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                                <div style={{ paddingTop: `${rowVirtualizer.getVirtualItems()[0]?.start ?? 0}px` }}>
                                     {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                                         const rowStart = virtualRow.index * (isListView ? 1 : effectiveCols);
                                         const itemsInRow = isListView
@@ -2077,7 +2074,17 @@ export function LibraryPage() {
                                             : sortedBooks.slice(rowStart, rowStart + itemsInRow);
 
                                         return (
-                                            <div key={virtualRow.key} data-index={virtualRow.index} ref={rowVirtualizer.measureElement}>
+                                            <div
+                                                key={virtualRow.key}
+                                                data-index={virtualRow.index}
+                                                style={{
+                                                    position: "absolute",
+                                                    top: 0,
+                                                    left: 0,
+                                                    width: "100%",
+                                                    transform: `translateY(${virtualRow.start}px)`,
+                                                }}
+                                            >
                                                 {isListView ? (
                                                     <div className="pb-1">
                                                         <MemoizedBookCard
@@ -2115,7 +2122,6 @@ export function LibraryPage() {
                                             </div>
                                         );
                                     })}
-                                </div>
                             </div>
                         )}
                     </section>

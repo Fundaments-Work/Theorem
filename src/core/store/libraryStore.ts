@@ -469,6 +469,7 @@ interface LibraryStore {
     removeCollection: (collectionId: string) => void;
     updateCollection: (collectionId: string, updates: Partial<Omit<Collection, 'id'>>) => void;
     addBookToCollection: (bookId: string, collectionId: string) => void;
+    addBooksToCollection: (bookIds: string[], collectionId: string) => void;
     removeBookFromCollection: (bookId: string, collectionId: string) => void;
 
     addAnnotation: (annotation: Annotation) => void;
@@ -1039,17 +1040,37 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             addBookToCollection: (bookId, collectionId) => {
-                set((state) => {
-                    if (!getBookLookup(state.books).has(bookId)) return state;
-                    return {
-                        collections: state.collections.map((c) =>
-                            c.id === collectionId && !c.bookIds.includes(bookId)
-                                ? { ...c, bookIds: [...c.bookIds, bookId], updatedAt: new Date() }
-                                : c
-                        ),
-                    };
-                });
-                scheduleMutationSync();
+                const state = get();
+                if (!getBookLookup(state.books).has(bookId)) return;
+                get().addBooksToCollection([bookId], collectionId);
+            },
+
+            // Batch shelf assignment in a single set + single sync/schedule
+            // so multi-select drops don't freeze the UI with N persists (#104).
+            addBooksToCollection: (bookIds, collectionId) => {
+                if (bookIds.length === 0) return;
+                const lookup = getBookLookup(get().books);
+                const validIds = bookIds.filter((id) => lookup.has(id));
+                if (validIds.length === 0) return;
+                let changed = false;
+                set((state) => ({
+                    collections: state.collections.map((c) => {
+                        if (c.id !== collectionId) return c;
+                        const existing = new Set(c.bookIds);
+                        const merged = [...c.bookIds];
+                        for (const id of validIds) {
+                            if (!existing.has(id)) {
+                                existing.add(id);
+                                merged.push(id);
+                                changed = true;
+                            }
+                        }
+                        return merged.length === c.bookIds.length
+                            ? c
+                            : { ...c, bookIds: merged, updatedAt: new Date() };
+                    }),
+                }));
+                if (changed) scheduleMutationSync();
             },
 
             removeBookFromCollection: (bookId, collectionId) => {
