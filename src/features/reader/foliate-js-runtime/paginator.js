@@ -1368,11 +1368,19 @@ export class Paginator extends HTMLElement {
         const $$styles = this.#styleMap.get(this.#view?.document)
         if (!$$styles) return
         const [$beforeStyle, $style] = $$styles
+        // Identical styles must not invalidate: every navigation re-pushes
+        // the cached CSS, and replacing the <style> text — even with equal
+        // content — forces a full recalc plus an async re-columnize, which
+        // paints one unstyled/zoomed frame (flash on open and chapter turns).
         if (Array.isArray(styles)) {
             const [beforeStyle, style] = styles
+            if ($beforeStyle.textContent === beforeStyle && $style.textContent === style) return
             $beforeStyle.textContent = beforeStyle
             $style.textContent = style
-        } else $style.textContent = styles
+        } else {
+            if ($style.textContent === styles) return
+            $style.textContent = styles
+        }
 
         requestAnimationFrame(() =>
             this.#background.style.background = getBackground(this.#view.document))

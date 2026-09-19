@@ -381,10 +381,11 @@ export class FoliateEngine {
 
             this.applySettingsSync();
 
-            // Build/apply the reader CSS concurrently with the first navigation;
-            // the content container stays hidden until onReady, so any re-layout
-            // from setStyles is not visible. We still await it before onReady.
-            const settingsApplied = this.applySettingsAsync().catch(() => undefined);
+            // Seed the reader CSS BEFORE the first navigation: afterLoad
+            // injects these styles pre-reveal, so awaiting here removes the
+            // race where the opening section paints one unstyled frame
+            // (zoom flash on book open). Cheap: cache hits skip rebuilds.
+            await this.applySettingsAsync().catch(() => undefined);
 
             this.applyZoomSync();
 
@@ -433,8 +434,6 @@ export class FoliateEngine {
             } finally {
                 this._navigationInProgress = false;
             }
-
-            await settingsApplied;
 
             this.options.onReady?.(metadata, toc);
 
