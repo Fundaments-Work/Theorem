@@ -447,13 +447,18 @@ export function mergeSettings(
     const remoteTs = toEpoch(incomingUpdatedAt);
     const localTs = toEpoch(localUpdatedAt);
 
+    // deviceSync and vault are device-local configuration: syncing them
+    // would clobber this device's export folder with a peer's path (or its
+    // empty default) on every last-writer-wins round.
     const deviceSync = existing.deviceSync;
+    const vault = existing.vault;
 
     if (remoteTs > localTs) {
         return {
             ...existing,
             ...incoming,
             deviceSync,
+            vault,
         };
     }
 
@@ -461,6 +466,7 @@ export function mergeSettings(
         ...incoming,
         ...existing,
         deviceSync,
+        vault,
     };
 }
 

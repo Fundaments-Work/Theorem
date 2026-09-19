@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, normalizeAuthor } from "../../../core/lib/utils";
-import { useLibraryStore, useUIStore } from "../../../core/store";
+import { useLibraryStore, useUIStore, getLibraryTitleSet, normalizeLibraryTitle } from "../../../core/store";
 import { DiscoverService } from "../../../core/services/DiscoverService";
 import type { OpdsEntry } from "../../../core/types";
 import { TheoremBookCover } from "../../../ui";
@@ -18,10 +18,9 @@ export function DiscoverBookCard({
     onSelect,
     className,
 }: DiscoverBookCardProps) {
-    const isBookInLibrary = useLibraryStore((state) =>
-        state.books.some(
-            (b) => b.title.toLowerCase().trim() === entry.title.toLowerCase().trim()
-        )
+    const books = useLibraryStore((state) => state.books);
+    const isBookInLibrary = getLibraryTitleSet(books).has(
+        normalizeLibraryTitle(entry.title)
     );
     const setRoute = useUIStore((state) => state.setRoute);
     const [isDownloading, setIsDownloading] = useState(false);

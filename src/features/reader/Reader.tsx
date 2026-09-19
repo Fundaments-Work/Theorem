@@ -2733,7 +2733,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
                         audioGenProgress={audioGenProgress}
                         className={cn(
-                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
+                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out",
                             immersionMode
                                 ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
                                 : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",

@@ -191,3 +191,39 @@ describe("batch store actions", () => {
         expect(settings).toContain("View Beta Release");
     });
 });
+
+describe("reader navbar avoids fullscreen blur", () => {
+    const reader = readFileSync(
+        resolve("src/features/reader/Reader.tsx"),
+        "utf-8",
+    );
+
+    it("bottom bar composites opaque instead of blurring scrolled content", () => {
+        expect(reader).toContain(
+            '"fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out"',
+        );
+        expect(reader).not.toContain("ease-out backdrop-blur-xl");
+    });
+});
+
+describe("discover title lookups are indexed", () => {
+    it("shares one WeakMap-cached title set instead of per-card scans", () => {
+        const store = readFileSync(
+            resolve("src/core/store/libraryStore.ts"),
+            "utf-8",
+        );
+        expect(store).toContain("getLibraryTitleSet");
+        expect(store).toContain("normalizeLibraryTitle");
+        const card = readFileSync(
+            resolve("src/features/catalogs/components/DiscoverBookCard.tsx"),
+            "utf-8",
+        );
+        expect(card).toContain("getLibraryTitleSet(books).has(");
+        expect(card).not.toContain("state.books.some(");
+        const modal = readFileSync(
+            resolve("src/features/catalogs/components/DiscoverDetailModal.tsx"),
+            "utf-8",
+        );
+        expect(modal).toContain("getLibraryTitleSet(books).has(");
+    });
+});

@@ -106,6 +106,29 @@ function getBookLookup(books: Book[]): Map<string, Book> {
     return nextLookup;
 }
 
+const libraryTitleSetCache = new WeakMap<Book[], Set<string>>();
+
+export function normalizeLibraryTitle(title: string): string {
+    return title.toLowerCase().trim();
+}
+
+// Shared normalized-title membership index for title-based existence
+// checks (e.g. Discover cards). Built once per books-array identity and
+// shared across all callers: O(n) once, O(1) per lookup — replacing
+// per-card O(n) .find/.some scans on every store notification.
+export function getLibraryTitleSet(books: Book[]): Set<string> {
+    const existing = libraryTitleSetCache.get(books);
+    if (existing) {
+        return existing;
+    }
+    const next = new Set<string>();
+    for (const book of books) {
+        next.add(normalizeLibraryTitle(book.title));
+    }
+    libraryTitleSetCache.set(books, next);
+    return next;
+}
+
 function getCachedBookLookup(cache: CachedBookMetadata[]): Map<string, CachedBookMetadata> {
     const existingLookup = cachedBookLookupCache.get(cache);
     if (existingLookup) {

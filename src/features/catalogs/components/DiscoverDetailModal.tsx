@@ -1,7 +1,7 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { BookOpen, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useLibraryStore, useUIStore } from "../../../core/store";
+import { useLibraryStore, useUIStore, getLibraryTitleSet, normalizeLibraryTitle } from "../../../core/store";
 import { DiscoverService } from "../../../core/services/DiscoverService";
 import type { OpdsEntry } from "../../../core/types";
 import { Modal, ModalBody, ModalFooter, ModalHeader, TheoremBookCover } from "../../../ui";
@@ -15,16 +15,10 @@ export function DiscoverDetailModal({ entry, onClose }: DiscoverDetailModalProps
     const setRoute = useUIStore((state) => state.setRoute);
     const [isDownloading, setIsDownloading] = useState(false);
 
-    const existingBook = useLibraryStore(
-        useCallback(
-            (state: ReturnType<typeof useLibraryStore.getState>) => {
-                if (!entry) return undefined;
-                const target = entry.title.toLowerCase().trim();
-                return state.books.find((b) => b.title.toLowerCase().trim() === target);
-            },
-            [entry]
-        )
-    );
+    const books = useLibraryStore((state) => state.books);
+    const existingBook = getLibraryTitleSet(books).has(normalizeLibraryTitle(entry?.title ?? ""))
+        ? books.find((b) => normalizeLibraryTitle(b.title) === normalizeLibraryTitle(entry?.title ?? ""))
+        : undefined;
 
     if (!entry) return null;
 

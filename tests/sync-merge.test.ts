@@ -864,8 +864,7 @@ describe("mergeSettings", () => {
         expect(result.theme).toBe("dark");
     });
 
-    it("fills in empty local vault fields from remote when local is newer", () => {
-        const local = makeSettings({
+    it("fills in empty local vault fields from remote when local is newer", () => {        const local = makeSettings({
             vault: {
                 enabled: false,
                 vaultPath: "/local/vault",
@@ -892,6 +891,37 @@ describe("mergeSettings", () => {
         );
         // Local vault path always preserved
         expect(result.vault.vaultPath).toBe("/local/vault");
+    });
+
+    it("never overwrites the device-local vault path even when remote is newer", () => {
+        const local = makeSettings({
+            vault: {
+                enabled: true,
+                vaultPath: "/local/vault",
+                autoExportHighlights: true,
+                highlightsFileName: "local-highlights",
+                vocabularyFileName: "local-vocab",
+            },
+        });
+        const remote = makeSettings({
+            vault: {
+                enabled: false,
+                vaultPath: "",
+                autoExportHighlights: false,
+                highlightsFileName: "",
+                vocabularyFileName: "",
+            },
+        });
+
+        const result = mergeSettings(
+            remote,
+            local,
+            "2025-06-01T00:00:00Z",
+            "2025-01-01T00:00:00Z",
+        );
+        // A peer with an empty path must not clear this device's export folder.
+        expect(result.vault.vaultPath).toBe("/local/vault");
+        expect(result.vault.enabled).toBe(true);
     });
 });
 
