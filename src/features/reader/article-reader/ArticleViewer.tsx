@@ -528,6 +528,141 @@ function buildRangeFromSnapshot(
     }
 }
 
+// Single-pass text index for highlight restore: one TreeWalker traversal
+// records every non-empty text node with its cumulative offset, so N
+// annotations restore in O(n + N log n) instead of O(N*n) repeated walks.
+// Offset accounting mirrors buildRangeFromSnapshot exactly (zero-length
+// nodes skipped, inclusive end comparisons, last-node fallback) so stored
+// snapshots resolve identically.
+export interface ArticleTextIndex {
+    nodes: Text[];
+    starts: number[];
+    lens: number[];
+    fullText: string;
+    totalLength: number;
+}
+
+export function buildArticleTextIndex(contentRoot: HTMLElement): ArticleTextIndex {
+    const nodes: Text[] = [];
+    const starts: number[] = [];
+    const lens: number[] = [];
+    const parts: string[] = [];
+    let traversed = 0;
+    const walker = document.createTreeWalker(contentRoot, NodeFilter.SHOW_TEXT, null);
+    while (walker.nextNode()) {
+        const textNode = walker.currentNode as Text;
+        const textLength = textNode.textContent?.length ?? 0;
+        if (textLength === 0) {
+            continue;
+        }
+        nodes.push(textNode);
+        starts.push(traversed);
+        lens.push(textLength);
+        parts.push(textNode.textContent ?? "");
+        traversed += textLength;
+    }
+    return { nodes, starts, lens, fullText: parts.join(""), totalLength: traversed };
+}
+
+interface IndexedRange {
+    range: Range;
+    startIdx: number;
+    startOff: number;
+    endIdx: number;
+    endOff: number;
+}
+
+export function buildIndexedRange(
+    snapshot: TextSelectionSnapshot,
+    index: ArticleTextIndex,
+): IndexedRange | null {
+    const startTarget = Math.max(0, snapshot.start);
+    const endTarget = Math.max(startTarget, snapshot.end);
+    if (endTarget <= startTarget || index.nodes.length === 0) {
+        return null;
+    }
+    // Leftmost node whose end >= target; ends are strictly increasing.
+    const find = (target: number): number => {
+        let lo = 0;
+        let hi = index.nodes.length - 1;
+        let ans = -1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (index.starts[mid] + index.lens[mid] >= target) {
+                ans = mid;
+                hi = mid - 1;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        return ans;
+    };
+    const startIdx = find(startTarget);
+    if (startIdx === -1) {
+        return null;
+    }
+    const startNode = index.nodes[startIdx];
+    const startLiveLen = startNode.textContent?.length ?? 0;
+    const startOff = clamp(startTarget - index.starts[startIdx], 0, startLiveLen);
+    let endIdx = find(endTarget);
+    let endNode: Text;
+    let endOff: number;
+    if (endIdx === -1) {
+        endIdx = index.nodes.length - 1;
+        endNode = index.nodes[endIdx];
+        endOff = endNode.textContent?.length ?? 0;
+    } else {
+        endNode = index.nodes[endIdx];
+        const endLiveLen = endNode.textContent?.length ?? 0;
+        endOff = clamp(endTarget - index.starts[endIdx], 0, endLiveLen);
+    }
+    if (startNode === endNode && endOff <= startOff) {
+        return null;
+    }
+    try {
+        const range = document.createRange();
+        range.setStart(startNode, startOff);
+        range.setEnd(endNode, endOff);
+        return { range, startIdx, startOff, endIdx, endOff };
+    } catch {
+        return null;
+    }
+}
+
+// Index-based highlight application: only nodes overlapping the snapshot
+// are visited (binary search + output-sensitive walk), skipping subtrees
+// already inside highlight marks — the same skip rule as
+// applyHighlightAcrossTextNodes. Per-node whitespace trimming is delegated
+// to wrapTextNodeRange unchanged. Live lengths + clamping absorb boundary
+// drift when an earlier restored mark split a shared text node.
+export function applyHighlightToIndexedNodes(
+    indexed: IndexedRange,
+    index: ArticleTextIndex,
+    highlightId: string,
+    color: HighlightColor,
+): boolean {
+    let applied = false;
+    for (let i = indexed.startIdx; i <= indexed.endIdx; i++) {
+        const textNode = index.nodes[i];
+        if (!textNode.isConnected) {
+            continue;
+        }
+        if (textNode.parentElement?.closest("mark.article-highlight")) {
+            continue;
+        }
+        const len = textNode.textContent?.length ?? 0;
+        if (len === 0) {
+            continue;
+        }
+        const startOffset = i === indexed.startIdx ? Math.min(indexed.startOff, len) : 0;
+        const endOffset = i === indexed.endIdx ? Math.min(indexed.endOff, len) : len;
+        if (wrapTextNodeRange(textNode, startOffset, endOffset, highlightId, color)) {
+            applied = true;
+        }
+    }
+    return applied;
+}
+
 function getCleanTextRange(range: Range, container: HTMLElement): Range | null {
     try {
         const clone = range.cloneRange();
@@ -1175,7 +1310,7 @@ export const ArticleViewer = memo(function ArticleViewer({
         setActivePanel(null);
     }, []);
 
-    const restoreHighlightMark = useCallback((annotation: Annotation) => {
+    const restoreHighlightMark = useCallback((annotation: Annotation, textIndex: ArticleTextIndex) => {
         const contentRoot = contentRef.current;
         if (!contentRoot || !annotation.selectedText) {
             return;
@@ -1192,20 +1327,19 @@ export const ArticleViewer = memo(function ArticleViewer({
             && typeof parsedLocation.start === "number"
             && typeof parsedLocation.end === "number"
         ) {
-            const rangeFromLocation = buildRangeFromSnapshot({
+            const indexedFromLocation = buildIndexedRange({
                 start: parsedLocation.start,
                 end: parsedLocation.end,
                 text: normalizeSelectionText(annotation.selectedText),
-            }, contentRoot);
+            }, textIndex);
 
-            if (rangeFromLocation && rangeFromLocation.toString().trim()) {
-                const appliedFromLocation = applyHighlightToRange(
-                    rangeFromLocation,
-                    contentRoot,
+            if (indexedFromLocation && indexedFromLocation.range.toString().trim()) {
+                if (applyHighlightToIndexedNodes(
+                    indexedFromLocation,
+                    textIndex,
                     annotation.id,
                     annotation.color || "yellow",
-                );
-                if (appliedFromLocation) {
+                )) {
                     return;
                 }
             }
@@ -1216,23 +1350,21 @@ export const ArticleViewer = memo(function ArticleViewer({
             return;
         }
 
-        const fullText = contentRoot.textContent || "";
-        const fullTextIndex = fullText.indexOf(annotation.selectedText);
+        const fullTextIndex = textIndex.fullText.indexOf(annotation.selectedText);
         if (fullTextIndex !== -1) {
-            const fullTextRange = buildRangeFromSnapshot({
+            const indexedFromText = buildIndexedRange({
                 start: fullTextIndex,
                 end: fullTextIndex + annotation.selectedText.length,
                 text: normalizeSelectionText(annotation.selectedText),
-            }, contentRoot);
+            }, textIndex);
 
-            if (fullTextRange && fullTextRange.toString().trim()) {
-                const appliedFromFullText = applyHighlightToRange(
-                    fullTextRange,
-                    contentRoot,
+            if (indexedFromText && indexedFromText.range.toString().trim()) {
+                if (applyHighlightToIndexedNodes(
+                    indexedFromText,
+                    textIndex,
                     annotation.id,
                     annotation.color || "yellow",
-                );
-                if (appliedFromFullText) {
+                )) {
                     return;
                 }
             }
@@ -1287,8 +1419,11 @@ export const ArticleViewer = memo(function ArticleViewer({
             }
         });
 
+        // One shared text index for every annotation: a single TreeWalker
+        // pass plus O(log n) lookups replaces one full walk per highlight.
+        const textIndex = buildArticleTextIndex(contentRoot);
         highlightAnnotations.forEach((annotation) => {
-            restoreHighlightMark(annotation);
+            restoreHighlightMark(annotation, textIndex);
         });
     }, [
         sanitizedContent,
