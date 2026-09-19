@@ -637,7 +637,7 @@ export function FeedsPage() {
                     </button>
                 </div>
 
-                <div ref={feedListScrollRef} className="flex-1 overflow-y-auto [content-visibility:auto] overscroll-contain">
+                <div ref={feedListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain">
                     <div className="p-2">
                         <div
                             className="relative w-full"
@@ -741,7 +741,7 @@ export function FeedsPage() {
                     </button>
                 </header>
 
-                <div ref={articleListScrollRef} className="flex-1 overflow-y-auto [content-visibility:auto] overscroll-contain">
+                <div ref={articleListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain">
                     {isLoading && feeds.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
                             <Loader2 className="w-6 h-6 animate-spin text-[color:var(--color-text-muted)]" />

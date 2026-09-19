@@ -229,7 +229,7 @@ export function DiscoverPage() {
     return (
         <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto min-h-0 custom-scrollbar [content-visibility:auto] overscroll-contain h-full"
+            className="flex-1 overflow-y-auto min-h-0 scrollbar-solid [content-visibility:auto] overscroll-contain h-full"
         >
             <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-12 sm:px-6 lg:px-8 lg:py-8 lg:pb-16 space-y-8 animate-fade-in">
                 {/* Top Discovery Header */}

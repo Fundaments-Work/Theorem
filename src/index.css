@@ -449,6 +449,30 @@ foliate-view * {
     box-shadow: none;
 }
 
+/* List scroll containers (library, shelves, bookmarks, feeds, discover):
+   one shared solid thumb seated in a reserved gutter — never overlaid,
+   never faint, identical on every surface. */
+.scrollbar-solid {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-text-muted) var(--color-surface-muted);
+}
+.scrollbar-solid::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.scrollbar-solid::-webkit-scrollbar-track {
+    background: var(--color-surface-muted);
+}
+.scrollbar-solid::-webkit-scrollbar-thumb {
+    background: var(--color-text-muted);
+    border: none;
+    border-radius: var(--radius-full);
+}
+.scrollbar-solid::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-secondary);
+}
+
 [data-reading-mode] .reader-toolbar-scroll {
     scrollbar-width: none;
     -ms-overflow-style: none;
