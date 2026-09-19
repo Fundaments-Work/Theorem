@@ -447,8 +447,7 @@ export function AnnotationsPage() {
         count: filteredAnnotations.length,
         getScrollElement: useCallback(() => document.getElementById('app-main'), []),
         estimateSize: useCallback(() => 160, []),
-        overscan: 3,
-        measureElement: (el) => el.getBoundingClientRect().height,
+        overscan: 5,
     });
 
     const [deleteAnnotationId, setDeleteAnnotationId] = useState<string | null>(null);
@@ -857,9 +856,19 @@ export function AnnotationsPage() {
                 </div>
             ) : (
                 <div style={{ height: `${annotationsVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                    <div style={{ paddingTop: `${annotationsVirtualizer.getVirtualItems()[0]?.start ?? 0}px` }}>
                         {annotationsVirtualizer.getVirtualItems().map((virtualRow) => (
-                            <div key={virtualRow.key} data-index={virtualRow.index} ref={annotationsVirtualizer.measureElement} className="pb-4">
+                            <div
+                                key={virtualRow.key}
+                                data-index={virtualRow.index}
+                                className="pb-4"
+                                style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    width: "100%",
+                                    transform: `translateY(${virtualRow.start}px)`,
+                                }}
+                            >
                                 <AnnotationCard
                                     annotation={filteredAnnotations[virtualRow.index]}
                                     book={getBookInfo(filteredAnnotations[virtualRow.index].bookId)}
@@ -872,7 +881,6 @@ export function AnnotationsPage() {
                                 />
                             </div>
                         ))}
-                    </div>
                 </div>
             )}
 

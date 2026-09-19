@@ -186,8 +186,7 @@ export function BookmarksPage() {
         count: filteredBookmarks.length,
         getScrollElement: useCallback(() => document.getElementById('app-main'), []),
         estimateSize: useCallback(() => 100, []),
-        overscan: 3,
-        measureElement: (el) => el.getBoundingClientRect().height,
+        overscan: 5,
     });
 
     const [deleteBookmarkId, setDeleteBookmarkId] = useState<string | null>(null);
@@ -266,9 +265,19 @@ export function BookmarksPage() {
                 </div>
             ) : (
                 <div style={{ height: `${bookmarksVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                    <div style={{ paddingTop: `${bookmarksVirtualizer.getVirtualItems()[0]?.start ?? 0}px` }}>
                         {bookmarksVirtualizer.getVirtualItems().map((virtualRow) => (
-                            <div key={virtualRow.key} data-index={virtualRow.index} ref={bookmarksVirtualizer.measureElement} className="pb-4">
+                            <div
+                                key={virtualRow.key}
+                                data-index={virtualRow.index}
+                                className="pb-4"
+                                style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    width: "100%",
+                                    transform: `translateY(${virtualRow.start}px)`,
+                                }}
+                            >
                                 <BookmarkCard
                                     bookmark={filteredBookmarks[virtualRow.index]}
                                     book={getBookInfo(filteredBookmarks[virtualRow.index].bookId)}
@@ -278,7 +287,6 @@ export function BookmarksPage() {
                                 />
                             </div>
                         ))}
-                    </div>
                 </div>
             )}
         </div>

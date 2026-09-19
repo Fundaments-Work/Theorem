@@ -149,7 +149,18 @@ describe("library multi-select wiring", () => {
     });
 });
 
-// ─── #102: memory-trim IPC path ───
+// ─── #102: IPC capability covers all first-party windows ───
+
+describe("tauri capability grants IPC to every app window", () => {
+    const capability = JSON.parse(
+        readFileSync(resolve("src-tauri/capabilities/default.json"), "utf-8"),
+    );
+
+    it("covers main and reader_* windows so invokes are never ACL-denied", () => {
+        expect(capability.windows).toContain("main");
+        expect(capability.windows).toContain("reader_*");
+    });
+});
 
 describe("sqliteShrinkMemory IPC path", () => {
     const storage = readFileSync(

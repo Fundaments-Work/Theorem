@@ -30,6 +30,8 @@ describe("library/shelf virtualizer uses absolute rows", () => {
     for (const file of [
         "src/features/library/Library.tsx",
         "src/features/library/Shelves.tsx",
+        "src/features/library/Bookmarks.tsx",
+        "src/features/library/Annotations.tsx",
     ]) {
         const src = readFileSync(resolve(file), "utf-8");
         it(`${file}: rows are absolutely positioned, no per-row measure`, () => {
