@@ -364,7 +364,7 @@ export const SettingsPage = memo(function SettingsPage() {
     const [removeDictionaryInfo, setRemoveDictionaryInfo] = useState<{ id: string; name: string } | null>(null);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
     const [updateChecking, setUpdateChecking] = useState(false);
-    const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
+    const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string; prerelease?: boolean; url?: string } | null>(null);
     const [cliStatus, setCliStatus] = useState<{ installed: boolean; linkPath: string; isAppImage: boolean } | null>(null);
     const [cliBusy, setCliBusy] = useState(false);
     const cliEnabled = settings.cli?.enabled ?? false;
@@ -529,9 +529,25 @@ export const SettingsPage = memo(function SettingsPage() {
             const update = await check();
             if (update) {
                 setUpdateInfo({ version: update.version, body: update.body || "" });
-            } else {
-                setAlertInfo({ title: "Up to Date", message: `Theorem ${__APP_VERSION__} is the latest version.` });
+                return;
             }
+            // Stable channel is up to date — pre-release builds additionally
+            // query GitHub Releases so beta users see newer betas (#106).
+            const { fetchLatestApplicableRelease, isPrereleaseVersion } = await import("../../core/lib/app-update");
+            if (isPrereleaseVersion(__APP_VERSION__)) {
+                const beta = await fetchLatestApplicableRelease(__APP_VERSION__);
+                if (beta) {
+                    const version = beta.tag_name.replace(/^[vV]/, "");
+                    setUpdateInfo({
+                        version,
+                        body: beta.body || "",
+                        prerelease: true,
+                        url: beta.html_url,
+                    });
+                    return;
+                }
+            }
+            setAlertInfo({ title: "Up to Date", message: `Theorem ${__APP_VERSION__} is the latest version.` });
         } catch (e) {
             setAlertInfo({ title: "Update Check Failed", message: String(e) });
         } finally {
@@ -1336,18 +1352,31 @@ export const SettingsPage = memo(function SettingsPage() {
                              {updateInfo ? (
                                  <div className="space-y-2">
                                      <div className="p-3 border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">
-                                         <p className="text-[12px] font-medium">Update Available: v{updateInfo.version}</p>
+                                         <p className="text-[12px] font-medium">{updateInfo.prerelease ? "Beta" : "Update"} Available: v{updateInfo.version}</p>
                                          {updateInfo.body ? (
                                              <p className="text-[11px] text-[color:var(--color-text-secondary)] mt-1">{updateInfo.body}</p>
                                          ) : null}
                                      </div>
-                                     <button
-                                         onClick={handleInstallUpdate}
-                                         className="flex items-center gap-2 p-3 w-full border border-[var(--color-accent)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors"
-                                     >
-                                         <Download className="w-4 h-4" />
-                                         <span>Install Update & Restart</span>
-                                     </button>
+                                     {!updateInfo.prerelease ? (
+                                         <button
+                                             onClick={handleInstallUpdate}
+                                             className="flex items-center gap-2 p-3 w-full border border-[var(--color-accent)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors"
+                                         >
+                                             <Download className="w-4 h-4" />
+                                             <span>Install Update & Restart</span>
+                                         </button>
+                                     ) : null}
+                                     {updateInfo.prerelease && updateInfo.url ? (
+                                         <a
+                                             href={updateInfo.url}
+                                             target="_blank"
+                                             rel="noopener noreferrer"
+                                             className="flex items-center gap-2 p-3 w-full border border-[var(--color-accent)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors"
+                                         >
+                                             <Download className="w-4 h-4" />
+                                             <span>View Beta Release</span>
+                                         </a>
+                                     ) : null}
                                  </div>
                              ) : (
                                  <button

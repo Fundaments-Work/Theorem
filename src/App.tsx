@@ -161,7 +161,9 @@ function App() {
             { label: "Select all",          keys: "Ctrl+A", category: "Library",    handler: () => {
                 const route = useUIStore.getState().currentRoute;
                 if (route !== "library" && route !== "shelves" && route !== "bookmarks") return;
-                const toggleSelectMode = (document.querySelector('[data-action="toggle-select-mode"]') as HTMLButtonElement);
+                const visiblePane = document.querySelector('#app-main > div:not(.hidden)');
+                const toggleSelectMode = (visiblePane?.querySelector('[data-action="toggle-select-mode"]')
+                    ?? document.querySelector('[data-action="toggle-select-mode"]')) as HTMLButtonElement | null;
                 if (toggleSelectMode) toggleSelectMode.click();
             }},
         ]);

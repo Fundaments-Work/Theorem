@@ -142,7 +142,7 @@ export const BookCard = memo(function BookCard({
     onMarkAsUnread: (bookId: string) => void;
     isSelecting?: boolean;
     isSelected?: boolean;
-    onToggleSelect?: (bookId: string) => void;
+    onToggleSelect?: (bookId: string, event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
     titleHighlightIndices?: number[];
     authorHighlightIndices?: number[];
 }) {
@@ -154,9 +154,9 @@ export const BookCard = memo(function BookCard({
     const collectionSets = useMemo(() => collections.map(c => ({ ...c, bookIdSet: new Set(c.bookIds) })), [collections]);
     const bookShelves = collectionSets.filter((c) => c.bookIdSet.has(book.id));
 
-    const handleCardClick = () => {
+    const handleCardClick = (event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
         if (isSelecting && onToggleSelect) {
-            onToggleSelect(book.id);
+            onToggleSelect(book.id, event);
             return;
         }
         clickCountRef.current += 1;
@@ -1055,6 +1055,8 @@ export function LibraryPage() {
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
     const markBookCompleted = useLibraryStore((state) => state.markBookCompleted);
     const markBookUnread = useLibraryStore((state) => state.markBookUnread);
+    const markBooksCompleted = useLibraryStore((state) => state.markBooksCompleted);
+    const markBooksUnread = useLibraryStore((state) => state.markBooksUnread);
     const addBookToCollection = useLibraryStore((state) => state.addBookToCollection);
     const addBooksToCollection = useLibraryStore((state) => state.addBooksToCollection);
     const addCollection = useLibraryStore((state) => state.addCollection);
@@ -1722,20 +1724,16 @@ export function LibraryPage() {
     }, []);
 
     const handleBatchMarkRead = useCallback(() => {
-        for (const id of selectedBooks) {
-            markBookCompleted(id, "manual");
-        }
+        markBooksCompleted(selectedBooks);
         clearSelection();
         setIsSelecting(false);
-    }, [selectedBooks, markBookCompleted, clearSelection]);
+    }, [selectedBooks, markBooksCompleted, clearSelection]);
 
     const handleBatchMarkUnread = useCallback(() => {
-        for (const id of selectedBooks) {
-            markBookUnread(id);
-        }
+        markBooksUnread(selectedBooks);
         clearSelection();
         setIsSelecting(false);
-    }, [selectedBooks, markBookUnread, clearSelection]);
+    }, [selectedBooks, markBooksUnread, clearSelection]);
 
     const handleShowInfo = useCallback((book: Book) => {
         setInfoModalBook(book);

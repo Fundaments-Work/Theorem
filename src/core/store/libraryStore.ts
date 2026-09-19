@@ -464,6 +464,8 @@ interface LibraryStore {
         source?: CompletionUpdateSource,
     ) => { wasAlreadyCompleted: boolean; completedYear: number } | null;
     markBookUnread: (bookId: string) => boolean;
+    markBooksCompleted: (bookIds: string[]) => void;
+    markBooksUnread: (bookIds: string[]) => void;
 
     addCollection: (collection: Collection) => void;
     removeCollection: (collectionId: string) => void;
@@ -471,6 +473,7 @@ interface LibraryStore {
     addBookToCollection: (bookId: string, collectionId: string) => void;
     addBooksToCollection: (bookIds: string[], collectionId: string) => void;
     removeBookFromCollection: (bookId: string, collectionId: string) => void;
+    removeBooksFromCollection: (bookIds: string[], collectionId: string) => void;
 
     addAnnotation: (annotation: Annotation) => void;
     addHighlightWithNote: (cfi: string, text: string, color: HighlightColor, note?: string) => Annotation;
@@ -1014,6 +1017,71 @@ export const useLibraryStore = create<LibraryStore>()(
                 return true;
             },
 
+            // Batch completion toggles in a single set + single sync so
+            // multi-select actions don't freeze the UI with N persists.
+            markBooksCompleted: (bookIds) => {
+                if (bookIds.length === 0) return;
+                const idSet = new Set(bookIds);
+                const now = new Date();
+                let changed = false;
+                set((state) => {
+                    const books = state.books.map((book) => {
+                        if (!idSet.has(book.id)) return book;
+                        if (book.completedAt && book.manualCompletionState === "read") return book;
+                        changed = true;
+                        return {
+                            ...book,
+                            progress: 1.0,
+                            completedAt: book.completedAt || now,
+                            ...(!book.completedAt
+                                ? { progressBeforeFinish: Math.max(0, Math.min(1, book.progress || 0)) }
+                                : {}),
+                            manualCompletionState: "read" as const,
+                        };
+                    });
+                    if (!changed) return state;
+                    const touched = books.filter((b) => idSet.has(b.id));
+                    const touchedIds = new Set(touched.map((b) => b.id));
+                    const existingCache = state.recentBooksCache.filter((entry) => !touchedIds.has(entry.id));
+                    const newCache = [
+                        ...touched.map(createCacheEntry),
+                        ...existingCache,
+                    ].slice(0, 20);
+                    return { books, recentBooksCache: newCache };
+                });
+                if (changed) scheduleMutationSync();
+            },
+
+            markBooksUnread: (bookIds) => {
+                if (bookIds.length === 0) return;
+                const idSet = new Set(bookIds);
+                let changed = false;
+                set((state) => {
+                    const books = state.books.map((book) => {
+                        if (!idSet.has(book.id)) return book;
+                        if (!book.completedAt && book.manualCompletionState === "unread") return book;
+                        changed = true;
+                        return {
+                            ...book,
+                            completedAt: undefined,
+                            manualCompletionState: "unread" as const,
+                            progress: Math.max(0, Math.min(1, book.progressBeforeFinish ?? 0)),
+                            progressBeforeFinish: undefined,
+                        };
+                    });
+                    if (!changed) return state;
+                    const touched = books.filter((b) => idSet.has(b.id));
+                    const touchedIds = new Set(touched.map((b) => b.id));
+                    const existingCache = state.recentBooksCache.filter((entry) => !touchedIds.has(entry.id));
+                    const newCache = [
+                        ...touched.map(createCacheEntry),
+                        ...existingCache,
+                    ].slice(0, 20);
+                    return { books, recentBooksCache: newCache };
+                });
+                if (changed) scheduleMutationSync();
+            },
+
             addCollection: (collection) => {
                 set((state) => ({ collections: [...state.collections, collection] }));
                 scheduleMutationSync();
@@ -1074,22 +1142,36 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             removeBookFromCollection: (bookId, collectionId) => {
-                set((state) => ({
-                    collections: state.collections.map((c) =>
-                        c.id === collectionId
-                            ? { ...c, bookIds: c.bookIds.filter((id) => id !== bookId), updatedAt: new Date() }
-                            : c
-                    ),
-                }));
-                const tombstone: DeletionTombstone = {
-                    entityId: `${collectionId}:${bookId}`,
-                    entityType: "collection_book",
-                    deletedAt: new Date().toISOString(),
-                };
-                useLibraryStore.setState((s) => ({
-                    deletionTombstones: [...s.deletionTombstones, tombstone],
-                }));
-                scheduleMutationSync();
+                get().removeBooksFromCollection([bookId], collectionId);
+            },
+
+            // Batch shelf removal in a single collections set + single
+            // tombstone set + single sync (#109 shelf-aware toolbar).
+            removeBooksFromCollection: (bookIds, collectionId) => {
+                if (bookIds.length === 0) return;
+                const idSet = new Set(bookIds);
+                let changed = false;
+                const deletedAt = new Date().toISOString();
+                set((state) => {
+                    const collections = state.collections.map((c) => {
+                        if (c.id !== collectionId) return c;
+                        const nextIds = c.bookIds.filter((id) => !idSet.has(id));
+                        if (nextIds.length === c.bookIds.length) return c;
+                        changed = true;
+                        return { ...c, bookIds: nextIds, updatedAt: new Date() };
+                    });
+                    if (!changed) return state;
+                    const tombstones: DeletionTombstone[] = bookIds.map((bookId) => ({
+                        entityId: `${collectionId}:${bookId}`,
+                        entityType: "collection_book" as const,
+                        deletedAt,
+                    }));
+                    return {
+                        collections,
+                        deletionTombstones: [...state.deletionTombstones, ...tombstones],
+                    };
+                });
+                if (changed) scheduleMutationSync();
             },
 
             addAnnotation: (annotation) => {

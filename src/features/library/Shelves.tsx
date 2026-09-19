@@ -25,6 +25,9 @@ import {
     List,
     ArrowLeft,
     LayoutGrid,
+    CheckCheck,
+    BookMarked,
+    RotateCcw,
 } from "lucide-react";
 import type { Book, Collection, LibraryViewMode } from "../../core/types";
 
@@ -240,15 +243,25 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const collections = useLibraryStore((state) => state.collections);
     const addCollection = useLibraryStore((state) => state.addCollection);
     const addBookToCollection = useLibraryStore((state) => state.addBookToCollection);
+    const addBooksToCollection = useLibraryStore((state) => state.addBooksToCollection);
+    const removeBooksFromCollection = useLibraryStore((state) => state.removeBooksFromCollection);
     const removeBook = useLibraryStore((state) => state.removeBook);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
     const updateBook = useLibraryStore((state) => state.updateBook);
     const getBook = useLibraryStore((state) => state.getBook);
     const markBookCompleted = useLibraryStore((state) => state.markBookCompleted);
     const markBookUnread = useLibraryStore((state) => state.markBookUnread);
+    const markBooksCompleted = useLibraryStore((state) => state.markBooksCompleted);
+    const markBooksUnread = useLibraryStore((state) => state.markBooksUnread);
 
     const setRoute = useUIStore((state) => state.setRoute);
     const searchQuery = useUIStore((state) => state.searchQuery);
+    const selectedBooks = useUIStore((state) => state.selectedBooks);
+    const setSelectedBooks = useUIStore((state) => state.setSelectedBooks);
+    const toggleBookSelection = useUIStore((state) => state.toggleBookSelection);
+    const clearSelection = useUIStore((state) => state.clearSelection);
+    const [isSelecting, setIsSelecting] = useState(false);
+    const lastSelectedIndexRef = useRef<number | null>(null);
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
     
@@ -261,6 +274,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const [renameBook, setRenameBook] = useState<Book | null>(null);
     const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
     const [deleteBookInfo, setDeleteBookInfo] = useState<{ bookId: string; title: string } | null>(null);
+    const [batchDeleteIds, setBatchDeleteIds] = useState<string[] | null>(null);
 
     const handleCreateShelf = (name: string) => {
         addCollection({
@@ -320,6 +334,59 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
             ftsSearchIds,
         });
     }, [shelf.bookIds, books, debouncedSearchQuery, settings.librarySortBy, settings.librarySortOrder, ftsSearchIds]);
+
+    // Shelf-aware multi-selection (#109). Shares uiStore.selectedBooks with
+    // the library view; range select via Shift+click over shelfBooks order.
+    const selectedBookIds = useMemo(() => new Set(selectedBooks), [selectedBooks]);
+
+    const handleToggleSelect = useCallback((bookId: string, event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
+        const index = shelfBooks.findIndex((b) => b.id === bookId);
+        if (event?.shiftKey && lastSelectedIndexRef.current !== null && index >= 0) {
+            const [from, to] = [
+                Math.min(lastSelectedIndexRef.current, index),
+                Math.max(lastSelectedIndexRef.current, index),
+            ];
+            const rangeIds = shelfBooks.slice(from, to + 1).map((b) => b.id);
+            const merged = [...selectedBooks];
+            for (const id of rangeIds) {
+                if (!merged.includes(id)) merged.push(id);
+            }
+            setSelectedBooks(merged);
+            return;
+        }
+        if (index >= 0) lastSelectedIndexRef.current = index;
+        toggleBookSelection(bookId);
+    }, [shelfBooks, selectedBooks, setSelectedBooks, toggleBookSelection]);
+
+    const handleSelectAll = useCallback(() => {
+        setSelectedBooks(shelfBooks.map((b) => b.id));
+    }, [shelfBooks, setSelectedBooks]);
+
+    const handleToggleSelectMode = useCallback(() => {
+        if (isSelecting) {
+            clearSelection();
+            lastSelectedIndexRef.current = null;
+        }
+        setIsSelecting((prev) => !prev);
+    }, [isSelecting, clearSelection]);
+
+    const handleRemoveSelectedFromShelf = useCallback(() => {
+        removeBooksFromCollection(selectedBooks, shelf.id);
+        clearSelection();
+        setIsSelecting(false);
+    }, [removeBooksFromCollection, selectedBooks, shelf.id, clearSelection]);
+
+    const handleBatchMarkRead = useCallback(() => {
+        markBooksCompleted(selectedBooks);
+        clearSelection();
+        setIsSelecting(false);
+    }, [markBooksCompleted, selectedBooks, clearSelection]);
+
+    const handleBatchMarkUnread = useCallback(() => {
+        markBooksUnread(selectedBooks);
+        clearSelection();
+        setIsSelecting(false);
+    }, [markBooksUnread, selectedBooks, clearSelection]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const isListView = viewMode === "list";
@@ -436,18 +503,34 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     </div>
                 </div>
 
-                <button
-                    onClick={cycleViewMode}
-                    className={cn(
-                        "flex items-center justify-center w-10 h-10",
-                        "border border-[var(--color-border)] bg-[var(--color-surface)]",
-                        "text-[color:var(--color-text-secondary)]",
-                        "hover:bg-[var(--color-surface-muted)] transition-colors"
-                    )}
-                    title={`View: ${viewMode}`}
-                >
-                    {viewModeIcons[viewMode]}
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        data-action="toggle-select-mode"
+                        onClick={handleToggleSelectMode}
+                        className={cn(
+                            "flex items-center justify-center w-10 h-10",
+                            "border",
+                            isSelecting
+                                ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        )}
+                        title={isSelecting ? "Cancel Selection" : "Select Books"}
+                    >
+                        <CheckCheck className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={cycleViewMode}
+                        className={cn(
+                            "flex items-center justify-center w-10 h-10",
+                            "border border-[var(--color-border)] bg-[var(--color-surface)]",
+                            "text-[color:var(--color-text-secondary)]",
+                            "hover:bg-[var(--color-surface-muted)] transition-colors"
+                        )}
+                        title={`View: ${viewMode}`}
+                    >
+                        {viewModeIcons[viewMode]}
+                    </button>
+                </div>
             </div>
 
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth">
@@ -503,7 +586,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                         <div className="pb-1">
                                             <MemoizedBookCard
                                                 key={rowItems[0].id} book={rowItems[0]} viewMode={viewMode}
-                                                isSelecting={false} isSelected={false} onToggleSelect={() => {}}
+                                                isSelecting={isSelecting} isSelected={selectedBookIds.has(rowItems[0].id)} onToggleSelect={handleToggleSelect}
                                                 {...cardProps}
                                             />
                                         </div>
@@ -515,7 +598,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                             {rowItems.map((book) => (
                                                 <MemoizedBookCard
                                                     key={book.id} book={book} viewMode={viewMode}
-                                                    isSelecting={false} isSelected={false} onToggleSelect={() => {}}
+                                                    isSelecting={isSelecting} isSelected={selectedBookIds.has(book.id)} onToggleSelect={handleToggleSelect}
                                                     {...cardProps}
                                                 />
                                             ))}
@@ -527,6 +610,56 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 </div>
                 )}
             </div>
+            {isSelecting && selectedBooks.length > 0 && (
+                <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
+                    <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
+                        {selectedBooks.length} selected
+                    </span>
+                    <button
+                        onClick={handleSelectAll}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <CheckCheck className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Select All</span>
+                    </button>
+                    <button
+                        onClick={handleRemoveSelectedFromShelf}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <BookMarked className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Remove from Shelf</span>
+                    </button>
+                    <button
+                        onClick={() => { setAddToShelfBookId(null); setIsAddToShelfModalOpen(true); }}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Add to Shelf</span>
+                    </button>
+                    <button
+                        onClick={handleBatchMarkRead}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <CheckCheck className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Mark Read</span>
+                    </button>
+                    <button
+                        onClick={handleBatchMarkUnread}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Mark Unread</span>
+                    </button>
+                    <div className="h-5 w-px bg-[var(--color-border)]" />
+                    <button
+                        onClick={() => setBatchDeleteIds([...selectedBooks])}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase bg-[var(--color-error)]/10 text-[color:var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
+                    >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Delete</span>
+                    </button>
+                </div>
+            )}
             <BookInfoModal
                 book={infoModalBook}
                 isOpen={isInfoModalOpen}
@@ -534,11 +667,17 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
             />
             <AddToShelfModal
                 isOpen={isAddToShelfModalOpen}
-                onClose={() => setIsAddToShelfModalOpen(false)}
+                onClose={() => { setIsAddToShelfModalOpen(false); setAddToShelfBookId(null); }}
                 bookId={addToShelfBookId}
                 collections={collections.filter(c => c.kind === "general")}
                 onAddToShelf={(bookId, shelfId) => {
-                    if (bookId) addBookToCollection(bookId, shelfId);
+                    if (bookId) {
+                        addBookToCollection(bookId, shelfId);
+                    } else {
+                        addBooksToCollection(selectedBooks, shelfId);
+                        clearSelection();
+                        setIsSelecting(false);
+                    }
                 }}
                 onCreateShelf={handleCreateShelf}
             />
@@ -567,6 +706,25 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     }
                 }}
                 onCancel={() => setDeleteBookInfo(null)}
+            />
+            <ConfirmDialog
+                isOpen={batchDeleteIds !== null && batchDeleteIds.length > 0}
+                title="Delete Books"
+                message={batchDeleteIds ? `Are you sure you want to delete ${batchDeleteIds.length} selected book(s)? This action cannot be undone.` : ""}
+                confirmLabel="Delete"
+                cancelLabel="Cancel"
+                variant="danger"
+                onConfirm={() => {
+                    if (batchDeleteIds) {
+                        for (const id of batchDeleteIds) {
+                            removeBook(id);
+                        }
+                        setBatchDeleteIds(null);
+                        clearSelection();
+                        setIsSelecting(false);
+                    }
+                }}
+                onCancel={() => setBatchDeleteIds(null)}
             />
         </div>
     );
