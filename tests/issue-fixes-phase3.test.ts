@@ -41,11 +41,13 @@ describe("foliate-engine initial navigation reliability", () => {
         expect(engine).not.toContain("const settingsApplied");
     });
 
-    it("paginator skips identical style pushes (no turn flash)", () => {
+    it("paginator skips identical style pushes but still re-lays out", () => {
         const paginator = readFileSync(
             resolve("src/features/reader/foliate-js-runtime/paginator.js"),
             "utf-8",
         );
-        expect(paginator).toContain("if ($style.textContent === styles) return");
+        expect(paginator).toContain("if ($style.textContent !== styles)");
+        expect(paginator).toContain("Re-run layout unconditionally");
+        expect(paginator).toContain("fonts?.ready?.then(() => this.#view.expand())");
     });
 });
