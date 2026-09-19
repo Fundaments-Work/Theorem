@@ -2677,7 +2677,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 <div
                     ref={containerRef}
                     className={cn(
-                        "absolute inset-0 overflow-auto bg-[var(--color-surface)] custom-scrollbar",
+                        "absolute inset-0 overflow-auto bg-[var(--color-surface)] scrollbar-solid",
                         error && "invisible"
                     )}
                     onClick={handleViewportClick}

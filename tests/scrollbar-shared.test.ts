@@ -29,6 +29,14 @@ describe("scrollbar-solid shared by all list scrollers", () => {
             "src/features/catalogs/DiscoverPage.tsx",
             ["scrollbar-solid"],
         ],
+        [
+            "src/features/reader/engines/pdfjs-engine.tsx",
+            ["overflow-auto bg-[var(--color-surface)] scrollbar-solid"],
+        ],
+        [
+            "src/features/reader/article-reader/ArticleReaderContent.tsx",
+            ["overflow-y-auto scrollbar-solid overscroll-contain"],
+        ],
     ];
 
     for (const [file, markers] of surfaces) {
@@ -39,4 +47,12 @@ describe("scrollbar-solid shared by all list scrollers", () => {
             }
         });
     }
+
+    it("foliate viewport uses the shared scrollbar only in scroll flow", () => {
+        const src = readFileSync(
+            resolve("src/features/reader/components/ReaderViewport.tsx"),
+            "utf-8",
+        );
+        expect(src).toContain("settings.flow === 'scroll' ? 'scrollbar-solid' : 'custom-scrollbar'");
+    });
 });
