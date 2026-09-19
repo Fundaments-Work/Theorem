@@ -447,6 +447,7 @@ interface LibraryStore {
     addBook: (book: Book) => void;
     addBooks: (books: Book[]) => void;
     removeBook: (bookId: string) => void;
+    removeBooks: (bookIds: string[]) => void;
     updateBook: (bookId: string, updates: Partial<Book>) => void;
     updateProgress: (bookId: string, progress: number, location: string, lastClickFraction?: number, pageProgress?: { currentPage: number; endPage?: number; totalPages: number; range: string }) => void;
     updatePdfReadingState: (bookId: string, state: PdfViewState) => void;
@@ -652,22 +653,34 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             removeBook: async (bookId) => {
-                const book = get().getBook(bookId);
+                get().removeBooks([bookId]);
+            },
 
-                if (book && !book.syncedWithoutFile) {
+            // Batch delete in a single set so the confirm dialog dismisses
+            // instantly instead of freezing through N per-book persists.
+            removeBooks: (bookIds) => {
+                if (bookIds.length === 0) return;
+                const idSet = new Set(bookIds);
+                const now = new Date().toISOString();
+
+                const state = get();
+                for (const book of state.books) {
+                    if (!idSet.has(book.id) || book.syncedWithoutFile) continue;
                     if (isTauri()) {
-                        deleteBookStorage(bookId).catch(e => console.error("[catch]", e));
+                        deleteBookStorage(book.id).catch(e => console.error("[catch]", e));
                     }
                 }
 
-                const now = new Date().toISOString();
-
-                const annotationIds = get().annotations
-                    .filter((a) => a.bookId === bookId)
+                const annotationIds = state.annotations
+                    .filter((a) => a.bookId && idSet.has(a.bookId))
                     .map((a) => a.id);
 
                 const newTombstones: DeletionTombstone[] = [
-                    { entityId: bookId, entityType: "book", deletedAt: now },
+                    ...bookIds.map((bookId) => ({
+                        entityId: bookId,
+                        entityType: "book" as const,
+                        deletedAt: now,
+                    })),
                     ...annotationIds.map((id) => ({
                         entityId: id,
                         entityType: "annotation" as const,
@@ -675,15 +688,15 @@ export const useLibraryStore = create<LibraryStore>()(
                     })),
                 ];
 
-                set((state) => ({
-                    books: state.books.filter((b) => b.id !== bookId),
-                    annotations: state.annotations.filter((a) => a.bookId !== bookId),
-                    recentBooksCache: state.recentBooksCache.filter((b) => b.id !== bookId),
-                    collections: state.collections.map((c) => ({
+                set((prev) => ({
+                    books: prev.books.filter((b) => !idSet.has(b.id)),
+                    annotations: prev.annotations.filter((a) => !(a.bookId && idSet.has(a.bookId))),
+                    recentBooksCache: prev.recentBooksCache.filter((b) => !idSet.has(b.id)),
+                    collections: prev.collections.map((c) => ({
                         ...c,
-                        bookIds: c.bookIds.filter((id) => id !== bookId),
+                        bookIds: c.bookIds.filter((id) => !idSet.has(id)),
                     })),
-                    deletionTombstones: [...state.deletionTombstones, ...newTombstones],
+                    deletionTombstones: [...prev.deletionTombstones, ...newTombstones],
                 }));
                 queueVaultSync();
                 scheduleMutationSync();

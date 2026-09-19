@@ -123,6 +123,7 @@ describe("batch store actions", () => {
         expect(store).toContain("markBooksCompleted");
         expect(store).toContain("markBooksUnread");
         expect(store).toContain("removeBooksFromCollection");
+        expect(store).toContain("removeBooks: (bookIds");
     });
 
     it("updater falls back to GitHub prereleases for beta builds", () => {

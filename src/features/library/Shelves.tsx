@@ -246,6 +246,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const addBooksToCollection = useLibraryStore((state) => state.addBooksToCollection);
     const removeBooksFromCollection = useLibraryStore((state) => state.removeBooksFromCollection);
     const removeBook = useLibraryStore((state) => state.removeBook);
+    const removeBooks = useLibraryStore((state) => state.removeBooks);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
     const updateBook = useLibraryStore((state) => state.updateBook);
     const getBook = useLibraryStore((state) => state.getBook);
@@ -716,9 +717,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 variant="danger"
                 onConfirm={() => {
                     if (batchDeleteIds) {
-                        for (const id of batchDeleteIds) {
-                            removeBook(id);
-                        }
+                        removeBooks(batchDeleteIds);
                         setBatchDeleteIds(null);
                         clearSelection();
                         setIsSelecting(false);

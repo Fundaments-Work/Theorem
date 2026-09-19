@@ -190,13 +190,6 @@ const BookReaderPage = memo(function BookReaderPage() {
         defaultHeight: 56,
         minHeight: 44,
     });
-    // Bottom navbar reserve for the reader content insets. Translate-based
-    // hide keeps measurements stable (transforms don't resize).
-    const navbarContainerRef = useRef<HTMLDivElement>(null);
-    const navbarHeight = useToolbarHeight(navbarContainerRef, {
-        defaultHeight: 76,
-        minHeight: 52,
-    });
 
     // PDF-specific state for titlebar controls
     const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
@@ -2603,13 +2596,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 />
             </div>
 
-            <div
-                className="absolute left-0 right-0 overflow-hidden z-0 isolate"
-                style={{
-                    top: shouldShowReaderChrome ? toolbarHeight : 0,
-                    bottom: shouldShowReaderChrome ? navbarHeight : 0,
-                }}
-            >
+            <div className="absolute inset-0 overflow-hidden z-0 isolate">
                 {isPdfFormat ? (
                     <Suspense fallback={<div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">Loading PDF...</div>}>
                         {resolvedPdfPath || pdfData ? (
@@ -2724,13 +2711,6 @@ const BookReaderPage = memo(function BookReaderPage() {
                         theme={settings.readerSettings.theme}
                     />
                     
-                    <div
-                        ref={navbarContainerRef}
-                        className={cn(
-                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out",
-                            shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
-                        )}
-                    >
                     <ReaderNavbar
                         location={location}
                         toc={toc}
@@ -2752,9 +2732,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onOpenNeuralSettings={handleOpenNeuralSettings}
                         onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
                         audioGenProgress={audioGenProgress}
-                        className="relative w-full backdrop-blur-xl"
+                        className={cn(
+                            "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out backdrop-blur-xl",
+                            immersionMode
+                                ? shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none"
+                                : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
+                        )}
                     />
-                    </div>
 
                     {immersionMode && audioTrack && (
                         <AudiobookBar

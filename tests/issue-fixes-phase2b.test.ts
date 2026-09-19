@@ -42,32 +42,19 @@ describe("library/shelf virtualizer uses absolute rows", () => {
     }
 });
 
-// ─── #108: reader viewport bounded between chrome ───
+// ─── #108: reader chrome untouched (tap-toggle preserved exactly) ───
 
-describe("reader layout bounds viewport between chrome", () => {
+describe("reader tap-toggle chrome preserved", () => {
     const reader = readFileSync(
         resolve("src/features/reader/Reader.tsx"),
         "utf-8",
     );
-    const viewport = readFileSync(
-        resolve("src/features/reader/components/ReaderViewport.tsx"),
-        "utf-8",
-    );
 
-    it("content layer is inset between chrome, tap-toggle chrome stays overlaid", () => {
-        // Overlay chrome (tap-to-hide) is preserved; the viewport is inset
-        // dynamically so its scrollbar never runs under the bars.
+    it("keeps original overlay chrome and full-bleed viewport", () => {
+        // Any change here alters tap-to-hide feel; keep byte-stable.
+        expect(reader).toContain("absolute inset-0 overflow-hidden z-0 isolate");
         expect(reader).toContain("-translate-y-full");
-        expect(reader).toContain("translate-y-full pointer-events-none");
-        expect(reader).toContain("top: shouldShowReaderChrome ? toolbarHeight : 0");
-        expect(reader).toContain("bottom: shouldShowReaderChrome ? navbarHeight : 0");
-        expect(reader).not.toContain("absolute inset-0 overflow-hidden z-0 isolate");
-    });
-
-    it("scroll container avoids per-frame filter repaints and chains", () => {
-        expect(viewport).toContain("overscrollBehavior: 'contain'");
-        // brightness lives on the non-scrolling wrapper, not the scroller
-        const scrollerBlock = viewport.split("ref={containerRef}")[1] || "";
-        expect(scrollerBlock).not.toContain("brightness(");
+        expect(reader).toContain("fixed bottom-0 left-0 right-0 z-[140]");
+        expect(reader).not.toContain("navbarHeight");
     });
 });

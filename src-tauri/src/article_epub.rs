@@ -19,6 +19,24 @@ pub struct ArticleEpubPayload {
     pub published_at: Option<String>,
 }
 
+fn looks_like_markup(s: &str) -> bool {
+    // Tag open (`<p>`, `<div class="…">`, `<p xmlns="…">`) or closing tag.
+    // Must not require exact "<p>"/"<div>" substrings: namespaced or
+    // attributed tags (e.g. RSS XHTML `<p xmlns="…">`) are still markup.
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'<' && i + 1 < bytes.len() {
+            let next = bytes[i + 1];
+            if next.is_ascii_alphabetic() || next == b'/' || next == b'!' || next == b'?' {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -177,7 +195,7 @@ pre {
     zip.start_file("OEBPS/article.xhtml", deflated_options)
         .map_err(|e| format!("Failed to write article.xhtml: {e}"))?;
 
-    let body_html = if payload.content.contains("<p>") || payload.content.contains("<div>") {
+    let body_html = if looks_like_markup(&payload.content) {
         &payload.content
     } else {
         // Wrap plain text in paragraphs
@@ -240,6 +258,42 @@ pub async fn create_article_epub_native(payload: ArticleEpubPayload) -> Result<V
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn test_looks_like_markup() {
+        assert!(looks_like_markup("<p>Hello</p>"));
+        assert!(looks_like_markup("<div>Hi</div>"));
+        // Namespaced / attributed tags are still markup (Quanta RSS XHTML).
+        assert!(looks_like_markup(
+            "<p xmlns=\"http://www.w3.org/1999/xhtml\">Quantum</p>"
+        ));
+        assert!(looks_like_markup(
+            "<div class=\"article-content\"><p>x</p></div>"
+        ));
+        assert!(looks_like_markup("lead <strong>bold</strong> trail"));
+        assert!(!looks_like_markup("Plain text, no tags."));
+        assert!(!looks_like_markup("a < b and c > d"));
+        assert!(!looks_like_markup(""));
+    }
+
+    #[test]
+    fn test_namespaced_markup_not_escaped() {
+        let payload = ArticleEpubPayload {
+            title: "The Joy of Why".to_string(),
+            author: Some("Quanta".to_string()),
+            content: "<p xmlns=\"http://www.w3.org/1999/xhtml\">Quantum</p>".to_string(),
+            url: None,
+            cover_image_url: None,
+            published_at: None,
+        };
+        let bytes = create_article_epub_bytes(&payload).unwrap();
+        let mut archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+        let mut xhtml = archive.by_name("OEBPS/article.xhtml").unwrap();
+        let mut text = String::new();
+        xhtml.read_to_string(&mut text).unwrap();
+        assert!(text.contains("<p xmlns=\"http://www.w3.org/1999/xhtml\">Quantum</p>"));
+        assert!(!text.contains("&lt;p"));
+    }
 
     #[test]
     fn test_create_article_epub() {

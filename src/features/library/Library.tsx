@@ -1050,6 +1050,7 @@ export function LibraryPage() {
     const coversHydrated = useLibraryStore((state) => state.coversHydrated);
     const addBook = useLibraryStore((state) => state.addBook);
     const removeBook = useLibraryStore((state) => state.removeBook);
+    const removeBooks = useLibraryStore((state) => state.removeBooks);
     const updateBook = useLibraryStore((state) => state.updateBook);
     const setLastScannedAt = useLibraryStore((state) => state.setLastScannedAt);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
@@ -2338,9 +2339,7 @@ export function LibraryPage() {
                 variant="danger"
                 onConfirm={() => {
                     if (deleteConfirm?.batch) {
-                        for (const id of selectedBooks) {
-                            removeBook(id);
-                        }
+                        removeBooks(selectedBooks);
                         clearSelection();
                         setIsSelecting(false);
                     } else if (deleteConfirm?.bookId) {
