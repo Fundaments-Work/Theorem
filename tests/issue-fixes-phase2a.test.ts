@@ -34,4 +34,10 @@ describe("App route keep-alive", () => {
         expect(app).toContain("isReaderMode");
         expect(app).toContain("<ReaderPage />");
     });
+
+    it("mounts pages on first visit instead of all upfront", () => {
+        expect(app).toContain("visitedRoutes");
+        expect(app).toContain('visitedRoutes.has("statistics")');
+        expect(app).toContain('visitedRoutes.has("shelves")');
+    });
 });

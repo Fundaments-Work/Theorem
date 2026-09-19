@@ -537,6 +537,20 @@ function App() {
     const showAnnotationsRoute = currentRoute === "annotations" || currentRoute === "vocabulary";
     const showOpdsRoute = currentRoute === "opds" && !isMobileDevice;
 
+    // Mount-on-first-visit keep-alive: wrappers stay in the DOM, but a
+    // page's chunk and effects only load the first time its route shows.
+    // Afterwards it stays mounted, so back-navigation is an instant class
+    // toggle with scroll, filters, and virtualizer caches intact.
+    const [visitedRoutes, setVisitedRoutes] = useState<ReadonlySet<string>>(() => new Set(["library"]));
+    useEffect(() => {
+        const key = showLibraryRoute ? "library"
+            : currentRoute === "shelves" ? "shelves"
+            : showAnnotationsRoute ? "annotations"
+            : showOpdsRoute ? "opds"
+            : currentRoute;
+        setVisitedRoutes((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    }, [currentRoute, showLibraryRoute, showAnnotationsRoute, showOpdsRoute]);
+
     if (!storesHydrated) {
         return <SplashScreen isReady={false} />;
     }
@@ -568,61 +582,77 @@ function App() {
 
                 <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg))] md:pb-0 md:px-8 md:py-6 scrollbar-solid overscroll-contain">
                     <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>
+                        {visitedRoutes.has("library") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <LibraryPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     <div className={currentRoute === "shelves" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "shelves"}>
+                        {visitedRoutes.has("shelves") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <ShelvesPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     <div className={showAnnotationsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showAnnotationsRoute}>
+                        {visitedRoutes.has("annotations") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <AnnotationsPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     <div className={currentRoute === "bookmarks" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "bookmarks"}>
+                        {visitedRoutes.has("bookmarks") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <BookmarksPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     <div className={currentRoute === "settings" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "settings"}>
+                        {visitedRoutes.has("settings") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <SettingsPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     <div className={currentRoute === "statistics" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "statistics"}>
+                        {visitedRoutes.has("statistics") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <StatisticsPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     <div className={currentRoute === "feeds" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "feeds"}>
+                        {visitedRoutes.has("feeds") && (
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <FeedsPage />
                             </Suspense>
                         </RouteErrorBoundary>
+                        )}
                     </div>
                     {!isMobileDevice && (
                         <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
+                            {visitedRoutes.has("opds") && (
                             <RouteErrorBoundary>
                                 <Suspense fallback={<PageLoader />}>
                                     <OPDSBrowserPage />
                                 </Suspense>
                             </RouteErrorBoundary>
+                            )}
                         </div>
                     )}
                 </main>
