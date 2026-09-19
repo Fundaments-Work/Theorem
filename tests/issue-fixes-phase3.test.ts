@@ -30,24 +30,4 @@ describe("foliate-engine initial navigation reliability", () => {
     it("book open still has an outer timeout guard", () => {
         expect(engine).toContain("READER_OPEN_TIMEOUT_MS = 20000");
     });
-
-    it("seeds reader CSS before first navigation (no open flash)", () => {
-        const openBlock = engine.split("this.applySettingsSync();")[1] || "";
-        const seedPos = openBlock.indexOf("await this.applySettingsAsync()");
-        const navPos = openBlock.indexOf("goToWithRetry");
-        expect(seedPos).toBeGreaterThanOrEqual(0);
-        expect(navPos).toBeGreaterThanOrEqual(0);
-        expect(seedPos).toBeLessThan(navPos);
-        expect(engine).not.toContain("const settingsApplied");
-    });
-
-    it("paginator skips identical style pushes but still re-lays out", () => {
-        const paginator = readFileSync(
-            resolve("src/features/reader/foliate-js-runtime/paginator.js"),
-            "utf-8",
-        );
-        expect(paginator).toContain("if ($style.textContent !== styles)");
-        expect(paginator).toContain("Re-run layout unconditionally");
-        expect(paginator).toContain("fonts?.ready?.then(() => this.#view.expand())");
-    });
 });

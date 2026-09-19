@@ -1368,19 +1368,12 @@ export class Paginator extends HTMLElement {
         const $$styles = this.#styleMap.get(this.#view?.document)
         if (!$$styles) return
         const [$beforeStyle, $style] = $$styles
-        // Skip identical text: replacing it forces full style invalidation
-        // plus an async re-columnize that paints one unstyled frame (flash
-        // on open and chapter turns). Assign only what actually changed.
         if (Array.isArray(styles)) {
             const [beforeStyle, style] = styles
-            if ($beforeStyle.textContent !== beforeStyle) $beforeStyle.textContent = beforeStyle
-            if ($style.textContent !== style) $style.textContent = style
-        } else if ($style.textContent !== styles) $style.textContent = styles
+            $beforeStyle.textContent = beforeStyle
+            $style.textContent = style
+        } else $style.textContent = styles
 
-        // Re-run layout unconditionally: a section laid out while hidden
-        // or unfocused can be stuck at a wrong scale until something forces
-        // reflow (previously the style replacement did this as a side
-        // effect). Re-layout alone never invalidates styles, so no flash.
         requestAnimationFrame(() =>
             this.#background.style.background = getBackground(this.#view.document))
 
