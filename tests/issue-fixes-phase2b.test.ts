@@ -52,14 +52,14 @@ describe("reader layout bounds viewport between chrome", () => {
         "utf-8",
     );
 
-    it("content layer is in-flow flex, not full-bleed absolute", () => {
-        expect(reader).toContain("relative z-0 isolate flex min-h-0 flex-1 flex-col overflow-hidden");
+    it("content layer is inset between chrome, tap-toggle chrome stays overlaid", () => {
+        // Overlay chrome (tap-to-hide) is preserved; the viewport is inset
+        // dynamically so its scrollbar never runs under the bars.
+        expect(reader).toContain("-translate-y-full");
+        expect(reader).toContain("translate-y-full pointer-events-none");
+        expect(reader).toContain("top: shouldShowReaderChrome ? toolbarHeight : 0");
+        expect(reader).toContain("bottom: shouldShowReaderChrome ? navbarHeight : 0");
         expect(reader).not.toContain("absolute inset-0 overflow-hidden z-0 isolate");
-    });
-
-    it("chrome collapses in-flow instead of overlaying content", () => {
-        expect(reader).not.toContain("-translate-y-full");
-        expect(reader).not.toContain("fixed bottom-0 left-0 right-0 z-[140]");
     });
 
     it("scroll container avoids per-frame filter repaints and chains", () => {
