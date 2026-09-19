@@ -142,6 +142,33 @@ describe("sync bridge persistent identity indexes", () => {
         expect(orchestrator).toContain("sweepStaleIndex");
     });
 });
+describe("sync live path batches gossip bursts", () => {
+    const orchestrator = readFileSync(
+        resolve("src/core/lib/sync-orchestrator.ts"),
+        "utf-8",
+    );
+
+    it("coalesces annotation and collection entries progressively", () => {
+        expect(orchestrator).toContain("_progressiveAnnoBatch");
+        expect(orchestrator).toContain("_progressiveCollectionBatch");
+        expect(orchestrator).toContain("_flushProgressiveAnnos");
+        expect(orchestrator).toContain("_flushProgressiveCollections");
+    });
+
+    it("defers tombstone re-merges off the event loop", () => {
+        expect(orchestrator).toContain("_pendingTombstonesValue");
+        expect(orchestrator).toContain("scheduleIdleTask(_flushPendingTombstones)");
+    });
+
+    it("skips no-op flushes by ordered reference equality", () => {
+        expect(orchestrator).toContain("isSameOrderedList");
+    });
+
+    it("looks up merged books by index, not per-item find", () => {
+        expect(orchestrator).toContain("mergedById");
+        expect(orchestrator).not.toContain("merged.find(");
+    });
+});
 describe("batch store actions", () => {
     const store = readFileSync(
         resolve("src/core/store/libraryStore.ts"),

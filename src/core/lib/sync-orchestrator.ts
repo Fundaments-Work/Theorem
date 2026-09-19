@@ -847,6 +847,39 @@ const DOWNLOAD_CONCURRENCY = 3;
 let _progressiveBookBatch: any[] = [];
 let _progressiveBookTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Annotations and collections ride the same progressive-batch pattern as
+// books: per-entry synchronous merges + setStates inside the gossip event
+// loop froze the UI (up to 64 full O(n) merges + store notifications per
+// batch). Batches coalesce over 200ms into one merge + one setState each.
+let _progressiveAnnoBatch: any[] = [];
+let _progressiveAnnoTimer: ReturnType<typeof setTimeout> | null = null;
+let _progressiveCollectionBatch: any[] = [];
+let _progressiveCollectionTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Tombstone application re-merges the whole library and replaces three
+// slices at once; it is never latency-sensitive, so it trails the event
+// loop and runs idle. Latest value wins.
+let _pendingTombstonesValue: string | null = null;
+let _pendingTombstonesTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleIdleTask(task: () => void): void {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => task(), { timeout: 1500 });
+    } else {
+        setTimeout(task, 0);
+    }
+}
+
+// Order-preserving merges keep untouched refs in place, so index-wise
+// reference equality certifies "nothing changed" in O(n) cheap ops.
+function isSameOrderedList(a: Array<{ id: string }>, b: Array<{ id: string }>): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
+}
+
 function _flushProgressiveBooks() {
     if (_progressiveBookBatch.length === 0) return;
     const batch = _progressiveBookBatch.splice(0);
@@ -874,12 +907,55 @@ function _flushProgressiveBooks() {
         }
     }
 
+    const mergedById = new Map(merged.map((b: any) => [b.id, b]));
     for (const book of batch) {
-        const added = merged.find((b: any) => b.id === book.id);
+        const added = mergedById.get(book.id);
         if (added && !added.blobHash) {
             debug(`[sync] No blobHash for: ${book.title || book.id} — peer hasn't provisioned this blob`);
         }
     }
+}
+
+function _flushProgressiveAnnos() {
+    if (_progressiveAnnoBatch.length === 0) return;
+    const batch = _progressiveAnnoBatch.splice(0);
+    const state = useLibraryStore.getState();
+    const beforeAnns = state.annotations;
+    const merged = mergeAnnotations(batch, beforeAnns, state.deletionTombstones);
+    if (isSameOrderedList(merged, beforeAnns)) return;
+    useLibraryStore.setState({ annotations: merged });
+}
+
+function _flushProgressiveCollections() {
+    if (_progressiveCollectionBatch.length === 0) return;
+    const batch = _progressiveCollectionBatch.splice(0);
+    const state = useLibraryStore.getState();
+    const beforeCols = state.collections;
+    const merged = mergeCollections(batch, beforeCols, state.deletionTombstones);
+    if (isSameOrderedList(merged, beforeCols)) return;
+    useLibraryStore.setState({ collections: merged });
+}
+
+function _flushPendingTombstones() {
+    const value = _pendingTombstonesValue;
+    _pendingTombstonesValue = null;
+    if (value == null) return;
+    try {
+        const incoming = JSON.parse(value);
+        if (Array.isArray(incoming)) {
+            const state = useLibraryStore.getState();
+            const mergedTombstones = mergeTombstones(incoming, state.deletionTombstones);
+            const prunedBooks = mergeBooks([], state.books, mergedTombstones);
+            const prunedAnns = mergeAnnotations([], state.annotations, mergedTombstones);
+            const prunedCols = mergeCollections([], state.collections, mergedTombstones);
+            useLibraryStore.setState({
+                deletionTombstones: mergedTombstones,
+                books: prunedBooks,
+                annotations: prunedAnns,
+                collections: prunedCols,
+            });
+        }
+    } catch {}
 }
 
 export async function initDocsLiveListener(): Promise<() => void> {
@@ -915,22 +991,13 @@ export async function initDocsLiveListener(): Promise<() => void> {
         }
 
         if (key === "deletion_tombstones") {
-            try {
-                const incoming = JSON.parse(value);
-                if (Array.isArray(incoming)) {
-                    const state = useLibraryStore.getState();
-                    const mergedTombstones = mergeTombstones(incoming, state.deletionTombstones);
-                    const prunedBooks = mergeBooks([], state.books, mergedTombstones);
-                    const prunedAnns = mergeAnnotations([], state.annotations, mergedTombstones);
-                    const prunedCols = mergeCollections([], state.collections, mergedTombstones);
-                    useLibraryStore.setState({
-                        deletionTombstones: mergedTombstones,
-                        books: prunedBooks,
-                        annotations: prunedAnns,
-                        collections: prunedCols,
-                    });
-                }
-            } catch {}
+            // Latest value wins; the full-library re-merge runs idle.
+            _pendingTombstonesValue = value;
+            if (_pendingTombstonesTimer) clearTimeout(_pendingTombstonesTimer);
+            _pendingTombstonesTimer = setTimeout(() => {
+                _pendingTombstonesTimer = null;
+                scheduleIdleTask(_flushPendingTombstones);
+            }, 500);
             return;
         }
 
@@ -949,12 +1016,9 @@ export async function initDocsLiveListener(): Promise<() => void> {
             try {
                 const parsed = JSON.parse(value);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
-                    const state = useLibraryStore.getState();
-                    const beforeAnns = state.annotations;
-                    const merged = mergeAnnotations([parsed], beforeAnns, state.deletionTombstones);
-                    if (merged !== beforeAnns) {
-                        useLibraryStore.setState({ annotations: merged });
-                    }
+                    _progressiveAnnoBatch.push(parsed);
+                    if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
+                    _progressiveAnnoTimer = setTimeout(_flushProgressiveAnnos, 200);
                 }
             } catch {}
             return;
@@ -963,12 +1027,9 @@ export async function initDocsLiveListener(): Promise<() => void> {
             try {
                 const parsed = JSON.parse(value);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
-                    const state = useLibraryStore.getState();
-                    const beforeCols = state.collections;
-                    const merged = mergeCollections([parsed], beforeCols, state.deletionTombstones);
-                    if (merged !== beforeCols) {
-                        useLibraryStore.setState({ collections: merged });
-                    }
+                    _progressiveCollectionBatch.push(parsed);
+                    if (_progressiveCollectionTimer) clearTimeout(_progressiveCollectionTimer);
+                    _progressiveCollectionTimer = setTimeout(_flushProgressiveCollections, 200);
                 }
             } catch {}
             return;
@@ -998,6 +1059,15 @@ export async function initDocsLiveListener(): Promise<() => void> {
         if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
         _progressiveBookTimer = null;
         _progressiveBookBatch = [];
+        if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
+        _progressiveAnnoTimer = null;
+        _progressiveAnnoBatch = [];
+        if (_progressiveCollectionTimer) clearTimeout(_progressiveCollectionTimer);
+        _progressiveCollectionTimer = null;
+        _progressiveCollectionBatch = [];
+        if (_pendingTombstonesTimer) clearTimeout(_pendingTombstonesTimer);
+        _pendingTombstonesTimer = null;
+        _pendingTombstonesValue = null;
         _pendingDocsEntries.clear();
         _docsLiveUnlisten = null;
     };
