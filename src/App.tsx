@@ -525,39 +525,15 @@ function App() {
 
     const isReaderMode = currentRoute === "reader";
 
-    useEffect(() => {
-        if (isReaderMode) {
-            return;
-        }
-        mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    }, [currentRoute, isReaderMode]);
+    // Route keep-alive (#103): non-reader pages stay mounted across
+    // navigation and toggle via `hidden`, preserving scroll position,
+    // virtualizer caches, and filter state instead of remounting.
+    // The reader stays exclusive (heavy engines unmount on exit).
 
-    const renderPage = () => {
-        switch (currentRoute) {
-            case "library":
-                return <LibraryPage />;
-            case "reader":
-                return <ReaderPage />;
-            case "vocabulary":
-                return <AnnotationsPage />;
-            case "shelves":
-                return <ShelvesPage />;
-            case "annotations":
-                return <AnnotationsPage />;
-            case "bookmarks":
-                return <BookmarksPage />;
-            case "settings":
-                return <SettingsPage />;
-            case "statistics":
-                return <StatisticsPage />;
-            case "feeds":
-                return <FeedsPage />;
-            case "opds":
-                return isMobile() ? <LibraryPage /> : <OPDSBrowserPage />;
-            default:
-                return <LibraryPage />;
-        }
-    };
+    const isMobileDevice = isMobile();
+    const showLibraryRoute = currentRoute === "library" || (currentRoute === "opds" && isMobileDevice);
+    const showAnnotationsRoute = currentRoute === "annotations" || currentRoute === "vocabulary";
+    const showOpdsRoute = currentRoute === "opds" && !isMobileDevice;
 
     if (!storesHydrated) {
         return <SplashScreen isReady={false} />;
@@ -577,8 +553,6 @@ function App() {
         );
     }
 
-    const isMobileDevice = isMobile();
-
     return (
         <>
         <div className="flex h-screen min-h-[100dvh] bg-[var(--color-background)]">
@@ -591,11 +565,64 @@ function App() {
                 <AppTitlebar title="Theorem" />
 
                 <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg))] md:pb-0 md:px-8 md:py-6 custom-scrollbar overscroll-contain">
-                    <RouteErrorBoundary>
-                        <Suspense fallback={<PageLoader />}>
-                            {renderPage()}
-                        </Suspense>
-                    </RouteErrorBoundary>
+                    <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <LibraryPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    <div className={currentRoute === "shelves" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "shelves"}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <ShelvesPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    <div className={showAnnotationsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showAnnotationsRoute}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <AnnotationsPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    <div className={currentRoute === "bookmarks" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "bookmarks"}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <BookmarksPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    <div className={currentRoute === "settings" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "settings"}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <SettingsPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    <div className={currentRoute === "statistics" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "statistics"}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <StatisticsPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    <div className={currentRoute === "feeds" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "feeds"}>
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <FeedsPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                    </div>
+                    {!isMobileDevice && (
+                        <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
+                            <RouteErrorBoundary>
+                                <Suspense fallback={<PageLoader />}>
+                                    <OPDSBrowserPage />
+                                </Suspense>
+                            </RouteErrorBoundary>
+                        </div>
+                    )}
                 </main>
             </div>
 
