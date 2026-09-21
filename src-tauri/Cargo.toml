@@ -60,7 +60,7 @@ futures = "0.3"
 
 hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
-bzip2 = "0.4"
+bzip2 = "0.6"
 tar = "0.4"
 zip = "4"
 flate2 = "1.0"
