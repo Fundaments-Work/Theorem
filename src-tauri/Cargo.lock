@@ -3352,9 +3352,9 @@ dependencies = [
 
 [[package]]
 name = "iroh-mdns-address-lookup"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c1f941695731bc3999d8c13d7e94d50e229427da81ac957eec3818264f17559"
+checksum = "cad3dfcaddd5c3681bf0a42606498fc6e8891de793408dfbc46a9fbe76f370b3"
 dependencies = [
  "data-encoding",
  "derive_more",
