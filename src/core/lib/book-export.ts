@@ -66,6 +66,29 @@ async function writeOnMobile(filename: string, blob: Blob): Promise<void> {
     await invoke("save_file_mobile", { filename, base64Data });
 }
 
+/**
+ * Save arbitrary bytes the way book export does: desktop save dialog, Android
+ * Downloads/Theorem, browser download.
+ */
+export async function saveFileAs(filename: string, blob: Blob): Promise<ExportResult> {
+    try {
+        if (isTauriMobile()) {
+            await writeOnMobile(filename, blob);
+            return { ok: true, message: `Saved "${filename}" to Downloads/Theorem` };
+        }
+        if (isTauriDesktop()) {
+            const path = await showSaveFileDialog({ title: "Save File", defaultPath: filename });
+            if (!path) return { ok: false, message: "Save cancelled" };
+            await writeOnDesktop(path, blob);
+            return { ok: true, message: `Saved to ${path}` };
+        }
+        await triggerBrowserDownload(blob, filename);
+        return { ok: true, message: `Downloaded "${filename}"` };
+    } catch (e) {
+        return { ok: false, message: String(e instanceof Error ? e.message : e) };
+    }
+}
+
 async function resolveExportBlob(book: Book): Promise<Blob> {
     if (book.syncedWithoutFile) {
         const { downloadBookOnDemand } = await import("./sync-orchestrator");

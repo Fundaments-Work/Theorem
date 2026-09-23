@@ -1,0 +1,11 @@
+% Fixture for tests/pdf-attachments.test.ts: two embedded files in the
+% document EmbeddedFiles tree. Build from a directory holding notes.txt and
+% data/table.csv (contents in the test): pdflatex attachments.tex
+\pdfinfoomitdate=1 \pdftrailerid{} \pdfsuppressptexinfo=-1
+\documentclass{article}
+\usepackage{embedfile}
+\embedfile[desc={Reading notes}]{notes.txt}
+\embedfile[filespec=data/table.csv]{data/table.csv}
+\begin{document}
+A PDF with two attached files.
+\end{document}

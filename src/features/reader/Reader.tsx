@@ -391,6 +391,18 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, []);
 
     // PDF callbacks - memoized to prevent infinite re-renders
+    const handleSaveAttachment = useCallback(async (key: string) => {
+        const attachment = await pdfReaderRef.current?.getAttachment(key);
+        if (!attachment) {
+            toast.error("Could not read the attachment.");
+            return;
+        }
+        const { saveFileAs } = await import("../../core/lib/book-export");
+        const result = await saveFileAs(attachment.name, new Blob([attachment.bytes as BlobPart]));
+        if (result.ok) toast.success(result.message);
+        else if (result.message !== "Save cancelled") toast.error(result.message);
+    }, []);
+
     const handlePdfLoad = useCallback((info: import('./engines/pdfjs-engine').PDFDocumentInfo) => {
         // Get current book data for fallback
         const currentBookData = currentBookId ? getBook(currentBookId) : null;
@@ -416,6 +428,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             producer: info.producer,
             pdfVersion: info.pdfVersion,
             pageSize: info.pageSize,
+            attachments: info.attachments,
         });
         setToc(Array.isArray(info.toc) ? info.toc : []);
         setPdfHasOutline(Boolean(info.hasOutline ?? ((info.toc?.length || 0) > 0)));
@@ -2858,6 +2871,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 metadata={metadata}
                 visible={activePanel === 'info'}
                 onClose={() => setActivePanel(null)}
+                onSaveAttachment={handleSaveAttachment}
             />
 
             <ReaderSearch

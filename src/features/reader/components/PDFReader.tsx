@@ -214,6 +214,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             goToDestination: (target: PdfDestTarget) => engineRef.current?.goToDestination(target),
             getPageLabel: (pageNumber: number) => engineRef.current?.getPageLabel(pageNumber),
             getPageNumberFromLabel: (label: string) => engineRef.current?.getPageNumberFromLabel(label) ?? null,
+            getAttachment: async (key: string) => (await engineRef.current?.getAttachment(key)) ?? null,
         }));
 
         const [lens, setLens] = useState<PdfLensState | null>(null);

@@ -473,6 +473,8 @@ export interface DocMetadata {
     producer?: string;
     pdfVersion?: string;
     pageSize?: string;
+    /** Files embedded in a PDF. */
+    attachments?: { key: string; name: string; size?: number; description?: string }[];
 }
 
 export interface SearchResult {

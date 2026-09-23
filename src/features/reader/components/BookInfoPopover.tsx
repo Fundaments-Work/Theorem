@@ -1,13 +1,16 @@
 
-import { X, Info, Calendar, Hash, Globe, FileText, User, Cpu, Layers, Maximize2 } from 'lucide-react';
+import { X, Info, Calendar, Hash, Globe, FileText, User, Cpu, Layers, Maximize2, Paperclip, Download } from 'lucide-react';
 import type { DocMetadata } from '../../../core/types';
 import { Backdrop, FloatingPanel } from '../../../ui';
 import { cn, normalizeAuthor } from '../../../core/lib/utils';
+import { formatAttachmentSize } from '../engines/pdf-attachments';
 
 interface BookInfoPopoverProps {
     metadata: DocMetadata | null;
     visible: boolean;
     onClose: () => void;
+    /** Save one of `metadata.attachments` (PDF embedded files). */
+    onSaveAttachment?: (key: string) => void;
     className?: string;
 }
 
@@ -27,6 +30,7 @@ export function BookInfoPopover({
     metadata,
     visible,
     onClose,
+    onSaveAttachment,
     className,
 }: BookInfoPopoverProps) {
     if (!metadata) return null;
@@ -34,7 +38,7 @@ export function BookInfoPopover({
     const sections = METADATA_SECTIONS
         .map(({ key, label, icon: Icon }) => ({
             label,
-            value: metadata[key as keyof DocMetadata],
+            value: metadata[key],
             Icon,
         }))
         .filter(s => s.value);
@@ -97,6 +101,38 @@ export function BookInfoPopover({
                             </div>
                         ))}
                     </div>
+
+                    {metadata.attachments && metadata.attachments.length > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-[var(--color-border-subtle)]">
+                            <span className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                                <Paperclip className="w-4 h-4" />
+                                Attachments ({metadata.attachments.length})
+                            </span>
+                            <ul className="space-y-1">
+                                {metadata.attachments.map((file) => (
+                                    <li key={file.key} className="flex items-center gap-2">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs text-[color:var(--color-text-primary)] font-medium truncate" title={file.name}>{file.name}</p>
+                                            <p className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)] truncate">
+                                                {[file.size !== undefined ? formatAttachmentSize(file.size) : "", file.description ?? ""].filter(Boolean).join(" · ")}
+                                            </p>
+                                        </div>
+                                        {onSaveAttachment && (
+                                            <button
+                                                type="button"
+                                                onClick={() => onSaveAttachment(file.key)}
+                                                aria-label={`Save ${file.name}`}
+                                                title="Save"
+                                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
+                                            >
+                                                <Download className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
 
                     {metadata.description && (
                         <div className="space-y-2 pt-2 border-t border-[var(--color-border-subtle)]">

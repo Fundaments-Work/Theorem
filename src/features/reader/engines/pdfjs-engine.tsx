@@ -20,6 +20,7 @@ import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { buildPdfSearchPattern, findPdfTextMatches, normalizeSearchText, pdfSearchExcerpt, pdfSearchLocation } from "./pdf-search";
 import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLabel, parsePdfDate } from "./pdf-page-labels";
+import { attachmentBytes, listPdfAttachments, type PdfAttachmentInfo } from "./pdf-attachments";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
@@ -89,6 +90,7 @@ export interface PDFDocumentInfo {
     pageLabels?: string[];
     pdfVersion?: string;
     pageSize?: string;
+    attachments?: PdfAttachmentInfo[];
 }
 
 export interface PDFSearchState {
@@ -125,6 +127,8 @@ export interface PDFJsEngineRef {
     goToDestination: (target: PdfDestTarget) => void;
     getPageLabel: (pageNumber: number) => string | undefined;
     getPageNumberFromLabel: (label: string) => number | null;
+    /** Bytes and name of an embedded file listed in `PDFDocumentInfo.attachments`. */
+    getAttachment: (key: string) => Promise<{ name: string; bytes: Uint8Array } | null>;
 }
 
 /** Shape of the `prefetch_pdf_structure` Tauri command response. */
@@ -1980,10 +1984,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     if (!cancelled && !getCachedPdfDocumentInfo(infoCacheKey, totalPageCount)) {
                         void (async () => {
                             try {
-                                const [metadata, { tocItems, hasOutline }, rawLabels] = await Promise.all([
+                                const [metadata, { tocItems, hasOutline }, rawLabels, rawAttachments] = await Promise.all([
                                     pdf.getMetadata(),
                                     buildPdfToc(pdf),
                                     pdf.getPageLabels().catch(() => null),
+                                    pdf.getAttachments().catch(() => null),
                                 ]);
                                 if (cancelled) return;
                                 const labels = normalizePageLabels(rawLabels, totalPageCount) ?? undefined;
@@ -2019,6 +2024,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     pageLabels: labels,
                                     pdfVersion,
                                     pageSize,
+                                    attachments: listPdfAttachments(rawAttachments),
                                 };
                                 setCachedPdfDocumentInfo(infoCacheKey, finalInfo);
                                 callbacksRef.current.onLoad?.(finalInfo);
@@ -2888,7 +2894,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             clearSearch: () => clearSearch(),
             getPageLabel: (pageNumber: number) => pageLabelAt(pageLabels, pageNumber) ?? undefined,
             getPageNumberFromLabel: (label: string) => pageNumberForLabel(pageLabels, label),
-        }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, search]);
+            getAttachment: async (key: string) => {
+                if (!pdfDocument) return null;
+                const raw = await pdfDocument.getAttachments().catch(() => null);
+                const info = listPdfAttachments(raw).find((a) => a.key === key);
+                if (!info) return null;
+                const bytes = attachmentBytes(raw, key) ?? await pdfDocument.getAttachmentContent(key).catch(() => null);
+                return bytes ? { name: info.name, bytes } : null;
+            },
+        }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, pdfDocument, search]);
 
         const displayError = error?.replace(/\s+/g, " ").trim();
 
