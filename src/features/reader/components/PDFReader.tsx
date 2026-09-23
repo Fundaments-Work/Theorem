@@ -8,8 +8,12 @@ import {
     useImperativeHandle,
     memo,
 } from "react";
+import { createPortal } from "react-dom";
 import { AlertCircle } from "lucide-react";
-import { PDFJsEngine, type PDFJsEngineRef, type PDFDocumentInfo } from "../engines/pdfjs-engine";
+import { PDFJsEngine, type PDFJsEngineRef, type PDFDocumentInfo, type PdfLinkPreviewEvent } from "../engines/pdfjs-engine";
+import { FootnotePopover } from "./FootnotePopover";
+import type { FootnoteData } from "../engines/foliate-engine";
+import type { PdfDestTarget } from "../engines/pdf-links";
 import { cn } from "../../../core/lib/utils";
 import type { ReaderTheme, Annotation, HighlightColor, PdfZoomMode } from "../../../core/types";
 
@@ -52,8 +56,18 @@ interface PDFReaderProps {
     onAnnotationChange?: (annotation: Annotation) => void;
     onAnnotationRemove?: (id: string) => void;
     onZoomModeChange?: (mode: PdfZoomMode) => void;
+    onHistoryChange?: (state: { canGoBack: boolean; canGoForward: boolean }) => void;
     showControls?: boolean;
 }
+
+interface PdfLensState {
+    footnote: FootnoteData;
+    target: PdfDestTarget;
+    mode: "hover" | "tap";
+}
+
+/** Grace period for moving the pointer from a link onto its preview. */
+const LENS_HOVER_CLOSE_DELAY_MS = 220;
 
 function ErrorState({
     error,
@@ -125,6 +139,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             onAnnotationChange,
             onAnnotationRemove,
             onZoomModeChange,
+            onHistoryChange,
             showControls = true,
         },
         ref
@@ -194,7 +209,73 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             clearSearch: () => engineRef.current?.clearSearch(),
             setPresentationMode: (mode: 'scroll' | 'paged' | 'two-page') => engineRef.current?.setPresentationMode(mode),
             getPresentationMode: () => engineRef.current?.getPresentationMode() ?? 'scroll',
+            goBack: () => engineRef.current?.goBack(),
+            goForward: () => engineRef.current?.goForward(),
+            canGoBack: () => engineRef.current?.canGoBack() ?? false,
+            canGoForward: () => engineRef.current?.canGoForward() ?? false,
+            goToDestination: (target: PdfDestTarget) => engineRef.current?.goToDestination(target),
         }));
+
+        const [lens, setLens] = useState<PdfLensState | null>(null);
+        const lensCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        const lensHoveredRef = useRef(false);
+
+        const clearLensCloseTimer = useCallback(() => {
+            if (lensCloseTimerRef.current) {
+                clearTimeout(lensCloseTimerRef.current);
+                lensCloseTimerRef.current = null;
+            }
+        }, []);
+
+        const closeLens = useCallback(() => {
+            clearLensCloseTimer();
+            lensHoveredRef.current = false;
+            setLens(null);
+        }, [clearLensCloseTimer]);
+
+        const scheduleHoverLensClose = useCallback(() => {
+            clearLensCloseTimer();
+            lensCloseTimerRef.current = setTimeout(() => {
+                lensCloseTimerRef.current = null;
+                if (!lensHoveredRef.current) {
+                    setLens((current) => (current?.mode === "hover" ? null : current));
+                }
+            }, LENS_HOVER_CLOSE_DELAY_MS);
+        }, [clearLensCloseTimer]);
+
+        const handleLinkPreview = useCallback((event: PdfLinkPreviewEvent | null) => {
+            if (!event) {
+                scheduleHoverLensClose();
+                return;
+            }
+            clearLensCloseTimer();
+            setLens({
+                mode: event.mode,
+                target: event.target,
+                footnote: {
+                    text: event.preview.text,
+                    title: `Page ${event.preview.pageNumber}`,
+                    href: `pdf:page:${event.preview.pageNumber}`,
+                    rect: event.anchorRect,
+                    imageUrl: event.preview.imageUrl ?? undefined,
+                },
+            });
+        }, [clearLensCloseTimer, scheduleHoverLensClose]);
+
+        // A hover preview is anchored to a link; once the page scrolls it no
+        // longer points anywhere meaningful.
+        useEffect(() => {
+            if (lens?.mode !== "hover") return;
+            const onScroll = (event: Event) => {
+                const target = event.target as Node | null;
+                if (target instanceof Element && target.closest("[data-theorem-lens]")) return;
+                closeLens();
+            };
+            window.addEventListener("scroll", onScroll, true);
+            return () => window.removeEventListener("scroll", onScroll, true);
+        }, [lens?.mode, closeLens]);
+
+        useEffect(() => () => clearLensCloseTimer(), [clearLensCloseTimer]);
 
         const handlePageChange = useCallback(
             (page: number, total: number, reportedScale: number) => {
@@ -228,7 +309,9 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
         return (
             <div
                 className="flex flex-col h-full w-full overflow-hidden transition-colors duration-200"
-                style={{ filter: `brightness(${brightness}%)` }}
+                // Any filter (even brightness(100%)) forces an extra compositing
+                // pass over the whole scrolling page stack; only apply when dimmed.
+                style={brightness !== 100 ? { filter: `brightness(${brightness}%)` } : undefined}
             >
                 
                 <div className="flex-1 relative overflow-hidden">
@@ -258,10 +341,30 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                         onAnnotationAdd={onAnnotationAdd}
                         onAnnotationChange={onAnnotationChange}
                         onAnnotationRemove={onAnnotationRemove}
+                        onHistoryChange={onHistoryChange}
+                        onLinkPreview={handleLinkPreview}
                         showControls={showControls}
                         className="w-full h-full"
                     />
                 </div>
+                {lens && typeof document !== "undefined" && createPortal(
+                    <div data-theorem-lens>
+                        <FootnotePopover
+                            footnote={lens.footnote}
+                            onClose={closeLens}
+                            onJump={() => engineRef.current?.goToDestination(lens.target)}
+                            onPointerEnter={() => {
+                                lensHoveredRef.current = true;
+                                clearLensCloseTimer();
+                            }}
+                            onPointerLeave={() => {
+                                lensHoveredRef.current = false;
+                                if (lens.mode === "hover") scheduleHoverLensClose();
+                            }}
+                        />
+                    </div>,
+                    document.body,
+                )}
             </div>
         );
     }

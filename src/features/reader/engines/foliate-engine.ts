@@ -62,6 +62,8 @@ export interface FootnoteData {
     title?: string;
     href?: string;
     rect?: { top: number; left: number; right: number; bottom: number; width: number; height: number };
+    /** Rendered crop of the target (PDF Lens). */
+    imageUrl?: string;
 }
 
 export interface FoliateEngineOptions {

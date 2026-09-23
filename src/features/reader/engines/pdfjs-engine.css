@@ -196,3 +196,28 @@
         animation: none;
     }
 }
+
+/* Link layer: above the text layer (z 2) so links are clickable, below the
+   annotation tools layer (z 20). Only the link boxes take pointer events, so
+   text selection works everywhere else. */
+.pdf-link-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+}
+
+.pdf-link {
+    position: absolute;
+    pointer-events: auto;
+    cursor: pointer;
+    border-radius: 2px;
+    -webkit-user-drag: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.pdf-link:hover,
+.pdf-link:focus-visible {
+    background-color: color-mix(in srgb, var(--color-accent) 16%, transparent);
+    outline: none;
+}

@@ -1616,8 +1616,9 @@ const BookReaderPage = memo(function BookReaderPage() {
             setSpeedReadText("");
             return true;
         }
-        if (!isPdfFormat && readerRef.current?.canGoBack) {
-            readerRef.current.goBack();
+        if (isPdfFormat ? pdfReaderRef.current?.canGoBack() : readerRef.current?.canGoBack) {
+            if (isPdfFormat) pdfReaderRef.current?.goBack();
+            else readerRef.current?.goBack();
             return true;
         }
         return false;
@@ -2381,7 +2382,8 @@ const BookReaderPage = memo(function BookReaderPage() {
                 keys: "Alt+ArrowLeft",
                 category: "Reader",
                 handler: () => {
-                    if (!isPdfFormat && readerRef.current?.canGoBack) readerRef.current.goBack();
+                    if (isPdfFormat) pdfReaderRef.current?.goBack();
+                    else if (readerRef.current?.canGoBack) readerRef.current.goBack();
                 },
             },
             {
@@ -2389,7 +2391,8 @@ const BookReaderPage = memo(function BookReaderPage() {
                 keys: "Alt+ArrowRight",
                 category: "Reader",
                 handler: () => {
-                    if (!isPdfFormat && readerRef.current?.canGoForward) readerRef.current.goForward();
+                    if (isPdfFormat) pdfReaderRef.current?.goForward();
+                    else if (readerRef.current?.canGoForward) readerRef.current.goForward();
                 },
             },
         ], "reader");
@@ -2558,8 +2561,8 @@ const BookReaderPage = memo(function BookReaderPage() {
                     onBack={handleBack}
                     canGoBack={canGoBackState}
                     canGoForward={canGoForwardState}
-                    onGoBack={() => readerRef.current?.goBack()}
-                    onGoForward={() => readerRef.current?.goForward()}
+                    onGoBack={() => (isPdfFormat ? pdfReaderRef.current?.goBack() : readerRef.current?.goBack())}
+                    onGoForward={() => (isPdfFormat ? pdfReaderRef.current?.goForward() : readerRef.current?.goForward())}
                     onPrevPage={() => isPdfFormat ? pdfReaderRef.current?.prevPage() : readerRef.current?.prev()}
                     onNextPage={() => isPdfFormat ? pdfReaderRef.current?.nextPage() : readerRef.current?.next()}
                     onToggleToc={() => togglePanel('toc')}
@@ -2629,6 +2632,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                                 onAnnotationAdd={handlePdfAnnotationAdd}
                                 onAnnotationChange={handlePdfAnnotationChange}
                                 onAnnotationRemove={handlePdfAnnotationRemove}
+                                onHistoryChange={handleHistoryChange}
                             />
                         ) : (
                             <div className="flex items-center justify-center h-full font-sans text-sm text-[color:var(--color-text-secondary)]">

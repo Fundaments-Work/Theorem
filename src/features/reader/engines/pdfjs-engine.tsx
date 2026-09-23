@@ -22,6 +22,11 @@ import { TextLayer } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
+import { PDFLinkLayer, PdfLinkHandlersContext, type PdfLinkHandlers } from "../components/PDFLinkLayer";
+import { resolvePdfDestTarget, type PdfDestTarget, type PdfLink } from "./pdf-links";
+import { buildPdfLensPreview, type PdfLensPreview } from "./pdf-lens";
+import { pushPdfHistory, stepPdfHistory, type PdfHistoryEntry } from "./pdf-history";
+import { captureZoomAnchor, resolveZoomAnchor, type ZoomAnchor } from "./pdf-zoom-anchor";
 
 import "./pdfjs-engine.css";
 
@@ -51,6 +56,19 @@ export interface PDFJsEngineProps {
     onAnnotationAdd?: (annotation: Partial<Annotation>) => void;
     onAnnotationChange?: (annotation: Annotation) => void;
     onAnnotationRemove?: (id: string) => void;
+    /** Back/forward availability after link, TOC and page jumps. */
+    onHistoryChange?: (state: { canGoBack: boolean; canGoForward: boolean }) => void;
+    /** Theorem Lens preview for an internal link; null asks to hide a hover preview. */
+    onLinkPreview?: (event: PdfLinkPreviewEvent | null) => void;
+}
+
+export interface PdfLinkPreviewEvent {
+    preview: PdfLensPreview;
+    target: PdfDestTarget;
+    /** Viewport rect of the link that triggered the preview. */
+    anchorRect: { top: number; left: number; right: number; bottom: number; width: number; height: number };
+    /** Hover previews close when the pointer leaves; tap previews stay until dismissed. */
+    mode: "hover" | "tap";
 }
 
 export interface PDFDocumentInfo {
@@ -94,6 +112,12 @@ export interface PDFJsEngineRef {
     getPresentationMode: () => 'scroll' | 'paged' | 'two-page';
     search: (query: string) => AsyncGenerator<SearchResult | { progress: number } | "done">;
     clearSearch: () => void;
+    goBack: () => void;
+    goForward: () => void;
+    canGoBack: () => boolean;
+    canGoForward: () => boolean;
+    /** Jump to a resolved destination (records history), e.g. from the Lens. */
+    goToDestination: (target: PdfDestTarget) => void;
 }
 
 /** Shape of the `prefetch_pdf_structure` Tauri command response. */
@@ -742,15 +766,7 @@ function waitForNextFrame(): Promise<void> {
 interface PdfOutlineItemLike { title?: string | null; dest?: unknown; items?: PdfOutlineItemLike[] | null; }
 
 async function resolvePdfDestPageNumber(pdfDocument: PDFDocumentProxy, destination: unknown): Promise<number | null> {
-    try {
-        const explicitDestination = typeof destination === "string" ? await pdfDocument.getDestination(destination) : destination;
-        if (!Array.isArray(explicitDestination) || explicitDestination.length === 0) return null;
-        const ref = explicitDestination[0];
-        if (typeof ref === "number") return ref + 1;
-        if (!ref || typeof ref !== "object") return null;
-        const pageIndex = await pdfDocument.getPageIndex(ref as Parameters<PDFDocumentProxy["getPageIndex"]>[0]);
-        return pageIndex + 1;
-    } catch { return null; }
+    return (await resolvePdfDestTarget(pdfDocument, destination))?.pageNumber ?? null;
 }
 
 function sanitizeTocLabel(label?: string | null, fallback?: string): string {
@@ -1120,6 +1136,7 @@ const PageCanvas = memo(function PageCanvas({
         <div ref={containerRef} className="pdf-page-container">
             <canvas ref={canvasRef} className="block absolute inset-0" />
             {enableTextLayer && <div ref={textLayerRef} className="textLayer" />}
+            {shouldRender && <PDFLinkLayer page={page} cssScale={scale * PDF_TO_CSS_UNITS} rotation={rotation} />}
             {shouldRender && shouldRenderAnnotationLayer && (
                 <PDFAnnotationLayer
                     pageNumber={page.pageNumber} annotations={annotations} mode={annotationMode}
@@ -1133,7 +1150,19 @@ const PageCanvas = memo(function PageCanvas({
     );
 });
 
-interface PageLayoutEntry { pageNumber: number; top: number; bottom: number; }
+interface PageLayoutEntry { pageNumber: number; top: number; bottom: number; left: number; width: number; }
+
+const LENS_HOVER_DELAY_MS = 280;
+const LENS_PREVIEW_CSS_WIDTH = 420;
+
+
+function openExternalUrl(url: string): void {
+    if (isTauri()) {
+        void import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)).catch(() => undefined);
+        return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+}
 
 function findPageForScrollCenter(pageLayout: PageLayoutEntry[], centerY: number): number | null {
     if (pageLayout.length === 0) return null;
@@ -1160,7 +1189,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         onLoad, onError, onPageChange, onZoomModeChange, onViewportTap, showControls = true, className,
         annotations = [], annotationMode = 'none',
         highlightColor = "yellow", penColor = "blue", penWidth = 2,
-        onAnnotationAdd, onAnnotationChange, onAnnotationRemove
+        onAnnotationAdd, onAnnotationChange, onAnnotationRemove,
+        onHistoryChange, onLinkPreview,
     }, ref) {
         const containerRef = useRef<HTMLDivElement>(null);
         const zoomContainerRef = useRef<HTMLDivElement>(null);
@@ -1171,6 +1201,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const [totalPages, setTotalPages] = useState(0);
         const [scale, setScale] = useState(DEFAULT_SCALE);
         const [rotation, setRotation] = useState(0);
+        const rotationRef = useRef(0);
+        rotationRef.current = rotation;
         const [presentationMode, setPresentationModeState] = useState<'scroll' | 'paged' | 'two-page'>(initialPresentationMode);
         const presentationModeRef = useRef<'scroll' | 'paged' | 'two-page'>(initialPresentationMode);
         const [activeSearchQuery, setActiveSearchQuery] = useState<string>("");
@@ -1186,7 +1218,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const renderStabilizationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         const loadingTaskRef = useRef<any>(null);
         const pendingScrollPageRef = useRef<number | null>(null);
-        const pendingScrollAdjustmentRef = useRef<{ left: number; top: number; scale: number } | null>(null);
+        const pendingScrollAdjustmentRef = useRef<ZoomAnchor | null>(null);
         const loadingPageNumbersRef = useRef<Set<number>>(new Set());
         const loadedPageBoundsRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
         const lastEdgePrefetchAtRef = useRef(0);
@@ -1306,7 +1338,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 const node = pageNodes[i];
                 const pageNumber = Number(node.dataset.pageNumber);
                 if (!Number.isFinite(pageNumber)) continue;
-                entries.push({ pageNumber, top: node.offsetTop, bottom: node.offsetTop + node.offsetHeight });
+                entries.push({ pageNumber, top: node.offsetTop, bottom: node.offsetTop + node.offsetHeight, left: node.offsetLeft, width: node.offsetWidth });
             }
             entries.sort((l, r) => l.pageNumber - r.pageNumber);
             pageLayoutRef.current = entries;
@@ -1366,13 +1398,18 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
         useLayoutEffect(() => {
             const container = containerRef.current;
-            const scrollAdjustment = pendingScrollAdjustmentRef.current;
-            if (container && scrollAdjustment && Math.abs(scrollAdjustment.scale - scale) < 0.001) {
-                container.scrollLeft = scrollAdjustment.left;
-                container.scrollTop = scrollAdjustment.top;
-                pendingScrollAdjustmentRef.current = null;
-            }
+            // Page sizes for the new scale are already applied (children's layout
+            // effects run first), so measure, then put the anchor back under the focus.
             rebuildPageLayout();
+            const anchor = pendingScrollAdjustmentRef.current;
+            if (container && anchor && Math.abs(anchor.scale - scale) < 0.001) {
+                pendingScrollAdjustmentRef.current = null;
+                const position = resolveZoomAnchor(pageLayoutRef.current, anchor);
+                if (position) {
+                    container.scrollLeft = position.left;
+                    container.scrollTop = position.top;
+                }
+            }
         }, [scale, rebuildPageLayout]);
 
         const setZoomMode = useCallback((mode: PdfZoomMode, force = false) => {
@@ -1381,7 +1418,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             callbacksRef.current.onZoomModeChange?.(mode);
         }, []);
 
-        const applyZoom = useCallback((requestedScale: number, options?: { mode?: PdfZoomMode; preserveMode?: boolean }): number => {
+        const applyZoom = useCallback((
+            requestedScale: number,
+            options?: {
+                mode?: PdfZoomMode;
+                preserveMode?: boolean;
+                /** Focus point (px from the container's top-left) kept fixed; default: viewport centre; false: no anchoring. */
+                anchor?: { x: number; y: number } | false;
+            },
+        ): number => {
             const clampedScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, requestedScale));
             if (options?.mode) setZoomMode(options.mode);
             else if (!options?.preserveMode) setZoomMode("custom");
@@ -1390,23 +1435,27 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             const oldScale = scaleRef.current;
             scaleRef.current = clampedScale;
 
-            // Anchor zoom to the center of the current viewport so the reader doesn't jump to a random location
+            // Keep the page point under the focus fixed across the re-layout.
             const container = containerRef.current;
-            if (container && pendingScrollAdjustmentRef.current === null && Math.abs(clampedScale - oldScale) > 0.0001) {
-                const ratio = clampedScale / oldScale;
-                const centerY = container.scrollTop + (container.clientHeight / 2);
-                const centerX = container.scrollLeft + (container.clientWidth / 2);
-                pendingScrollAdjustmentRef.current = {
-                    left: Math.max(0, centerX * ratio - (container.clientWidth / 2)),
-                    top: Math.max(0, centerY * ratio - (container.clientHeight / 2)),
-                    scale: clampedScale,
-                };
+            if (container && options?.anchor !== false && Math.abs(clampedScale - oldScale) > 0.0001) {
+                if (pageLayoutRef.current.length === 0) rebuildPageLayout();
+                const focus = options?.anchor ?? { x: container.clientWidth / 2, y: container.clientHeight / 2 };
+                pendingScrollAdjustmentRef.current = captureZoomAnchor(
+                    pageLayoutRef.current,
+                    container.scrollLeft,
+                    container.scrollTop,
+                    focus.x,
+                    focus.y,
+                    clampedScale,
+                );
+            } else {
+                pendingScrollAdjustmentRef.current = null;
             }
 
             setScale(clampedScale);
             callbacksRef.current.onPageChange?.(currentPageRef.current, totalPagesRef.current, clampedScale);
             return clampedScale;
-        }, [setZoomMode]);
+        }, [setZoomMode, rebuildPageLayout]);
 
         // Keep pageTopsRef in sync with scale changes so that scrollToPage remains accurate
         // after the user zooms in or out.
@@ -1988,7 +2037,9 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     : normalizedMode === "width-fit" ? getFitWidthScale(container, firstPage, isTwoPage)
                     : Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
                 hasAppliedInitialViewStateRef.current = true;
-                applyZoom(nextScale, { mode: normalizedMode, preserveMode: normalizedMode !== "custom" });
+                // Opening: no anchoring. Page 1 must start at its top, and later
+                // pages are positioned by restoreInitialPageWithRetry below.
+                applyZoom(nextScale, { mode: normalizedMode, preserveMode: normalizedMode !== "custom", anchor: false });
                 const targetPage = Math.max(1, Math.min(initialPageToRestoreRef.current, totalPagesRef.current || 1));
                 if (targetPage > 1) restoreInitialPageWithRetry(targetPage);
             });
@@ -2088,18 +2139,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 pendingWheelDelta = 0;
 
                 const mouse = lastWheelMouseRef.current;
-                if (mouse && Math.abs(nextScale - oldScale) > 0.0001) {
-                    const ratio = nextScale / oldScale;
-                    const contentX = container.scrollLeft + mouse.x;
-                    const contentY = container.scrollTop + mouse.y;
-                    pendingScrollAdjustmentRef.current = {
-                        left: contentX * ratio - mouse.x,
-                        top: contentY * ratio - mouse.y,
-                        scale: nextScale,
-                    };
-                }
-
-                applyZoom(nextScale);
+                applyZoom(nextScale, mouse ? { anchor: mouse } : undefined);
                 lastWheelCommitAt = performance.now();
             };
 
@@ -2191,16 +2231,9 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         if (match && match[1]) {
                             const visualScale = parseFloat(match[1]);
                             const finalScale = initialScale * visualScale;
-                            const ratio = finalScale / initialScale;
-                            
-                            const contentCenterX = initialPinchCenterX + initialScrollLeft;
-                            const contentCenterY = initialPinchCenterY + initialScrollTop;
-                            pendingScrollAdjustmentRef.current = {
-                                left: contentCenterX * ratio - initialPinchCenterX,
-                                top: contentCenterY * ratio - initialPinchCenterY,
-                                scale: finalScale,
-                            };
-                            applyZoom(finalScale);
+                            // Scrolling is blocked while pinching, so the container is
+                            // still at initialScroll*; anchor on the pinch centre.
+                            applyZoom(finalScale, { anchor: { x: initialPinchCenterX, y: initialPinchCenterY } });
                         }
                     }
                 }
@@ -2428,11 +2461,13 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 // Jump to start / end
                 if (event.key === "Home") {
                     event.preventDefault();
+                    if (currentPageRef.current !== 1) pushHistory();
                     navigateToPage(1, "auto");
                     return;
                 }
                 if (event.key === "End") {
                     event.preventDefault();
+                    if (currentPageRef.current !== totalPagesRef.current) pushHistory();
                     navigateToPage(totalPagesRef.current, "auto");
                     return;
                 }
@@ -2489,8 +2524,204 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             return () => { window.removeEventListener("keydown", handleKeyDown); };
         }, [applyZoom, error, firstLoadedPage, isLoading, markViewportInteracting, navigateToPage]);
 
+        // ── Navigation history (link / TOC / page jumps) ─────────────────────
+        const historyRef = useRef<{ back: PdfHistoryEntry[]; forward: PdfHistoryEntry[] }>({ back: [], forward: [] });
+        const historyCallbackRef = useRef(onHistoryChange);
+        historyCallbackRef.current = onHistoryChange;
+        const linkPreviewCallbackRef = useRef(onLinkPreview);
+        linkPreviewCallbackRef.current = onLinkPreview;
+
+        const emitHistoryChange = useCallback(() => {
+            const { back, forward } = historyRef.current;
+            historyCallbackRef.current?.({ canGoBack: back.length > 0, canGoForward: forward.length > 0 });
+        }, []);
+
+        const captureLocation = useCallback((): PdfHistoryEntry => {
+            const page = currentPageRef.current;
+            const container = containerRef.current;
+            const entry = pageLayoutRef.current.find((item) => item.pageNumber === page);
+            if (!container || !entry || entry.bottom <= entry.top) return { page, ratio: 0 };
+            // Unclamped: the viewport top may sit in the padding/gap above the page.
+            return { page, ratio: (container.scrollTop - entry.top) / (entry.bottom - entry.top) };
+        }, []);
+
+        const pushHistory = useCallback(() => {
+            historyRef.current = pushPdfHistory(historyRef.current, captureLocation());
+            emitHistoryChange();
+        }, [captureLocation, emitHistoryChange]);
+
+        /** Scroll so that viewport-space y (CSS px within the page) sits near the top. */
+        const scrollWithinPage = useCallback((pageNumber: number, yCss: number, xCss: number | null) => {
+            const container = containerRef.current;
+            if (!container) return;
+            const wrapper = container.querySelector<HTMLElement>(`.pdf-page-wrapper[data-page-number="${pageNumber}"]`);
+            if (!wrapper) return;
+            const containerRect = container.getBoundingClientRect();
+            const inner = wrapper.querySelector<HTMLElement>(".pdf-page-container") ?? wrapper;
+            const innerRect = inner.getBoundingClientRect();
+            const pageTop = innerRect.top - containerRect.top + container.scrollTop;
+            const pageLeft = innerRect.left - containerRect.left + container.scrollLeft;
+            const top = Math.max(0, pageTop + yCss - 16);
+            const left = xCss !== null && container.scrollWidth > container.clientWidth
+                ? Math.max(0, pageLeft + xCss - 16)
+                : container.scrollLeft;
+            container.scrollTo({ top, left, behavior: "auto" });
+        }, []);
+
+        const restoreLocation = useCallback((entry: PdfHistoryEntry) => {
+            navigateToPage(entry.page, "auto");
+            // Exact restore: the same offset relative to the page as when captured.
+            const container = containerRef.current;
+            const layout = pageLayoutRef.current.find((item) => item.pageNumber === entry.page);
+            if (container && layout) {
+                container.scrollTo({ top: Math.max(0, layout.top + entry.ratio * (layout.bottom - layout.top)), behavior: "auto" });
+            }
+        }, [navigateToPage]);
+
+        const goBack = useCallback(() => {
+            const result = stepPdfHistory(historyRef.current, captureLocation(), "back");
+            if (!result) return;
+            historyRef.current = result.history;
+            restoreLocation(result.target);
+            emitHistoryChange();
+        }, [captureLocation, restoreLocation, emitHistoryChange]);
+
+        const goForward = useCallback(() => {
+            const result = stepPdfHistory(historyRef.current, captureLocation(), "forward");
+            if (!result) return;
+            historyRef.current = result.history;
+            restoreLocation(result.target);
+            emitHistoryChange();
+        }, [captureLocation, restoreLocation, emitHistoryChange]);
+
+        const goToDestination = useCallback((target: PdfDestTarget) => {
+            if (target.pageNumber < 1 || target.pageNumber > totalPagesRef.current) return;
+            pushHistory();
+            navigateToPage(target.pageNumber, "auto");
+            if (!pdfDocument || (target.top === null && target.left === null)) return;
+            const expectedScale = scaleRef.current;
+            void pdfDocument.getPage(target.pageNumber).then((page) => {
+                if (scaleRef.current !== expectedScale) return;
+                const viewport = page.getViewport({ scale: expectedScale * PDF_TO_CSS_UNITS, rotation: rotationRef.current });
+                const [x, y] = viewport.convertToViewportPoint(target.left ?? page.view[0], target.top ?? page.view[3]);
+                scrollWithinPage(target.pageNumber, y, target.left !== null ? x : null);
+            }).catch(() => undefined);
+        }, [pdfDocument, pushHistory, navigateToPage, scrollWithinPage]);
+
+        // Reset history when a different document loads.
+        useEffect(() => {
+            historyRef.current = { back: [], forward: [] };
+            emitHistoryChange();
+        }, [pdfDocument, emitHistoryChange]);
+
+        // Mouse back/forward buttons.
+        useEffect(() => {
+            const container = containerRef.current;
+            if (!container) return;
+            const onMouseUp = (event: MouseEvent) => {
+                if (event.button === 3) { event.preventDefault(); goBack(); }
+                else if (event.button === 4) { event.preventDefault(); goForward(); }
+            };
+            container.addEventListener("mouseup", onMouseUp);
+            return () => container.removeEventListener("mouseup", onMouseUp);
+        }, [goBack, goForward]);
+
+        // ── Links + Theorem Lens ─────────────────────────────────────────────
+        const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        const linkRequestRef = useRef(0);
+
+        const showLinkPreview = useCallback(async (link: PdfLink, anchor: HTMLElement, mode: "hover" | "tap") => {
+            if (link.kind !== "internal" || !pdfDocument) return;
+            const request = ++linkRequestRef.current;
+            const target = await resolvePdfDestTarget(pdfDocument, link.dest);
+            if (!target || request !== linkRequestRef.current) return;
+            const pixelRatio = typeof window !== "undefined" ? Math.min(2, window.devicePixelRatio || 1) : 1;
+            let preview: PdfLensPreview;
+            try {
+                preview = await buildPdfLensPreview(pdfDocument, target, LENS_PREVIEW_CSS_WIDTH, pixelRatio);
+            } catch {
+                return;
+            }
+            if (request !== linkRequestRef.current || !anchor.isConnected) return;
+            const rect = anchor.getBoundingClientRect();
+            linkPreviewCallbackRef.current?.({
+                preview,
+                target,
+                mode,
+                anchorRect: { top: rect.top, left: rect.left, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height },
+            });
+        }, [pdfDocument]);
+
+        const cancelLinkHover = useCallback(() => {
+            if (hoverTimerRef.current) {
+                clearTimeout(hoverTimerRef.current);
+                hoverTimerRef.current = null;
+            }
+            linkRequestRef.current++;
+        }, []);
+
+        const runNamedAction = useCallback((action: string) => {
+            switch (action) {
+                case "NextPage": if (currentPageRef.current < totalPagesRef.current) navigateToPage(currentPageRef.current + 1, "auto"); break;
+                case "PrevPage": if (currentPageRef.current > 1) navigateToPage(currentPageRef.current - 1, "auto"); break;
+                case "FirstPage": pushHistory(); navigateToPage(1, "auto"); break;
+                case "LastPage": pushHistory(); navigateToPage(totalPagesRef.current, "auto"); break;
+                case "GoBack": goBack(); break;
+                case "GoForward": goForward(); break;
+            }
+        }, [navigateToPage, pushHistory, goBack, goForward]);
+
+        const linkHandlers = useMemo<PdfLinkHandlers>(() => ({
+            enabled: annotationMode === "none",
+            onActivate: (link, anchor, pointerType) => {
+                cancelLinkHover();
+                if (link.kind === "external") {
+                    openExternalUrl(link.url);
+                    return;
+                }
+                if (link.kind === "named") {
+                    runNamedAction(link.action);
+                    return;
+                }
+                if (pointerType === "touch" || pointerType === "pen") {
+                    // No hover on touch: a tap opens the Lens, which offers Jump.
+                    void showLinkPreview(link, anchor, "tap");
+                    return;
+                }
+                linkPreviewCallbackRef.current?.(null);
+                const request = ++linkRequestRef.current;
+                void (async () => {
+                    if (!pdfDocument) return;
+                    const target = await resolvePdfDestTarget(pdfDocument, link.dest);
+                    if (target && request === linkRequestRef.current) goToDestination(target);
+                })();
+            },
+            onHoverStart: (link, anchor) => {
+                cancelLinkHover();
+                hoverTimerRef.current = setTimeout(() => {
+                    hoverTimerRef.current = null;
+                    void showLinkPreview(link, anchor, "hover");
+                }, LENS_HOVER_DELAY_MS);
+            },
+            onHoverEnd: () => {
+                cancelLinkHover();
+                linkPreviewCallbackRef.current?.(null);
+            },
+        }), [annotationMode, cancelLinkHover, runNamedAction, showLinkPreview, pdfDocument, goToDestination]);
+
+        useEffect(() => () => cancelLinkHover(), [cancelLinkHover]);
+
         useImperativeHandle(ref, () => ({
-            goToPage: (page: number) => { if (page >= 1 && page <= totalPagesRef.current) navigateToPage(page, "auto"); },
+            goToPage: (page: number) => {
+                if (page < 1 || page > totalPagesRef.current) return;
+                if (page !== currentPageRef.current) pushHistory();
+                navigateToPage(page, "auto");
+            },
+            goBack,
+            goForward,
+            canGoBack: () => historyRef.current.back.length > 0,
+            canGoForward: () => historyRef.current.forward.length > 0,
+            goToDestination,
             nextPage: () => {
                 const page = currentPageRef.current;
                 if (presentationModeRef.current === 'two-page') {
@@ -2652,6 +2883,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         };
 
         return (
+            <PdfLinkHandlersContext.Provider value={linkHandlers}>
             <div className={cn("relative w-full h-full", className)}>
                 {isLoading && (
                     <PageLoader
@@ -2799,6 +3031,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     </div>
                 )}
             </div>
+            </PdfLinkHandlersContext.Provider>
         );
     }
 ));
