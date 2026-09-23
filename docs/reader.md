@@ -75,8 +75,11 @@ PDF.js is prewarmed on app start via `prewarmPdfJsRuntime()`. To prevent memory 
    - **Continuous (`scroll`)**: Virtualized DOM window with automatic layout measurement and smooth anchor restoration.
    - **Single Page (`paged`)**: Auto-fits page to screen (`page-fit`), centers using `m-auto` layout to prevent flex data-loss clipping, and keeps a ±2-page window pre-loaded for 0ms instant page turns.
 6. **Settings Persistence**: Zoom level, zoom mode, and presentation mode are saved per-book in `PdfViewState` within SQLite.
+7. **Canvas Theme Filters**: Dark mode (`.pdf-theme-dark` with CSS invert and hue rotation) and Sepia mode (`.pdf-theme-sepia` with warm tint) apply seamless eye-comfort filters to fixed-layout PDF canvases without re-rasterizing vector layers.
+8. **Logical Page Labels**: PDF.js `getPageLabels()` extracts publisher-defined roman numerals or appendix numbering (e.g. `iv (4 / 120)`). Labels are displayed in floating pills, formatted in titlebars, and resolved directly in page jump inputs (`goTo(target)`).
+9. **Rich Metadata**: Extracts PDF `creator`, `producer`, `pdfVersion`, and physical `pageSize` dimensions in the book info popover.
 
-## Annotations
+## Annotations & O(1) Indexing
 
 Annotations sync between three layers:
 1. **Engine** — The rendering engine handles visual placement (highlights in iframe/on canvas)
@@ -87,13 +90,17 @@ The sync is bi-directional:
 - User highlights in iframe → engine event → store mutation → panel re-render
 - User deletes in panel → store mutation → engine re-renders (removes highlight)
 
-Annotations are persisted both per-book in the `book_annotations` SQLite table and as part of the persisted Zustand state (`libraryStore.annotations`, which is included in the store's `partialize`). The shared array is loaded on app start and kept in memory for sync and cross-book operations.
+Annotations are persisted both per-book in the `book_annotations` SQLite table and as part of the persisted Zustand state (`libraryStore.annotations`, which is included in the store's `partialize`). Inside `Reader.tsx`, annotations and bookmarks are indexed into constant-time $\mathcal{O}(1)$ Maps (`annotationsById`, `annotationsByLocation`, `annotationsBySelectedText`, `bookmarkByLocation`), eliminating linear $\mathcal{O}(N)$ scans during rapid user selections and bookmark checks.
 
 ## Full-Text Search
 
-- Non-PDF: foliate-js's built-in search via `search.js`
-- PDF: a custom generator that extracts per-page text (`getTextContent`) and ranks matches with fuzzy search
-- Both iterate matches and scroll to the selected result
+- **Non-PDF**: foliate-js's built-in search via `search.js` with whole-word and case-matching options.
+- **PDF & Native Rust**: A multi-threaded streaming search engine (`src-tauri/src/book_search.rs`) scanning unpacked text chunks with word-boundary byte verification.
+- **UX & Navigation**:
+  - **Toggles**: Match Case (`Alt+C`) and Whole Word (`Alt+W`).
+  - **Result Counter**: Displays "Result X of Y" with real-time progress indicators.
+  - **Keyboard Cycling**: Cycle through matches seamlessly using `Enter` / `Shift+Enter` or `F3` / `Shift+F3`.
+  - **Scroll Alignment**: Active matches automatically scroll smoothly into view.
 
 ## TTS / Immersion Reading
 

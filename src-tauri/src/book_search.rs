@@ -95,11 +95,34 @@ fn extract_context_snippet(text: &str, match_byte_start: usize, match_byte_len: 
     format!("{prefix}{clean_body}{suffix}")
 }
 
+fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
+    let before_ok = if start == 0 {
+        true
+    } else {
+        text[..start]
+            .chars()
+            .last()
+            .map(|c| !c.is_alphanumeric() && c != '_')
+            .unwrap_or(true)
+    };
+    let after_ok = if end >= text.len() {
+        true
+    } else {
+        text[end..]
+            .chars()
+            .next()
+            .map(|c| !c.is_alphanumeric() && c != '_')
+            .unwrap_or(true)
+    };
+    before_ok && after_ok
+}
+
 /// Search across an EPUB's spine chapters in parallel
 pub fn search_epub_spine(
     path: &Path,
     query: &str,
     match_case: bool,
+    whole_word: bool,
 ) -> Result<Vec<NativeSearchMatch>, String> {
     let q = query.trim();
     if q.is_empty() {
@@ -199,21 +222,24 @@ pub fn search_epub_spine(
 
             while let Some(byte_pos) = search_text[search_from..].find(&target_query) {
                 let actual_byte_pos = search_from + byte_pos;
+                let end_byte_pos = actual_byte_pos + target_query.len();
                 running_char_offset += plain_text[last_byte_pos..actual_byte_pos].chars().count();
                 last_byte_pos = actual_byte_pos;
 
-                let snippet =
-                    extract_context_snippet(&plain_text, actual_byte_pos, target_query.len());
+                if !whole_word || is_word_boundary(&plain_text, actual_byte_pos, end_byte_pos) {
+                    let snippet =
+                        extract_context_snippet(&plain_text, actual_byte_pos, target_query.len());
 
-                matches.push(NativeSearchMatch {
-                    section_index: *sec_idx,
-                    section_href: sec_href.clone().into_boxed_str(),
-                    snippet: snippet.into_boxed_str(),
-                    match_text: q.to_string().into_boxed_str(),
-                    char_offset: running_char_offset,
-                });
+                    matches.push(NativeSearchMatch {
+                        section_index: *sec_idx,
+                        section_href: sec_href.clone().into_boxed_str(),
+                        snippet: snippet.into_boxed_str(),
+                        match_text: q.to_string().into_boxed_str(),
+                        char_offset: running_char_offset,
+                    });
+                }
 
-                search_from = actual_byte_pos + target_query.len();
+                search_from = end_byte_pos;
                 if search_from >= search_text.len() {
                     break;
                 }
@@ -730,6 +756,7 @@ pub fn search_pdf_content(
     path: &Path,
     query: &str,
     match_case: bool,
+    whole_word: bool,
 ) -> Result<Vec<NativeSearchMatch>, String> {
     let q = query.trim();
     if q.is_empty() {
@@ -769,20 +796,24 @@ pub fn search_pdf_content(
 
             while let Some(byte_pos) = search_text[search_from..].find(&target_query) {
                 let actual_byte_pos = search_from + byte_pos;
+                let end_byte_pos = actual_byte_pos + target_query.len();
                 running_char_offset += text[last_byte_pos..actual_byte_pos].chars().count();
                 last_byte_pos = actual_byte_pos;
 
-                let snippet = extract_context_snippet(text, actual_byte_pos, target_query.len());
+                if !whole_word || is_word_boundary(text, actual_byte_pos, end_byte_pos) {
+                    let snippet =
+                        extract_context_snippet(text, actual_byte_pos, target_query.len());
 
-                matches.push(NativeSearchMatch {
-                    section_index: page_idx,
-                    section_href: format!("page={}", page_idx + 1).into_boxed_str(),
-                    snippet: snippet.into_boxed_str(),
-                    match_text: q.to_string().into_boxed_str(),
-                    char_offset: running_char_offset,
-                });
+                    matches.push(NativeSearchMatch {
+                        section_index: page_idx,
+                        section_href: format!("page={}", page_idx + 1).into_boxed_str(),
+                        snippet: snippet.into_boxed_str(),
+                        match_text: q.to_string().into_boxed_str(),
+                        char_offset: running_char_offset,
+                    });
+                }
 
-                search_from = actual_byte_pos + target_query.len();
+                search_from = end_byte_pos;
                 if search_from >= search_text.len() {
                     break;
                 }
@@ -804,6 +835,7 @@ pub async fn search_book_content(
     path: String,
     query: String,
     match_case: Option<bool>,
+    whole_word: Option<bool>,
 ) -> Result<BookSearchResult, String> {
     let start = std::time::Instant::now();
     let file_path = std::path::PathBuf::from(path);
@@ -812,6 +844,7 @@ pub async fn search_book_content(
     }
 
     let is_match_case = match_case.unwrap_or(false);
+    let is_whole_word = whole_word.unwrap_or(false);
 
     let is_pdf = file_path
         .extension()
@@ -827,9 +860,9 @@ pub async fn search_book_content(
 
     let matches = tokio::task::spawn_blocking(move || {
         if is_pdf {
-            search_pdf_content(&file_path, &query, is_match_case)
+            search_pdf_content(&file_path, &query, is_match_case, is_whole_word)
         } else {
-            search_epub_spine(&file_path, &query, is_match_case)
+            search_epub_spine(&file_path, &query, is_match_case, is_whole_word)
         }
     })
     .await
@@ -897,11 +930,21 @@ trailer\n\
         let pdf_path = temp_dir.path().join("test_sample.pdf");
         std::fs::write(&pdf_path, pdf_data).unwrap();
 
-        let matches = search_pdf_content(&pdf_path, "SQLite persistence", false).unwrap();
+        let matches = search_pdf_content(&pdf_path, "SQLite persistence", false, false).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].section_index, 0);
         assert_eq!(matches[0].section_href.as_ref(), "page=1");
         assert!(matches[0].snippet.contains("SQLite persistence"));
+
+        // Whole word test: "SQLite" matches, but "SQL" only matches when whole_word is false
+        let whole_word_matches = search_pdf_content(&pdf_path, "SQL", false, true).unwrap();
+        assert_eq!(whole_word_matches.len(), 0);
+        let partial_matches = search_pdf_content(&pdf_path, "SQL", false, false).unwrap();
+        assert_eq!(partial_matches.len(), 1);
+
+        // Case-sensitive test: "sqlite" with match_case=true yields 0 matches
+        let case_matches = search_pdf_content(&pdf_path, "sqlite", true, false).unwrap();
+        assert_eq!(case_matches.len(), 0);
     }
 
     #[test]
@@ -936,7 +979,7 @@ trailer\n\
         let pdf_path = temp_dir.path().join("test_compressed.pdf");
         std::fs::write(&pdf_path, &pdf_data).unwrap();
 
-        let matches = search_pdf_content(&pdf_path, "Quantum Computing", false).unwrap();
+        let matches = search_pdf_content(&pdf_path, "Quantum Computing", false, false).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].section_index, 0);
         assert_eq!(matches[0].section_href.as_ref(), "page=1");
@@ -973,7 +1016,7 @@ trailer\n\
 
             for query in test_queries {
                 let start = std::time::Instant::now();
-                let res = search_epub_spine(&path, query, false);
+                let res = search_epub_spine(&path, query, false, false);
                 let duration = start.elapsed();
 
                 if let Ok(matches) = res {

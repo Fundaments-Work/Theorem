@@ -20,7 +20,7 @@ import { Dropdown, PageLoader } from "../../../ui";
 import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
+import type { Annotation, HighlightColor, PdfZoomMode, ReaderTheme, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
 import { PDFLinkLayer, PdfLinkHandlersContext, type PdfLinkHandlers } from "../components/PDFLinkLayer";
 import { resolvePdfDestTarget, type PdfDestTarget, type PdfLink } from "./pdf-links";
@@ -42,6 +42,7 @@ export interface PDFJsEngineProps {
     initialZoomMode?: PdfZoomMode;
     presentationMode?: 'scroll' | 'paged' | 'two-page';
     onPresentationModeChange?: (mode: 'scroll' | 'paged' | 'two-page') => void;
+    theme?: ReaderTheme;
     onLoad?: (info: PDFDocumentInfo) => void;
     onError?: (error: Error) => void;
     onPageChange?: (page: number, totalPages: number, scale: number) => void;
@@ -85,6 +86,9 @@ export interface PDFDocumentInfo {
     filename: string;
     hasOutline?: boolean;
     toc?: TocItem[];
+    pageLabels?: string[];
+    pdfVersion?: string;
+    pageSize?: string;
 }
 
 export interface PDFSearchState {
@@ -111,7 +115,7 @@ export interface PDFJsEngineRef {
     zoomFitWidth: () => void;
     setPresentationMode: (mode: 'scroll' | 'paged' | 'two-page') => void;
     getPresentationMode: () => 'scroll' | 'paged' | 'two-page';
-    search: (query: string) => AsyncGenerator<SearchResult | { progress: number } | "done">;
+    search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => AsyncGenerator<SearchResult | { progress: number } | "done">;
     clearSearch: () => void;
     goBack: () => void;
     goForward: () => void;
@@ -119,6 +123,8 @@ export interface PDFJsEngineRef {
     canGoForward: () => boolean;
     /** Jump to a resolved destination (records history), e.g. from the Lens. */
     goToDestination: (target: PdfDestTarget) => void;
+    getPageLabel: (pageNumber: number) => string | undefined;
+    getPageNumberFromLabel: (label: string) => number | null;
 }
 
 /** Shape of the `prefetch_pdf_structure` Tauri command response. */
@@ -1276,6 +1282,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         pdfPath, pdfData, originalFilename,
         initialPage = 1, initialZoom = DEFAULT_SCALE, initialZoomMode = DEFAULT_ZOOM_MODE,
         presentationMode: initialPresentationMode = 'scroll', onPresentationModeChange,
+        theme = 'light',
         onLoad, onError, onPageChange, onZoomModeChange, onViewportTap, showControls = true, className,
         annotations = [], annotationMode = 'none',
         highlightColor = "yellow", penColor = "blue", penWidth = 2,
@@ -1289,6 +1296,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const [error, setError] = useState<string | null>(null);
         const [currentPage, setCurrentPage] = useState(initialPage);
         const [totalPages, setTotalPages] = useState(0);
+        const [pageLabels, setPageLabels] = useState<string[] | null>(null);
         const [scale, setScale] = useState(DEFAULT_SCALE);
         const [rotation, setRotation] = useState(0);
         const rotationRef = useRef(0);
@@ -1738,7 +1746,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             initialPageRestoreTimeoutRef.current = setTimeout(() => { restoreInitialPageWithRetry(targetPage, attempts + 1); }, 50);
         }, []);
 
-        const search = useCallback(async function* (query: string): AsyncGenerator<SearchResult | { progress: number } | "done"> {
+        const search = useCallback(async function* (
+            query: string,
+            options?: { matchCase?: boolean; wholeWord?: boolean }
+        ): AsyncGenerator<SearchResult | { progress: number } | "done"> {
             const normalizedQuery = query.trim();
             setActiveSearchQuery(normalizedQuery);
             if (!normalizedQuery) { yield "done"; return; }
@@ -1747,6 +1758,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
             searchSessionRef.current += 1;
             const sessionId = searchSessionRef.current;
+            const matchCase = options?.matchCase ?? false;
+            const wholeWord = options?.wholeWord ?? false;
 
             // Native Rust PDF Search Fast-Path
             if (isTauri() && pdfPath && !pdfPath.startsWith("idb://") && !pdfPath.startsWith("blob:")) {
@@ -1765,7 +1778,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     }>("search_book_content", {
                         path: pdfPath,
                         query: normalizedQuery,
-                        matchCase: false,
+                        matchCase,
+                        wholeWord,
                     });
 
                     if (searchSessionRef.current !== sessionId) return;
@@ -1821,13 +1835,24 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 }
 
                 if (pageText) {
-                    
                     if (searchablePagesCharTotal < PDF_SEARCH_FALLBACK_TOTAL_CHAR_BUDGET) {
                         const boundedPageText = pageText.slice(0, PDF_SEARCH_FALLBACK_PAGE_CHAR_LIMIT);
                         searchablePages.push({ pageNumber, text: boundedPageText });
                         searchablePagesCharTotal += boundedPageText.length;
                     }
-                    const matchIndex = pageText.toLowerCase().indexOf(normalizedQueryLower);
+                    let matchIndex = -1;
+                    if (!wholeWord) {
+                        matchIndex = matchCase
+                            ? pageText.indexOf(normalizedQuery)
+                            : pageText.toLowerCase().indexOf(normalizedQueryLower);
+                    } else {
+                        const escaped = normalizedQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                        const regex = new RegExp(`\\b${escaped}\\b`, matchCase ? "" : "i");
+                        const match = regex.exec(pageText);
+                        if (match) {
+                            matchIndex = match.index;
+                        }
+                    }
                     if (matchIndex !== -1) {
                         const location = getPdfSearchLocation(pageNumber);
                         if (!yieldedLocations.has(location)) {
@@ -2076,22 +2101,56 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     if (!cancelled && !getCachedPdfDocumentInfo(infoCacheKey, totalPageCount)) {
                         void (async () => {
                             try {
-                                const [metadata, { tocItems, hasOutline }] = await Promise.all([pdf.getMetadata(), buildPdfToc(pdf)]);
+                                const [metadata, { tocItems, hasOutline }, rawLabels] = await Promise.all([
+                                    pdf.getMetadata(),
+                                    buildPdfToc(pdf),
+                                    pdf.getPageLabels().catch(() => null),
+                                ]);
                                 if (cancelled) return;
+                                const labels = Array.isArray(rawLabels) && rawLabels.length > 0 ? (rawLabels as string[]) : undefined;
+                                if (labels) {
+                                    setPageLabels(labels);
+                                }
                                 const metaInfo = metadata.info as Record<string, unknown>;
+                                const pdfVersion = (metaInfo?.PDFFormatVersion as string) || undefined;
+                                const creator = metaInfo?.Creator as string | undefined;
+                                const producer = metaInfo?.Producer as string | undefined;
+
+                                let pageSize: string | undefined;
+                                const struct = prefetchedStructureRef.current;
+                                if (struct && struct.default_width_pt > 0 && struct.default_height_pt > 0) {
+                                    const w = Math.round(struct.default_width_pt);
+                                    const h = Math.round(struct.default_height_pt);
+                                    if ((w === 612 && h === 792) || (w === 792 && h === 612)) {
+                                        pageSize = "Letter (8.5 × 11 in)";
+                                    } else if ((w === 595 && h === 842) || (w === 842 && h === 595)) {
+                                        pageSize = "A4 (210 × 297 mm)";
+                                    } else {
+                                        pageSize = `${w} × ${h} pt`;
+                                    }
+                                }
+
                                 const finalInfo: PDFDocumentInfo = {
                                     title: (metaInfo?.Title as string) || displayFilename,
                                     author: metaInfo?.Author as string | undefined, subject: metaInfo?.Subject as string | undefined,
-                                    keywords: metaInfo?.Keywords as string | undefined, creator: metaInfo?.Creator as string | undefined,
-                                    producer: metaInfo?.Producer as string | undefined,
+                                    keywords: metaInfo?.Keywords as string | undefined, creator,
+                                    producer,
                                     creationDate: metaInfo?.CreationDate ? new Date(metaInfo.CreationDate as string) : undefined,
                                     modificationDate: metaInfo?.ModDate ? new Date(metaInfo.ModDate as string) : undefined,
                                     totalPages: totalPageCount, filename: displayFilename, hasOutline, toc: tocItems,
+                                    pageLabels: labels,
+                                    pdfVersion,
+                                    pageSize,
                                 };
                                 setCachedPdfDocumentInfo(infoCacheKey, finalInfo);
                                 callbacksRef.current.onLoad?.(finalInfo);
                             } catch (metadataError) {  }
                         })();
+                    } else if (!cancelled) {
+                        const cached = getCachedPdfDocumentInfo(infoCacheKey, totalPageCount);
+                        if (cached?.pageLabels) {
+                            setPageLabels(cached.pageLabels);
+                        }
                     }
                 } catch (err) {
                     if (!cancelled) {
@@ -2949,9 +3008,19 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 onPresentationModeChange?.(mode);
             },
             getPresentationMode: () => presentationModeRef.current,
-            search: (query: string) => search(query),
+            search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => search(query, options),
             clearSearch: () => clearSearch(),
-        }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, search]);
+            getPageLabel: (pageNumber: number) => {
+                if (!pageLabels || pageNumber < 1 || pageNumber > pageLabels.length) return undefined;
+                return pageLabels[pageNumber - 1];
+            },
+            getPageNumberFromLabel: (label: string) => {
+                if (!pageLabels) return null;
+                const clean = label.trim().toLowerCase();
+                const idx = pageLabels.findIndex((l) => l && l.trim().toLowerCase() === clean);
+                return idx >= 0 ? idx + 1 : null;
+            },
+        }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, search]);
 
         const displayError = error?.replace(/\s+/g, " ").trim();
 
@@ -3031,7 +3100,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
         return (
             <PdfLinkHandlersContext.Provider value={linkHandlers}>
-            <div className={cn("relative w-full h-full", className)}>
+            <div className={cn("relative w-full h-full", `pdf-theme-${theme || "light"}`, className)} data-pdf-theme={theme || "light"}>
                 {isLoading && (
                     <PageLoader
                         message="Loading PDF..."
@@ -3127,7 +3196,12 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     const spreadEnd = Math.min(totalPages, spreadStart + 1);
                                     return spreadStart === spreadEnd ? `${spreadStart}` : `${spreadStart}–${spreadEnd}`;
                                 })()
-                            ) : currentPage}
+                            ) : (() => {
+                                const currentLabel = pageLabels && pageLabels[currentPage - 1] && pageLabels[currentPage - 1] !== String(currentPage)
+                                    ? pageLabels[currentPage - 1]
+                                    : null;
+                                return currentLabel ? `${currentLabel} (${currentPage})` : currentPage;
+                            })()}
                         </span>
                         <span className="text-[color:var(--color-text-muted)]">/</span>
                         <span className="tabular-nums px-0.5">{totalPages}</span>

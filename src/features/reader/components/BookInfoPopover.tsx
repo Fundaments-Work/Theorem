@@ -1,5 +1,5 @@
 
-import { X, Info, Calendar, Hash, Globe, FileText, User } from 'lucide-react';
+import { X, Info, Calendar, Hash, Globe, FileText, User, Cpu, Layers, Maximize2 } from 'lucide-react';
 import type { DocMetadata } from '../../../core/types';
 import { Backdrop, FloatingPanel } from '../../../ui';
 import { cn, normalizeAuthor } from '../../../core/lib/utils';
@@ -17,6 +17,10 @@ const METADATA_SECTIONS = [
     { key: 'publisher', label: 'Publisher', icon: FileText },
     { key: 'language', label: 'Language', icon: Globe },
     { key: 'identifier', label: 'Identifier', icon: Hash },
+    { key: 'creator', label: 'Application', icon: Cpu },
+    { key: 'producer', label: 'PDF Producer', icon: FileText },
+    { key: 'pdfVersion', label: 'PDF Version', icon: Layers },
+    { key: 'pageSize', label: 'Page Dimensions', icon: Maximize2 },
 ] as const;
 
 export function BookInfoPopover({

@@ -1635,7 +1635,7 @@ export class FoliateEngine {
         }
     }
 
-    async *search(query: string): AsyncGenerator<SearchResult | { progress: number } | 'done'> {
+    async *search(query: string, options?: { matchCase?: boolean; wholeWord?: boolean }): AsyncGenerator<SearchResult | { progress: number } | 'done'> {
         if (!this.book || !this.view) return;
 
         const normalizedQuery = query.trim();
@@ -1650,9 +1650,9 @@ export class FoliateEngine {
         try {
             const searchIterator = this.view.search({
                 query: normalizedQuery,
-                matchCase: false,
+                matchCase: options?.matchCase ?? false,
                 matchDiacritics: false,
-                matchWholeWords: false,
+                matchWholeWords: options?.wholeWord ?? false,
             });
 
             for await (const result of searchIterator) {

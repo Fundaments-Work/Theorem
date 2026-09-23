@@ -30,7 +30,7 @@ export interface ReaderViewportHandle {
     goForward: () => void;
     canGoBack: boolean;
     canGoForward: boolean;
-    search: (query: string) => AsyncGenerator<any>;
+    search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => AsyncGenerator<any>;
     clearSearch: () => void;
     
     addHighlight: (cfi: string, text: string, color: HighlightColor) => Promise<Annotation>;
@@ -174,7 +174,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         goForward: () => goForward(),
         canGoBack,
         canGoForward,
-        search: (query: string) => search(query) as AsyncGenerator<any>,
+        search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => search(query, options) as AsyncGenerator<any>,
         clearSearch: () => clearSearch(),
         addHighlight: (cfi: string, text: string, color: HighlightColor) => addHighlight(cfi, text, color),
         addAnnotation: (annotation: Annotation) => addAnnotation(annotation),

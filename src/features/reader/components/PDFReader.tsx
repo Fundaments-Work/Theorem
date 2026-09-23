@@ -124,6 +124,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             initialZoomMode,
             presentationMode = 'scroll',
             onPresentationModeChange,
+            theme = 'light',
             brightness = 100,
             onPageChange,
             onLoad,
@@ -202,7 +203,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                 setScale(newScale);
                 onPageChange?.(currentPage, totalPages, newScale);
             },
-            search: (query: string) => engineRef.current?.search(query) || (async function* () {
+            search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => engineRef.current?.search(query, options) || (async function* () {
                 yield "done" as const;
             })(),
             clearSearch: () => engineRef.current?.clearSearch(),
@@ -213,6 +214,8 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             canGoBack: () => engineRef.current?.canGoBack() ?? false,
             canGoForward: () => engineRef.current?.canGoForward() ?? false,
             goToDestination: (target: PdfDestTarget) => engineRef.current?.goToDestination(target),
+            getPageLabel: (pageNumber: number) => engineRef.current?.getPageLabel(pageNumber),
+            getPageNumberFromLabel: (label: string) => engineRef.current?.getPageNumberFromLabel(label) ?? null,
         }));
 
         const [lens, setLens] = useState<PdfLensState | null>(null);
@@ -339,6 +342,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                         onAnnotationRemove={onAnnotationRemove}
                         onHistoryChange={onHistoryChange}
                         onLinkPreview={handleLinkPreview}
+                        theme={theme}
                         showControls={showControls}
                         className="w-full h-full"
                     />

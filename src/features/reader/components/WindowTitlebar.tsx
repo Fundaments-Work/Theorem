@@ -197,7 +197,11 @@ export function WindowTitlebar({
     const formatLocation = () => {
         if (!location) return null;
         if (location.pageInfo) {
-            return `Page ${location.pageInfo.currentPage}${location.pageInfo.totalPages ? ` / ${location.pageInfo.totalPages}` : ""}`;
+            const totalStr = location.pageInfo.totalPages ? ` / ${location.pageInfo.totalPages}` : "";
+            if (location.pageItem?.label && location.pageItem.label !== String(location.pageInfo.currentPage)) {
+                return `${location.pageItem.label} (${location.pageInfo.currentPage}${totalStr})`;
+            }
+            return `Page ${location.pageInfo.currentPage}${totalStr}`;
         }
         if (location.pageItem?.label) {
             return location.pageItem.label;

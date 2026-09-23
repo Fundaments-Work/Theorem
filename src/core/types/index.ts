@@ -307,6 +307,8 @@ export interface TtsSettings {
     speed: number;
 }
 
+export type VaultExportPreset = "obsidian" | "logseq" | "minimalist";
+
 export interface VaultIntegrationSettings {
     enabled: boolean;
     vaultPath: string;
@@ -314,6 +316,7 @@ export interface VaultIntegrationSettings {
     
     highlightsFileName: string;
     vocabularyFileName: string;
+    exportPreset?: VaultExportPreset;
 }
 
 export interface VocabularyMeaning {
@@ -466,6 +469,10 @@ export interface DocMetadata {
     pubdate?: string;
     identifier?: string;
     cover?: string;
+    creator?: string;
+    producer?: string;
+    pdfVersion?: string;
+    pageSize?: string;
 }
 
 export interface SearchResult {

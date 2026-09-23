@@ -221,3 +221,23 @@
     background-color: color-mix(in srgb, var(--color-accent) 16%, transparent);
     outline: none;
 }
+
+/* PDF Dark and Sepia reading themes */
+.pdf-theme-dark .pdf-page-wrapper {
+    background-color: #18181b;
+    border-color: #27272a;
+}
+
+.pdf-theme-dark .pdf-page-container canvas {
+    filter: invert(0.92) hue-rotate(180deg);
+}
+
+.pdf-theme-sepia .pdf-page-wrapper {
+    background-color: #fbf0d9;
+    border-color: #e5dac2;
+}
+
+.pdf-theme-sepia .pdf-page-container canvas {
+    filter: sepia(0.35) contrast(0.95);
+}
+

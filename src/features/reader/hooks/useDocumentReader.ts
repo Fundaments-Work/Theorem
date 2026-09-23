@@ -64,7 +64,7 @@ export interface UseDocumentReaderReturn {
     getAllSectionsForAudio: () => Promise<{ id: string; title: string; text: string }[]>;
     getNextPageTextForTts: () => { text: string; startWordId: string } | null;
 
-    search: (query: string) => AsyncGenerator<SearchResult | { progress: number } | 'done'>;
+    search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => AsyncGenerator<SearchResult | { progress: number } | 'done'>;
     clearSearch: () => void;
 
     setLayout: (layout: PageLayout) => void;
@@ -375,11 +375,11 @@ export function useDocumentReader(options: UseDocumentReaderOptions = {}): UseDo
         return engineRef.current?.getNextPageTextForTts() || null;
     }, []);
 
-    const search = useCallback(async function* (query: string) {
+    const search = useCallback(async function* (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) {
         const engine = engineRef.current;
         if (!engine) return;
 
-        yield* engine.search(query);
+        yield* engine.search(query, options);
     }, []);
 
     const clearSearch = useCallback(() => {

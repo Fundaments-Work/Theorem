@@ -702,7 +702,7 @@ fn in_book_search(output: &Output, app: &tauri::AppHandle, book_id: &str, query:
         Err(e) => return output.error(&e),
     };
 
-    match crate::book_search::search_epub_spine(&path, query, false) {
+    match crate::book_search::search_epub_spine(&path, query, false, false) {
         Ok(matches) => {
             if output.json {
                 output.print_json(&matches)
