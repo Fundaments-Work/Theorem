@@ -23,16 +23,10 @@ import {
     getThemeColors,
     getHighlightSolidColor,
 } from '../../../core/lib/design-tokens';
-import { rankByFuzzyQuery } from "../../../core/lib/search/fuzzy";
 import { normalizeAuthor } from '../../../core/lib/utils';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 
 const READER_SEARCH_EXACT_LIMIT = 120;
-const READER_SEARCH_FALLBACK_TRIGGER_THRESHOLD = 3;
-const READER_SEARCH_FALLBACK_LIMIT = 12;
-const READER_SEARCH_FALLBACK_MAX_SECTIONS = 300;
-const READER_SEARCH_FALLBACK_SECTION_CHAR_LIMIT = 8000;
-const READER_SEARCH_EXCERPT_CONTEXT_CHARS = 80;
 const MIN_READER_ZOOM_LEVEL = 0.2;
 const MIN_PAGED_READER_ZOOM_LEVEL = 1.0;
 const MAX_READER_ZOOM_LEVEL = 4.0;
@@ -54,11 +48,6 @@ interface ReaderSearchExcerpt {
     pre?: string;
     match?: string;
     post?: string;
-}
-
-interface ReaderSearchSectionCacheItem {
-    cfi: string;
-    text: string;
 }
 
 export interface FootnoteData {
@@ -116,8 +105,6 @@ export class FoliateEngine {
 
     private _keyboardAttached = new WeakSet<Document>();
 
-    private searchSectionCache: ReaderSearchSectionCacheItem[] | null = null;
-    private searchCacheBookRef: unknown = null;
     private _awaitingInitialRelocate = false;
     
     private _lastSectionIndex = -1;
@@ -360,8 +347,6 @@ export class FoliateEngine {
                     }
                 }
             }
-            this.searchSectionCache = null;
-            this.searchCacheBookRef = this.book;
             this.annotationSectionCache.clear();
 
             this.view = document.createElement('foliate-view');
@@ -1720,47 +1705,9 @@ export class FoliateEngine {
         } catch (error) {
         }
 
-        if (exactMatchCount === 0) {
-            const sectionNumber = Number(normalizedQuery);
-            const sections = this.book.sections || [];
-            const targetSectionIndex = sectionNumber - 1;
-            if (Number.isInteger(sectionNumber) && targetSectionIndex >= 0 && targetSectionIndex < sections.length) {
-                const cfi = this.view.getCFI?.(targetSectionIndex) || `section-${targetSectionIndex}`;
-                if (cfi && !yieldedCFIs.has(cfi)) {
-                    yieldedCFIs.add(cfi);
-                    const fallbackText = this.createSectionFallbackSearchText(
-                        sections[targetSectionIndex],
-                        targetSectionIndex,
-                    );
-                    yield {
-                        cfi,
-                        excerpt: fallbackText || `Page ${sectionNumber}`,
-                    };
-                    exactMatchCount++;
-                }
-            }
-        }
-
-        if (exactMatchCount < READER_SEARCH_FALLBACK_TRIGGER_THRESHOLD) {
-            const sectionCache = await this.getSearchSectionCache();
-            const fallbackResults = rankByFuzzyQuery(sectionCache, normalizedQuery, {
-                keys: [{ name: 'text', weight: 1 }],
-                limit: READER_SEARCH_FALLBACK_LIMIT,
-            });
-
-            for (const { item } of fallbackResults) {
-                if (yieldedCFIs.has(item.cfi)) {
-                    continue;
-                }
-
-                yieldedCFIs.add(item.cfi);
-                yield {
-                    cfi: item.cfi,
-                    excerpt: this.createSearchExcerpt(item.text, normalizedQuery),
-                };
-            }
-        }
-
+        // Literal matches only. The former fallbacks (fuzzy subsequence
+        // ranking of whole chapters, and "a number jumps to that section")
+        // produced results that contained no match at all.
         yield 'done';
     }
 
@@ -1781,72 +1728,6 @@ export class FoliateEngine {
         }
 
         return '';
-    }
-
-    private createSearchExcerpt(sectionText: string, query: string): string {
-        const normalizedText = sectionText.replace(/\s+/g, ' ').trim();
-        if (!normalizedText) {
-            return '';
-        }
-
-        const queryIndex = normalizedText.toLowerCase().indexOf(query.toLowerCase());
-        if (queryIndex === -1) {
-            return normalizedText.slice(0, READER_SEARCH_EXCERPT_CONTEXT_CHARS * 2);
-        }
-
-        const excerptStart = Math.max(0, queryIndex - READER_SEARCH_EXCERPT_CONTEXT_CHARS);
-        const excerptEnd = Math.min(
-            normalizedText.length,
-            queryIndex + query.length + READER_SEARCH_EXCERPT_CONTEXT_CHARS,
-        );
-        const needsLeadingEllipsis = excerptStart > 0;
-        const needsTrailingEllipsis = excerptEnd < normalizedText.length;
-
-        return `${needsLeadingEllipsis ? '…' : ''}${normalizedText.slice(excerptStart, excerptEnd)}${needsTrailingEllipsis ? '…' : ''}`;
-    }
-
-    private async getSearchSectionCache(): Promise<ReaderSearchSectionCacheItem[]> {
-        if (!this.book || !this.view) {
-            return [];
-        }
-
-        if (this.searchSectionCache && this.searchCacheBookRef === this.book) {
-            return this.searchSectionCache;
-        }
-
-        const sections = this.book.sections || [];
-        const sectionCache: ReaderSearchSectionCacheItem[] = [];
-        const sectionsToCache = Math.min(sections.length, READER_SEARCH_FALLBACK_MAX_SECTIONS);
-
-        for (let i = 0; i < sectionsToCache; i++) {
-            const section = sections[i];
-            try {
-                const sectionDocument = await section.createDocument?.();
-                const rawText = sectionDocument?.body?.textContent || '';
-                const normalizedText = rawText.replace(/\s+/g, ' ').trim();
-                const cfi = this.view.getCFI?.(i) || `section-${i}`;
-                if (!cfi) {
-                    continue;
-                }
-
-                const sectionSearchText = normalizedText
-                    ? normalizedText.slice(0, READER_SEARCH_FALLBACK_SECTION_CHAR_LIMIT)
-                    : this.createSectionFallbackSearchText(section, i);
-                if (!sectionSearchText) {
-                    continue;
-                }
-
-                sectionCache.push({
-                    cfi,
-                    text: sectionSearchText,
-                });
-            } catch (error) {
-            }
-        }
-
-        this.searchSectionCache = sectionCache;
-        this.searchCacheBookRef = this.book;
-        return sectionCache;
     }
 
     /** Full text of every section, for Save-as-Audiobook generation. */
@@ -1870,39 +1751,6 @@ export class FoliateEngine {
             }
         }
         return out;
-    }
-
-    private createSectionFallbackSearchText(section: any, sectionIndex: number): string {
-        const sectionPositionLabel = this.isFixedLayoutFormat
-            ? `Page ${sectionIndex + 1}`
-            : `Section ${sectionIndex + 1}`;
-        const candidates = [
-            this.normalizeSectionSearchLabel(section?.id),
-            this.normalizeSectionSearchLabel(section?.href),
-            this.normalizeSectionSearchLabel(section?.name),
-            this.normalizeSectionSearchLabel(section?.label),
-            this.normalizeSectionSearchLabel(section?.filename),
-        ];
-        const parts = new Set<string>([sectionPositionLabel]);
-        for (const candidate of candidates) {
-            if (candidate) {
-                parts.add(candidate);
-            }
-        }
-        return Array.from(parts).join(' | ');
-    }
-
-    private normalizeSectionSearchLabel(value: unknown): string {
-        if (typeof value !== 'string') {
-            return '';
-        }
-        return value
-            .replace(/^.*[\\/]/, '')
-            .replace(/[#?].*$/, '')
-            .replace(/\.[a-z0-9]{1,5}$/i, '')
-            .replace(/[_-]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
     }
 
     clearSearch(): void {
@@ -2640,8 +2488,6 @@ export class FoliateEngine {
         this.annotations.clear();
         this.annotationLocations.clear();
         this.annotationSectionCache.clear();
-        this.searchSectionCache = null;
-        this.searchCacheBookRef = null;
         if (this.book) {
             try { this.book.destroy?.(); } catch { /* ignore destroy errors */ }
         }

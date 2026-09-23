@@ -1,5 +1,7 @@
 const DEFAULT_FUZZY_THRESHOLD = 0.34;
 const DEFAULT_MIN_MATCH_CHAR_LENGTH = 2;
+/** A subsequence match may spread over at most this many times the query length. */
+const MAX_SUBSEQUENCE_SPAN_RATIO = 1.5;
 
 export type FuseOptionKey<T> =
     | keyof T
@@ -108,7 +110,11 @@ function scoreFieldMatch(fieldVal: string, query: string): number | null {
         }
         if (qi === q.length) {
             const span = matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
-            return 0.18 + 0.12 * (1 - q.length / span);
+            // Only compact subsequences ("lrd" in "lord"): letters scattered
+            // across a long title matched almost anything and looked random.
+            if (span <= q.length * MAX_SUBSEQUENCE_SPAN_RATIO) {
+                return 0.18 + 0.12 * (1 - q.length / span);
+            }
         }
     }
     return null;
@@ -163,7 +169,11 @@ function scoreFieldMatchFast(
         }
         if (qi === q.length) {
             const span = matchedIndices[matchedIndices.length - 1] - matchedIndices[0] + 1;
-            return 0.18 + 0.12 * (1 - q.length / span);
+            // Only compact subsequences ("lrd" in "lord"): letters scattered
+            // across a long title matched almost anything and looked random.
+            if (span <= q.length * MAX_SUBSEQUENCE_SPAN_RATIO) {
+                return 0.18 + 0.12 * (1 - q.length / span);
+            }
         }
     }
 

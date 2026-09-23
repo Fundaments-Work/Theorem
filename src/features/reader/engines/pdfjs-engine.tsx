@@ -14,11 +14,11 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { cn } from "../../../core/lib/utils";
 import { isTauri, isWebKitBrowserEngine } from "../../../core/lib/env";
 import { configurePdfJsWorker, PDFJS_ASSET_OPTIONS } from "../../../core/lib/pdfjs-runtime";
-import { rankByFuzzyQuery } from "../../../core/lib/search/fuzzy";
 import * as pdfjsLib from "pdfjs-dist";
 import { Dropdown, PageLoader } from "../../../ui";
 import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
+import { buildPdfSearchPattern, findPdfTextMatches, normalizeSearchText, pdfSearchExcerpt, pdfSearchLocation } from "./pdf-search";
 import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLabel, parsePdfDate } from "./pdf-page-labels";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, ReaderTheme, SearchResult, TocItem } from "../../../core/types";
@@ -165,15 +165,8 @@ const TEXT_LAYER_SELECTING_CLASS = "selecting";
 const WEBKIT_TEXT_LAYER_PAGE_WINDOW = 1;
 const DEBUG_WEBKIT_TEXT_LAYER = false;
 const PDF_SEARCH_EXACT_LIMIT = 120;
-const PDF_SEARCH_FALLBACK_TRIGGER_THRESHOLD = 3;
-const PDF_SEARCH_FALLBACK_LIMIT = 12;
-const PDF_SEARCH_FALLBACK_PAGE_CHAR_LIMIT = 8_000;
-
-const PDF_SEARCH_FALLBACK_TOTAL_CHAR_BUDGET = 600_000;
-const PDF_SEARCH_MAX_PAGES_SCANNED = 500;
 
 const PDF_SEARCH_EXCERPT_CONTEXT_CHARS = 80;
-const PDF_SEARCH_EXACT_SCAN_PROGRESS_WEIGHT = 0.9;
 const DEFAULT_ZOOM_MODE: PdfZoomMode = "width-fit";
 const DEFAULT_CANVAS_RENDER_PAGE_WINDOW = 2;
 const WEBKIT_CANVAS_RENDER_PAGE_WINDOW = 2;
@@ -496,7 +489,6 @@ function unregisterTextLayer(layerNode: HTMLDivElement): void {
 
 interface TextItemLike { str?: string; width?: number; }
 type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>;
-interface PDFSearchPageItem { pageNumber: number; text: string; }
 
 function clearPageTextContentCache(): void { pageTextContentCache.clear(); }
 
@@ -571,7 +563,6 @@ function getFitPageScale(container: HTMLElement, page: PDFPageProxy, isTwoPage =
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(containerWidth / viewport.width, containerHeight / viewport.height)));
 }
 
-function getPdfSearchLocation(pageNumber: number): string { return `pdf:page:${pageNumber}`; }
 
 /**
  * Build a `Float64Array` of length `totalPages` where each entry is the
@@ -680,17 +671,6 @@ function getSpreads(pageCount: number): number[][] {
     return spreads;
 }
 
-function createPdfSearchExcerpt(pageText: string, query: string, knownMatchIndex?: number): string {
-    const normalizedText = pageText.replace(/\s+/g, " ").trim();
-    if (!normalizedText) return "";
-    const normalizedQuery = query.trim();
-    if (!normalizedQuery) return normalizedText.slice(0, PDF_SEARCH_EXCERPT_CONTEXT_CHARS * 2);
-    const matchIndex = typeof knownMatchIndex === "number" ? knownMatchIndex : normalizedText.toLowerCase().indexOf(normalizedQuery.toLowerCase());
-    if (matchIndex === -1) return normalizedText.slice(0, PDF_SEARCH_EXCERPT_CONTEXT_CHARS * 2);
-    const excerptStart = Math.max(0, matchIndex - PDF_SEARCH_EXCERPT_CONTEXT_CHARS);
-    const excerptEnd = Math.min(normalizedText.length, matchIndex + normalizedQuery.length + PDF_SEARCH_EXCERPT_CONTEXT_CHARS);
-    return `${excerptStart > 0 ? "…" : ""}${normalizedText.slice(excerptStart, excerptEnd)}${excerptEnd < normalizedText.length ? "…" : ""}`;
-}
 
 function computeMedian(values: number[]): number | null {
     if (values.length === 0) return null;
@@ -1762,136 +1742,36 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             const matchCase = options?.matchCase ?? false;
             const wholeWord = options?.wholeWord ?? false;
 
-            // Native Rust PDF Search Fast-Path
-            if (isTauri() && pdfPath && !pdfPath.startsWith("idb://") && !pdfPath.startsWith("blob:")) {
-                try {
-                    yield { progress: 0.1 };
-                    const nativeResult = await invoke<{
-                        matches: Array<{
-                            sectionIndex: number;
-                            sectionHref: string;
-                            snippet: string;
-                            matchText: string;
-                            charOffset: number;
-                        }>;
-                        total: number;
-                        durationMs: number;
-                    }>("search_book_content", {
-                        path: pdfPath,
-                        query: normalizedQuery,
-                        matchCase,
-                        wholeWord,
-                    });
-
-                    if (searchSessionRef.current !== sessionId) return;
-
-                    if (nativeResult && Array.isArray(nativeResult.matches)) {
-                        const yieldedLocations = new Set<string>();
-                        let matchCount = 0;
-                        const total = nativeResult.matches.length;
-                        for (const m of nativeResult.matches) {
-                            if (searchSessionRef.current !== sessionId) return;
-                            const location = getPdfSearchLocation(m.sectionIndex + 1);
-                            if (!yieldedLocations.has(location)) {
-                                yieldedLocations.add(location);
-                                yield {
-                                    cfi: location,
-                                    excerpt: m.snippet,
-                                };
-                            }
-                            matchCount++;
-                            yield { progress: 0.1 + (matchCount / Math.max(1, total)) * 0.9 };
-                        }
-                        yield "done";
-                        return;
-                    }
-                } catch (e) {
-                    if (import.meta.env.DEV) {
-                        console.warn("[pdfjs-engine] Native PDF search failed, falling back to JS worker:", e);
-                    }
-                }
-            }
-
-            const normalizedQueryLower = normalizedQuery.toLowerCase();
-            const yieldedLocations = new Set<string>();
-            const searchablePages: PDFSearchPageItem[] = [];
-            
-            let searchablePagesCharTotal = 0;
-            let exactMatchCount = 0;
-            let pagesScanned = 0;
+            // pdf.js text only: it decodes the fonts, so matches are what the
+            // reader sees. (The native `search_book_content` PDF path parsed raw
+            // content streams without font decoding and numbered streams, not
+            // pages, which produced garbled snippets and wrong pages.)
+            const pattern = buildPdfSearchPattern(normalizedQuery, { matchCase, wholeWord });
+            let matchCount = 0;
             const totalPageCount = Math.max(1, activePdfDocument.numPages);
 
             for (let pageNumber = 1; pageNumber <= totalPageCount; pageNumber++) {
                 if (searchSessionRef.current !== sessionId) return;
-                pagesScanned++;
                 let pageText = "";
                 try {
-                    if (!activePdfDocument || searchSessionRef.current !== sessionId) return;
                     const page = await activePdfDocument.getPage(pageNumber);
-                    const pageTextContent = await getPageTextContent(page);
-                    pageText = getNormalizedPageText(pageTextContent);
+                    pageText = normalizeSearchText(getNormalizedPageText(await getPageTextContent(page)));
                 } catch (error) {
                     const msg = error instanceof Error ? error.message : String(error);
-                    if (msg.includes("Transport") || msg.includes("destroyed")) {  return; }
+                    if (msg.includes("Transport") || msg.includes("destroyed")) return;
                 }
-
-                if (pageText) {
-                    if (searchablePagesCharTotal < PDF_SEARCH_FALLBACK_TOTAL_CHAR_BUDGET) {
-                        const boundedPageText = pageText.slice(0, PDF_SEARCH_FALLBACK_PAGE_CHAR_LIMIT);
-                        searchablePages.push({ pageNumber, text: boundedPageText });
-                        searchablePagesCharTotal += boundedPageText.length;
-                    }
-                    let matchIndex = -1;
-                    if (!wholeWord) {
-                        matchIndex = matchCase
-                            ? pageText.indexOf(normalizedQuery)
-                            : pageText.toLowerCase().indexOf(normalizedQueryLower);
-                    } else {
-                        const escaped = normalizedQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                        const regex = new RegExp(`\\b${escaped}\\b`, matchCase ? "" : "i");
-                        const match = regex.exec(pageText);
-                        if (match) {
-                            matchIndex = match.index;
-                        }
-                    }
-                    if (matchIndex !== -1) {
-                        const location = getPdfSearchLocation(pageNumber);
-                        if (!yieldedLocations.has(location)) {
-                            yieldedLocations.add(location);
-                            exactMatchCount++;
-                            yield { cfi: location, excerpt: createPdfSearchExcerpt(pageText, normalizedQuery, matchIndex) };
-                        }
-                    }
+                const matches = findPdfTextMatches(pageText, pattern, PDF_SEARCH_EXACT_LIMIT - matchCount);
+                for (let ordinal = 0; ordinal < matches.length; ordinal++) {
+                    yield { cfi: pdfSearchLocation(pageNumber, ordinal), excerpt: pdfSearchExcerpt(pageText, matches[ordinal], PDF_SEARCH_EXCERPT_CONTEXT_CHARS) };
                 }
-                yield { progress: (pageNumber / totalPageCount) * PDF_SEARCH_EXACT_SCAN_PROGRESS_WEIGHT };
-                if (exactMatchCount >= PDF_SEARCH_EXACT_LIMIT) break;
-                if (pagesScanned >= PDF_SEARCH_MAX_PAGES_SCANNED && searchablePages.length > 0) {
-                    yield { progress: PDF_SEARCH_EXACT_SCAN_PROGRESS_WEIGHT };
-                    break;
-                }
-            }
-
-            if (searchSessionRef.current !== sessionId) return;
-
-            if (exactMatchCount < PDF_SEARCH_FALLBACK_TRIGGER_THRESHOLD && searchablePages.length > 0) {
-                const fuzzyResults = rankByFuzzyQuery(searchablePages, normalizedQuery, { keys: [{ name: "text", weight: 1 }], limit: PDF_SEARCH_FALLBACK_LIMIT });
-                const fallbackResultCount = Math.max(1, fuzzyResults.length);
-                let fallbackResultIndex = 0;
-                for (const { item } of fuzzyResults) {
-                    if (searchSessionRef.current !== sessionId) return;
-                    fallbackResultIndex++;
-                    const location = getPdfSearchLocation(item.pageNumber);
-                    if (!yieldedLocations.has(location)) {
-                        yieldedLocations.add(location);
-                        yield { cfi: location, excerpt: createPdfSearchExcerpt(item.text, normalizedQuery) };
-                    }
-                    yield { progress: PDF_SEARCH_EXACT_SCAN_PROGRESS_WEIGHT + ((fallbackResultIndex / fallbackResultCount) * (1 - PDF_SEARCH_EXACT_SCAN_PROGRESS_WEIGHT)) };
-                }
+                matchCount += matches.length;
+                yield { progress: pageNumber / totalPageCount };
+                if (matchCount >= PDF_SEARCH_EXACT_LIMIT) break;
             }
 
             if (searchSessionRef.current !== sessionId) return;
             yield "done";
-        }, [pdfDocument, pdfPath]);
+        }, [pdfDocument]);
 
         const annotationsByPage = useMemo(() => {
             const grouped = new Map<number, Annotation[]>();
