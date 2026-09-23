@@ -30,6 +30,7 @@ import {
     resolveWorkbenchPosition,
 } from "../../core/lib/workbench-state";
 import type { WorkbenchViewState } from "../../core/lib/workbench-state";
+import { localDateKey } from "../../core/lib/date-keys";
 
 function getTermPrimaryDefinition(term: VocabularyTerm): string {
     const firstMeaning = term.meanings[0];
@@ -128,7 +129,7 @@ const AnnotationCard = memo(function AnnotationCard({
                             {annotation.type}
                         </span>
                         <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            {new Date(annotation.createdAt).toISOString().slice(0, 10)}
+                            {localDateKey(new Date(annotation.createdAt))}
                         </span>
 
                     </div>

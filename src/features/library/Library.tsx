@@ -25,6 +25,7 @@ import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
 import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
 import { toast } from "sonner";
+import { localDateKey } from "../../core/lib/date-keys";
 
 const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     grid: <LayoutGrid className="w-4 h-4" />,
@@ -1004,7 +1005,7 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
     isSelecting: boolean;
 }) {
     const [dismissed, setDismissed] = useState(
-        () => sessionStorage.getItem("theorem-dismiss-highlight") === new Date().toISOString().split("T")[0]
+        () => sessionStorage.getItem("theorem-dismiss-highlight") === localDateKey()
     );
 
     const annotations = useLibraryStore((state) => (dismissed || !showDailyHighlight ? null : state.annotations));
@@ -1015,7 +1016,7 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
 
     const nonBookmarks = annotations.filter((a) => a.type !== "bookmark" && a.selectedText);
     if (nonBookmarks.length === 0) return null;
-    const daySeed = new Date().toISOString().split("T")[0].split("-").reduce((a, b) => a + parseInt(b), 0);
+    const daySeed = localDateKey().split("-").reduce((a, b) => a + parseInt(b), 0);
     const hl = nonBookmarks[daySeed % nonBookmarks.length];
     if (!hl) return null;
     const hlBook = useLibraryStore.getState().getBook(hl.bookId);
@@ -1035,7 +1036,7 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
             </div>
             <button
                 onClick={() => {
-                    sessionStorage.setItem("theorem-dismiss-highlight", new Date().toISOString().split("T")[0]);
+                    sessionStorage.setItem("theorem-dismiss-highlight", localDateKey());
                     setDismissed(true);
                 }}
                 className="shrink-0 mt-0.5 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"

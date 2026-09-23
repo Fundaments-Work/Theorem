@@ -1,4 +1,4 @@
-
+import { localDateKey } from "../../core/lib/date-keys";
 import { useState, useMemo, useCallback, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
@@ -56,7 +56,7 @@ const BookmarkCard = memo(function BookmarkCard({ bookmark, book, searchQuery, o
                             BOOKMARK
                         </span>
                         <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            {new Date(bookmark.createdAt).toISOString().slice(0, 10)}
+                            {localDateKey(new Date(bookmark.createdAt))}
                         </span>
                     </div>
                     <div className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)]">

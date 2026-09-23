@@ -5,6 +5,7 @@ import { registerPrePersistFlush } from "../../../core/lib/persist-storage";
 import { useSettingsStore } from "../../../core/store";
 import type { DailyReadingActivity, ReadingStats } from "../../../core/types";
 import { calculateWpm, computeExponentialMovingAverage } from "../lib/reading-time";
+import { addLocalDays, localDateKey } from "../../../core/lib/date-keys";
 
 interface UseReadingTimeOptions {
     currentBookId: string | undefined;
@@ -88,7 +89,7 @@ export function useReadingTime({
             addReadingTime(currentBookId, elapsedMinutes);
 
             const currentStats = useSettingsStore.getState().stats;
-            const today = new Date().toISOString().split('T')[0];
+            const today = localDateKey();
             const existingActivity = currentStats.dailyActivity.find(a => a.date === today);
             const previousTodayMinutes = existingActivity?.minutes ?? 0;
 
@@ -116,8 +117,8 @@ export function useReadingTime({
             );
 
             let currentStreak = 0;
-            const todayStr = new Date().toISOString().split('T')[0];
-            const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+            const todayStr = localDateKey();
+            const yesterdayStr = localDateKey(addLocalDays(new Date(), -1));
 
             const lastReadDate = sortedActivity[0]?.date;
             if (lastReadDate === todayStr || lastReadDate === yesterdayStr) {

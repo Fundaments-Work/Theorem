@@ -20,6 +20,7 @@ import {
     Share2,
 } from "lucide-react";
 import { ShareCardModal } from "../share/ShareCardModal";
+import { localDateKey } from "../../core/lib/date-keys";
 
 interface StatCardProps {
     icon: React.ReactNode;
@@ -151,7 +152,7 @@ function ActivityHeatmap({ dailyActivity }: { dailyActivity: DailyReadingActivit
                 const dayOffset = (11 - weekIndex) * 7 + (6 - dayIndex);
                 const date = new Date(today);
                 date.setDate(date.getDate() - dayOffset);
-                const dateStr = date.toISOString().split('T')[0];
+                const dateStr = localDateKey(date);
 
                 const minutes = activityMap.get(dateStr) || 0;
                 let level = 0;
@@ -177,7 +178,7 @@ function ActivityHeatmap({ dailyActivity }: { dailyActivity: DailyReadingActivit
         }
     };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateKey();
     const todayMinutes = (dailyActivity || []).find(a => a.date === todayStr)?.minutes || 0;
 
     return (
@@ -223,7 +224,7 @@ export function StatisticsPage() {
     const setRoute = useUIStore((state) => state.setRoute);
     const [showShareModal, setShowShareModal] = useState(false);
 
-    const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
+    const todayStr = useMemo(() => localDateKey(), []);
     const todayMinutes = useMemo(() => {
         return (stats.dailyActivity || []).find((a) => a.date === todayStr)?.minutes || 0;
     }, [stats.dailyActivity, todayStr]);
@@ -329,14 +330,14 @@ export function StatisticsPage() {
                 const now = new Date();
                 const weekAgo = new Date(now);
                 weekAgo.setDate(weekAgo.getDate() - 7);
-                const weekAgoStr = weekAgo.toISOString().split("T")[0];
+                const weekAgoStr = localDateKey(weekAgo);
                 const thisWeek = (stats.dailyActivity || []).filter((d) => d.date >= weekAgoStr);
                 const weekMinutes = thisWeek.reduce((s, d) => s + d.minutes, 0);
                 const prevWeekEnd = new Date(weekAgo);
                 prevWeekEnd.setDate(prevWeekEnd.getDate() - 1);
                 const prevWeekStart = new Date(prevWeekEnd);
                 prevWeekStart.setDate(prevWeekStart.getDate() - 6);
-                const prevWeek = (stats.dailyActivity || []).filter((d) => d.date >= prevWeekStart.toISOString().split("T")[0] && d.date <= prevWeekEnd.toISOString().split("T")[0]);
+                const prevWeek = (stats.dailyActivity || []).filter((d) => d.date >= localDateKey(prevWeekStart) && d.date <= localDateKey(prevWeekEnd));
                 const prevMinutes = prevWeek.reduce((s, d) => s + d.minutes, 0);
                 const change = prevMinutes > 0 ? Math.round((weekMinutes - prevMinutes) / prevMinutes * 100) : 0;
 

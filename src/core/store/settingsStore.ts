@@ -1,3 +1,4 @@
+import { localDateKey } from "../lib/date-keys";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { applyAppTheme, applyReaderStyles, initReaderStyles } from "../lib/design-tokens";
@@ -415,7 +416,7 @@ export const useSettingsStore = create<SettingsStore>()(
                 if (state?.stats?.dailyActivity && state.stats.dailyActivity.length > 0) {
                     const cutoff = new Date();
                     cutoff.setDate(cutoff.getDate() - 365);
-                    const cutoffStr = cutoff.toISOString().split('T')[0];
+                    const cutoffStr = localDateKey(cutoff);
                     state.stats.dailyActivity = state.stats.dailyActivity.filter(
                         (d: { date: string }) => d.date >= cutoffStr,
                     );

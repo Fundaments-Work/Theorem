@@ -827,6 +827,14 @@ pub struct GoalReminderData {
     pub daily_goal: u64,
 }
 
+/// "YYYY-MM-DD" for the given local time.
+pub fn local_date_key<Tz: chrono::TimeZone>(now: chrono::DateTime<Tz>) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    now.format("%Y-%m-%d").to_string()
+}
+
 pub fn check_goal_reminder_inner(
     connection: &Connection,
 ) -> rusqlite::Result<Option<GoalReminderData>> {
@@ -845,24 +853,9 @@ pub fn check_goal_reminder_inner(
     let stats = &parsed["state"]["stats"];
     let daily_goal = stats["dailyGoal"].as_u64().unwrap_or(30);
 
-    let today = {
-        let duration = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap();
-        let secs = duration.as_secs();
-        let days = secs / 86400;
-        let z = days + 719468;
-        let era = z / 146097;
-        let doe = z - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let y = if m <= 2 { y + 1 } else { y };
-        format!("{:04}-{:02}-{:02}", y, m, d)
-    };
+    // The reader's local calendar day, matching the keys the frontend writes
+    // (src/core/lib/date-keys.ts). A UTC day made goals reset at the wrong hour.
+    let today = local_date_key(chrono::Local::now());
 
     let today_session_minutes: Option<f64> = connection
         .query_row(
@@ -2449,6 +2442,19 @@ pub fn run_v154_database_migrations(connection: &Connection) -> rusqlite::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_date_key_uses_the_local_offset_not_utc() {
+        use chrono::{FixedOffset, TimeZone};
+        // 2026-09-23 22:30 in UTC-7 is already the 24th in UTC.
+        let pacific = FixedOffset::west_opt(7 * 3600).unwrap();
+        let evening = pacific.with_ymd_and_hms(2026, 9, 23, 22, 30, 0).unwrap();
+        assert_eq!(local_date_key(evening), "2026-09-23");
+        // 2026-09-24 03:00 in UTC+5:45 is still the 23rd in UTC.
+        let nepal = FixedOffset::east_opt(5 * 3600 + 45 * 60).unwrap();
+        let morning = nepal.with_ymd_and_hms(2026, 9, 24, 3, 0, 0).unwrap();
+        assert_eq!(local_date_key(morning), "2026-09-24");
+    }
 
     fn setup_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();

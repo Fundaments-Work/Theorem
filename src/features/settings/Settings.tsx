@@ -1,3 +1,4 @@
+import { localDateKey } from "../../core/lib/date-keys";
 
 import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -668,7 +669,7 @@ export const SettingsPage = memo(function SettingsPage() {
             const { bundle, warnings } = await exportUnifiedSyncBundle();
             const bundleSize = estimateSyncBundleSizeBytes(bundle);
             const payload = JSON.stringify(bundle, null, 2);
-            const defaultFileName = `theorem-sync-${new Date().toISOString().slice(0, 10)}.json`;
+            const defaultFileName = `theorem-sync-${localDateKey()}.json`;
 
             const saveViaTauri = async () => {
                 const outputPath = await showSaveFileDialog({

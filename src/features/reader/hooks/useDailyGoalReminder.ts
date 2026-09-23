@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { isTauri } from "../../../core/lib/env";
 import { useSettingsStore } from "../../../core/store";
+import { localDateKey } from "../../../core/lib/date-keys";
 
 async function sendReminder(shortfall: number, totalGoal: number) {
     const msg = shortfall >= totalGoal
@@ -36,7 +37,7 @@ export function useDailyGoalReminder() {
                 const { settings, stats, updateStats } = useSettingsStore.getState();
                 if (!settings.goalNotifications) return;
 
-                const today = new Date().toISOString().split("T")[0];
+                const today = localDateKey();
                 if (stats.lastDailyReminderDate === today) return;
 
                 if (!isReminderTime(settings.dailyReminderTime)) return;
