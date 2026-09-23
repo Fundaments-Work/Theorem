@@ -22,6 +22,13 @@ export interface LibraryFilterOptions {
     sortOrder: LibrarySortOrder;
     
     ftsSearchIds?: string[];
+    /**
+     * Desktop/Android: a native (FTS5 + nucleo) query is in flight and there
+     * are no native results yet. The list stays unfiltered instead of showing
+     * JS fuzzy results that the native ones replace a moment later. JS fuzzy
+     * matching is only for the browser build or a failed native call.
+     */
+    nativeSearchPending?: boolean;
 }
 
 export function getFilteredAndSortedBooks({
@@ -35,11 +42,12 @@ export function getFilteredAndSortedBooks({
     sortBy,
     sortOrder,
     ftsSearchIds,
+    nativeSearchPending = false,
 }: LibraryFilterOptions): Book[] {
     let searchResults = books;
     const trimmedQuery = searchQuery.trim();
 
-    if (trimmedQuery) {
+    if (trimmedQuery && !(nativeSearchPending && ftsSearchIds === undefined)) {
         if (ftsSearchIds !== undefined) {
             const bookMap = new Map(books.map((b) => [b.id, b]));
             searchResults = ftsSearchIds

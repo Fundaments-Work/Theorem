@@ -266,12 +266,10 @@ export async function twoTierSearchBooks(
     limit: number = 50,
 ): Promise<TwoTierSearchResult[]> {
     if (!isTauri() || !query.trim()) return [];
-    try {
-        const invoke = await getInvoke();
-        return (await invoke('two_tier_search_books', { query, limit })) as TwoTierSearchResult[];
-    } catch {
-        return [];
-    }
+    // Errors propagate: callers fall back to JS matching instead of showing
+    // a failed search as "no results".
+    const invoke = await getInvoke();
+    return (await invoke('two_tier_search_books', { query, limit })) as TwoTierSearchResult[];
 }
 
 export interface FuzzyCandidateInput {

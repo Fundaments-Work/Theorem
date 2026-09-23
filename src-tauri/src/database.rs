@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -138,6 +138,10 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
 
     run_v154_database_migrations(&conn)
         .map_err(|e| format!("Failed to run v1.5.4 migrations: {e}"))?;
+
+    if let Err(e) = reconcile_books_fts(&conn) {
+        eprintln!("[database] books_fts reconcile failed: {e}");
+    }
 
     Ok(())
 }
@@ -569,6 +573,8 @@ pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String>
             params![id],
         )?;
         connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
+        // Deleted books must leave library search too.
+        connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
         Ok(())
     })
 }
@@ -1961,6 +1967,79 @@ pub fn sqlite_get_reading_sessions(
     })
 }
 
+/// Bring `books_fts` in line with the library (the `zustand:theorem-library`
+/// blob): index missing books, refresh renamed ones, drop deleted ones. Only
+/// differing rows are written. Returns the number of rows changed.
+pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<usize> {
+    let Some(lib_json) = connection
+        .query_row(
+            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-library'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+    else {
+        return Ok(0);
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&lib_json) else {
+        return Ok(0);
+    };
+    let Some(books) = parsed["state"]["books"].as_array() else {
+        return Ok(0);
+    };
+    let wanted: HashMap<&str, (&str, &str)> = books
+        .iter()
+        .filter_map(|b| {
+            let id = b["id"].as_str().filter(|s| !s.is_empty())?;
+            let title = b["title"].as_str().unwrap_or("");
+            Some((id, (title, b["author"].as_str().unwrap_or(""))))
+        })
+        .collect();
+
+    let mut existing: HashMap<String, (String, String)> = HashMap::new();
+    {
+        let mut stmt = connection.prepare("SELECT id, title, author FROM books_fts")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (
+                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ),
+            ))
+        })?;
+        for row in rows {
+            let (id, fields) = row?;
+            existing.insert(id, fields);
+        }
+    }
+
+    let tx = connection.unchecked_transaction()?;
+    let mut changed = 0;
+    for id in existing.keys() {
+        if !wanted.contains_key(id.as_str()) {
+            tx.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
+            changed += 1;
+        }
+    }
+    for (id, (title, author)) in &wanted {
+        let current = existing.get(*id);
+        if current.is_some_and(|(t, a)| t == title && a == author) {
+            continue;
+        }
+        if current.is_some() {
+            tx.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
+        }
+        tx.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+            params![id, title, author],
+        )?;
+        changed += 1;
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
 pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result<()> {
     let is_done: bool = connection
         .query_row(
@@ -3232,5 +3311,65 @@ mod tests {
             sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
             0
         );
+    }
+
+    #[test]
+    fn reconcile_books_fts_adds_renames_and_prunes() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
+             CREATE VIRTUAL TABLE books_fts USING fts5(id UNINDEXED, title, author);",
+        )
+        .unwrap();
+        let set_library = |books: &str| {
+            conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('zustand:theorem-library', ?1)",
+                params![format!(r#"{{"state":{{"books":{books}}}}}"#)],
+            )
+            .unwrap();
+        };
+        let rows = || -> Vec<(String, String)> {
+            let mut stmt = conn
+                .prepare("SELECT id, title FROM books_fts ORDER BY id")
+                .unwrap();
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+
+        // No library yet: nothing to do.
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
+
+        set_library(
+            r#"[{"id":"a","title":"Dune","author":"Herbert"},{"id":"b","title":"Emma","author":"Austen"},{"id":"","title":"x"}]"#,
+        );
+        conn.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES ('gone', 'Deleted Book', '')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 3); // add a, add b, prune gone
+        assert_eq!(
+            rows(),
+            [("a".into(), "Dune".into()), ("b".into(), "Emma".into())]
+        );
+
+        // Already in sync: no writes.
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
+
+        // Rename one, delete the other.
+        set_library(r#"[{"id":"a","title":"Dune Messiah","author":"Herbert"}]"#);
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 2);
+        assert_eq!(rows(), [("a".into(), "Dune Messiah".into())]);
+
+        // Corrupt blob is ignored, index untouched.
+        conn.execute(
+            "UPDATE kv_store SET value = '{not json' WHERE key = 'zustand:theorem-library'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
+        assert_eq!(rows().len(), 1);
     }
 }

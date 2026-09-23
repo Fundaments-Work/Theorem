@@ -1299,6 +1299,7 @@ export function LibraryPage() {
     const debouncedSearchQuery = useDebounce(searchQuery, 250);
 
     const [ftsSearchIds, setFtsSearchIds] = useState<string[] | undefined>(undefined);
+    const [nativeSearchFailed, setNativeSearchFailed] = useState(false);
     const [matchHighlights, setMatchHighlights] = useState<Map<string, { titleIndices: number[]; authorIndices: number[] }>>(() => new Map());
 
     useEffect(() => {
@@ -1308,8 +1309,10 @@ export function LibraryPage() {
             return;
         }
         let cancelled = false;
+        // Previous results stay until the new ones arrive.
         twoTierSearchBooks(debouncedSearchQuery.trim(), 200).then((results) => {
             if (cancelled) return;
+            setNativeSearchFailed(false);
             setFtsSearchIds(results.map((r) => r.bookId));
             const highlights = new Map<string, { titleIndices: number[]; authorIndices: number[] }>();
             for (const r of results) {
@@ -1319,6 +1322,11 @@ export function LibraryPage() {
                 });
             }
             setMatchHighlights(highlights);
+        }, () => {
+            if (cancelled) return;
+            setNativeSearchFailed(true);
+            setFtsSearchIds(undefined);
+            setMatchHighlights(new Map());
         });
         return () => { cancelled = true; };
     }, [debouncedSearchQuery]);
@@ -1335,6 +1343,7 @@ export function LibraryPage() {
             sortBy: settings.librarySortBy,
             sortOrder: settings.librarySortOrder,
             ftsSearchIds,
+            nativeSearchPending: isTauri() && !nativeSearchFailed,
         });
     }, [
         books,
@@ -1347,6 +1356,7 @@ export function LibraryPage() {
         allShelvedBookIds,
         statusFilter,
         ftsSearchIds,
+        nativeSearchFailed,
     ]);
 
     const scrollRef = useRef<HTMLDivElement>(null);

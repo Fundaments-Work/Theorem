@@ -10,7 +10,7 @@ import { ConfirmDialog } from "../../ui";
 import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
-import { sqliteSearchBooks } from "../../core/lib/sqlite-storage";
+import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
 import { isTauri } from "../../core/lib/env";
 import { exportBook } from "../../core/lib/book-export";
 import { toast } from "sonner";
@@ -309,16 +309,28 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
 
     const debouncedSearchQuery = useDebounce(searchQuery, 250);
 
+    // Same native search as the Library (FTS5 candidates, nucleo ranking).
     const [ftsSearchIds, setFtsSearchIds] = useState<string[] | undefined>(undefined);
+    const [nativeSearchFailed, setNativeSearchFailed] = useState(false);
     useEffect(() => {
         if (!isTauri() || !debouncedSearchQuery.trim()) {
             setFtsSearchIds(undefined);
             return;
         }
         let cancelled = false;
-        sqliteSearchBooks(debouncedSearchQuery.trim(), 200).then((results) => {
-            if (!cancelled) setFtsSearchIds(results.map((r) => r.book_id));
-        });
+        // Previous results stay until the new ones arrive.
+        twoTierSearchBooks(debouncedSearchQuery.trim(), 200).then(
+            (results) => {
+                if (cancelled) return;
+                setNativeSearchFailed(false);
+                setFtsSearchIds(results.map((r) => r.bookId));
+            },
+            () => {
+                if (cancelled) return;
+                setNativeSearchFailed(true);
+                setFtsSearchIds(undefined);
+            },
+        );
         return () => { cancelled = true; };
     }, [debouncedSearchQuery]);
 
@@ -333,8 +345,9 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
             sortBy: settings.librarySortBy,
             sortOrder: settings.librarySortOrder,
             ftsSearchIds,
+            nativeSearchPending: isTauri() && !nativeSearchFailed,
         });
-    }, [shelf.bookIds, books, debouncedSearchQuery, settings.librarySortBy, settings.librarySortOrder, ftsSearchIds]);
+    }, [shelf.bookIds, books, debouncedSearchQuery, settings.librarySortBy, settings.librarySortOrder, ftsSearchIds, nativeSearchFailed]);
 
     // Shelf-aware multi-selection (#109). Shares uiStore.selectedBooks with
     // the library view; range select via Shift+click over shelfBooks order.
