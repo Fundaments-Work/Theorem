@@ -15,7 +15,6 @@ Following in-depth architectural evaluation and review of user requirements, The
 1. **Avoiding Premature API Freeze**: Shipping an external plugin SDK/API in v1.6.0 would force Theorem to commit to public interfaces and backwards compatibility while the underlying SQLite relational migrations, multi-window synchronization, and reader engines are still actively being optimized. Freezing APIs too early creates technical debt.
 2. **The "Plugin Illusion" vs. Real User Needs**: Community demand for plugins is driven almost entirely by user workflows:
    - Customizable Markdown templates for Personal Knowledge Management (PKM) systems (Obsidian, Logseq, Foam, SilverBullet, Anytype, Dendron) with custom YAML frontmatter, callout styles, and custom tags.
-   - External sync with Readwise, Notion, or custom webhooks.
    - Spaced-repetition vocabulary review (already built into Theorem via Lemma).
    Implementing these workflows via third-party plugins introduces WASM boundary overhead, IPC latency, sandboxing complexity, and potential UI instability. Implementing them **natively** in Rust and React provides 100× better performance, zero battery drain, zero configuration headaches, and works seamlessly across Desktop and Android.
 3. **Sandbox & Security Overhead**: An isolated WebAssembly sandbox (Wasmtime/Extism) with capability manifests, CPU quotas, permission prompts, and a community marketplace requires massive maintenance bandwidth that detracts from the core reading experience.
@@ -23,7 +22,6 @@ Following in-depth architectural evaluation and review of user requirements, The
 ### B. The v1.6.0 Focus: Native Modular Power Features & Core Excellence
 In Theorem v1.6.0, Theorem will deliver the extensibility power users want directly within the core:
 - **Template-Driven Vault & PKM Exporter**: Fully customizable Jinja/Mustache templates for per-book highlights, annotations, and vocabulary (custom frontmatter, callouts, filenames, and markdown formatting).
-- **External Webhooks & Note Integrations**: Direct sync hooks to Readwise, Notion, and configurable HTTP endpoints.
 - **Native-Grade PDF Reading Experience**: Ultra-smooth virtualized continuous scrolling, two-page spread mode, and anchored trackpad zoom.
 - **Deepened SQLite Virtualization & Performance**: Continued Rust-first memory and storage scaling.
 
@@ -139,7 +137,6 @@ my-custom-plugin/
 - **Hook**: `registerVaultExporter({ id, name, exportHandler })`
 - **Use Cases**:
   - **Template-Driven Markdown Exporter**: Full user customization with Jinja/Mustache syntax (`{{author}}/{{title}}.md`, Callouts, YAML Frontmatter — delivered natively in v1.6.0).
-  - **Notion / Readwise / Logseq Exporters**: Syncs highlights to external note systems.
 
 ### C. Custom Document Formats & Audio Encoders
 - **Hook**: `registerFormatLoader({ extensions, loader })`
@@ -179,7 +176,6 @@ my-custom-plugin/
 ### Phase 2: Native Modular Power Features & Core Extensibility (v1.6.0) [Next Milestone]
 - [ ] **Customizable Vault & PKM Exporter**: Native Jinja/Mustache template engine in Settings → Devices & Export allowing custom YAML frontmatter, quote callouts, tag transformations, and per-book filenames for all Markdown PKMs.
 - [ ] **Native-Grade PDF Support**: True full-document virtualization, two-page spread, anchored trackpad zoom, and smooth scrollbar.
-- [ ] **External Sync & Webhook Exporters**: Configurable webhook endpoints for pushing highlights to Readwise, Notion, or custom web services.
 - [ ] **Multi-Window Sync Hardening**: IPC event deduplication and instant UI refresh across companion windows.
 
 ### Phase 3: WebAssembly Plugin Sandbox & Ecosystem (v2.0.0+) [Future Major Release]
