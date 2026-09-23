@@ -5,7 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.8] - 2026-09-18 (Beta)
+## [1.5.8] - 2026-09-23 (Beta)
+
+### Reading System
+
+- **PDF links and Theorem Lens** — Citations, footnotes, TOC links and URLs in PDFs are clickable. Hovering an internal link shows a borderless preview of the destination rendered from the page; clicking it jumps to the exact spot, even on pages not loaded yet. Back/forward history (Alt+←/→, mouse buttons 4/5, Android back).
+- **PDF smoothness** — Wheel and pinch zoom preview with a transform and re-render once, anchored under the cursor; the initial fit no longer opens a third of a page down. Rendered pages live in a bounded LRU (6 pages / 24 MP on desktop, 3 / 8 MP on Android). Canvas and text layer render separately, so text selection survives scrolling and no longer blinks. On WebKitGTK the time blocked during a zoom dropped from 1483 ms to 136 ms.
+- **PDF features** — Dark and sepia page themes, logical page labels (`xii (12)`, go to `A-3`), match-case / whole-word search with F3 cycling, and document properties (producer, PDF version, page size, correctly parsed creation dates). JPX, JBIG2 and CCITT images now decode; the pdf.js cmaps, fonts and wasm decoders ship at the right paths (they were missing from builds), with a post-build check.
+- **EPUB** — Selections highlight glyphs only, like PDF, instead of flooding margins. Only the visible chapter's highlights are drawn (one call instead of about 1,000 on open). Books are read by byte range, and every chapter and image is decompressed in Rust (`epub_read_entry`) instead of zip.js on the UI thread.
+- **No UI-thread blocking from native calls** — 64 Tauri commands (SQLite, PDF/EPUB reads, file reads, RSS and article fetches, metadata parsing) used to run on the window's main thread; they now run on a background pool. SQLite calls keep their order through a FIFO queue.
+
+### Fixed
+
+- **No lost data on quit** — Pending writes (library, progress, reading time) are flushed to SQLite before the window closes, the app quits from the tray, or it goes to the background.
+- **Sync after page turns** — Reading progress syncs at most every 30 s instead of starting a full sync round two seconds after each page turn (a source of periodic stutters).
+- **Statistics in local time** — Reading days, streaks, goals and the daily reminder used UTC dates.
+- **Reading speed** — Measured over the whole time on a page instead of counting each page twice.
+- **Vocabulary sync** — Merges write only changed terms and propagate deletions.
+- **RSS** — Favorites are never aged out; other articles are kept for 30 days, newest 500. Feeds refresh four at a time. All Markdown is rendered by `pulldown-cmark` in Rust, with raw HTML and `javascript:` links neutralised.
+- **Vault export** — Only changed notes are rewritten; notes for removed books are deleted unless you edited them. Obsidian, Logseq and Minimalist presets; the native and fallback exporters now write byte-identical notes and file names (shared golden tests).
+- **Covers** — Served from SQLite via `theorem-cover://` instead of loading every cover into memory at startup; synced as their own entries.
+- **Android build** — Ported to jni 0.22 after the Dependabot bump.
+
+### Dependencies
+
+- zip 4 → 8, bzip2 0.4 → 0.6, jni 0.21 → 0.22, iroh-mdns-address-lookup; removed `@mozilla/readability` and `markdown-it`.
+
 
 ### Performance
 
