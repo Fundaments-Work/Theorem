@@ -1080,6 +1080,7 @@ const AUTO_SYNC_INTERVAL_MS = 2 * 60 * 1000;
 const STARTUP_SYNC_DELAY_MS = 5000;
 
 const MUTATION_SYNC_DEBOUNCE_MS = 2000;
+const READING_SYNC_THROTTLE_MS = 30_000;
 
 let _autoSyncTimer: ReturnType<typeof setInterval> | null = null;
 let _mutationSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1115,13 +1116,28 @@ async function autoSyncRound(force = false): Promise<void> {
     }
 }
 
-export function scheduleMutationSync(): void {
+/**
+ * Schedule a full sync round after a local change.
+ *
+ * `"edit"` (default): highlights, notes, shelves, settings… 2s trailing debounce.
+ * `"reading"`: progress / reading stats, which change on every page turn. A
+ * full round (provision + fetch + merge of every entity, all on the main
+ * thread) 2s after each page turn made reading stall whenever the reader
+ * paused; the live docs bridge already propagates each change, so these are
+ * throttled to at most one round per READING_SYNC_THROTTLE_MS. An edit
+ * arriving while a reading round is pending pulls it forward.
+ */
+export function scheduleMutationSync(kind: "edit" | "reading" = "edit"): void {
     const { settings } = useSettingsStore.getState();
     if (!settings.deviceSync?.autoSyncEnabled) return;
 
     _dataDirty = true;
 
+    const delay = kind === "reading" ? READING_SYNC_THROTTLE_MS : MUTATION_SYNC_DEBOUNCE_MS;
     if (_mutationSyncTimer) {
+        // A pending reading-round keeps its schedule (throttle, not debounce);
+        // anything else reschedules to its own, shorter, delay.
+        if (kind === "reading") return;
         clearTimeout(_mutationSyncTimer);
     }
     _mutationSyncTimer = setTimeout(async () => {
@@ -1130,11 +1146,11 @@ export function scheduleMutationSync(): void {
         if (_isAutoSyncing) {
             
             _dataDirty = true;
-            scheduleMutationSync();
+            scheduleMutationSync(kind);
             return;
         }
         void autoSyncRound();
-    }, MUTATION_SYNC_DEBOUNCE_MS);
+    }, delay);
 }
 
 export async function startAutoSync(): Promise<() => void> {

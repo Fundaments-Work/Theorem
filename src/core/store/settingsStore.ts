@@ -184,7 +184,7 @@ export const useSettingsStore = create<SettingsStore>()(
                 set((state) => ({
                     stats: { ...state.stats, ...updates },
                 }));
-                scheduleMutationSync();
+                scheduleMutationSync("reading");
             },
 
             resetSettings: () => {

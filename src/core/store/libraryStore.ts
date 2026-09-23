@@ -762,7 +762,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (updatedBook) {
                         const existingCache = state.recentBooksCache.filter((book) => book.id !== bookId);
                         const newCache = [createCacheEntry(updatedBook), ...existingCache].slice(0, 20);
-                        scheduleMutationSync();
+                        scheduleMutationSync("reading");
                         return { books: updatedBooks, recentBooksCache: newCache };
                     }
 
@@ -825,7 +825,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         return state;
                     }
 
-                    scheduleMutationSync();
+                    scheduleMutationSync("reading");
 
                     if (updatedBook) {
                         const existingCache = state.recentBooksCache.filter((book) => book.id !== bookId);
