@@ -1,4 +1,5 @@
 
+import { isNativeRangeFile, type BookSource } from "../../../core/lib/native-range-file";
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState, memo } from 'react';
 import { useDocumentReader } from '../hooks/useDocumentReader';
 import { FootnotePopover } from './FootnotePopover';
@@ -46,7 +47,7 @@ export interface ReaderViewportHandle {
 }
 
 interface ReaderViewportProps {
-    file: File | Blob | null;
+    file: BookSource | null;
     settings: ReaderSettings;
     format?: BookFormat;
     className?: string;
@@ -226,7 +227,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         const openFile = async () => {
             try {
                 const extension = FORMAT_EXTENSION_MAP[format] ?? 'epub';
-                const filename = file instanceof File ? file.name : `document.${extension}`;
+                const filename = file instanceof File || isNativeRangeFile(file) ? file.name : `document.${extension}`;
                 await open(
                     file,
                     filename,

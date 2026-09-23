@@ -21,6 +21,7 @@ import { extractFilenameFromPath, ensureFilenameForFormat } from "../../core/lib
 import { isTauri, isTauriDesktop, useAndroidBackButton } from "../../core/lib/env";
 import { sqliteShrinkMemory } from "../../core/lib/sqlite-storage";
 import { registerPrePersistFlush } from "../../core/lib/persist-storage";
+import { isNativeRangeFile, openNativeRangeFile, type BookSource } from "../../core/lib/native-range-file";
 import {
     useVocabularyStore,
     useLibraryStore,
@@ -110,6 +111,9 @@ function resolvePdfTargetPage(target: string): number | null {
     }
     return null;
 }
+
+/** Formats read through zip.js, which only needs byte ranges. */
+const RANGE_READ_FORMATS: ReadonlySet<BookFormat> = new Set<BookFormat>(["epub", "cbz"]);
 
 function getMimeTypeForBookFormat(format: BookFormat): string {
     switch (format) {
@@ -217,7 +221,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [settings.readerSettings.zoom]);
 
     // File state
-    const [file, setFile] = useState<File | Blob | null>(null);
+    const [file, setFile] = useState<BookSource | null>(null);
     const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
     const [metadata, setMetadata] = useState<DocMetadata | null>(null);
     const [toc, setToc] = useState<TocItem[]>([]);
@@ -802,6 +806,20 @@ const BookReaderPage = memo(function BookReaderPage() {
                     const materializedPath = await getBookMaterializedPath(book.id, storagePath);
                     if (materializedPath && !isCancelled) {
                         setResolvedNativePath(materializedPath);
+                        // Zip-based books: read ranges from disk instead of loading
+                        // the whole file into the WebView heap.
+                        if (RANGE_READ_FORMATS.has(book.format)) {
+                            const rangeFile = await openNativeRangeFile(
+                                materializedPath,
+                                ensureFilenameForFormat(extractFilenameFromPath(book.filePath), book.format),
+                                getMimeTypeForBookFormat(book.format),
+                            );
+                            if (isCancelled) return;
+                            if (rangeFile) {
+                                setFile(rangeFile);
+                                return;
+                            }
+                        }
                     }
                 }
 
@@ -932,7 +950,8 @@ const BookReaderPage = memo(function BookReaderPage() {
         const fractions = readerRef.current?.getSectionFractions() ?? [];
         setSectionFractions(fractions);
 
-        void extractBookCover(currentBookId ?? null, file ?? pdfData ?? undefined);
+        // A range file would have to be read whole; let cover extraction load it itself (only runs when a cover is missing).
+        void extractBookCover(currentBookId ?? null, (file && !isNativeRangeFile(file) ? file : undefined) ?? pdfData ?? undefined);
     }, [currentBookId, getBook, extractBookCover, file, pdfData]);
 
     const lastClickFractionRef = useRef<number | null>(null);

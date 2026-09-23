@@ -1,4 +1,5 @@
 
+import type { BookSource } from "../../../core/lib/native-range-file";
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { FoliateEngine } from '../engines';
 import type { FootnoteData } from '../engines/foliate-engine';
@@ -41,7 +42,7 @@ export interface UseDocumentReaderReturn {
     canGoBack: boolean;
     canGoForward: boolean;
 
-    open: (source: File | Blob | ArrayBuffer | string, filename?: string, initialLocation?: string, layout?: PageLayout, savedLocations?: string, flow?: ReadingFlow, zoom?: number, margins?: number, format?: BookFormat, nativeFilePath?: string) => Promise<void>;
+    open: (source: BookSource | ArrayBuffer | string, filename?: string, initialLocation?: string, layout?: PageLayout, savedLocations?: string, flow?: ReadingFlow, zoom?: number, margins?: number, format?: BookFormat, nativeFilePath?: string) => Promise<void>;
     goTo: (target: string | number) => Promise<void>;
     goToFraction: (fraction: number) => Promise<void>;
     next: (distance?: number) => Promise<void>;
@@ -215,7 +216,7 @@ export function useDocumentReader(options: UseDocumentReaderOptions = {}): UseDo
     const loadingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const open = useCallback(async (
-        source: File | Blob | ArrayBuffer | string,
+        source: BookSource | ArrayBuffer | string,
         filename: string = 'document.epub',
         initialLocation?: string,
         layout: PageLayout = 'auto',

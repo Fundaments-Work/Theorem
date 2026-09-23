@@ -15,6 +15,7 @@ import type {
 import { isFixedLayout } from '../../../core/types';
 import { getTheme } from '../foliate/themes';
 import { computeTextSelectionRects } from '../foliate/selection-rects';
+import { isNativeRangeFile, type BookSource } from '../../../core/lib/native-range-file';
 import { getCSS } from '../foliate/reader.js';
 import { 
     registerEngineStyleCallback,
@@ -301,7 +302,7 @@ export class FoliateEngine {
     }
 
     async open(
-        source: File | Blob | ArrayBuffer | string,
+        source: BookSource | ArrayBuffer | string,
         _filename: string = 'document.epub',
         initialLocation?: string,
         layout: PageLayout = 'double',
@@ -324,7 +325,10 @@ export class FoliateEngine {
             const { makeBook } = await import('../foliate-js-runtime/view.js');
 
             let file: File | Blob;
-            if (source instanceof File) {
+            if (isNativeRangeFile(source)) {
+                // Read ranges from disk; zip.js only uses size/slice/arrayBuffer.
+                file = source as unknown as File;
+            } else if (source instanceof File) {
                 file = source;
             } else if (source instanceof Blob) {
                 file = new File([source], _filename, { type: source.type || 'application/epub+zip' });
