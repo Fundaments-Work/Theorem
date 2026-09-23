@@ -116,7 +116,7 @@ rand = "0.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
-jni = { version = "0.21.1", default-features = false, features = ["invocation"] }
+jni = { version = "0.22.4", default-features = false, features = ["invocation"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
