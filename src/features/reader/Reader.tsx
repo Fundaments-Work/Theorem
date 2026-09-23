@@ -2755,7 +2755,6 @@ const BookReaderPage = memo(function BookReaderPage() {
                                 }, 600);
                             }
                         }}
-                        theme={settings.readerSettings.theme}
                     />
                     
                     <ReaderNavbar

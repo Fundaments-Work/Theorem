@@ -14,7 +14,7 @@ import { PDFJsEngine, type PDFJsEngineRef, type PDFDocumentInfo, type PdfLinkPre
 import { PDFLensPreview } from "./PDFLensPreview";
 import type { PdfDestTarget } from "../engines/pdf-links";
 import { cn } from "../../../core/lib/utils";
-import type { ReaderTheme, Annotation, HighlightColor, PdfZoomMode } from "../../../core/types";
+import type { Annotation, HighlightColor, PdfZoomMode } from "../../../core/types";
 
 interface PDFReaderProps {
     
@@ -33,8 +33,7 @@ interface PDFReaderProps {
     presentationMode?: 'scroll' | 'paged' | 'two-page';
     
     onPresentationModeChange?: (mode: 'scroll' | 'paged' | 'two-page') => void;
-    
-    theme?: ReaderTheme;
+
     
     brightness?: number;
     
@@ -124,7 +123,6 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             initialZoomMode,
             presentationMode = 'scroll',
             onPresentationModeChange,
-            theme = 'light',
             brightness = 100,
             onPageChange,
             onLoad,
@@ -342,7 +340,6 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                         onAnnotationRemove={onAnnotationRemove}
                         onHistoryChange={onHistoryChange}
                         onLinkPreview={handleLinkPreview}
-                        theme={theme}
                         showControls={showControls}
                         className="w-full h-full"
                     />

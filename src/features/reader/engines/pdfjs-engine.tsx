@@ -21,7 +21,7 @@ import { TextLayer } from "pdfjs-dist";
 import { buildPdfSearchPattern, findPdfTextMatches, normalizeSearchText, pdfSearchExcerpt, pdfSearchLocation } from "./pdf-search";
 import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLabel, parsePdfDate } from "./pdf-page-labels";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import type { Annotation, HighlightColor, PdfZoomMode, ReaderTheme, SearchResult, TocItem } from "../../../core/types";
+import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
 import { PDFLinkLayer, PdfLinkHandlersContext, type PdfLinkHandlers } from "../components/PDFLinkLayer";
 import { resolvePdfDestTarget, type PdfDestTarget, type PdfLink } from "./pdf-links";
@@ -43,7 +43,6 @@ export interface PDFJsEngineProps {
     initialZoomMode?: PdfZoomMode;
     presentationMode?: 'scroll' | 'paged' | 'two-page';
     onPresentationModeChange?: (mode: 'scroll' | 'paged' | 'two-page') => void;
-    theme?: ReaderTheme;
     onLoad?: (info: PDFDocumentInfo) => void;
     onError?: (error: Error) => void;
     onPageChange?: (page: number, totalPages: number, scale: number) => void;
@@ -1263,7 +1262,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         pdfPath, pdfData, originalFilename,
         initialPage = 1, initialZoom = DEFAULT_SCALE, initialZoomMode = DEFAULT_ZOOM_MODE,
         presentationMode: initialPresentationMode = 'scroll', onPresentationModeChange,
-        theme = 'light',
         onLoad, onError, onPageChange, onZoomModeChange, onViewportTap, showControls = true, className,
         annotations = [], annotationMode = 'none',
         highlightColor = "yellow", penColor = "blue", penWidth = 2,
@@ -2970,7 +2968,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
         return (
             <PdfLinkHandlersContext.Provider value={linkHandlers}>
-            <div className={cn("relative w-full h-full", `pdf-theme-${theme || "light"}`, className)} data-pdf-theme={theme || "light"}>
+            <div className={cn("relative w-full h-full", className)}>
                 {isLoading && (
                     <PageLoader
                         message="Loading PDF..."
