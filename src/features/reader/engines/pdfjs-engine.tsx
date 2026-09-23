@@ -26,7 +26,7 @@ import { PDFLinkLayer, PdfLinkHandlersContext, type PdfLinkHandlers } from "../c
 import { resolvePdfDestTarget, type PdfDestTarget, type PdfLink } from "./pdf-links";
 import { buildPdfLensPreview, type PdfLensPreview } from "./pdf-lens";
 import { pushPdfHistory, stepPdfHistory, type PdfHistoryEntry } from "./pdf-history";
-import { captureZoomAnchor, resolveZoomAnchor, type ZoomAnchor } from "./pdf-zoom-anchor";
+import { captureZoomAnchor, resolveZoomAnchor, wheelZoomFactor, type ZoomAnchor } from "./pdf-zoom-anchor";
 
 import "./pdfjs-engine.css";
 
@@ -171,7 +171,8 @@ const DEFAULT_CANVAS_RENDER_PAGE_WINDOW = 2;
 const WEBKIT_CANVAS_RENDER_PAGE_WINDOW = 2;
 const ANDROID_CANVAS_RENDER_PAGE_WINDOW = 1;
 const VIEWPORT_INTERACTION_IDLE_MS = 150;
-const WHEEL_ZOOM_RENDER_INTERVAL_MS = 90;
+/** Quiet time after the last Ctrl+wheel event before the real zoom is committed. */
+const WHEEL_ZOOM_SETTLE_MS = 180;
 const DESKTOP_PDF_RANGE_CHUNK_SIZE = 262_144;
 const MOBILE_PDF_RANGE_CHUNK_SIZE = 131_072;
 const INITIAL_RENDER_STABILIZATION_MS = 300;
@@ -1153,6 +1154,8 @@ const PageCanvas = memo(function PageCanvas({
 interface PageLayoutEntry { pageNumber: number; top: number; bottom: number; left: number; width: number; }
 
 const LENS_HOVER_DELAY_MS = 280;
+/** How long a link jump keeps re-applying itself while pages load in. */
+const DESTINATION_SETTLE_MS = 2000;
 const LENS_PREVIEW_CSS_WIDTH = 420;
 
 
@@ -1219,6 +1222,14 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const loadingTaskRef = useRef<any>(null);
         const pendingScrollPageRef = useRef<number | null>(null);
         const pendingScrollAdjustmentRef = useRef<ZoomAnchor | null>(null);
+        /**
+         * Visual zoom preview (CSS transform on the zoom container) waiting for
+         * the real re-layout. Cleared in the same layout pass that applies the
+         * new scale and scroll, so the swap is invisible.
+         */
+        const zoomPreviewActiveRef = useRef(false);
+        /** In-progress Ctrl+wheel gesture; kept in a ref so effect re-subscriptions keep it. */
+        const wheelGestureRef = useRef<{ targetScale: number; focus: { x: number; y: number }; timer: ReturnType<typeof setTimeout> | null } | null>(null);
         const loadingPageNumbersRef = useRef<Set<number>>(new Set());
         const loadedPageBoundsRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
         const lastEdgePrefetchAtRef = useRef(0);
@@ -1242,7 +1253,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         
         const resizeDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         
-        const lastWheelMouseRef = useRef<{ x: number; y: number } | null>(null);
 
         const isDesktopWebKit = useMemo(() => isWebKitBrowserEngine(), []);
         const isAndroidRuntime = useMemo(
@@ -1400,6 +1410,12 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             const container = containerRef.current;
             // Page sizes for the new scale are already applied (children's layout
             // effects run first), so measure, then put the anchor back under the focus.
+            if (zoomPreviewActiveRef.current && zoomContainerRef.current) {
+                zoomPreviewActiveRef.current = false;
+                zoomContainerRef.current.style.transform = "";
+                zoomContainerRef.current.style.transformOrigin = "";
+                zoomContainerRef.current.style.willChange = "";
+            }
             rebuildPageLayout();
             const anchor = pendingScrollAdjustmentRef.current;
             if (container && anchor && Math.abs(anchor.scale - scale) < 0.001) {
@@ -1430,7 +1446,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             const clampedScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, requestedScale));
             if (options?.mode) setZoomMode(options.mode);
             else if (!options?.preserveMode) setZoomMode("custom");
-            if (Math.abs(clampedScale - scaleRef.current) < 0.0001) return scaleRef.current;
+            if (Math.abs(clampedScale - scaleRef.current) < 0.0001) {
+                if (zoomPreviewActiveRef.current && zoomContainerRef.current) {
+                    zoomPreviewActiveRef.current = false;
+                    zoomContainerRef.current.style.transform = "";
+                    zoomContainerRef.current.style.transformOrigin = "";
+                    zoomContainerRef.current.style.willChange = "";
+                }
+                return scaleRef.current;
+            }
 
             const oldScale = scaleRef.current;
             scaleRef.current = clampedScale;
@@ -2070,10 +2094,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             if (!container || pages.length === 0) return;
             if (pageLayoutRef.current.length === 0) rebuildPageLayout();
             let rafId: number | null = null;
-            let zoomRafId: number | null = null;
-            let pendingWheelDelta = 0;
-            let lastWheelCommitAt = 0;
-            let wheelCommitTimeoutId: ReturnType<typeof setTimeout> | null = null;
             lastScrollTopRef.current = container.scrollTop;
 
             const handleScroll = () => {
@@ -2132,49 +2152,42 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 });
             };
 
+            // Ctrl/⌘+wheel and trackpad pinch: preview with a GPU transform while
+            // the gesture is live (no layout, React or canvas work), then commit
+            // one real zoom when it settles.
             const commitWheelZoom = () => {
-                if (pendingWheelDelta === 0) return;
-                const oldScale = scaleRef.current;
-                const nextScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldScale + pendingWheelDelta));
-                pendingWheelDelta = 0;
-
-                const mouse = lastWheelMouseRef.current;
-                applyZoom(nextScale, mouse ? { anchor: mouse } : undefined);
-                lastWheelCommitAt = performance.now();
-            };
-
-            const flushWheelZoom = () => {
-                zoomRafId = null;
-                if (pendingWheelDelta === 0) return;
-                const now = performance.now();
-                const elapsed = now - lastWheelCommitAt;
-                if (elapsed >= WHEEL_ZOOM_RENDER_INTERVAL_MS) {
-                    if (wheelCommitTimeoutId !== null) {
-                        clearTimeout(wheelCommitTimeoutId);
-                        wheelCommitTimeoutId = null;
-                    }
-                    commitWheelZoom();
-                    return;
-                }
-                if (wheelCommitTimeoutId === null) {
-                    wheelCommitTimeoutId = setTimeout(() => {
-                        wheelCommitTimeoutId = null;
-                        commitWheelZoom();
-                    }, WHEEL_ZOOM_RENDER_INTERVAL_MS - elapsed);
-                }
+                const gesture = wheelGestureRef.current;
+                if (!gesture) return;
+                wheelGestureRef.current = null;
+                if (gesture.timer) clearTimeout(gesture.timer);
+                applyZoom(gesture.targetScale, { anchor: gesture.focus });
             };
 
             const handleWheel = (e: WheelEvent) => {
-                if (e.ctrlKey || e.metaKey) {
-                    e.preventDefault();
-                    markViewportInteracting();
-                    const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-                    pendingWheelDelta = Math.max(-ZOOM_STEP * 3, Math.min(ZOOM_STEP * 3, pendingWheelDelta + delta));
-                    
-                    const rect = container.getBoundingClientRect();
-                    lastWheelMouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-                    if (zoomRafId === null) zoomRafId = window.requestAnimationFrame(flushWheelZoom);
+                if (!(e.ctrlKey || e.metaKey)) {
+                    // A plain scroll ends the zoom gesture before the view moves.
+                    if (wheelGestureRef.current) commitWheelZoom();
+                    return;
                 }
+                e.preventDefault();
+                const zoomContainer = zoomContainerRef.current;
+                if (!zoomContainer) return;
+                markViewportInteracting();
+                let gesture = wheelGestureRef.current;
+                if (!gesture) {
+                    const rect = container.getBoundingClientRect();
+                    const focus = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                    gesture = { targetScale: scaleRef.current, focus, timer: null };
+                    wheelGestureRef.current = gesture;
+                    zoomPreviewActiveRef.current = true;
+                    zoomContainer.style.willChange = "transform";
+                    zoomContainer.style.transformOrigin =
+                        `${container.scrollLeft + focus.x - zoomContainer.offsetLeft}px ${container.scrollTop + focus.y - zoomContainer.offsetTop}px`;
+                }
+                gesture.targetScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, gesture.targetScale * wheelZoomFactor(e.deltaY, e.deltaMode)));
+                zoomContainer.style.transform = `scale(${gesture.targetScale / scaleRef.current})`;
+                if (gesture.timer) clearTimeout(gesture.timer);
+                gesture.timer = setTimeout(commitWheelZoom, WHEEL_ZOOM_SETTLE_MS);
             };
 
             container.addEventListener("scroll", handleScroll, { passive: true });
@@ -2183,8 +2196,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 container.removeEventListener("scroll", handleScroll);
                 container.removeEventListener("wheel", handleWheel);
                 if (rafId !== null) cancelAnimationFrame(rafId);
-                if (zoomRafId !== null) cancelAnimationFrame(zoomRafId);
-                if (wheelCommitTimeoutId !== null) clearTimeout(wheelCommitTimeoutId);
             };
         }, [pages.length, applyZoom, rebuildPageLayout, markViewportInteracting, isInitialRenderStabilizing, loadSpecificPages]);
 
@@ -2225,7 +2236,13 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     markViewportInteracting();
                     isPinching = false;
                     const transformValue = zoomContainer.style.transform;
-                    zoomContainer.style.transform = ''; zoomContainer.style.transformOrigin = '';
+                    // Leave the preview transform in place: the commit's layout
+                    // pass clears it together with the new scale and scroll.
+                    zoomPreviewActiveRef.current = true;
+                    if (!transformValue) {
+                        zoomContainer.style.transform = ''; zoomContainer.style.transformOrigin = '';
+                        zoomPreviewActiveRef.current = false;
+                    }
                     if (transformValue) {
                         const match = transformValue.match(/scale\(([^)]+)\)/);
                         if (match && match[1]) {
@@ -2594,19 +2611,63 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             emitHistoryChange();
         }, [captureLocation, restoreLocation, emitHistoryChange]);
 
+        /**
+         * A jump into a part of the document that has not loaded yet is first
+         * positioned against placeholder geometry; as the real pages load, the
+         * layout shifts. Keep the destination pending and re-apply it after each
+         * layout change until it settles (or the reader takes over).
+         */
+        const pendingDestinationRef = useRef<{ target: PdfDestTarget; until: number } | null>(null);
+
+        const applyDestinationScroll = useCallback((target: PdfDestTarget, page: PDFPageProxy) => {
+            const viewport = page.getViewport({ scale: scaleRef.current * PDF_TO_CSS_UNITS, rotation: rotationRef.current });
+            const [x, y] = viewport.convertToViewportPoint(target.left ?? page.view[0], target.top ?? page.view[3]);
+            scrollWithinPage(target.pageNumber, y, target.left !== null ? x : null);
+        }, [scrollWithinPage]);
+
+        const reapplyPendingDestination = useCallback(() => {
+            const pending = pendingDestinationRef.current;
+            if (!pending) return;
+            if (performance.now() > pending.until) {
+                pendingDestinationRef.current = null;
+                return;
+            }
+            const page = pages.find((item) => item.pageNumber === pending.target.pageNumber);
+            if (page) applyDestinationScroll(pending.target, page);
+        }, [pages, applyDestinationScroll]);
+
         const goToDestination = useCallback((target: PdfDestTarget) => {
             if (target.pageNumber < 1 || target.pageNumber > totalPagesRef.current) return;
             pushHistory();
             navigateToPage(target.pageNumber, "auto");
             if (!pdfDocument || (target.top === null && target.left === null)) return;
-            const expectedScale = scaleRef.current;
+            pendingDestinationRef.current = { target, until: performance.now() + DESTINATION_SETTLE_MS };
             void pdfDocument.getPage(target.pageNumber).then((page) => {
-                if (scaleRef.current !== expectedScale) return;
-                const viewport = page.getViewport({ scale: expectedScale * PDF_TO_CSS_UNITS, rotation: rotationRef.current });
-                const [x, y] = viewport.convertToViewportPoint(target.left ?? page.view[0], target.top ?? page.view[3]);
-                scrollWithinPage(target.pageNumber, y, target.left !== null ? x : null);
+                if (pendingDestinationRef.current?.target === target) applyDestinationScroll(target, page);
             }).catch(() => undefined);
-        }, [pdfDocument, pushHistory, navigateToPage, scrollWithinPage]);
+        }, [pdfDocument, pushHistory, navigateToPage, applyDestinationScroll]);
+
+        // Re-apply after pages load / layout changes.
+        useLayoutEffect(() => {
+            if (!pendingDestinationRef.current) return;
+            const rafId = window.requestAnimationFrame(reapplyPendingDestination);
+            return () => window.cancelAnimationFrame(rafId);
+        }, [pages, scale, reapplyPendingDestination]);
+
+        // The reader taking over (scroll wheel, touch, keys) cancels the pending jump.
+        useEffect(() => {
+            const container = containerRef.current;
+            if (!container) return;
+            const cancel = () => { pendingDestinationRef.current = null; };
+            container.addEventListener("wheel", cancel, { passive: true });
+            container.addEventListener("touchstart", cancel, { passive: true });
+            container.addEventListener("keydown", cancel);
+            return () => {
+                container.removeEventListener("wheel", cancel);
+                container.removeEventListener("touchstart", cancel);
+                container.removeEventListener("keydown", cancel);
+            };
+        }, []);
 
         // Reset history when a different document loads.
         useEffect(() => {

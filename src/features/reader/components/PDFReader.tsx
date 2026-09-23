@@ -11,8 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { AlertCircle } from "lucide-react";
 import { PDFJsEngine, type PDFJsEngineRef, type PDFDocumentInfo, type PdfLinkPreviewEvent } from "../engines/pdfjs-engine";
-import { FootnotePopover } from "./FootnotePopover";
-import type { FootnoteData } from "../engines/foliate-engine";
+import { PDFLensPreview } from "./PDFLensPreview";
 import type { PdfDestTarget } from "../engines/pdf-links";
 import { cn } from "../../../core/lib/utils";
 import type { ReaderTheme, Annotation, HighlightColor, PdfZoomMode } from "../../../core/types";
@@ -60,11 +59,11 @@ interface PDFReaderProps {
     showControls?: boolean;
 }
 
-interface PdfLensState {
-    footnote: FootnoteData;
-    target: PdfDestTarget;
-    mode: "hover" | "tap";
-}
+type PdfLensState = Omit<PdfLinkPreviewEvent, "preview"> & {
+    imageUrl: string | null;
+    text: string;
+    pageNumber: number;
+};
 
 /** Grace period for moving the pointer from a link onto its preview. */
 const LENS_HOVER_CLOSE_DELAY_MS = 220;
@@ -252,13 +251,10 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             setLens({
                 mode: event.mode,
                 target: event.target,
-                footnote: {
-                    text: event.preview.text,
-                    title: `Page ${event.preview.pageNumber}`,
-                    href: `pdf:page:${event.preview.pageNumber}`,
-                    rect: event.anchorRect,
-                    imageUrl: event.preview.imageUrl ?? undefined,
-                },
+                anchorRect: event.anchorRect,
+                imageUrl: event.preview.imageUrl,
+                text: event.preview.text,
+                pageNumber: event.preview.pageNumber,
             });
         }, [clearLensCloseTimer, scheduleHoverLensClose]);
 
@@ -348,21 +344,26 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                     />
                 </div>
                 {lens && typeof document !== "undefined" && createPortal(
-                    <div data-theorem-lens>
-                        <FootnotePopover
-                            footnote={lens.footnote}
-                            onClose={closeLens}
-                            onJump={() => engineRef.current?.goToDestination(lens.target)}
-                            onPointerEnter={() => {
-                                lensHoveredRef.current = true;
-                                clearLensCloseTimer();
-                            }}
-                            onPointerLeave={() => {
-                                lensHoveredRef.current = false;
-                                if (lens.mode === "hover") scheduleHoverLensClose();
-                            }}
-                        />
-                    </div>,
+                    <PDFLensPreview
+                        imageUrl={lens.imageUrl}
+                        text={lens.text}
+                        pageNumber={lens.pageNumber}
+                        anchorRect={lens.anchorRect}
+                        onClose={closeLens}
+                        onJump={() => {
+                            const target = lens.target;
+                            closeLens();
+                            engineRef.current?.goToDestination(target);
+                        }}
+                        onPointerEnter={() => {
+                            lensHoveredRef.current = true;
+                            clearLensCloseTimer();
+                        }}
+                        onPointerLeave={() => {
+                            lensHoveredRef.current = false;
+                            if (lens.mode === "hover") scheduleHoverLensClose();
+                        }}
+                    />,
                     document.body,
                 )}
             </div>

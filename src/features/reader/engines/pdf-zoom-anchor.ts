@@ -95,3 +95,16 @@ export function resolveZoomAnchor(
         left: Math.max(0, box.left + anchor.ratioX * box.width - anchor.focusX),
     };
 }
+
+/**
+ * Multiplicative zoom factor for one Ctrl/⌘+wheel event. Proportional to the
+ * delta so a mouse notch (≈100px) zooms ≈10% like Firefox's viewer, while a
+ * trackpad pinch (many small deltas) zooms smoothly instead of 10% per event.
+ */
+export function wheelZoomFactor(deltaY: number, deltaMode: number): number {
+    if (!Number.isFinite(deltaY) || deltaY === 0) return 1;
+    // DOM_DELTA_LINE → px (≈16px per line); DOM_DELTA_PAGE → one screen.
+    const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 800 : deltaY;
+    const factor = Math.exp(-px * 0.00095);
+    return Math.min(1.25, Math.max(0.8, factor));
+}

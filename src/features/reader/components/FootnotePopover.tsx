@@ -9,12 +9,9 @@ export interface FootnotePopoverProps {
     footnote: FootnoteData | null;
     onClose: () => void;
     onJump?: (href: string) => void;
-    /** Hover previews: keep open while the pointer is over the popover. */
-    onPointerEnter?: () => void;
-    onPointerLeave?: () => void;
 }
 
-export function FootnotePopover({ footnote, onClose, onJump, onPointerEnter, onPointerLeave }: FootnotePopoverProps) {
+export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverProps) {
     const popoverRef = useRef<HTMLDivElement>(null);
     const isMobileDevice = isMobile();
 
@@ -110,8 +107,6 @@ export function FootnotePopover({ footnote, onClose, onJump, onPointerEnter, onP
 
             <div
                 ref={popoverRef}
-                onPointerEnter={onPointerEnter}
-                onPointerLeave={onPointerLeave}
                 className={cn(
                     "relative flex flex-col bg-[var(--color-surface)] border border-[var(--color-border)] shadow-2xl overflow-hidden",
                     isMobileDevice ? "rounded-t-2xl max-h-[60vh]" : "rounded-xl max-h-[420px]"
@@ -145,8 +140,8 @@ export function FootnotePopover({ footnote, onClose, onJump, onPointerEnter, onP
                                     onClose();
                                 }}
                                 className="ui-icon-btn p-1.5 text-[color:var(--color-accent)]"
-                                title="Go to target"
-                                aria-label="Go to target"
+                                title="Jump to note section"
+                                aria-label="Jump to note section"
                             >
                                 <ExternalLink className="h-3.5 w-3.5" />
                             </button>
@@ -165,14 +160,7 @@ export function FootnotePopover({ footnote, onClose, onJump, onPointerEnter, onP
 
                 {/* Content */}
                 <div className="p-3.5 sm:p-4 overflow-y-auto overscroll-contain text-xs leading-relaxed text-[color:var(--color-text-primary)] select-text [content-visibility:auto]">
-                    {footnote.imageUrl ? (
-                        <img
-                            src={footnote.imageUrl}
-                            alt={footnote.text}
-                            draggable={false}
-                            className="block w-full h-auto rounded border border-[var(--color-border)] bg-white"
-                        />
-                    ) : footnote.html ? (
+                    {footnote.html ? (
                         <div
                             dangerouslySetInnerHTML={{ __html: footnote.html }}
                             className="[&_a]:text-[color:var(--color-accent)] [&_a]:underline space-y-1.5 [&_img]:max-h-48 [&_img]:rounded [&_img]:mx-auto"
