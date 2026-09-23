@@ -1,7 +1,7 @@
 
 import type { BookFormat } from '../types';
 import { saveCoverImage, downsampleCoverImage } from './storage';
-import { getConfiguredPdfJs } from './pdfjs-runtime';
+import { getConfiguredPdfJs, PDFJS_ASSET_OPTIONS } from './pdfjs-runtime';
 import { normalizeAuthor } from './utils';
 import { isMobile } from './env';
 
@@ -378,6 +378,7 @@ export async function extractMetadata(
             })();
 
             const loadingTask = pdfjsLib.getDocument({
+                ...PDFJS_ASSET_OPTIONS,
                 data: serializableData,
             });
 

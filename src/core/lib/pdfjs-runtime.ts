@@ -5,6 +5,22 @@ type PdfJsWorkerConfigurableModule = Pick<PdfJsModule, "GlobalWorkerOptions">;
 
 const PDFJS_WORKER_URL = pdfjsWorkerUrl;
 
+/**
+ * Same-origin asset locations copied into the build by vite.config.ts. All
+ * local — the reader must work offline. `wasmUrl` is required by pdf.js 6 to
+ * decode JPEG 2000 (openjpeg), JBIG2 and CCITT fax images (jbig2); without it
+ * those images render blank, which covers most scanned books and many papers.
+ * `iccUrl` enables the CMYK ICC profile where pdf.js can use its qcms decoder.
+ */
+export const PDFJS_ASSET_OPTIONS = {
+    cMapUrl: "/pdfjs/cmaps/",
+    cMapPacked: true,
+    standardFontDataUrl: "/pdfjs/standard_fonts/",
+    wasmUrl: "/pdfjs/wasm/",
+    iccUrl: "/pdfjs/iccs/",
+    isEvalSupported: false,
+} as const;
+
 let workerConfigured = false;
 let configuredPdfJsModulePromise: Promise<PdfJsModule> | null = null;
 let prewarmPromise: Promise<void> | null = null;

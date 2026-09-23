@@ -23,10 +23,34 @@ export default defineConfig(async () => ({
                         "node_modules/pdfjs-dist/cmaps/Uni*.bcmap",
                     ],
                     dest: "pdfjs/cmaps",
+                    // v4 keeps the source path under dest unless stripped.
+                    rename: { stripBase: true },
                 },
                 {
                     src: "node_modules/pdfjs-dist/standard_fonts/*",
                     dest: "pdfjs/standard_fonts",
+                    rename: { stripBase: true },
+                },
+                // Image decoders pdf.js 6 loads from `wasmUrl`: openjpeg (JPX),
+                // jbig2 (JBIG2 + CCITT fax), qcms (ICC). The *_nowasm_fallback.js
+                // files cover runtimes without WebAssembly. quickjs-eval (PDF
+                // scripting) is intentionally not shipped: isEvalSupported=false.
+                {
+                    src: [
+                        "node_modules/pdfjs-dist/wasm/openjpeg.wasm",
+                        "node_modules/pdfjs-dist/wasm/openjpeg_nowasm_fallback.js",
+                        "node_modules/pdfjs-dist/wasm/jbig2.wasm",
+                        "node_modules/pdfjs-dist/wasm/jbig2_nowasm_fallback.js",
+                        "node_modules/pdfjs-dist/wasm/qcms_bg.wasm",
+                        "node_modules/pdfjs-dist/wasm/LICENSE_*",
+                    ],
+                    dest: "pdfjs/wasm",
+                    rename: { stripBase: true },
+                },
+                {
+                    src: "node_modules/pdfjs-dist/iccs/*",
+                    dest: "pdfjs/iccs",
+                    rename: { stripBase: true },
                 },
             ],
         }),

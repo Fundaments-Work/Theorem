@@ -13,7 +13,7 @@ import {
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { cn } from "../../../core/lib/utils";
 import { isTauri, isWebKitBrowserEngine } from "../../../core/lib/env";
-import { configurePdfJsWorker } from "../../../core/lib/pdfjs-runtime";
+import { configurePdfJsWorker, PDFJS_ASSET_OPTIONS } from "../../../core/lib/pdfjs-runtime";
 import { rankByFuzzyQuery } from "../../../core/lib/search/fuzzy";
 import * as pdfjsLib from "pdfjs-dist";
 import { Dropdown, PageLoader } from "../../../ui";
@@ -1815,7 +1815,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
                     const displayFilename = originalFilename || pdfPath.split("/").pop()?.replace(/\.[^/.]+$/, "") || "document";
                     const infoCacheKey = buildPdfInfoCacheKey(pdfPath, originalFilename, dataByteLength);
-                    const commonPdfOptions = { cMapUrl: "/pdfjs/cmaps/", cMapPacked: true, standardFontDataUrl: "/pdfjs/standard_fonts/", isEvalSupported: false };
+                    const commonPdfOptions = PDFJS_ASSET_OPTIONS;
                     const preferredRangeChunkSize = getPreferredPdfRangeChunkSize();
 
                     let pdf: PDFDocumentProxy;
