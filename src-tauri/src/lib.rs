@@ -14,6 +14,7 @@ pub mod cli;
 pub mod cli_tui;
 pub mod cover_protocol;
 mod database;
+pub mod epub_entries;
 mod epub_parser;
 mod epub_rewriter;
 pub mod epubcfi;
@@ -1808,6 +1809,7 @@ pub fn run() {
             tts_resume,
             tts_get_voices,
             epub_parser::prefetch_zip_metadata,
+            epub_entries::epub_read_entry,
             offload_commands::rewrite_epub_metadata,
             offload_commands::read_file,
             offload_commands::read_cbr_as_cbz,

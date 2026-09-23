@@ -387,6 +387,9 @@ pub fn rewrite_epub_metadata(
     cover: Option<Vec<u8>>,
 ) -> Result<RewriteResult, String> {
     let path = database::materialized_book_path(&app, &book_id)?;
+    // The file is replaced in place; close cached archives (Windows keeps
+    // open files locked, and the cache must not serve the old central directory).
+    crate::epub_entries::clear_cache();
     let bytes = std::fs::read(&path)
         .map_err(|e| format!("Failed to read stored book file for '{book_id}': {e}"))?;
 

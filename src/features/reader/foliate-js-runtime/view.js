@@ -48,6 +48,34 @@ const makeZipLoader = async (file, prefetchPromise) => {
         return { entries, loadText, loadBlob, getSize }
     }
 
+    // Desktop/Android: entries are inflated in Rust (`epub_read_entry`), one
+    // at a time, off the UI thread. zip.js is only used in the browser build.
+    if (prefetch?.readEntry && sizes) {
+        const readEntry = prefetch.readEntry
+        // Rust also tries percent-decoded and case-insensitive names.
+        const resolve = name => typeof name !== 'string' ? null
+            : sizes.has(name) ? name : name.replace(/^\//, '')
+        const entries = [...sizes.keys()].sort()
+            .map(filename => ({ filename, uncompressedSize: sizes.get(filename) }))
+        const loadText = name => {
+            const key = resolve(name)
+            if (key == null) return null
+            const cached = textCache?.get(key) ?? textCache?.get(name)
+            if (cached !== undefined) return cached
+            return readEntry(key).then(buffer => buffer ? new TextDecoder().decode(buffer) : null)
+        }
+        const loadBlob = (name, type) => {
+            const key = resolve(name)
+            if (key == null) return null
+            return readEntry(key).then(buffer => buffer ? new Blob([buffer], type ? { type } : undefined) : null)
+        }
+        const getSize = name => {
+            const key = resolve(name)
+            return (key != null ? sizes.get(key) : undefined) ?? 0
+        }
+        return { entries, loadText, loadBlob, getSize, toc }
+    }
+
     let _lazyZip = null
     const getLazyZip = async () => {
         if (!_lazyZip) {

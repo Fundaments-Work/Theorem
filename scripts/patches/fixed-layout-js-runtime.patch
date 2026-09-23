@@ -1,0 +1,121 @@
+--- fixed-layout.js
++++ fixed-layout.js
+@@ -1,30 +1,26 @@
+ const parseViewport = str => str
+-    ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
++    ?.split(/[,;\s]/) 
+     ?.filter(x => x)
+     ?.map(x => x.split('=').map(x => x.trim()))
+ 
+ const getViewport = (doc, viewport) => {
+-    // use `viewBox` for SVG
++    
+     if (doc.documentElement.localName === 'svg') {
+         const [, , width, height] = doc.documentElement
+             .getAttribute('viewBox')?.split(/\s/) ?? []
+         return { width, height }
+     }
+ 
+-    // get `viewport` `meta` element
+     const meta = parseViewport(doc.querySelector('meta[name="viewport"]')
+         ?.getAttribute('content'))
+     if (meta) return Object.fromEntries(meta)
+ 
+-    // fallback to book's viewport
+     if (typeof viewport === 'string') return parseViewport(viewport)
+     if (viewport?.width && viewport.height) return viewport
+ 
+-    // if no viewport (possibly with image directly in spine), get image size
+     const img = doc.querySelector('img')
+     if (img) return { width: img.naturalWidth, height: img.naturalHeight }
+ 
+-    // just show *something*, i guess...
+     console.warn(new Error('Missing viewport properties'))
+     return { width: 1000, height: 2000 }
+ }
+@@ -81,17 +77,26 @@
+             display: 'none',
+             overflow: 'hidden',
+         })
+-        // `allow-scripts` is needed for events because of WebKit bug
+-        // https://bugs.webkit.org/show_bug.cgi?id=218086
++        
+         iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
+         iframe.setAttribute('scrolling', 'no')
+         iframe.setAttribute('part', 'filter')
+         this.#root.append(element)
+         if (!src) return { blank: true, element, iframe }
+         return new Promise(resolve => {
+-            iframe.addEventListener('load', () => {
++            iframe.addEventListener('load', async () => {
+                 const doc = iframe.contentDocument
+                 this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
++
++                // Await image decode so naturalWidth/naturalHeight are available
++                // before getViewport() reads them. Without this, CBZ comics and
++                // fixed-layout EPUBs without a <meta viewport> fall back to the
++                // dummy 1000×2000 box, distorting all aspect ratios.
++                const img = doc.querySelector('img')
++                if (img && !img.complete) {
++                    await img.decode().catch(() => {})
++                }
++
+                 const { width, height } = getViewport(doc, this.defaultViewport)
+                 resolve({
+                     element, iframe,
+@@ -268,17 +273,28 @@
+             this.#render(side)
+             return
+         }
++        const prevSpread = this.#spreads[this.#index]
+         this.#index = index
+         const spread = this.#spreads[index]
+         if (spread.center) {
+             const index = this.book.sections.indexOf(spread.center)
+             const src = await spread.center?.load?.()
++            if (prevSpread) {
++                if (prevSpread.center) prevSpread.center.unload?.()
++                if (prevSpread.left) prevSpread.left.unload?.()
++                if (prevSpread.right) prevSpread.right.unload?.()
++            }
+             await this.#showSpread({ center: { index, src } })
+         } else {
+             const indexL = this.book.sections.indexOf(spread.left)
+             const indexR = this.book.sections.indexOf(spread.right)
+             const srcL = await spread.left?.load?.()
+             const srcR = await spread.right?.load?.()
++            if (prevSpread) {
++                if (prevSpread.left) prevSpread.left.unload?.()
++                if (prevSpread.right) prevSpread.right.unload?.()
++                if (prevSpread.center) prevSpread.center.unload?.()
++            }
+             const left = { index: indexL, src: srcL }
+             const right = { index: indexR, src: srcR }
+             await this.#showSpread({ left, right, side })
+@@ -287,7 +303,7 @@
+     }
+     async select(target) {
+         await this.goTo(target)
+-        // TODO
++        
+     }
+     async goTo(target) {
+         const { book } = this
+@@ -308,11 +324,16 @@
+     getContents() {
+         return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
+             doc: frame.contentDocument,
+-            // TODO: index, overlayer
++            
+         }))
+     }
+     destroy() {
+         this.#observer.unobserve(this)
++        for (const spread of this.#spreads ?? []) {
++            if (spread.left) spread.left.unload?.()
++            if (spread.right) spread.right.unload?.()
++            if (spread.center) spread.center.unload?.()
++        }
+     }
+ }
+ 

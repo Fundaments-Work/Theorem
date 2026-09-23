@@ -1,0 +1,122 @@
+--- fb2.js
++++ fb2.js
+@@ -74,8 +74,7 @@
+     constructor(fb2) {
+         this.fb2 = fb2
+         this.doc = document.implementation.createDocument(NS.XHTML, 'html')
+-        // use this instead of `getElementById` to allow images like
+-        // `<image l:href="#img1.jpg" id="img1.jpg" />`
++        
+         this.bins = new Map(Array.from(this.fb2.getElementsByTagName('binary'),
+             el => [el.id, el]))
+     }
+@@ -120,7 +119,7 @@
+         return el
+     }
+     convert(node, def) {
+-        // not an element; return text content
++        
+         if (node.nodeType === 3) return this.doc.createTextNode(node.textContent)
+         if (node.nodeType === 4) return this.doc.createCDATASection(node.textContent)
+         if (node.nodeType === 8) return this.doc.createComment(node.textContent)
+@@ -132,17 +131,14 @@
+         const [name, opts, attrs] = d
+         const el = this.doc.createElement(name)
+ 
+-        // copy the ID, and set class name from original element name
+         if (node.id) el.id = node.id
+         el.classList.add(node.nodeName)
+ 
+-        // copy attributes
+         if (Array.isArray(attrs)) for (const attr of attrs) {
+             const value = node.getAttribute(attr)
+             if (value) el.setAttribute(attr, value)
+         }
+ 
+-        // process child elements recursively
+         const childDef = opts === 'self' ? def : opts
+         let child = node.firstChild
+         while (child) {
+@@ -160,8 +156,7 @@
+     const parser = new DOMParser()
+     const doc = parser.parseFromString(str, MIME.XML)
+     const encoding = doc.xmlEncoding
+-        // `Document.xmlEncoding` is deprecated, and already removed in Firefox
+-        // so parse the XML declaration manually
++        
+         || str.match(/^<\?xml\s+version\s*=\s*["']1.\d+"\s+encoding\s*=\s*["']([A-Za-z0-9._-]*)["']/)?.[1]
+     if (encoding && encoding.toLowerCase() !== 'utf-8') {
+         const str = new TextDecoder(encoding).decode(buffer)
+@@ -226,7 +221,6 @@
+     <body>${html}</body>
+ </html>`
+ 
+-// name of custom ID attribute for TOC items
+ const dataID = 'data-foliate-id'
+ 
+ export const makeFB2 = async blob => {
+@@ -257,8 +251,7 @@
+         author: $$('title-info author').map(getPerson),
+         translator: $$('title-info translator').map(getPerson),
+         contributor: $$('document-info author').map(getPerson)
+-            // techincially the program probably shouldn't get the `bkp` role
+-            // but it has been so used by calibre, so ¯\_(ツ)_/¯
++            
+             .concat($$('document-info program-used').map(getElementText))
+             .map(x => Object.assign(typeof x === 'string' ? { name: x } : x,
+                 { role: 'bkp' })),
+@@ -274,11 +267,10 @@
+         book.getCover = () => fetch(src).then(res => res.blob())
+     } else book.getCover = () => null
+ 
+-    // get convert each body
+     const bodyData = Array.from(doc.querySelectorAll('body'), body => {
+         const converted = converter.convert(body, { body: ['body', BODY] })
+         return [Array.from(converted.children, el => {
+-            // get list of IDs in the section
++            
+             const ids = [el, ...el.querySelectorAll('[id]')].map(el => el.id)
+             return { el, ids }
+         }), converted]
+@@ -286,9 +278,9 @@
+ 
+     const urls = []
+     const sectionData = bodyData[0][0]
+-        // make a separate section for each section in the first body
++        
+         .map(({ el, ids }) => {
+-            // set up titles for TOC
++            
+             const titles = Array.from(
+                 el.querySelectorAll(':scope > section > .title'),
+                 (el, index) => {
+@@ -297,7 +289,7 @@
+                 })
+             return { ids, titles, el }
+         })
+-        // for additional bodies, only make one section for each body
++        
+         .concat(bodyData.slice(1).map(([sections, body]) => {
+             const ids = sections.map(s => s.ids).flat()
+             body.classList.add('notesBodyType')
+@@ -314,7 +306,7 @@
+             return {
+                 ids, title, titles, load: () => url,
+                 createDocument: () => new DOMParser().parseFromString(str, MIME.XHTML),
+-                // doo't count image data as it'd skew the size too much
++                
+                 size: blob.size - Array.from(el.querySelectorAll('[src]'),
+                     el => el.getAttribute('src')?.length ?? 0)
+                     .reduce((a, b) => a + b, 0),
+@@ -344,9 +336,9 @@
+     book.resolveHref = href => {
+         const [a, b] = href.split('#')
+         return a
+-            // the link is from the TOC
++            
+             ? { index: Number(a), anchor: doc => doc.querySelector(`[${dataID}="${b}"]`) }
+-            // link from within the page
++            
+             : { index: idMap.get(b), anchor: doc => doc.getElementById(b) }
+     }
+     book.splitTOCHref = href => href?.split('#')?.map(x => Number(x)) ?? []

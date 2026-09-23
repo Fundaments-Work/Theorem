@@ -21,6 +21,25 @@ export interface PrefetchCache {
     textCache: Map<string, string>;
     sizes: Map<string, number>;
     toc?: TocItem[];
+    /** Inflate one entry in Rust; `null` when the archive has no such entry. */
+    readEntry?: (name: string) => Promise<ArrayBuffer | null>;
+}
+
+/** Must match `ENTRY_NOT_FOUND` in `src-tauri/src/epub_entries.rs`. */
+const ENTRY_NOT_FOUND = 'EPUB_ENTRY_NOT_FOUND';
+
+export function makeNativeEntryReader(path: string): (name: string) => Promise<ArrayBuffer | null> {
+    return async (name: string) => {
+        try {
+            const data = await invoke<ArrayBuffer | Uint8Array | number[]>('epub_read_entry', { path, name });
+            if (data instanceof ArrayBuffer) return data;
+            const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+            return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        } catch (error) {
+            if (String(error).includes(ENTRY_NOT_FOUND)) return null;
+            throw error;
+        }
+    };
 }
 
 export async function tryNativePrefetchEpub(path: string): Promise<PrefetchCache | null> {
@@ -53,7 +72,7 @@ export async function tryNativePrefetchEpub(path: string): Promise<PrefetchCache
 
         const sizes = new Map<string, number>(Object.entries(result.sizes));
 
-        return { textCache, sizes, toc: result.toc };
+        return { textCache, sizes, toc: result.toc, readEntry: makeNativeEntryReader(path) };
     } catch {
         return null;
     }

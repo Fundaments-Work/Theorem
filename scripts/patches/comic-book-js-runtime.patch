@@ -1,0 +1,18 @@
+--- comic-book.js
++++ comic-book.js
+@@ -1,4 +1,5 @@
+-export const makeComicBook = ({ entries, loadBlob, getSize }, file) => {
++export const makeComicBook = async ({ loadBlob, getSize, entries, getLazyZip }, file) => {
++    const resolvedEntries = entries ?? (getLazyZip ? (await getLazyZip()).entries : [])
+     const cache = new Map()
+     const urls = new Map()
+     const load = async name => {
+@@ -17,7 +18,7 @@
+     }
+ 
+     const exts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.jxl', '.avif']
+-    const files = entries
++    const files = resolvedEntries
+         .map(entry => entry.filename)
+         .filter(name => exts.some(ext => name.endsWith(ext)))
+         .sort(new Intl.Collator([], { numeric: true }).compare)

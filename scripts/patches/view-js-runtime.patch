@@ -1,43 +1,115 @@
---- view.js	2026-06-28 07:32:43.178921005 +0545
-+++ view.js	2026-07-01 10:34:58.717572384 +0545
-@@ -27,18 +27,31 @@
+--- view.js
++++ view.js
+@@ -27,19 +27,95 @@
      type === 'application/x-zip-compressed-fb2'
      || name.endsWith('.fb2.zip') || name.endsWith('.fbz')
  
 -const makeZipLoader = async file => {
-+const makeZipLoader = async (file, prefetchPromise) => {
-     const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
-         await import('./vendor/zip.js')
-     configure({ useWebWorkers: false })
-     const reader = new ZipReader(new BlobReader(file))
+-    const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
+-        await import('./vendor/zip.js')
+-    configure({ useWebWorkers: false })
+-    const reader = new ZipReader(new BlobReader(file))
 -    const entries = await reader.getEntries()
-+
-+    // Start zip.js central-directory parse and the (optional) native Rust
-+    // prefetch in parallel. The EPubPrefetch provides pre-decoded text for
-+    // container / OPF / nav / NCX + an uncompressed-size map so neither
-+    // loadText() nor getSize() needs to touch zip.js for the critical path.
-+    const entriesPromise = reader.getEntries()
-+    const prefetch = await prefetchPromise
-+    const entries = await entriesPromise
-+
-     const map = new Map(entries.map(entry => [entry.filename, entry]))
+-    const map = new Map(entries.map(entry => [entry.filename, entry]))
 -    const load = f => (name, ...args) =>
 -        map.has(name) ? f(map.get(name), ...args) : null
+-    const loadText = load(entry => entry.getData(new TextWriter()))
+-    const loadBlob = load((entry, type) => entry.getData(new BlobWriter(type)))
+-    const getSize = name => map.get(name)?.uncompressedSize ?? 0
+-    return { entries, loadText, loadBlob, getSize }
++const makeZipLoader = async (file, prefetchPromise) => {
++    const prefetch = await prefetchPromise
 +    const textCache = prefetch?.textCache
 +    const sizes = prefetch?.sizes
++    const toc = prefetch?.toc
 +
-+    const load = f => (name, ...args) => {
-+        if (textCache?.has(name)) return textCache.get(name)
-+        return map.has(name) ? f(map.get(name), ...args) : null
++    if (!textCache && !sizes) {
++        const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
++            await import('./vendor/zip.js')
++        configure({ useWebWorkers: false })
++        const reader = new ZipReader(new BlobReader(file))
++        const entries = await reader.getEntries()
++        const map = new Map(entries.map(e => [e.filename, e]))
++        const loadText = name =>
++            map.has(name) ? map.get(name).getData(new TextWriter()) : null
++        const loadBlob = (name, type) =>
++            map.has(name) ? map.get(name).getData(new BlobWriter(type)) : null
++        const getSize = name => map.get(name)?.uncompressedSize ?? 0
++        return { entries, loadText, loadBlob, getSize }
 +    }
-     const loadText = load(entry => entry.getData(new TextWriter()))
-     const loadBlob = load((entry, type) => entry.getData(new BlobWriter(type)))
--    const getSize = name => map.get(name)?.uncompressedSize ?? 0
-+    const getSize = name => sizes?.get(name) ?? map.get(name)?.uncompressedSize ?? 0
-     return { entries, loadText, loadBlob, getSize }
++
++    // Desktop/Android: entries are inflated in Rust (`epub_read_entry`), one
++    // at a time, off the UI thread. zip.js is only used in the browser build.
++    if (prefetch?.readEntry && sizes) {
++        const readEntry = prefetch.readEntry
++        // Rust also tries percent-decoded and case-insensitive names.
++        const resolve = name => typeof name !== 'string' ? null
++            : sizes.has(name) ? name : name.replace(/^\//, '')
++        const entries = [...sizes.keys()].sort()
++            .map(filename => ({ filename, uncompressedSize: sizes.get(filename) }))
++        const loadText = name => {
++            const key = resolve(name)
++            if (key == null) return null
++            const cached = textCache?.get(key) ?? textCache?.get(name)
++            if (cached !== undefined) return cached
++            return readEntry(key).then(buffer => buffer ? new TextDecoder().decode(buffer) : null)
++        }
++        const loadBlob = (name, type) => {
++            const key = resolve(name)
++            if (key == null) return null
++            return readEntry(key).then(buffer => buffer ? new Blob([buffer], type ? { type } : undefined) : null)
++        }
++        const getSize = name => {
++            const key = resolve(name)
++            return (key != null ? sizes.get(key) : undefined) ?? 0
++        }
++        return { entries, loadText, loadBlob, getSize, toc }
++    }
++
++    let _lazyZip = null
++    const getLazyZip = async () => {
++        if (!_lazyZip) {
++            _lazyZip = (async () => {
++                const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
++                    await import('./vendor/zip.js')
++                configure({ useWebWorkers: false })
++                const reader = new ZipReader(new BlobReader(file))
++                const entries = await reader.getEntries()
++                const map = new Map(entries.map(e => [e.filename, e]))
++                return { entries, map, TextWriter, BlobWriter }
++            })()
++        }
++        return _lazyZip
++    }
++
++    const loadText = name => {
++        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
++        const cached = textCache.get(name) ?? (cleanName ? textCache.get(cleanName) : undefined)
++        if (cached !== undefined) return cached
++        return getLazyZip().then(({ map, TextWriter }) => {
++            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
++            return entry ? entry.getData(new TextWriter()) : null
++        })
++    }
++
++    const loadBlob = (name, type) => {
++        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
++        return getLazyZip().then(({ map, BlobWriter }) => {
++            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
++            return entry ? entry.getData(new BlobWriter(type)) : null
++        })
++    }
++
++    const getSize = name => {
++        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
++        return sizes.get(name) ?? (cleanName ? sizes.get(cleanName) : undefined) ?? 0
++    }
++
++    return { loadText, loadBlob, getSize, getLazyZip, toc }
  }
  
-@@ -76,7 +89,7 @@
+ const getFileEntries = async entry => entry.isFile ? entry
+@@ -76,7 +152,7 @@
      return new File([await res.blob()], new URL(res.url).pathname)
  }
  
@@ -46,7 +118,7 @@
      if (typeof file === 'string') file = await fetchFile(file)
      let book
      if (file.isDirectory) {
-@@ -86,7 +99,7 @@
+@@ -86,14 +162,14 @@
      }
      else if (!file.size) throw new NotFoundError('File not found')
      else if (await isZip(file)) {
@@ -54,4 +126,276 @@
 +        const loader = await makeZipLoader(file, prefetchPromise)
          if (isCBZ(file)) {
              const { makeComicBook } = await import('./comic-book.js')
-             book = makeComicBook(loader, file)
+-            book = makeComicBook(loader, file)
++            book = await makeComicBook(loader, file)
+         }
+         else if (isFBZ(file)) {
+             const { makeFB2 } = await import('./fb2.js')
+-            const { entries } = loader
++            const entries = loader.entries ?? (await loader.getLazyZip()).entries
+             const entry = entries.find(entry => entry.filename.endsWith('.fb2'))
+             const blob = await loader.loadBlob((entry ?? entries[0]).filename)
+             book = await makeFB2(blob)
+@@ -101,6 +177,9 @@
+         else {
+             const { EPUB } = await import('./epub.js')
+             book = await new EPUB(loader).init()
++            if (!book.toc && loader.toc) {
++                book.toc = loader.toc
++            }
+         }
+     }
+     else if (await isPDF(file)) {
+@@ -133,7 +212,7 @@
+         this.#state = state
+         if (this.#state.hidden) this.hide()
+         this.#el.addEventListener('mousemove', ({ screenX, screenY }) => {
+-            // check if it actually moved
++            
+             if (screenX === this.#state.x && screenY === this.#state.y) return
+             this.#state.x = screenX, this.#state.y = screenY
+             this.show()
+@@ -210,6 +289,56 @@
+     }
+ }
+ 
++const findRangeByText = (doc, text) => {
++    if (!text || !doc.body) return null
++    const target = text.trim()
++    if (!target) return null
++
++    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null)
++    let node
++    const textNodes = []
++    let fullText = ''
++    while ((node = walker.nextNode())) {
++        textNodes.push(node)
++        fullText += node.nodeValue || ''
++    }
++    const index = fullText.indexOf(target)
++    if (index === -1) return null
++
++    let cur = 0
++    let startNode = null
++    let startOffset = 0
++    let endNode = null
++    let endOffset = 0
++    const endIndex = index + target.length
++
++    for (const tn of textNodes) {
++        const len = tn.nodeValue?.length || 0
++        if (!startNode && cur + len > index) {
++            startNode = tn
++            startOffset = index - cur
++        }
++        if (startNode && cur + len >= endIndex) {
++            endNode = tn
++            endOffset = endIndex - cur
++            break
++        }
++        cur += len
++    }
++
++    if (startNode && endNode) {
++        try {
++            const range = doc.createRange()
++            range.setStart(startNode, startOffset)
++            range.setEnd(endNode, endOffset)
++            return range
++        } catch {
++            return null
++        }
++    }
++    return null
++}
++
+ export class View extends HTMLElement {
+     #root = this.attachShadow({ mode: 'closed' })
+     #sectionProgress
+@@ -276,7 +405,7 @@
+                 this.renderer.goTo(resolved)
+                     .then(() => {
+                         const { doc } = this.renderer.getContents()
+-                            .find(x => x.index = resolved.index)
++                            .find(x => x.index === resolved.index)
+                         const el = resolved.anchor(doc)
+                         el.classList.add(activeClass)
+                         if (playbackActiveClass) el.ownerDocument
+@@ -337,7 +466,7 @@
+         this.#emit('relocate', this.lastLocation)
+     }
+     #onLoad({ doc, index }) {
+-        // set language and dir if not already set
++        if (!doc?.documentElement) return;
+         doc.documentElement.lang ||= this.language.canonical ?? ''
+         if (!this.language.isCJK)
+             doc.documentElement.dir ||= this.language.direction ?? ''
+@@ -350,17 +479,74 @@
+     #handleLinks(doc, index) {
+         const { book } = this
+         const section = book.sections[index]
+-        doc.addEventListener('click', e => {
++        doc.addEventListener('click', async e => {
+             const a = e.target.closest('a[href]')
+             if (!a) return
+             e.preventDefault()
+             const href_ = a.getAttribute('href')
+             const href = section?.resolveHref?.(href_) ?? href_
+-            if (book?.isExternal?.(href))
++            if (book?.isExternal?.(href)) {
+                 Promise.resolve(this.#emit('external-link', { a, href_ }, true))
+                     .then(x => x ? globalThis.open(href_, '_blank') : null)
+                     .catch(e => console.error(e))
+-            else Promise.resolve(this.#emit('link', { a, href }, true))
++                return
++            }
++
++            // In-place footnote / citation popover (Theorem Lens)
++            const epubType = (a.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') || a.getAttribute('epub:type') || '').toLowerCase()
++            const role = (a.getAttribute('role') || '').toLowerCase()
++            const isSup = a.matches('sup') || a.closest('sup') || a.classList.contains('footnote-ref') || a.classList.contains('noteref') || a.classList.contains('citation') || a.classList.contains('reference')
++            const isFootnoteRef = epubType.includes('noteref') || epubType.includes('footnote') || epubType.includes('biblioref') || role.includes('doc-noteref') || role.includes('doc-biblioref') || isSup || href.includes('#fn') || href.includes('#note') || href.includes('#ftn') || href.includes('#ref')
++
++            if (isFootnoteRef || href.includes('#')) {
++                try {
++                    const resolved = await book.resolveHref(href)
++                    if (resolved) {
++                        const targetDoc = (resolved.index === index) ? doc : await book.sections[resolved.index]?.createDocument?.()
++                        if (targetDoc) {
++                            let targetEl = resolved.anchor ? resolved.anchor(targetDoc) : null
++                            if (!targetEl && href.includes('#')) {
++                                const id = href.split('#')[1]
++                                if (id) targetEl = targetDoc.getElementById(id)
++                            }
++                            if (targetEl) {
++                                const targetRole = (targetEl.getAttribute('role') || '').toLowerCase()
++                                const targetEpubType = (targetEl.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') || targetEl.getAttribute('epub:type') || '').toLowerCase()
++                                const isTargetNote = isFootnoteRef || targetEl.tagName === 'ASIDE' || targetRole.includes('doc-footnote') || targetRole.includes('doc-endnote') || targetRole.includes('doc-biblioentry') || targetEpubType.includes('footnote') || targetEpubType.includes('endnote') || targetEl.classList.contains('footnote') || targetEl.classList.contains('endnote')
++                                
++                                if (isTargetNote) {
++                                    const text = targetEl.textContent?.trim() || ''
++                                    const html = targetEl.innerHTML || text
++                                    if (text) {
++                                        const rect = a.getBoundingClientRect()
++                                        const frameRect = doc.defaultView?.frameElement?.getBoundingClientRect()
++                                        window.parent?.postMessage({
++                                            type: 'foliate-footnote',
++                                            text,
++                                            html,
++                                            href,
++                                            title: a.getAttribute('title') || a.textContent?.trim() || 'Theorem Lens',
++                                            rect: {
++                                                top: (frameRect?.top || 0) + rect.top,
++                                                left: (frameRect?.left || 0) + rect.left,
++                                                bottom: (frameRect?.top || 0) + rect.bottom,
++                                                right: (frameRect?.left || 0) + rect.right,
++                                                width: rect.width,
++                                                height: rect.height,
++                                            }
++                                        }, '*')
++                                        return
++                                    }
++                                }
++                            }
++                        }
++                    }
++                } catch (err) {
++                    console.warn('Footnote extraction fallback:', err)
++                }
++            }
++
++            Promise.resolve(this.#emit('link', { a, href }, true))
+                 .then(x => x ? this.goTo(href) : null)
+                 .catch(e => console.error(e))
+         })
+@@ -388,9 +574,25 @@
+             const { overlayer, doc } = obj
+             overlayer.remove(value)
+             if (!remove) {
+-                const range = doc ? anchor(doc) : anchor
+-                const draw = (func, opts) => overlayer.add(value, range, func, opts)
+-                this.#emit('draw-annotation', { draw, annotation, doc, range })
++                let range = annotation.range || null
++                if (!range) {
++                    try {
++                        range = doc ? anchor(doc) : anchor
++                    } catch (err) {
++                        // A CFI that no longer resolves against the current DOM
++                        // (e.g. a stale or partially-matching range) must not break
++                        // the whole annotation render.
++                        console.warn('[foliate] could not resolve annotation range', value, err)
++                        range = null
++                    }
++                }
++                if (!range && doc && (annotation.selectedText || annotation.text)) {
++                    range = findRangeByText(doc, annotation.selectedText || annotation.text)
++                }
++                if (range) {
++                    const draw = (func, opts) => overlayer.add(value, range, func, opts)
++                    this.#emit('draw-annotation', { draw, annotation, doc, range })
++                }
+             }
+         }
+         const label = this.#tocProgress.getProgress(index)?.label ?? ''
+@@ -405,7 +607,40 @@
+     }
+     #createOverlayer({ doc, index }) {
+         const overlayer = new Overlayer()
++        // Distinguish a genuine tap on a highlight from a drag-select that
++        // happens to end over one. Without this, dragging a selection across
++        // highlighted text fires `click` and is mistaken for an annotation
++        // activation, which blocks selecting highlighted words.
++        let tapDownX = 0
++        let tapDownY = 0
++        let tapDownAt = 0
++        let tapMoved = false
++        const TAP_MAX_DISTANCE = 10
++        const TAP_MAX_DURATION = 400
++        const readPoint = e => e.changedTouches?.[0] ?? e.touches?.[0] ?? e
++        doc.addEventListener('pointerdown', e => {
++            if (e.button !== undefined && e.button !== 0) return
++            const p = readPoint(e)
++            tapDownX = p.clientX
++            tapDownY = p.clientY
++            tapDownAt = Date.now()
++            tapMoved = false
++        }, true)
++        doc.addEventListener('pointermove', e => {
++            if (!tapDownAt) return
++            const p = readPoint(e)
++            if (Math.hypot(p.clientX - tapDownX, p.clientY - tapDownY) > TAP_MAX_DISTANCE) {
++                tapMoved = true
++            }
++        }, true)
+         doc.addEventListener('click', e => {
++            const selection = doc.getSelection()
++            // A live selection means the user was selecting, not tapping a
++            // highlight — let the selection pipeline handle it.
++            if (selection && !selection.isCollapsed && selection.toString().trim()) return
++            // Reject the tail end of a drag / long press.
++            if (tapMoved) return
++            if (tapDownAt && Date.now() - tapDownAt > TAP_MAX_DURATION) return
+             const [value, range] = overlayer.hitTest(e)
+             if (value && !value.startsWith(SEARCH_PREFIX)) {
+                 this.#emit('show-annotation', { value, index, range })
+@@ -423,9 +658,17 @@
+         const resolved = await this.goTo(value)
+         if (resolved) {
+             const { index, anchor } = resolved
+-            const { doc } =  this.#getOverlayer(index)
+-            const range = anchor(doc)
+-            this.#emit('show-annotation', { value, index, range })
++            const obj = this.#getOverlayer(index)
++            if (!obj) return
++            const { doc } = obj
++            let range
++            try {
++                range = anchor(doc)
++            } catch (err) {
++                console.warn('[foliate] could not resolve annotation range', value, err)
++                return
++            }
++            if (range) this.#emit('show-annotation', { value, index, range })
+         }
+     }
+     getCFI(index, range) {

@@ -1,0 +1,30 @@
+--- search.js
++++ search.js
+@@ -1,4 +1,4 @@
+-// length for context in excerpts
++
+ const CONTEXT_LENGTH = 50
+ 
+ const normalizeWhitespace = str => str.replace(/\s+/g, ' ')
+@@ -66,8 +66,7 @@
+         while (substrArr.length < queryLength) {
+             const { done, value } = segments.next()
+             if (done) {
+-                // the current string is exhausted
+-                // move on to the next string
++                
+                 strIndex++
+                 if (strIndex < strs.length) {
+                     segments = segmenter.segment(strs[strIndex])[Symbol.iterator]()
+@@ -75,9 +74,9 @@
+                 } else break main
+             }
+             const { index, segment } = value
+-            // ignore formatting characters
++            
+             if (!/[^\p{Format}]/u.test(segment)) continue
+-            // normalize whitespace
++            
+             if (/\s/u.test(segment)) {
+                 if (!/\s/u.test(substrArr[substrArr.length - 1]?.segment))
+                     substrArr.push({ strIndex, index, segment: ' ' })

@@ -680,7 +680,9 @@ pub async fn prefetch_zip_metadata(
         .map_err(|e| format!("join error: {e}"))?
 }
 
-fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, String> {
+/// Resolve a book path as given by JS: absolute, relative to the app data
+/// directory, or a bare file name under `<app data>/books/`.
+pub(crate) fn resolve_book_path(app: &tauri::AppHandle, path: &str) -> Option<std::path::PathBuf> {
     use tauri::Manager;
     let mut file_path = std::path::PathBuf::from(path);
     if !file_path.exists() {
@@ -697,10 +699,12 @@ fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Stri
             }
         }
     }
-    if !file_path.exists() {
-        return Err(format!("file not found: {path}"));
-    }
+    file_path.exists().then_some(file_path)
+}
 
+fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, String> {
+    let file_path =
+        resolve_book_path(app, path).ok_or_else(|| format!("file not found: {path}"))?;
     let file = File::open(&file_path).map_err(|e| format!("Cannot open {path}: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
 

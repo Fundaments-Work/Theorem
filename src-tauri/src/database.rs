@@ -559,6 +559,8 @@ pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>
 }
 
 pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String> {
+    // Close cached EPUB archives first: Windows cannot delete an open file.
+    crate::epub_entries::clear_cache();
     remove_materialized_cache_file(&app, &id);
 
     with_connection(&app, |connection| {

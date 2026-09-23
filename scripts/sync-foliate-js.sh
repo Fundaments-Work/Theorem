@@ -1,113 +1,118 @@
 #!/usr/bin/env bash
-# Sync foliate-js submodule to runtime directory
-# Copies only required files and patches PDF.js imports.
-# NOTE: vendor/pdfjs/ was intentionally removed from the repo (13MB dead code).
-# The app uses pdfjs-dist from npm — see pdfjs-runtime.ts.
+# Sync the foliate-js submodule into our runtime directory.
+#
+#   scripts/sync-foliate-js.sh                   rebuild the runtime: upstream files
+#                                                + pdfjs import rewrites + our patches
+#   scripts/sync-foliate-js.sh --check           rebuild into a temp dir and fail if it
+#                                                differs from the committed runtime
+#   scripts/sync-foliate-js.sh --refresh-patches rewrite scripts/patches/*-runtime.patch
+#                                                from the current runtime (run after
+#                                                editing files in foliate-js-runtime/)
+#
+# The runtime (src/features/reader/foliate-js-runtime/) is ours; every change
+# to it must be captured by --refresh-patches or the next sync loses it.
+# NOTE: vendor/pdfjs/ was intentionally removed (13MB dead code); the app uses
+# pdfjs-dist from npm — see pdfjs-runtime.ts.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SUBMODULE_DIR="$REPO_ROOT/src/features/reader/foliate-js"
 RUNTIME_DIR="$REPO_ROOT/src/features/reader/foliate-js-runtime"
-VENDOR_DIR="$RUNTIME_DIR/vendor"
+PATCH_DIR="$REPO_ROOT/scripts/patches"
+MODE="${1:-sync}"
 
-echo "Syncing foliate-js from submodule..."
-
-# Clean and create runtime directory
-rm -rf "$RUNTIME_DIR"
-mkdir -p "$RUNTIME_DIR"
-mkdir -p "$VENDOR_DIR"
-
-# Files to copy from submodule root
 CORE_FILES=(
-    "view.js"
-    "dict.js"
-    "epub.js"
-    "comic-book.js"
-    "fb2.js"
-    "mobi.js"
-    "paginator.js"
-    "fixed-layout.js"
-    "epubcfi.js"
-    "progress.js"
-    "overlayer.js"
-    "text-walker.js"
-    "search.js"
-    "tts.js"
-    "pdf.js"
-    "types.d.ts"
-    "LICENSE"
+    view.js dict.js epub.js comic-book.js fb2.js mobi.js paginator.js
+    fixed-layout.js epubcfi.js progress.js overlayer.js text-walker.js
+    search.js tts.js pdf.js types.d.ts LICENSE
 )
+VENDOR_FILES=(zip.js fflate.js)
 
-echo "Copying core files..."
-for file in "${CORE_FILES[@]}"; do
-    if [[ -f "$SUBMODULE_DIR/$file" ]]; then
-        cp "$SUBMODULE_DIR/$file" "$RUNTIME_DIR/"
-        echo "  ✓ $file"
-    else
-        echo "  ✗ $file (not found)"
-    fi
-done
+# Upstream files plus the mechanical pdfjs-dist rewrites, no patches.
+build_pristine() {
+    local out="$1"
+    mkdir -p "$out/vendor"
+    for file in "${CORE_FILES[@]}"; do
+        [[ -f "$SUBMODULE_DIR/$file" ]] && cp "$SUBMODULE_DIR/$file" "$out/"
+    done
+    for file in "${VENDOR_FILES[@]}"; do
+        cp "$SUBMODULE_DIR/vendor/$file" "$out/vendor/"
+    done
+    sed -i "s|await import('./vendor/pdfjs/pdf.mjs')|import('pdfjs-dist')|g" "$out/view.js" "$out/fixed-layout.js"
+    sed -i "s|import './vendor/pdfjs/pdf.mjs'|import 'pdfjs-dist'|g" "$out/pdf.js"
+    # String concat (not a template literal) so Vite's import-glob does not
+    # misread the path as a glob pattern.
+    sed -i 's|const pdfjsPath = path => new URL(`vendor/pdfjs/${path}`, import.meta.url).toString()|const pdfjsPath = path => new URL("pdfjs-dist/build/" + path, import.meta.url).toString()|' "$out/pdf.js"
+}
 
-# Copy vendor dependencies (zip.js, fflate.js) - NOT pdfjs
-echo "Copying vendor dependencies..."
-cp "$SUBMODULE_DIR/vendor/zip.js" "$VENDOR_DIR/"
-cp "$SUBMODULE_DIR/vendor/fflate.js" "$VENDOR_DIR/"
-echo "  ✓ vendor/zip.js"
-echo "  ✓ vendor/fflate.js"
+# Patch files are named after their target: view-js-runtime.patch -> view.js,
+# vendor__zip-js-runtime.patch -> vendor/zip.js.
+patch_target() {
+    local name="${1%-runtime.patch}"
+    name="${name//__//}"
+    echo "${name%-js}.js"
+}
 
-# Patch imports in view.js to use pdfjs-dist instead of vendored PDF.js
-echo "Patching PDF.js imports..."
-VIEW_FILE="$RUNTIME_DIR/view.js"
-
-# Replace the PDF.js import in view.js
-# Original: await import('./vendor/pdfjs/pdf.mjs')
-# New: import * as pdfjsLib from 'pdfjs-dist'
-sed -i "s|await import('./vendor/pdfjs/pdf.mjs')|import('pdfjs-dist')|g" "$VIEW_FILE"
-
-# Also need to handle the PDF.js usage in fixed-layout.js if it imports pdfjs
-# Check fixed-layout.js for PDF.js usage
-if grep -q "vendor/pdfjs" "$RUNTIME_DIR/fixed-layout.js" 2>/dev/null; then
-    echo "Patching fixed-layout.js PDF.js imports..."
-    sed -i "s|await import('./vendor/pdfjs/pdf.mjs')|import('pdfjs-dist')|g" "$RUNTIME_DIR/fixed-layout.js"
-fi
-
-# Patch pdf.js: replace vendored PDF.js with pdfjs-dist
-if grep -q "vendor/pdfjs" "$RUNTIME_DIR/pdf.js" 2>/dev/null; then
-    echo "Patching pdf.js PDF.js imports..."
-    # Replace static import of vendored pdf.mjs
-    sed -i "s|import './vendor/pdfjs/pdf.mjs'|import 'pdfjs-dist'|g" "$RUNTIME_DIR/pdf.js"
-    # Replace pdfjsPath function. Use string concat (not template literal)
-    # to avoid Vite's import-glob misinterpreting the path as a glob pattern.
-    sed -i 's|const pdfjsPath = path => new URL(`vendor/pdfjs/${path}`, import.meta.url).toString()|const pdfjsPath = path => new URL("pdfjs-dist/build/" + path, import.meta.url).toString()|' "$RUNTIME_DIR/pdf.js"
-fi
-
-# Verify no remaining references to vendor/pdfjs
-if grep -r "vendor/pdfjs" "$RUNTIME_DIR" --include="*.js" 2>/dev/null; then
-    echo "WARNING: Found remaining vendor/pdfjs references:"
-    grep -r "vendor/pdfjs" "$RUNTIME_DIR" --include="*.js"
-else
-    echo "  ✓ No vendor/pdfjs references remain"
-fi
-
-# Apply runtime patches
-echo "Applying runtime patches..."
-PATCHES=(
-    "view-js-runtime.patch:view.js patched (prefetchPromise, parallel zip loading)"
-    "epub-js-runtime.patch:epub.js patched (in-flight loadText dedup)"
-    "dict-js-runtime.patch:dict.js patched (StarDict gzip/dictzip loading)"
-    "paginator-js-runtime.patch:paginator.js patched (overflow:clip, transform pagination)"
-    "overlayer-js-runtime.patch:overlayer.js patched (hitTest guards, text selection layer)"
-)
-for entry in "${PATCHES[@]}"; do
-    file="${entry%%:*}"
-    msg="${entry#*:}"
-    patch -d "$RUNTIME_DIR" -p0 < "$REPO_ROOT/scripts/patches/$file" || {
-        echo "ERROR: $file patch failed" >&2
+apply_patches() {
+    local out="$1"
+    shopt -s nullglob
+    for patch_file in "$PATCH_DIR"/*-runtime.patch; do
+        local target
+        target="$(patch_target "$(basename "$patch_file")")"
+        patch -s "$out/$target" < "$patch_file" || {
+            echo "ERROR: $(basename "$patch_file") failed on $target" >&2
+            exit 1
+        }
+    done
+    if grep -rq "vendor/pdfjs" "$out" --include="*.js"; then
+        echo "ERROR: vendor/pdfjs references remain:" >&2
+        grep -r "vendor/pdfjs" "$out" --include="*.js" >&2
         exit 1
-    }
-    echo "  ✓ $msg"
-done
+    fi
+}
 
-echo "Sync complete. Runtime at: $RUNTIME_DIR"
-echo "Size: $(du -sh "$RUNTIME_DIR" | cut -f1)"
+case "$MODE" in
+    sync)
+        rm -rf "$RUNTIME_DIR"
+        build_pristine "$RUNTIME_DIR"
+        apply_patches "$RUNTIME_DIR"
+        echo "Sync complete. Runtime at: $RUNTIME_DIR ($(du -sh "$RUNTIME_DIR" | cut -f1))"
+        ;;
+    --check)
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        build_pristine "$tmp"
+        apply_patches "$tmp"
+        if diff -r "$tmp" "$RUNTIME_DIR"; then
+            echo "foliate-js runtime matches submodule + patches"
+        else
+            echo "ERROR: runtime differs from submodule + patches; run --refresh-patches" >&2
+            exit 1
+        fi
+        ;;
+    --refresh-patches)
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        build_pristine "$tmp"
+        rm -f "$PATCH_DIR"/*-runtime.patch
+        (cd "$tmp" && find . -type f | sed 's|^\./||' | sort) | while read -r rel; do
+            if ! cmp -s "$tmp/$rel" "$RUNTIME_DIR/$rel"; then
+                name="${rel//\//__}"
+                name="${name%.js}-js-runtime.patch"
+                diff -u --label "$rel" --label "$rel" "$tmp/$rel" "$RUNTIME_DIR/$rel" > "$PATCH_DIR/$name" || true
+                echo "  wrote $name"
+            fi
+        done
+        extra="$(cd "$RUNTIME_DIR" && find . -type f | sed 's|^\./||' | sort | while read -r rel; do [[ -e "$tmp/$rel" ]] || echo "$rel"; done)"
+        if [[ -n "$extra" ]]; then
+            echo "ERROR: runtime files with no upstream source (add them to CORE_FILES or remove):" >&2
+            echo "$extra" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "usage: $0 [--check|--refresh-patches]" >&2
+        exit 2
+        ;;
+esac

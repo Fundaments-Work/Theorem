@@ -17,7 +17,7 @@ git clone --recurse-submodules <repo>
 pnpm install
 ```
 
-The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upstream — do not edit. Our runtime wrapper is `src/features/reader/foliate-js-runtime/` (ours, edit freely). The sync script `scripts/sync-foliate-js.sh` patches imports and applies runtime patches.
+The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upstream — do not edit. Our runtime wrapper is `src/features/reader/foliate-js-runtime/` (ours, edit freely). The sync script `scripts/sync-foliate-js.sh` patches imports and applies runtime patches. After editing any runtime file run `bash scripts/sync-foliate-js.sh --refresh-patches` (writes `scripts/patches/*-runtime.patch`); `pnpm foliate:check` verifies submodule + patches reproduce the runtime exactly.
 
 ## Commands
 
