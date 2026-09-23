@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, X, List } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import type { TocItem } from "../../../core/types";
 import { Backdrop } from "../../../ui";
+import { PdfPageGrid } from "./PdfPageGrid";
 
 interface TableOfContentsProps {
     toc: TocItem[];
@@ -13,6 +14,14 @@ interface TableOfContentsProps {
     currentHref?: string;
     isPdf?: boolean;
     pdfHasOutline?: boolean;
+    /** PDF only: enables the Pages (thumbnail) tab. */
+    pdfPages?: {
+        totalPages: number;
+        currentPage: number;
+        renderThumbnail: (pageNumber: number, cssWidth: number, signal: AbortSignal) => Promise<Blob | null>;
+        getPageLabel?: (pageNumber: number) => string | undefined;
+        onNavigatePage: (pageNumber: number) => void;
+    };
     className?: string;
 }
 
@@ -135,8 +144,12 @@ export function TableOfContents({
     currentHref,
     isPdf = false,
     pdfHasOutline = false,
+    pdfPages,
     className,
 }: TableOfContentsProps) {
+    const [tab, setTab] = useState<"outline" | "pages">("outline");
+    // A PDF without an outline opens on its pages.
+    const showPages = Boolean(pdfPages) && (tab === "pages" || !(Array.isArray(toc) && toc.length > 0));
     const tocItems = useMemo(
         () => (Array.isArray(toc) ? toc : []),
         [toc],
@@ -220,6 +233,43 @@ export function TableOfContents({
                     </div>
                 </header>
 
+                {pdfPages && (
+                    <div role="tablist" aria-label="Navigation view" className="shrink-0 grid grid-cols-2 border-b border-[var(--color-border)]">
+                        {(["outline", "pages"] as const).map((id) => {
+                            const selected = (id === "pages") === showPages;
+                            return (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={selected}
+                                    onClick={() => setTab(id)}
+                                    className={cn(
+                                        "py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors duration-200",
+                                        selected
+                                            ? "text-[var(--color-accent)] shadow-[inset_0_-2px_0_var(--color-accent)]"
+                                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]",
+                                    )}
+                                >
+                                    {id === "outline" ? "Outline" : "Pages"}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {pdfPages && showPages ? (
+                    <div className="flex-1 min-h-0">
+                        <PdfPageGrid
+                            totalPages={pdfPages.totalPages}
+                            currentPage={pdfPages.currentPage}
+                            active={visible}
+                            renderThumbnail={pdfPages.renderThumbnail}
+                            getPageLabel={pdfPages.getPageLabel}
+                            onNavigate={(page) => { pdfPages.onNavigatePage(page); onClose(); }}
+                        />
+                    </div>
+                ) : (
                 <div className="flex-1 overflow-y-auto overscroll-contain">
                     {tocItems.length === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center px-8 py-16 text-center">
@@ -250,6 +300,7 @@ export function TableOfContents({
                         </nav>
                     )}
                 </div>
+                )}
 
                 <footer className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface-muted)] px-5 py-3">
                     <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">

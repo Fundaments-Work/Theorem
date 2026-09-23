@@ -22,6 +22,7 @@ import { buildPdfSearchPattern, findPdfTextMatches, normalizeSearchText, pdfSear
 import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLabel, parsePdfDate } from "./pdf-page-labels";
 import { attachmentBytes, listPdfAttachments, type PdfAttachmentInfo } from "./pdf-attachments";
 import { clearPrintJob, printPdfDocument, type PrintOptions } from "./pdf-print";
+import { viewRotation } from "./pdf-rotation";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
@@ -132,6 +133,8 @@ export interface PDFJsEngineRef {
     getAttachment: (key: string) => Promise<{ name: string; bytes: Uint8Array } | null>;
     /** Render every page for printing, then open the print dialog. */
     print: (options?: PrintOptions) => Promise<void>;
+    /** JPEG of a page `cssWidth` CSS px wide, rendered after all visible pages. */
+    renderThumbnail: (pageNumber: number, cssWidth: number, signal?: AbortSignal) => Promise<Blob | null>;
 }
 
 /** Shape of the `prefetch_pdf_structure` Tauri command response. */
@@ -254,6 +257,57 @@ function requestCanvasRenderSlot(priority: number): { promise: Promise<() => voi
         if (index !== -1) canvasRenderQueue.splice(index, 1);
     };
     return { promise, cancel };
+}
+
+/** Below every page render (priority = distance from the current page). */
+const THUMBNAIL_RENDER_PRIORITY = Number.MAX_SAFE_INTEGER;
+
+async function renderPdfThumbnail(
+    pdf: PDFDocumentProxy,
+    pageNumber: number,
+    cssWidth: number,
+    rotation: number,
+    signal?: AbortSignal,
+): Promise<Blob | null> {
+    if (pageNumber < 1 || pageNumber > pdf.numPages || signal?.aborted) return null;
+    const slot = requestCanvasRenderSlot(THUMBNAIL_RENDER_PRIORITY);
+    const onAbort = () => slot.cancel();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    // A cancelled slot never resolves; abort must still settle this call.
+    const aborted = new Promise<null>((resolve) => signal?.addEventListener("abort", () => resolve(null), { once: true }));
+    const release = await Promise.race([slot.promise, aborted]);
+    signal?.removeEventListener("abort", onAbort);
+    if (!release) return null;
+    const canvas = document.createElement("canvas");
+    try {
+        if (signal?.aborted) return null;
+        const page = await pdf.getPage(pageNumber);
+        const base = page.getViewport({ scale: 1, rotation: viewRotation(page, rotation) });
+        const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+        const viewport = page.getViewport({ scale: (cssWidth * pixelRatio) / base.width, rotation: viewRotation(page, rotation) });
+        canvas.width = Math.max(1, Math.round(viewport.width));
+        canvas.height = Math.max(1, Math.round(viewport.height));
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) return null;
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const task = page.render({ canvas, canvasContext: context, viewport });
+        const cancel = () => task.cancel();
+        signal?.addEventListener("abort", cancel, { once: true });
+        try {
+            await task.promise;
+        } finally {
+            signal?.removeEventListener("abort", cancel);
+        }
+        if (signal?.aborted) return null;
+        return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.8));
+    } catch {
+        return null;
+    } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+        release();
+    }
 }
 
 function getCanvasPixelRatio(
@@ -912,7 +966,7 @@ const PageCanvas = memo(function PageCanvas({
         const textLayerDiv = textLayerRef.current;
         if (!container || !canvas) return;
         if (enableTextLayer && !textLayerDiv) return;
-        const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
+        const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation: viewRotation(page, rotation) });
         const cssWidth = getCssDimension(viewport.width, snapCssToPixels);
         const cssHeight = getCssDimension(viewport.height, snapCssToPixels);
         container.style.width = `${cssWidth}px`;
@@ -1024,7 +1078,7 @@ const PageCanvas = memo(function PageCanvas({
             try { renderTaskRef.current?.cancel(); } catch {  }
             renderTaskRef.current = null;
             try {
-                const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
+                const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation: viewRotation(page, rotation) });
                 const cssWidth = getCssDimension(viewport.width, snapCssToPixels);
                 const cssHeight = getCssDimension(viewport.height, snapCssToPixels);
                 const outputScale = getCanvasPixelRatio(cssWidth, cssHeight, preferSharpCanvas, scale, reduced);
@@ -1108,7 +1162,7 @@ const PageCanvas = memo(function PageCanvas({
         const buildTextLayer = async () => {
             try { textLayerInstanceRef.current?.cancel(); } catch {  }
             textLayerInstanceRef.current = null;
-            const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
+            const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation: viewRotation(page, rotation) });
             containerRef.current?.style.setProperty("--scale-factor", `${viewport.scale}`);
             containerRef.current?.style.setProperty("--total-scale-factor", `${viewport.scale}`);
 
@@ -2650,7 +2704,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const pendingDestinationRef = useRef<{ target: PdfDestTarget; until: number } | null>(null);
 
         const applyDestinationScroll = useCallback((target: PdfDestTarget, page: PDFPageProxy) => {
-            const viewport = page.getViewport({ scale: scaleRef.current * PDF_TO_CSS_UNITS, rotation: rotationRef.current });
+            const viewport = page.getViewport({ scale: scaleRef.current * PDF_TO_CSS_UNITS, rotation: viewRotation(page, rotationRef.current) });
             const [x, y] = viewport.convertToViewportPoint(target.left ?? page.view[0], target.top ?? page.view[3]);
             scrollWithinPage(target.pageNumber, y, target.left !== null ? x : null);
         }, [scrollWithinPage]);
@@ -2911,7 +2965,9 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (!pdfDocument) throw new Error("The document is still loading");
                 await printPdfDocument(pdfDocument, options);
             },
-        }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, pdfDocument, search]);
+            renderThumbnail: (pageNumber: number, cssWidth: number, signal?: AbortSignal) =>
+                pdfDocument ? renderPdfThumbnail(pdfDocument, pageNumber, cssWidth, rotation, signal) : Promise.resolve(null),
+        }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, pdfDocument, rotation, search]);
 
         const displayError = error?.replace(/\s+/g, " ").trim();
 

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { PDFJS_ASSET_OPTIONS } from "../src/core/lib/pdfjs-runtime";
 import { buildPdfSearchPattern, findPdfTextMatches, normalizeSearchText } from "../src/features/reader/engines/pdf-search";
 import { normalizePageLabels } from "../src/features/reader/engines/pdf-page-labels";
+import { viewRotation } from "../src/features/reader/engines/pdf-rotation";
 import { jbig2FromG4, makePdf } from "./helpers/make-pdf";
 
 const PDFJS_DIST = fileURLToPath(new URL("../node_modules/pdfjs-dist/", import.meta.url));
@@ -106,6 +107,28 @@ describe("rotated pages", () => {
                 const top = y < viewport.height / 2;
                 const corner = { 0: [true, true], 90: [false, true], 180: [false, false], 270: [true, false] }[rotate];
                 expect([left, top], `rotate ${rotate}`).toEqual(corner);
+            }
+        } finally {
+            await task.destroy();
+        }
+    });
+
+    it("the viewer's rotation adds to /Rotate instead of replacing it", async () => {
+        const { task, doc } = await openPdf(data);
+        try {
+            for (const [i, rotate] of rotations.entries()) {
+                const page = await doc.getPage(i + 1);
+                const own = page.getViewport({ scale: 1 });
+                const view = page.getViewport({ scale: 1, rotation: viewRotation(page, 0) });
+                expect([view.width, view.height]).toEqual([own.width, own.height]);
+                expect(viewRotation(page, 90)).toBe((rotate + 90) % 360);
+                expect(viewRotation(page, -90)).toBe((rotate + 270) % 360);
+                if (rotate % 180) {
+                    // Passing only the viewer's rotation (the old code) drew
+                    // these pages sideways.
+                    const wrong = page.getViewport({ scale: 1, rotation: 0 });
+                    expect([wrong.width, wrong.height]).toEqual([own.height, own.width]);
+                }
             }
         } finally {
             await task.destroy();

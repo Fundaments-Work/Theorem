@@ -974,6 +974,21 @@ const BookReaderPage = memo(function BookReaderPage() {
         updateReaderSettings({ fullscreen: true });
     }, [updateReaderSettings]);
 
+    const renderPdfThumbnail = useCallback(
+        async (pageNumber: number, cssWidth: number, signal: AbortSignal) =>
+            (await pdfReaderRef.current?.renderThumbnail(pageNumber, cssWidth, signal)) ?? null,
+        [],
+    );
+    const getPdfPageLabel = useCallback((pageNumber: number) => pdfReaderRef.current?.getPageLabel(pageNumber), []);
+    const navigatePdfPage = useCallback((pageNumber: number) => pdfReaderRef.current?.goToPage(pageNumber), []);
+    const pdfPagesNav = useMemo(() => (isPdfFormat && pdfTotalPages > 0 ? {
+        totalPages: pdfTotalPages,
+        currentPage: pdfCurrentPage,
+        renderThumbnail: renderPdfThumbnail,
+        getPageLabel: getPdfPageLabel,
+        onNavigatePage: navigatePdfPage,
+    } : undefined), [isPdfFormat, pdfTotalPages, pdfCurrentPage, renderPdfThumbnail, getPdfPageLabel, navigatePdfPage]);
+
     const handlePrint = useCallback(async () => {
         const engine = pdfReaderRef.current;
         if (!engine) return;
@@ -2881,6 +2896,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 currentHref={isPdfFormat ? activePdfTocHref : location?.tocItem?.href}
                 isPdf={isPdfFormat}
                 pdfHasOutline={pdfHasOutline}
+                pdfPages={pdfPagesNav}
             />
 
             <ReaderAnnotationsPanel

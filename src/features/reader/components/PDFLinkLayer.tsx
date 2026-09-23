@@ -1,5 +1,6 @@
 import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import type { PDFPageProxy } from "pdfjs-dist";
+import { viewRotation } from "../engines/pdf-rotation";
 import { extractPdfLinks, type PdfLink } from "../engines/pdf-links";
 
 export interface PdfLinkHandlers {
@@ -49,7 +50,7 @@ export const PDFLinkLayer = memo(function PDFLinkLayer({ page, cssScale, rotatio
 
     const boxes = useMemo(() => {
         if (links.length === 0) return [];
-        const viewport = page.getViewport({ scale: cssScale, rotation });
+        const viewport = page.getViewport({ scale: cssScale, rotation: viewRotation(page, rotation) });
         return links.map((link) => {
             const [x1, y1, x2, y2] = link.rect;
             const [ax, ay] = viewport.convertToViewportPoint(x1, y1);
