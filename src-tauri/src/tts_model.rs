@@ -197,7 +197,6 @@ fn is_installed(app: &AppHandle, asset: &TtsAsset) -> bool {
     }
 }
 
-#[tauri::command]
 pub fn tts_model_status(app: AppHandle) -> Result<TtsModelStatus, String> {
     let assets: Vec<TtsAssetStatus> = all_assets()
         .iter()
@@ -347,7 +346,6 @@ pub async fn tts_model_download_asset(
 }
 
 /// Remove the whole neural voice install (models, runtime, cache).
-#[tauri::command]
 pub fn tts_model_remove(app: AppHandle) -> Result<u64, String> {
     let dir = tts_dir(&app);
     let bytes = dir_size(&dir);

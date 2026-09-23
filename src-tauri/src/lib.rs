@@ -1354,7 +1354,6 @@ async fn tts_synthesize_to_file(
     tauri_plugin_android_tts_audio::tts_synthesize_to_file(&app, text, voice, file_name)
 }
 
-#[tauri::command]
 #[allow(unused_variables, unreachable_code)]
 fn tts_get_voices(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
     #[cfg(target_os = "android")]
@@ -1512,7 +1511,6 @@ fn cli_symlink_target_exe() -> Result<PathBuf, String> {
 }
 
 /// Tauri command: current CLI symlink status for the Settings UI.
-#[tauri::command]
 fn cli_setup_status() -> Result<CliSetupStatus, String> {
     cli_setup_status_inner()
 }
@@ -1773,15 +1771,15 @@ pub fn run() {
             tts_get_engines,
             tts_set_engine,
             tts_synthesize_to_file,
-            tts_model::tts_model_status,
+            offload_commands::tts_model_status,
             tts_model::tts_model_download_asset,
-            tts_model::tts_model_remove,
+            offload_commands::tts_model_remove,
             supertonic::tts_synthesize,
             offload_commands::extract_audiobook_metadata,
             audio_player::tts_audio_play,
             audio_player::tts_audio_append,
             supertonic::tts_engine_preload,
-            supertonic::tts_text_chunks,
+            offload_commands::tts_text_chunks,
             audio_player::tts_audio_pause,
             audio_player::tts_audio_resume,
             audio_player::tts_audio_stop,
@@ -1796,18 +1794,18 @@ pub fn run() {
             audiobook_gen::generate_audiobook,
             audiobook_gen::generate_audiobook_cancel,
             supertonic::tts_prefetch,
-            supertonic::tts_neural_status,
-            supertonic::tts_engine_unload,
-            trim_memory,
+            offload_commands::tts_neural_status,
+            offload_commands::tts_engine_unload,
+            offload_commands::trim_memory,
             app_quit_ready,
             offload_commands::sqlite_list_cover_versions,
-            cli_setup_status,
+            offload_commands::cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,
             tts_stop,
             tts_pause,
             tts_resume,
-            tts_get_voices,
+            offload_commands::tts_get_voices,
             epub_parser::prefetch_zip_metadata,
             epub_entries::epub_read_entry,
             offload_commands::rewrite_epub_metadata,
@@ -2280,7 +2278,6 @@ async fn fetch_online_definition(term: String) -> Result<serde_json::Value, Stri
     Ok(json)
 }
 
-#[tauri::command]
 fn trim_memory(app: tauri::AppHandle) {
     let _ = database::sqlite_shrink_memory(app);
 

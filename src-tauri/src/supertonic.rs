@@ -932,13 +932,11 @@ pub async fn tts_prefetch(
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_neural_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     desktop::tts_neural_status_impl(app)
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_neural_status(_app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "runtimeReady": false,
@@ -963,25 +961,21 @@ pub async fn tts_engine_preload(_app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_text_chunks(text: String, lang: String) -> Result<Vec<String>, String> {
     desktop::tts_text_chunks_impl(text, lang)
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_text_chunks(_text: String, _lang: String) -> Result<Vec<String>, String> {
     Ok(Vec::new())
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_engine_unload() -> Result<(), String> {
     desktop::unload_engine()
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_engine_unload() -> Result<(), String> {
     Ok(())
 }

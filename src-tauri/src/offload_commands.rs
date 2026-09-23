@@ -479,3 +479,51 @@ pub async fn rewrite_epub_metadata(
     offload(move || crate::epub_rewriter::rewrite_epub_metadata(app, book_id, metadata, cover))
         .await
 }
+
+// Formerly synchronous commands that can block for long enough to matter:
+// malloc_trim over the whole heap, ONNX session teardown, spawning
+// `spd-say -L`, file-system scans, sentence chunking of whole books.
+
+#[tauri::command]
+pub async fn trim_memory(app: AppHandle) -> Result<(), String> {
+    offload(move || {
+        crate::trim_memory(app);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn tts_engine_unload() -> Result<(), String> {
+    offload(crate::supertonic::tts_engine_unload).await
+}
+
+#[tauri::command]
+pub async fn tts_get_voices(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    offload(move || crate::tts_get_voices(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_neural_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    offload(move || crate::supertonic::tts_neural_status(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_model_status(app: AppHandle) -> Result<crate::tts_model::TtsModelStatus, String> {
+    offload(move || crate::tts_model::tts_model_status(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_model_remove(app: AppHandle) -> Result<u64, String> {
+    offload(move || crate::tts_model::tts_model_remove(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_text_chunks(text: String, lang: String) -> Result<Vec<String>, String> {
+    offload(move || crate::supertonic::tts_text_chunks(text, lang)).await
+}
+
+#[tauri::command]
+pub async fn cli_setup_status() -> Result<crate::CliSetupStatus, String> {
+    offload(crate::cli_setup_status).await
+}
