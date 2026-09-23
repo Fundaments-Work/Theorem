@@ -11,12 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PDF links and Theorem Lens** — Citations, footnotes, TOC links and URLs in PDFs are clickable. Hovering an internal link shows a borderless preview of the destination rendered from the page; clicking it jumps to the exact spot, even on pages not loaded yet. Back/forward history (Alt+←/→, mouse buttons 4/5, Android back).
 - **PDF smoothness** — Wheel and pinch zoom preview with a transform and re-render once, anchored under the cursor; the initial fit no longer opens a third of a page down. Rendered pages live in a bounded LRU (6 pages / 24 MP on desktop, 3 / 8 MP on Android). Canvas and text layer render separately, so text selection survives scrolling and no longer blinks. On WebKitGTK the time blocked during a zoom dropped from 1483 ms to 136 ms.
-- **PDF features** — Dark and sepia page themes, logical page labels (`xii (12)`, go to `A-3`), match-case / whole-word search with F3 cycling, and document properties (producer, PDF version, page size, correctly parsed creation dates). JPX, JBIG2 and CCITT images now decode; the pdf.js cmaps, fonts and wasm decoders ship at the right paths (they were missing from builds), with a post-build check.
+- **PDF features** — Page thumbnails (Navigation → Pages, rendered only when the viewer is idle), Present mode (F5: full screen, one page at a time), Print (Ctrl+P, desktop), embedded attachments listed in Book Info with Save, Define/Copy for selected text (same dictionary as EPUB), logical page labels (`xii (12)`, go to `A-3`), match-case / whole-word search with F3 cycling, and document properties (producer, PDF version, page size, correctly parsed creation dates). Pages are always shown as the file draws them: the old dark/sepia filters, which also recoloured photos, are gone. The tool palette and View panel use the reader's square style. JPX, JBIG2 and CCITT images now decode; the pdf.js cmaps, fonts and wasm decoders ship at the right paths (they were missing from builds), with a post-build check.
 - **EPUB** — Selections highlight glyphs only, like PDF, instead of flooding margins. Only the visible chapter's highlights are drawn (one call instead of about 1,000 on open). Books are read by byte range, and every chapter and image is decompressed in Rust (`epub_read_entry`) instead of zip.js on the UI thread.
+- **Fast scrolling** — A fling or scrollbar drag renders entering pages at low resolution first (instead of leaving them white), then sharp when scrolling stops.
 - **No UI-thread blocking from native calls** — 64 Tauri commands (SQLite, PDF/EPUB reads, file reads, RSS and article fetches, metadata parsing) used to run on the window's main thread; they now run on a background pool. SQLite calls keep their order through a FIFO queue.
 
 ### Fixed
 
+- **In-book search** — Finds the literal text, every occurrence on every page, instead of "fuzzy" results made of scattered letters; PDF search uses the text pdf.js decodes. EPUB match positions stay correct around characters whose lowercase has a different length (e.g. "İ").
+- **Library search** — No more unrelated titles matched by scattered letters (only compact matches or word-start acronyms like "lotr"). Shelves use the same native search as the Library, results no longer flash, a failed search falls back instead of showing nothing, and deleted or renamed books no longer linger in the search index.
+- **Rotated PDF pages** — Pages a PDF marks as rotated (common in scans) were drawn sideways.
 - **No lost data on quit** — Pending writes (library, progress, reading time) are flushed to SQLite before the window closes, the app quits from the tray, or it goes to the background.
 - **Sync after page turns** — Reading progress syncs at most every 30 s instead of starting a full sync round two seconds after each page turn (a source of periodic stutters).
 - **Statistics in local time** — Reading days, streaks, goals and the daily reminder used UTC dates.
@@ -24,12 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vocabulary sync** — Merges write only changed terms and propagate deletions.
 - **RSS** — Favorites are never aged out; other articles are kept for 30 days, newest 500. Feeds refresh four at a time. All Markdown is rendered by `pulldown-cmark` in Rust, with raw HTML and `javascript:` links neutralised.
 - **Vault export** — Only changed notes are rewritten; notes for removed books are deleted unless you edited them. Obsidian, Logseq and Minimalist presets; the native and fallback exporters now write byte-identical notes and file names (shared golden tests).
-- **Covers** — Served from SQLite via `theorem-cover://` instead of loading every cover into memory at startup; synced as their own entries.
+- **Covers** — Stored as raw image bytes (a third smaller than base64; converted on first start) and served from SQLite via `theorem-cover://` without decoding, instead of loading every cover into memory at startup; synced as their own entries.
+- **RSS sync** — Each article syncs as its own entry, so changing one article no longer re-sends every article.
+- **Audiobook encoder** — libopus is now linked statically; release builds had been loading the system `libopus.so.0`.
 - **Android build** — Ported to jni 0.22 after the Dependabot bump.
 
 ### Dependencies
 
-- zip 4 → 8, bzip2 0.4 → 0.6, jni 0.21 → 0.22, iroh-mdns-address-lookup; removed `@mozilla/readability` and `markdown-it`.
+- zip 4 → 8, bzip2 0.4 → 0.6, jni 0.21 → 0.22, iroh-mdns-address-lookup; removed `@mozilla/readability`, `markdown-it`, `@zip.js/zip.js` (dev) and foliate's vendored fflate copy (npm `fflate` is used); one libopus build instead of two. CI now runs clippy for Android.
 
 
 ### Performance

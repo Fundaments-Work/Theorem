@@ -43,6 +43,7 @@ Run all that apply:
 - TypeScript: `pnpm typecheck` — zero errors
 - Vitest: `pnpm test` — all unit and integration tests must pass
 - Rust (if any `.rs` changed): `cd src-tauri && cargo fmt && cargo clippy && cargo check` — fmt must produce no diff, clippy zero warnings
+- Rust touching Android-only code or dependencies: `cargo clippy --target aarch64-linux-android` (CI runs it; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers locally)
 
 If clippy is noisy, try `cargo clippy --fix --lib` first.
 
@@ -109,7 +110,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 ## Persistence
 
-SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` — never open raw `Connection::open()`. Migrations are versioned per store (Zustand persist middleware). When changing persisted schemas: bump version, update defaults, add/adjust `migrate`.
+SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` — never open raw `Connection::open()`. Covers are stored as raw bytes + MIME (`covers.data`, `covers.mime`) and served by `theorem-cover://`; the cover commands and sync still exchange data URLs. `books_fts` is reconciled with the library at startup (`reconcile_books_fts`). Migrations are versioned per store (Zustand persist middleware). When changing persisted schemas: bump version, update defaults, add/adjust `migrate`.
 
 ## Rust-First Engineering, Memory & Search Architecture
 
