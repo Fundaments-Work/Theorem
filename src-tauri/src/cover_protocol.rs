@@ -11,7 +11,7 @@
 //! `http://theorem-cover.localhost/<book id>?v=<updated_at>` (Windows/Android).
 //! The version query makes each URL immutable, so it is cached for a year.
 
-use crate::database::{sqlite_get_cover_image_inner, with_connection};
+use crate::database::{sqlite_get_cover_bytes_inner, with_connection};
 use base64::Engine;
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
@@ -60,14 +60,13 @@ pub fn respond(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>>
     let Some(book_id) = book_id_from_path(request.uri().path()) else {
         return empty(StatusCode::BAD_REQUEST);
     };
-    let data_url = match with_connection(app, |conn| sqlite_get_cover_image_inner(conn, &book_id)) {
-        Ok(Some(url)) => url,
-        Ok(None) => return empty(StatusCode::NOT_FOUND),
-        Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-    let Some((mime, bytes)) = parse_data_url(&data_url) else {
-        return empty(StatusCode::UNPROCESSABLE_ENTITY);
-    };
+    // Raw bytes straight from SQLite (covers are no longer base64 data URLs).
+    let (mime, bytes) =
+        match with_connection(app, |conn| sqlite_get_cover_bytes_inner(conn, &book_id)) {
+            Ok(Some(cover)) => cover,
+            Ok(None) => return empty(StatusCode::NOT_FOUND),
+            Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
+        };
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
@@ -92,7 +91,16 @@ pub fn list_cover_versions_inner(
     conn: &rusqlite::Connection,
 ) -> rusqlite::Result<Vec<CoverVersion>> {
     let mut stmt = conn
-        .prepare("SELECT book_id, updated_at, data_url LIKE 'data:image/svg+xml%', length(data_url) FROM covers")?;
+        // Length of the equivalent data URL (base64 of the bytes), so the
+        // inline threshold for tiny placeholder covers is unchanged.
+        .prepare(
+            "SELECT book_id, updated_at,
+                    COALESCE(mime LIKE 'image/svg+xml%', data_url LIKE 'data:image/svg+xml%'),
+                    CASE WHEN data IS NOT NULL
+                         THEN length('data:' || COALESCE(mime, '') || ';base64,') + ((length(data) + 2) / 3) * 4
+                         ELSE length(data_url) END
+             FROM covers",
+        )?;
     let rows = stmt.query_map([], |row| {
         Ok(CoverVersion {
             book_id: row.get(0)?,
@@ -148,9 +156,9 @@ mod tests {
     fn lists_versions_and_flags_svg_fallbacks() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
-            "CREATE TABLE covers (book_id TEXT PRIMARY KEY, data_url TEXT, data BLOB, updated_at INTEGER);
-             INSERT INTO covers VALUES ('b1', 'data:image/webp;base64,AAAA', NULL, 100);
-             INSERT INTO covers VALUES ('b2', 'data:image/svg+xml;utf8,<svg/>', NULL, 200);",
+            "CREATE TABLE covers (book_id TEXT PRIMARY KEY, data_url TEXT, data BLOB, mime TEXT, updated_at INTEGER);
+             INSERT INTO covers VALUES ('b1', 'data:image/webp;base64,AAAA', NULL, NULL, 100);
+             INSERT INTO covers VALUES ('b2', 'data:image/svg+xml;utf8,<svg/>', NULL, NULL, 200);",
         )
         .unwrap();
         let mut versions = list_cover_versions_inner(&conn).unwrap();
@@ -172,5 +180,32 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn byte_covers_report_the_same_data_url_length() {
+        use crate::database::{
+            migrate_cover_data_urls, sqlite_get_cover_image_inner, sqlite_save_cover_image_inner,
+        };
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE covers (book_id TEXT PRIMARY KEY, data_url TEXT NOT NULL, data BLOB, mime TEXT, updated_at INTEGER);
+             INSERT INTO covers VALUES ('legacy', 'data:image/webp;base64,UklGRg==', NULL, NULL, 7);",
+        )
+        .unwrap();
+        let before = list_cover_versions_inner(&conn).unwrap()[0].data_url_len;
+        migrate_cover_data_urls(&conn).unwrap();
+        sqlite_save_cover_image_inner(&conn, "new", "data:image/jpeg;base64,/9j/4AAQSkZJRg==")
+            .unwrap();
+        for v in list_cover_versions_inner(&conn).unwrap() {
+            let url = sqlite_get_cover_image_inner(&conn, &v.book_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(v.data_url_len as usize, url.len(), "{}", v.book_id);
+            if v.book_id == "legacy" {
+                assert_eq!(v.data_url_len, before);
+                assert_eq!(v.updated_at, 7);
+            }
+        }
     }
 }

@@ -105,11 +105,24 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
             .ok();
     }
 
-    // The covers.data column is legacy: cover bytes were mirrored there as a
-    // decoded copy of data_url, but nothing ever read it. Clear any leftover
-    // values so the base64 data_url is the single cover store.
-    if let Err(e) = conn.execute("UPDATE covers SET data = NULL WHERE data IS NOT NULL", []) {
-        eprintln!("[database] Failed to clear legacy covers.data: {e}");
+    let has_mime: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('covers') WHERE name = 'mime'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_mime {
+        conn.execute_batch("ALTER TABLE covers ADD COLUMN mime TEXT;")
+            .ok();
+    }
+
+    // Covers are stored as raw bytes + MIME type (R6); convert base64 data
+    // URLs left by older versions.
+    match migrate_cover_data_urls(&conn) {
+        Ok(0) => {}
+        Ok(n) => eprintln!("[database] Stored {n} covers as raw bytes"),
+        Err(e) => eprintln!("[database] Cover byte migration failed: {e}"),
     }
 
     // Book bytes live in `book-cache/{id}.book`. Legacy installs also stored a
@@ -335,6 +348,7 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
         book_id TEXT PRIMARY KEY,
         data_url TEXT NOT NULL,
         data BLOB,
+        mime TEXT,
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
     );
@@ -614,23 +628,87 @@ pub fn sqlite_get_materialized_book_path(
     Ok(None)
 }
 
+/// Store a cover given as a data URL. Covers are kept as raw bytes + MIME
+/// type (a third smaller than base64, served without decoding); the command
+/// API and sync still speak data URLs. An unparsable URL is kept verbatim.
 pub fn sqlite_save_cover_image_inner(
     connection: &Connection,
     book_id: &str,
     data_url: &str,
 ) -> rusqlite::Result<()> {
+    let (stored_url, mime, bytes) = match crate::cover_protocol::parse_data_url(data_url) {
+        Some((mime, bytes)) => ("", Some(mime), Some(bytes)),
+        None => (data_url, None, None),
+    };
     connection.execute(
         r#"
-        INSERT INTO covers (book_id, data_url, data, updated_at)
-        VALUES (?1, ?2, NULL, unixepoch())
+        INSERT INTO covers (book_id, data_url, data, mime, updated_at)
+        VALUES (?1, ?2, ?3, ?4, unixepoch())
         ON CONFLICT(book_id) DO UPDATE SET
             data_url = excluded.data_url,
-            data = NULL,
+            data = excluded.data,
+            mime = excluded.mime,
             updated_at = unixepoch()
         "#,
-        params![book_id, data_url],
+        params![book_id, stored_url, bytes, mime],
     )?;
     Ok(())
+}
+
+/// Convert covers still stored as data URLs to bytes + MIME. Keeps
+/// `updated_at` (cover cache versions). Returns the number converted.
+pub(crate) fn migrate_cover_data_urls(connection: &Connection) -> rusqlite::Result<usize> {
+    let pending: Vec<(String, String)> = {
+        let mut stmt = connection.prepare(
+            "SELECT book_id, data_url FROM covers WHERE data IS NULL AND data_url != ''",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let tx = connection.unchecked_transaction()?;
+    let mut converted = 0;
+    for (book_id, data_url) in pending {
+        if let Some((mime, bytes)) = crate::cover_protocol::parse_data_url(&data_url) {
+            tx.execute(
+                "UPDATE covers SET data = ?2, mime = ?3, data_url = '' WHERE book_id = ?1",
+                params![book_id, bytes, mime],
+            )?;
+            converted += 1;
+        }
+    }
+    tx.commit()?;
+    Ok(converted)
+}
+
+/// Cover bytes and MIME type, for the cover protocol (no base64 round trip).
+pub fn sqlite_get_cover_bytes_inner(
+    connection: &Connection,
+    book_id: &str,
+) -> rusqlite::Result<Option<(String, Vec<u8>)>> {
+    let row = connection
+        .query_row(
+            "SELECT data_url, data, mime FROM covers WHERE book_id = ?1",
+            params![book_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(match row {
+        Some((_, Some(bytes), mime)) => Some((
+            mime.unwrap_or_else(|| "application/octet-stream".to_string()),
+            bytes,
+        )),
+        Some((data_url, None, _)) => crate::cover_protocol::parse_data_url(&data_url),
+        None => None,
+    })
 }
 
 pub fn sqlite_save_cover_image(
@@ -643,17 +721,33 @@ pub fn sqlite_save_cover_image(
     })
 }
 
+/// The cover as a data URL (command API and sync).
 pub fn sqlite_get_cover_image_inner(
     connection: &Connection,
     book_id: &str,
 ) -> rusqlite::Result<Option<String>> {
-    connection
+    use base64::Engine;
+    let row = connection
         .query_row(
-            "SELECT data_url FROM covers WHERE book_id = ?1",
+            "SELECT data_url, data, mime FROM covers WHERE book_id = ?1",
             params![book_id],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
         )
-        .optional()
+        .optional()?;
+    Ok(row.map(|(data_url, data, mime)| match data {
+        Some(bytes) => format!(
+            "data:{};base64,{}",
+            mime.as_deref().unwrap_or("application/octet-stream"),
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ),
+        None => data_url,
+    }))
 }
 
 pub fn sqlite_get_cover_image(app: AppHandle, book_id: String) -> Result<Option<String>, String> {
@@ -703,7 +797,7 @@ pub fn sqlite_get_storage_stats(app: AppHandle) -> Result<SqliteStorageStats, St
         )?;
 
         let covers_size: u64 = connection.query_row(
-            "SELECT COALESCE(SUM(length(data_url)), 0) FROM covers",
+            "SELECT COALESCE(SUM(COALESCE(length(data), 0) + length(data_url)), 0) FROM covers",
             [],
             |row| row.get(0),
         )?;
@@ -2508,6 +2602,7 @@ mod tests {
                 book_id TEXT PRIMARY KEY,
                 data_url TEXT NOT NULL,
                 data BLOB,
+                mime TEXT,
                 updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
                 FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
             );
@@ -2868,17 +2963,79 @@ mod tests {
     }
 
     #[test]
-    fn test_cover_image_does_not_populate_legacy_data_column() {
+    fn test_cover_stored_as_bytes_and_returned_as_data_url() {
         let conn = setup_db();
         sqlite_save_cover_image_inner(&conn, "book1", "data:image/png;base64,aGVsbG8=").unwrap();
-        let data: Option<Vec<u8>> = conn
+        let (url, data, mime): (String, Option<Vec<u8>>, Option<String>) = conn
             .query_row(
-                "SELECT data FROM covers WHERE book_id = ?1",
+                "SELECT data_url, data, mime FROM covers WHERE book_id = ?1",
                 params!["book1"],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
-        assert!(data.is_none());
+        assert_eq!(url, "");
+        assert_eq!(data.as_deref(), Some(&b"hello"[..]));
+        assert_eq!(mime.as_deref(), Some("image/png"));
+        assert_eq!(
+            sqlite_get_cover_image_inner(&conn, "book1")
+                .unwrap()
+                .as_deref(),
+            Some("data:image/png;base64,aGVsbG8=")
+        );
+        assert_eq!(
+            sqlite_get_cover_bytes_inner(&conn, "book1").unwrap(),
+            Some(("image/png".to_string(), b"hello".to_vec()))
+        );
+
+        // Unparsable input is kept verbatim, still readable both ways.
+        sqlite_save_cover_image_inner(&conn, "odd", "not a data url").unwrap();
+        assert_eq!(
+            sqlite_get_cover_image_inner(&conn, "odd")
+                .unwrap()
+                .as_deref(),
+            Some("not a data url")
+        );
+        assert_eq!(sqlite_get_cover_bytes_inner(&conn, "odd").unwrap(), None);
+        assert_eq!(
+            sqlite_get_cover_bytes_inner(&conn, "missing").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn test_migrate_cover_data_urls_keeps_versions() {
+        let conn = setup_db();
+        conn.execute_batch(
+            "INSERT INTO covers (book_id, data_url, data, updated_at) VALUES
+                ('old', 'data:image/webp;base64,UklGRg==', NULL, 42),
+                ('svg', 'data:image/svg+xml;utf8,%3Csvg%2F%3E', NULL, 43),
+                ('bad', 'garbage', NULL, 44);",
+        )
+        .unwrap();
+        assert_eq!(migrate_cover_data_urls(&conn).unwrap(), 2);
+        assert_eq!(migrate_cover_data_urls(&conn).unwrap(), 0); // idempotent
+        assert_eq!(
+            sqlite_get_cover_bytes_inner(&conn, "old").unwrap(),
+            Some(("image/webp".to_string(), b"RIFF".to_vec()))
+        );
+        assert_eq!(
+            sqlite_get_cover_bytes_inner(&conn, "svg").unwrap(),
+            Some(("image/svg+xml".to_string(), b"<svg/>".to_vec()))
+        );
+        let versions: Vec<i64> = conn
+            .prepare("SELECT updated_at FROM covers ORDER BY book_id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(versions, [44, 42, 43]); // bad, old, svg: untouched
+        assert_eq!(
+            sqlite_get_cover_image_inner(&conn, "bad")
+                .unwrap()
+                .as_deref(),
+            Some("garbage")
+        );
     }
 
     #[test]
