@@ -15,6 +15,7 @@ import { prewarmPdfJsRuntime } from "./core/lib/pdfjs-runtime";
 import { prewarmFoliateRuntime } from "./core/lib/foliate-runtime";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
+import { flushAllPersistence } from "./core/lib/persist-storage";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
@@ -255,7 +256,7 @@ function App() {
         const setupCloseHandler = async () => {
             try {
                 const win = getCurrentWebviewWindow();
-                unlisten = await win.onCloseRequested((event) => {
+                unlisten = await win.onCloseRequested(async (event) => {
                     const handled = dispatchBackAction();
                     if (handled) {
                         event.preventDefault();
@@ -272,6 +273,8 @@ function App() {
                         setRoute("library", undefined, false);
                         return;
                     }
+                    // Tauri awaits this handler before destroying the window.
+                    await flushAllPersistence();
                 });
             } catch {}
         };
@@ -280,6 +283,35 @@ function App() {
             unlisten?.();
         };
     }, [setRoute]);
+
+    // Tray "Quit": Rust waits (bounded) for every window to acknowledge that
+    // its pending store writes reached SQLite before exiting the process.
+    useEffect(() => {
+        if (!isTauri()) return;
+        let cancelled = false;
+        let unlisten: (() => void) | null = null;
+        void (async () => {
+            try {
+                const [{ listen }, { invoke }] = await Promise.all([
+                    import("@tauri-apps/api/event"),
+                    import("@tauri-apps/api/core"),
+                ]);
+                const stop = await listen("app-quit-requested", async () => {
+                    try {
+                        await flushAllPersistence();
+                    } finally {
+                        await invoke("app_quit_ready").catch(() => undefined);
+                    }
+                });
+                if (cancelled) stop();
+                else unlisten = stop;
+            } catch {}
+        })();
+        return () => {
+            cancelled = true;
+            unlisten?.();
+        };
+    }, []);
 
     // CLI auto-heal: if the user enabled the Terminal CLI and the
     // ~/.local/bin/theorem symlink went missing (e.g. a fresh AppImage mount),

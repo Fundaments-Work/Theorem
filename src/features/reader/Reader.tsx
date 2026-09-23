@@ -19,6 +19,7 @@ import {
 import { extractFilenameFromPath, ensureFilenameForFormat } from "../../core/lib/import";
 import { isTauri, isTauriDesktop, useAndroidBackButton } from "../../core/lib/env";
 import { sqliteShrinkMemory } from "../../core/lib/sqlite-storage";
+import { registerPrePersistFlush } from "../../core/lib/persist-storage";
 import {
     useVocabularyStore,
     useLibraryStore,
@@ -994,7 +995,9 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [currentBookId, flushPendingProgressUpdate]);
 
     useEffect(() => {
+        const unregister = registerPrePersistFlush(flushPendingProgressUpdate);
         return () => {
+            unregister();
             flushPendingProgressUpdate();
         };
     }, [flushPendingProgressUpdate]);

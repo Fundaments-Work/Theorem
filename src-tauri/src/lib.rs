@@ -71,6 +71,59 @@ use tauri::WindowEvent;
 #[derive(Default)]
 struct PendingOpenFiles(Mutex<Vec<String>>);
 
+/// Graceful quit: every webview gets `app-quit-requested`, flushes its pending
+/// store writes to SQLite, and acknowledges via `app_quit_ready`. The app exits
+/// once all acknowledged or after `QUIT_FLUSH_TIMEOUT`, whichever comes first,
+/// so a hung or not-yet-booted webview can never block quitting.
+#[derive(Default)]
+struct QuitCoordinator {
+    awaiting: std::sync::atomic::AtomicUsize,
+    in_progress: std::sync::atomic::AtomicBool,
+}
+
+#[cfg_attr(mobile, allow(dead_code))]
+const QUIT_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(3000);
+
+#[cfg_attr(mobile, allow(dead_code))]
+fn request_graceful_quit(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    let coordinator = app.state::<QuitCoordinator>();
+    if coordinator.in_progress.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let webviews = app.webview_windows().len();
+    if webviews == 0 {
+        app.exit(0);
+        return;
+    }
+    coordinator.awaiting.store(webviews, Ordering::SeqCst);
+    if app.emit("app-quit-requested", ()).is_err() {
+        app.exit(0);
+        return;
+    }
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(QUIT_FLUSH_TIMEOUT);
+        handle.exit(0);
+    });
+}
+
+#[tauri::command]
+fn app_quit_ready(app: AppHandle) {
+    use std::sync::atomic::Ordering;
+    let coordinator = app.state::<QuitCoordinator>();
+    if !coordinator.in_progress.load(Ordering::SeqCst) {
+        return;
+    }
+    let previous = coordinator
+        .awaiting
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+        .unwrap_or(0);
+    if previous <= 1 {
+        app.exit(0);
+    }
+}
+
 fn decode_percent_escapes(value: &str) -> String {
     fn from_hex(b: u8) -> Option<u8> {
         match b {
@@ -1547,6 +1600,7 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(PendingOpenFiles::default())
+        .manage(QuitCoordinator::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
@@ -1678,7 +1732,7 @@ pub fn run() {
                                 let _ = app.emit("tray-sync-now", ());
                             }
                             "quit" => {
-                                app.exit(0);
+                                request_graceful_quit(app);
                             }
                             _ => {}
                         })
@@ -1745,6 +1799,7 @@ pub fn run() {
             supertonic::tts_neural_status,
             supertonic::tts_engine_unload,
             trim_memory,
+            app_quit_ready,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,

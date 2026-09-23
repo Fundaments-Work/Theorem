@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { isTauri } from "../../../core/lib/env";
 import { sqliteRecordReadingSession } from "../../../core/lib/sqlite-storage";
+import { registerPrePersistFlush } from "../../../core/lib/persist-storage";
 import { useSettingsStore } from "../../../core/store";
 import type { DailyReadingActivity, ReadingStats } from "../../../core/types";
 import { calculateWpm, computeExponentialMovingAverage } from "../lib/reading-time";
@@ -213,6 +214,7 @@ export function useReadingTime({
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
+        const unregisterPreFlush = registerPrePersistFlush(() => flushReadingTime(true));
 
         let tauriUnlisten: Array<() => void> = [];
         if (isTauri()) {
@@ -234,6 +236,7 @@ export function useReadingTime({
                 readingIntervalRef.current = null;
             }
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            unregisterPreFlush();
             tauriUnlisten.forEach((fn) => fn());
 
             // Exiting the reader flushes time completely silently - never notify on book exit

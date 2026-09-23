@@ -3,6 +3,12 @@ import { isTauri } from './env';
 import { sqliteDeleteKv, sqliteGetKv, sqliteSetKv } from './sqlite-storage';
 
 const SQLITE_PERSIST_KEY_PREFIX = 'zustand:';
+// Desktop/mobile only: values that could not reach SQLite before the page went
+// away (unload, failed write). Kept apart from the plain key, which is the
+// pre-SQLite legacy storage, so a years-old legacy copy can never shadow SQLite.
+// Every successful SQLite write of a key removes its snapshot, so a snapshot
+// that survives to the next launch is always newer than the SQLite row.
+const UNLOAD_SNAPSHOT_PREFIX = 'theorem-unload:';
 const PERSIST_WRITE_DEBOUNCE_MS = 350;
 
 const inMemoryPersistCache = new Map<string, string | null>();
@@ -41,6 +47,44 @@ function removeLocalItem(name: string): void {
     localStorage.removeItem(name);
 }
 
+function asUnloadSnapshotKey(name: string): string {
+    return `${UNLOAD_SNAPSHOT_PREFIX}${name}`;
+}
+
+/** Last-chance synchronous save when SQLite is unreachable (unload, failed IPC). */
+function writeFallbackItem(name: string, value: string): void {
+    try {
+        setLocalItem(isTauri() ? asUnloadSnapshotKey(name) : name, value);
+    } catch {
+        // Quota exceeded or storage disabled: nothing left to try.
+    }
+}
+
+const prePersistFlushHooks = new Set<() => void>();
+
+/**
+ * Register a synchronous callback that commits component-held state (debounced
+ * reading progress, accumulated reading time) into the stores. Hooks run before
+ * every forced flush (hide, quit, window close, unload) so that state is
+ * captured in the same flush instead of being lost with the process.
+ */
+export function registerPrePersistFlush(hook: () => void): () => void {
+    prePersistFlushHooks.add(hook);
+    return () => {
+        prePersistFlushHooks.delete(hook);
+    };
+}
+
+function runPrePersistFlushHooks(): void {
+    for (const hook of [...prePersistFlushHooks]) {
+        try {
+            hook();
+        } catch {
+            // One failing hook must not block the others or the flush.
+        }
+    }
+}
+
 function clearPendingPersistWrite(name: string): void {
     const timer = pendingPersistTimers.get(name);
     if (timer) {
@@ -68,8 +112,9 @@ async function flushPersistWrite(name: string): Promise<void> {
     try {
         await sqliteSetKv(sqliteKey, pendingValue);
         removeLocalItem(name);
+        removeLocalItem(asUnloadSnapshotKey(name));
     } catch (error) {
-        setLocalItem(name, pendingValue);
+        writeFallbackItem(name, pendingValue);
     }
 }
 
@@ -101,16 +146,18 @@ function installFlushHandlers(): void {
         return;
     }
 
-    window.addEventListener('visibilitychange', () => {
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-            void flushAllPersistWrites();
-            void flushDeferredPersistWrites(false);
+    // Hidden is the last reliable signal before Android may kill the process,
+    // so push everything to SQLite now instead of re-entering the debounce.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            void flushAllPersistence();
         }
     });
 
     window.addEventListener('beforeunload', () => {
+        runPrePersistFlushHooks();
         for (const [name, value] of pendingPersistWrites.entries()) {
-            setLocalItem(name, value);
+            writeFallbackItem(name, value);
         }
         flushDeferredPersistWrites(true);
     });
@@ -137,6 +184,19 @@ export const theoremPersistStorage: StateStorage = {    async getItem(name) {
         }
 
         const sqliteKey = asSqlitePersistKey(name);
+
+        const snapshotKey = asUnloadSnapshotKey(name);
+        const snapshotValue = getLocalItem(snapshotKey);
+        if (snapshotValue != null) {
+            setPersistCacheEntry(name, snapshotValue);
+            try {
+                await sqliteSetKv(sqliteKey, snapshotValue);
+                removeLocalItem(snapshotKey);
+            } catch {
+                // Keep the snapshot; the next successful write supersedes it.
+            }
+            return snapshotValue;
+        }
 
         try {
             const sqliteValue = await sqliteGetKv(sqliteKey);
@@ -185,6 +245,7 @@ export const theoremPersistStorage: StateStorage = {    async getItem(name) {
         }
 
         removeLocalItem(name);
+        removeLocalItem(asUnloadSnapshotKey(name));
     },
 };
 
@@ -245,20 +306,37 @@ function flushDeferredWriteSync(name: string): void {
         clearTimeout(timer);
         pendingDeferredTimers.delete(name);
     }
+    let json: string;
     try {
-        setLocalItem(name, JSON.stringify(pending));
+        json = JSON.stringify(pending);
     } catch {
-        // Unload path: nothing left to try.
+        return;
     }
+    writeFallbackItem(name, json);
 }
 
-export function flushDeferredPersistWrites(sync: boolean): void {
+export function flushDeferredPersistWrites(sync: true): void;
+export function flushDeferredPersistWrites(sync: false): Promise<void>;
+export function flushDeferredPersistWrites(sync: boolean): void | Promise<void> {
     const names = [...pendingDeferredWrites.keys()];
     if (sync) {
         for (const name of names) flushDeferredWriteSync(name);
         return;
     }
-    void Promise.allSettled(names.map((name) => flushDeferredWrite(name)));
+    return Promise.allSettled(names.map((name) => flushDeferredWrite(name))).then(() => undefined);
+}
+
+/**
+ * Push every pending store write all the way to durable storage (SQLite on
+ * Tauri) and resolve once done. Deferred values are serialized first; that
+ * lands them in the debounced string queue, which is then flushed without
+ * waiting for its timer. Call before quitting, closing a window, or when the
+ * page is hidden.
+ */
+export async function flushAllPersistence(): Promise<void> {
+    runPrePersistFlushHooks();
+    await flushDeferredPersistWrites(false);
+    await flushAllPersistWrites();
 }
 
 function scheduleDeferredWrite(name: string, value: DeferredPersistValue): void {
