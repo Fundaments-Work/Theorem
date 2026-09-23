@@ -23,6 +23,41 @@ function getRssArticleTimestamp(article: RssArticle): number {
     return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+const PERSISTED_RSS_ARTICLE_LIMIT = 500;
+const PERSISTED_RSS_ARTICLE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function rssArticleTimestamp(article: RssArticle): number {
+    const published = new Date(article.publishedAt as unknown as string | Date).getTime();
+    if (Number.isFinite(published)) return published;
+    const fetched = new Date(article.fetchedAt as unknown as string | Date).getTime();
+    return Number.isFinite(fetched) ? fetched : Number.NaN;
+}
+
+/**
+ * Retention for the persisted article list. Favorites are the user's explicit
+ * "keep this" and are never aged out or capped. Everything else keeps the
+ * newest PERSISTED_RSS_ARTICLE_LIMIT articles from the last 30 days; an article
+ * with no usable date is treated as new rather than silently dropped. The
+ * original array order is preserved so the UI does not reshuffle.
+ */
+export function selectPersistedRssArticles(articles: RssArticle[], now: number): RssArticle[] {
+    const cutoff = now - PERSISTED_RSS_ARTICLE_MAX_AGE_MS;
+    const candidates: Array<{ index: number; time: number }> = [];
+    for (let index = 0; index < articles.length; index++) {
+        const article = articles[index];
+        if (article.isFavorite) continue;
+        const time = rssArticleTimestamp(article);
+        if (Number.isFinite(time) && time < cutoff) continue;
+        candidates.push({ index, time: Number.isFinite(time) ? time : Number.POSITIVE_INFINITY });
+    }
+    candidates.sort((a, b) => b.time - a.time || a.index - b.index);
+    const keep = new Set<number>();
+    for (let i = 0; i < candidates.length && i < PERSISTED_RSS_ARTICLE_LIMIT; i++) {
+        keep.add(candidates[i].index);
+    }
+    return articles.filter((article, index) => article.isFavorite || keep.has(index));
+}
+
 function sortRssArticlesByDateDesc(articles: RssArticle[]): RssArticle[] {
     const sortable = articles.map((article, index) => ({
         article,
@@ -526,18 +561,7 @@ export const useRssStore = create<RssStore>()(
             version: 1,
             storage: deferredJsonStorage,
             partialize: memoizePartialize((state) => [state.feeds, state.articles], (state) => {
-                const MAX_ARTICLES = 500;
-                const MAX_ARTICLE_AGE_DAYS = 30;
-
-                const cutoffDate = new Date();
-                cutoffDate.setDate(cutoffDate.getDate() - MAX_ARTICLE_AGE_DAYS);
-
-                const filteredArticles = state.articles
-                    .filter(article => {
-                        const articleDate = article.publishedAt || article.fetchedAt;
-                        return new Date(articleDate) >= cutoffDate;
-                    })
-                    .slice(0, MAX_ARTICLES);
+                const filteredArticles = selectPersistedRssArticles(state.articles, Date.now());
 
                 // Decouple full HTML to keep theorem-rss KV store under 50KB instead of 25MB+
                 const truncatedArticles = filteredArticles.map(article => ({
