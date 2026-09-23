@@ -25,7 +25,8 @@ import {
 } from "./sync-import";
 import { isTauri } from "./env";
 import { saveCoverImage } from "./storage";
-import { sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
+import { sqliteDeleteVocabularyTerm, sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
+import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
 
 async function notifySync(title: string, body?: string, icon?: string) {
     const settings = useSettingsStore.getState().settings;
@@ -290,11 +291,17 @@ async function mergeIncomingData(
             if (Array.isArray(incoming)) {
                 const current = useVocabularyStore.getState().vocabularyTerms;
                 const merged = mergeVocabulary(incoming, current, allTombstones);
-                if (JSON.stringify(merged) !== JSON.stringify(current)) {
+                const { upserts, deletes } = diffVocabularyForSqlite(current, merged);
+                if (upserts.length > 0 || deletes.length > 0 || merged.length !== current.length) {
                     useVocabularyStore.setState({ vocabularyTerms: merged });
                     if (isTauri()) {
-                        for (const term of merged) {
+                        // Only what changed (was: every term, one IPC each, on every merge),
+                        // and removals too, so deleted terms cannot resurrect on next launch.
+                        for (const term of upserts) {
                             void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term));
+                        }
+                        for (const id of deletes) {
+                            void sqliteDeleteVocabularyTerm(id);
                         }
                     }
                     markUpdated("vocabulary");
