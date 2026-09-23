@@ -5,7 +5,7 @@
 //! - In-memory typeahead (<0.05ms) for command palette, tags, shelves, and table-of-contents.
 //! - Integrated Two-Tier hybrid search combining SQLite FTS5 disk retrieval with nucleo fuzzy ranking.
 
-use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +46,99 @@ pub fn match_string(
     })
 }
 
+/// A fuzzy match may spread over at most this many times the word's length...
+const MAX_SPAN_RATIO: f32 = 1.5;
+
+/// ...unless every matched character starts a word ("lotr" in "The Lord of the
+/// Rings"). Letters picked out of the middle of unrelated words ("character"
+/// scattered across a long title) are not a match: they looked random.
+fn is_meaningful_match(haystack: &[char], indices: &[u32], needle_len: usize) -> bool {
+    let (Some(&first), Some(&last)) = (indices.first(), indices.last()) else {
+        return false;
+    };
+    let span = (last - first + 1) as f32;
+    if span <= needle_len.max(1) as f32 * MAX_SPAN_RATIO {
+        return true;
+    }
+    // Split into runs of consecutive characters; each run must begin a word
+    // ("Lo"rd "t"he "R"ings for "lotr").
+    let word_start = |i: u32| {
+        let i = i as usize;
+        i == 0 || !haystack.get(i - 1).is_some_and(|c| c.is_alphanumeric())
+    };
+    indices
+        .iter()
+        .enumerate()
+        .all(|(k, &i)| (k > 0 && indices[k - 1] + 1 == i) || word_start(i))
+}
+
+/// One atom per query word; case-insensitive, accent-insensitive fuzzy.
+fn query_atoms(query: &str) -> Vec<(Atom, usize)> {
+    query
+        .split_whitespace()
+        .map(|word| {
+            (
+                Atom::new(
+                    word,
+                    CaseMatching::Ignore,
+                    Normalization::Smart,
+                    AtomKind::Fuzzy,
+                    false,
+                ),
+                word.chars().count(),
+            )
+        })
+        .collect()
+}
+
+/// Score of one field for one word, pushing its match indices; `None` if the
+/// word does not match the field meaningfully.
+fn score_word(
+    atom: &Atom,
+    needle_len: usize,
+    field: &[char],
+    matcher: &mut Matcher,
+    indices: &mut Vec<u32>,
+) -> Option<u32> {
+    let mut found = Vec::new();
+    let score = atom.indices(Utf32Str::Unicode(field), matcher, &mut found)?;
+    found.sort_unstable();
+    if !is_meaningful_match(field, &found, needle_len) {
+        return None;
+    }
+    indices.extend(found);
+    Some(u32::from(score))
+}
+
+/// Every query word must match the title or the author meaningfully. Returns
+/// the total score and the (sorted, deduplicated) title and author indices.
+fn score_book(
+    atoms: &[(Atom, usize)],
+    title: &str,
+    author: Option<&str>,
+    matcher: &mut Matcher,
+) -> Option<(u32, Vec<u32>, Vec<u32>)> {
+    let title_chars: Vec<char> = title.chars().collect();
+    let author_chars: Vec<char> = author.map(|a| a.chars().collect()).unwrap_or_default();
+    let mut title_indices = Vec::new();
+    let mut author_indices = Vec::new();
+    let mut total = 0u32;
+    for (atom, len) in atoms {
+        let t = score_word(atom, *len, &title_chars, matcher, &mut title_indices);
+        let a = score_word(atom, *len, &author_chars, matcher, &mut author_indices);
+        total += match (t, a) {
+            (Some(t), Some(a)) => t.max(a) + t.min(a) / 4,
+            (Some(s), None) | (None, Some(s)) => s,
+            (None, None) => return None,
+        };
+    }
+    for indices in [&mut title_indices, &mut author_indices] {
+        indices.sort_unstable();
+        indices.dedup();
+    }
+    (total > 0).then_some((total, title_indices, author_indices))
+}
+
 /// Ranks a batch of candidate items using nucleo-matcher SIMD scoring and extracts exact match indices.
 pub fn rank_candidates(
     candidates: &[FuzzyCandidateInput],
@@ -66,50 +159,21 @@ pub fn rank_candidates(
             .collect();
     }
 
-    let pattern = Pattern::parse(trimmed, CaseMatching::Ignore, Normalization::Smart);
+    let atoms = query_atoms(trimmed);
     let mut matcher = Matcher::new(Config::DEFAULT);
-
-    let mut results: Vec<FuzzyMatchResult> = Vec::with_capacity(candidates.len());
-    let mut title_buf: Vec<char> = Vec::new();
-    let mut author_buf: Vec<char> = Vec::new();
-
-    for candidate in candidates {
-        let mut title_indices = Vec::new();
-        let mut author_indices = Vec::new();
-
-        title_buf.clear();
-        let title_utf32 = Utf32Str::new(&candidate.title, &mut title_buf);
-        let title_score = pattern.score(title_utf32, &mut matcher);
-        if title_score.is_some() {
-            pattern.indices(title_utf32, &mut matcher, &mut title_indices);
-        }
-
-        let mut author_score = None;
-        if let Some(ref author) = candidate.author {
-            author_buf.clear();
-            let author_utf32 = Utf32Str::new(author, &mut author_buf);
-            author_score = pattern.score(author_utf32, &mut matcher);
-            if author_score.is_some() {
-                pattern.indices(author_utf32, &mut matcher, &mut author_indices);
-            }
-        }
-
-        let total_score = match (title_score, author_score) {
-            (Some(t), Some(a)) => t.max(a) + (t.min(a) / 4),
-            (Some(t), None) => t,
-            (None, Some(a)) => a,
-            (None, None) => 0,
-        };
-
-        if total_score > 0 {
-            results.push(FuzzyMatchResult {
-                id: candidate.id.clone(),
-                score: total_score,
+    let mut results: Vec<FuzzyMatchResult> = candidates
+        .iter()
+        .filter_map(|c| {
+            let (score, title_indices, author_indices) =
+                score_book(&atoms, &c.title, c.author.as_deref(), &mut matcher)?;
+            Some(FuzzyMatchResult {
+                id: c.id.clone(),
+                score,
                 title_indices,
                 author_indices,
-            });
-        }
-    }
+            })
+        })
+        .collect();
 
     results.sort_by_key(|r| std::cmp::Reverse(r.score));
     results.truncate(limit);
@@ -223,53 +287,25 @@ pub async fn two_tier_search_books(
             Ok(candidates)
         })?;
 
-        // Tier 2: SIMD nucleo-matcher ranking and UTF-32 character index extraction
-        let pattern = Pattern::parse(trimmed, CaseMatching::Ignore, Normalization::Smart);
+        // Tier 2: nucleo ranking. Typo-recovery candidates (the fallback scan
+        // above) only survive a meaningful match; see `is_meaningful_match`.
+        let atoms = query_atoms(trimmed);
         let mut matcher = Matcher::new(Config::DEFAULT);
-
-        let mut results = Vec::with_capacity(candidates.len());
-        let mut title_buf: Vec<char> = Vec::new();
-        let mut author_buf: Vec<char> = Vec::new();
-
-        for (book_id, title, author) in candidates {
-            let mut title_indices = Vec::new();
-            let mut author_indices = Vec::new();
-
-            title_buf.clear();
-            let title_utf32 = Utf32Str::new(&title, &mut title_buf);
-            let title_score = pattern.score(title_utf32, &mut matcher);
-            if title_score.is_some() {
-                pattern.indices(title_utf32, &mut matcher, &mut title_indices);
-            }
-
-            let mut author_score = None;
-            if let Some(ref auth) = author {
-                author_buf.clear();
-                let author_utf32 = Utf32Str::new(auth, &mut author_buf);
-                author_score = pattern.score(author_utf32, &mut matcher);
-                if author_score.is_some() {
-                    pattern.indices(author_utf32, &mut matcher, &mut author_indices);
-                }
-            }
-
-            let total_score = match (title_score, author_score) {
-                (Some(t), Some(a)) => t.max(a) + (t.min(a) / 4),
-                (Some(t), None) => t,
-                (None, Some(a)) => a,
-                (None, None) => 0,
-            };
-
-            if total_score > 0 {
-                results.push(TwoTierSearchResult {
+        let mut results: Vec<TwoTierSearchResult> = candidates
+            .into_iter()
+            .filter_map(|(book_id, title, author)| {
+                let (score, title_indices, author_indices) =
+                    score_book(&atoms, &title, author.as_deref(), &mut matcher)?;
+                Some(TwoTierSearchResult {
                     book_id,
                     title,
                     author,
-                    score: total_score,
+                    score,
                     title_indices,
                     author_indices,
-                });
-            }
-        }
+                })
+            })
+            .collect();
 
         results.sort_by_key(|r| std::cmp::Reverse(r.score));
         results.truncate(limit.unwrap_or(50));
@@ -328,5 +364,70 @@ mod tests {
         let results = rank_candidates(&candidates, "lotr", 10);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title_indices.len(), 4); // L, o, t, R
+    }
+
+    fn book(id: &str, title: &str, author: &str) -> FuzzyCandidateInput {
+        FuzzyCandidateInput {
+            id: id.to_string(),
+            title: title.to_string(),
+            author: Some(author.to_string()),
+            tags: None,
+            format: None,
+        }
+    }
+
+    #[test]
+    fn scattered_letters_are_not_a_match() {
+        // Every letter of "character" occurs in order in these titles, spread
+        // over unrelated words: the old ranking listed them as results.
+        let candidates = vec![
+            book(
+                "1",
+                "Clash of the Hackers: A Rational Account of Cybercrime Techniques",
+                "Anon",
+            ),
+            book(
+                "2",
+                "The Complete Home Garden Reader: Actual Care Techniques",
+                "Various",
+            ),
+            book("3", "Character and Culture", "Ann Smith"),
+            book("4", "Characters in Fiction", "Jane Roe"),
+        ];
+        let results = rank_candidates(&candidates, "character", 10);
+        let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids.len(), 2, "{ids:?}");
+        assert!(ids.contains(&"3") && ids.contains(&"4"), "{ids:?}");
+
+        // A query with a missing letter still finds the compact match.
+        let typo = rank_candidates(&candidates, "charcter", 10);
+        let ids: Vec<&str> = typo.iter().map(|r| r.id.as_str()).collect();
+        assert!(ids.contains(&"3") && ids.contains(&"4"), "{ids:?}");
+        assert!(!ids.contains(&"1") && !ids.contains(&"2"), "{ids:?}");
+    }
+
+    #[test]
+    fn every_word_must_match_title_or_author() {
+        let candidates = vec![
+            book("1", "The Hobbit", "J.R.R. Tolkien"),
+            book("2", "The Hobbit Companion", "David Day"),
+        ];
+        let results = rank_candidates(&candidates, "hobbit tolkien", 10);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "1");
+        assert!(!results[0].title_indices.is_empty());
+        assert!(!results[0].author_indices.is_empty());
+        assert!(rank_candidates(&candidates, "zzz", 10).is_empty());
+        assert!(rank_candidates(&[], "hobbit", 10).is_empty());
+    }
+
+    #[test]
+    fn meaningful_match_rules() {
+        let chars: Vec<char> = "The Lord of the Rings".chars().collect();
+        assert!(is_meaningful_match(&chars, &[4, 5, 6, 7], 4)); // "Lord" compact
+        assert!(is_meaningful_match(&chars, &[4, 9, 12, 16], 4)); // l-o-t-r word starts
+        assert!(is_meaningful_match(&chars, &[4, 5, 12, 16], 4)); // "Lo"rd-t-R runs
+        assert!(!is_meaningful_match(&chars, &[1, 9, 13, 17], 4)); // mid-word scatter
+        assert!(!is_meaningful_match(&chars, &[], 4));
     }
 }
