@@ -78,6 +78,7 @@ tempfile = "3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 # EPUB pre-parser: streaming XML (replaces regex) + percent-encoded path fallback
+regex = "1"
 quick-xml = "0.36"
 # Helix SIMD-accelerated fuzzy matcher for Two-Tier search & typeahead
 nucleo-matcher = "0.3.1"

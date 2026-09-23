@@ -1625,7 +1625,10 @@ pub fn run() {
     // app, so with this plugin a dev run found the installed app (often still
     // alive in the tray), handed it the arguments and exited, which also
     // stopped `pnpm dev:tauri`.
-    #[cfg(all(not(any(target_os = "android", target_os = "ios")), not(debug_assertions)))]
+    #[cfg(all(
+        not(any(target_os = "android", target_os = "ios")),
+        not(debug_assertions)
+    ))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
         if let Some(book_id) = argv
             .iter()
