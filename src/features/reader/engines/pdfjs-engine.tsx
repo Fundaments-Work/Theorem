@@ -26,6 +26,7 @@ import { PDFLinkLayer, PdfLinkHandlersContext, type PdfLinkHandlers } from "../c
 import { resolvePdfDestTarget, type PdfDestTarget, type PdfLink } from "./pdf-links";
 import { buildPdfLensPreview, type PdfLensPreview } from "./pdf-lens";
 import { pushPdfHistory, stepPdfHistory, type PdfHistoryEntry } from "./pdf-history";
+import { RenderedPageCache } from "./pdf-render-cache";
 import { captureZoomAnchor, resolveZoomAnchor, wheelZoomFactor, type ZoomAnchor } from "./pdf-zoom-anchor";
 
 import "./pdfjs-engine.css";
@@ -176,8 +177,6 @@ const WHEEL_ZOOM_SETTLE_MS = 180;
 const DESKTOP_PDF_RANGE_CHUNK_SIZE = 262_144;
 const MOBILE_PDF_RANGE_CHUNK_SIZE = 131_072;
 const INITIAL_RENDER_STABILIZATION_MS = 300;
-const INACTIVE_CANVAS_RELEASE_DELAY_MS = 600;
-const DESKTOP_WEBKIT_INACTIVE_RELEASE_DELAY_MS = 1200;
 
 function getMaxActiveCanvasRenders(): number {
     if (typeof navigator === "undefined") return 2;
@@ -868,7 +867,6 @@ interface PageCanvasProps {
     rotation: number;
     isRenderActive: boolean;
     forceRenderActive?: boolean;
-    inactiveReleaseDelayMs: number;
     getRenderPriority: (pageNumber: number) => number;
     annotations?: Annotation[];
     annotationMode?: 'none' | 'highlight' | 'pen' | 'text' | 'erase';
@@ -888,7 +886,7 @@ interface PageCanvasProps {
 }
 
 const PageCanvas = memo(function PageCanvas({
-    page, scale, rotation, isRenderActive, forceRenderActive = false, inactiveReleaseDelayMs, getRenderPriority,
+    page, scale, rotation, isRenderActive, forceRenderActive = false, getRenderPriority,
     annotations = [], annotationMode = "none", highlightColor, penColor, penWidth,
     enableTextLayer, preferSharpCanvas, reduceRenderQuality, snapCssToPixels, useStreamTextLayer,
     calibrateTextLayerWidths, searchQuery, onAnnotationAdd, onAnnotationChange, onAnnotationRemove,
@@ -901,7 +899,6 @@ const PageCanvas = memo(function PageCanvas({
     const textLayerRef = useRef<HTMLDivElement>(null);
     const renderTaskRef = useRef<ReturnType<PDFPageProxy["render"]> | null>(null);
     const textLayerInstanceRef = useRef<TextLayer | null>(null);
-    const inactiveReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasRenderedCanvasRef = useRef(false);
     const [isNearViewport, setIsNearViewport] = useState(() => isRenderActive || forceRenderActive || page.pageNumber <= 3);
     const shouldRenderAnnotationLayer = annotationMode !== "none" || annotations.length > 0;
@@ -945,51 +942,43 @@ const PageCanvas = memo(function PageCanvas({
         return () => { observer.disconnect(); };
     }, []);
 
+    // Pages that leave the render window go into a bounded LRU instead of being
+    // freed on a timer, so scrolling back to them is instant.
+    const cacheKeyRef = useRef<object>({});
+    const releaseRenderedPage = useCallback(() => {
+        const textLayerDiv = textLayerRef.current;
+        const canvas = canvasRef.current;
+        try { renderTaskRef.current?.cancel(); } catch {  }
+        renderTaskRef.current = null;
+        try { textLayerInstanceRef.current?.cancel(); } catch {  }
+        textLayerInstanceRef.current = null;
+        const keepTextLayer = !!textLayerDiv && selectionIntersects(textLayerDiv);
+        if (textLayerDiv && !keepTextLayer) {
+            unregisterTextLayer(textLayerDiv);
+            textLayerDiv.replaceChildren();
+            textLayerKeyRef.current = "";
+        }
+        if (canvas && hasRenderedCanvasRef.current) {
+            canvas.width = 0; canvas.height = 0;
+        }
+        hasRenderedCanvasRef.current = false;
+        canvasGeometryKeyRef.current = "";
+        if (!keepTextLayer) page.cleanup();
+    }, [page]);
+
     useEffect(() => {
+        const key = cacheKeyRef.current;
         if (shouldRender) {
-            if (inactiveReleaseTimeoutRef.current) {
-                clearTimeout(inactiveReleaseTimeoutRef.current);
-                inactiveReleaseTimeoutRef.current = null;
-            }
+            renderedPageCache.reclaim(key);
             return;
         }
-        if (inactiveReleaseTimeoutRef.current) return;
-        const textLayerDiv = textLayerRef.current;
-        inactiveReleaseTimeoutRef.current = setTimeout(() => {
-            const canvas = canvasRef.current;
-            inactiveReleaseTimeoutRef.current = null;
-            try { renderTaskRef.current?.cancel(); } catch {  }
-            renderTaskRef.current = null;
-            try { textLayerInstanceRef.current?.cancel(); } catch {  }
-            textLayerInstanceRef.current = null;
-            const keepTextLayer = !!textLayerDiv && selectionIntersects(textLayerDiv);
-            if (textLayerDiv && !keepTextLayer) {
-                unregisterTextLayer(textLayerDiv);
-                textLayerDiv.replaceChildren();
-                textLayerKeyRef.current = "";
-            }
-            if (canvas && hasRenderedCanvasRef.current) {
-                canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-                canvas.width = 0; canvas.height = 0;
-            }
-            hasRenderedCanvasRef.current = false;
-            canvasGeometryKeyRef.current = "";
-            if (!keepTextLayer) page.cleanup();
-        }, inactiveReleaseDelayMs);
-
-        return () => {
-            if (inactiveReleaseTimeoutRef.current) {
-                clearTimeout(inactiveReleaseTimeoutRef.current);
-                inactiveReleaseTimeoutRef.current = null;
-            }
-        };
-    }, [enableTextLayer, shouldRender, inactiveReleaseDelayMs, page]);
+        if (!hasRenderedCanvasRef.current) return;
+        const canvas = canvasRef.current;
+        renderedPageCache.retain(key, canvas ? canvas.width * canvas.height : 0, releaseRenderedPage);
+    }, [shouldRender, releaseRenderedPage]);
 
     useEffect(() => () => {
-        if (inactiveReleaseTimeoutRef.current) {
-            clearTimeout(inactiveReleaseTimeoutRef.current);
-            inactiveReleaseTimeoutRef.current = null;
-        }
+        renderedPageCache.reclaim(cacheKeyRef.current);
         try { renderTaskRef.current?.cancel(); } catch {}
         renderTaskRef.current = null;
         try { textLayerInstanceRef.current?.cancel(); } catch {}
@@ -1236,6 +1225,16 @@ const PageCanvas = memo(function PageCanvas({
 });
 
 const PAGE_CANVAS_CLASS = "block absolute inset-0";
+
+const IS_ANDROID_RUNTIME = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+/**
+ * Offscreen rendered pages kept for instant scroll-back. Desktop: 6 pages or
+ * 24M canvas pixels (~96MB); Android: 3 pages or 8M pixels (~32MB).
+ */
+const renderedPageCache = new RenderedPageCache<object>(
+    IS_ANDROID_RUNTIME ? 3 : 6,
+    IS_ANDROID_RUNTIME ? 8_000_000 : 24_000_000,
+);
 /** Above this zoom, pages render only when near the viewport (no ±N pre-render window). */
 const HIGH_ZOOM_RENDER_WINDOW_SCALE = 1.6;
 
@@ -1352,9 +1351,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             : isAndroidRuntime
                 ? ANDROID_CANVAS_RENDER_PAGE_WINDOW
                 : DEFAULT_CANVAS_RENDER_PAGE_WINDOW;
-        const inactiveCanvasReleaseDelayMs = isDesktopWebKit
-            ? DESKTOP_WEBKIT_INACTIVE_RELEASE_DELAY_MS
-            : INACTIVE_CANVAS_RELEASE_DELAY_MS;
         
         const textLayerPageWindow = isDesktopWebKit
             ? Math.max(WEBKIT_TEXT_LAYER_PAGE_WINDOW, canvasRenderWindow)
@@ -3001,7 +2997,6 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             page={page} scale={scale} rotation={rotation}
                             isRenderActive={pageIsInCanvasRenderWindow}
                             forceRenderActive={isInitialRenderStabilizing}
-                            inactiveReleaseDelayMs={inactiveCanvasReleaseDelayMs}
                             getRenderPriority={getRenderPriority}
                             enableTextLayer={pageTextLayerEnabled} preferSharpCanvas={isDesktopWebKit}
                             reduceRenderQuality={isViewportInteracting}
@@ -3103,7 +3098,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     <div
                         data-no-viewport-tap
                         className={cn(
-                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1.5 rounded-full bg-[var(--color-surface)]/95 backdrop-blur-xl border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
+                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
                             showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
                         )}
                     >

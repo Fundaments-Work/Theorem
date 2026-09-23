@@ -64,7 +64,7 @@ export function PDFFloatingToolbar({
                 )}
             >
                 
-                <div className="flex flex-col items-center gap-2 p-2 rounded-2xl bg-[var(--color-surface)]/95 backdrop-blur-xl border border-[var(--color-border)] shadow-xl">
+                <div className="flex flex-col items-center gap-2 p-2 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl">
                     
                     <div className="flex items-center gap-1.5">
                         <button
@@ -152,8 +152,8 @@ export function PDFFloatingToolbar({
                 className={cn(
                     "pointer-events-auto flex items-center justify-center w-11 h-11 rounded-full shadow-lg transition-[color,background-color,transform,box-shadow] duration-300 ease-out",
                     isOpen
-                        ? "bg-[var(--color-surface)]/95 backdrop-blur-xl text-[color:var(--color-text-primary)] border border-[var(--color-border)] rotate-90"
-                        : "bg-[var(--color-surface)]/95 backdrop-blur-xl text-[color:var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-surface)] hover:scale-105 active:scale-95"
+                        ? "bg-[var(--color-surface)] text-[color:var(--color-text-primary)] border border-[var(--color-border)] rotate-90"
+                        : "bg-[var(--color-surface)] text-[color:var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-surface)] hover:scale-105 active:scale-95"
                 )}
                 aria-label={isOpen ? "Close tools" : "Open tools"}
                 title={isOpen ? "Close annotation tools" : "Open annotation tools"}

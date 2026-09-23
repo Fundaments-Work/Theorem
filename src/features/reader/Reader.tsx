@@ -2671,7 +2671,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                             "fixed bottom-6 z-[100]",
                             isMobileViewport ? "left-4" : "left-8",
                             "flex items-center justify-center w-11 h-11 rounded-full shadow-lg transition-[transform,opacity] duration-150 ease-out",
-                            "bg-[var(--color-surface)]/95 backdrop-blur-xl text-[color:var(--color-text-primary)] border border-[var(--color-border)]",
+                            "bg-[var(--color-surface)] text-[color:var(--color-text-primary)] border border-[var(--color-border)]",
                             "hover:scale-105 active:scale-95 hover:bg-[var(--color-surface)]",
                             (shouldShowReaderChrome || pdfAnnotationMode !== 'none') ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"
                         )}
