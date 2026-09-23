@@ -28,6 +28,9 @@ import { invokeSqliteInOrder, sqliteDeleteVocabularyTerm, sqliteRegisterMaterial
 import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
 import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, coverPathForBookEntry, needsCoverEntry, parseCoverEntry } from "./sync-covers";
 
+/** Sync entry key prefix for one RSS article (`rss_article:<id>`). */
+export const RSS_ARTICLE_KEY_PREFIX = "rss_article:";
+
 async function notifySync(title: string, body?: string, icon?: string) {
     const settings = useSettingsStore.getState().settings;
     if (!settings.syncNotifications) return;
@@ -75,7 +78,7 @@ async function mergeIncomingData(
         }
         
         for (const key of Object.keys(incomingMap)) {
-            if (key.startsWith("book:") || key.startsWith("annotation:") || key.startsWith("anno:") || key.startsWith("collection:") || key.startsWith(COVER_KEY_PREFIX)) {
+            if (key.startsWith("book:") || key.startsWith("annotation:") || key.startsWith("anno:") || key.startsWith("collection:") || key.startsWith(RSS_ARTICLE_KEY_PREFIX) || key.startsWith(COVER_KEY_PREFIX)) {
                 if (!safeMap[key]) {
                     safeMap[key] = incomingMap[key];
                 }
@@ -88,6 +91,9 @@ async function mergeIncomingData(
     const perEntityBooks: Record<string, unknown>[] = [];
     const perEntityAnnotations: Record<string, unknown>[] = [];
     const perEntityCollections: Record<string, unknown>[] = [];
+    const perEntityArticles: unknown[] = [];
+    // Lazy like validateSyncPayloads above (zod stays out of the startup chunk).
+    const { RssArticleSchema } = await import("./sync-schemas");
 
     for (const key of Object.keys(safeMap)) {
         if (key.startsWith("book:") && key !== "books") {
@@ -103,6 +109,11 @@ async function mergeIncomingData(
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                     perEntityAnnotations.push(parsed);
                 }
+            } catch {}
+        } else if (key.startsWith(RSS_ARTICLE_KEY_PREFIX)) {
+            try {
+                const parsed = RssArticleSchema.safeParse(JSON.parse(safeMap[key]));
+                if (parsed.success) perEntityArticles.push(parsed.data);
             } catch {}
         } else if (key.startsWith("collection:") && key !== "collections") {
             try {
@@ -404,10 +415,13 @@ async function mergeIncomingData(
         }
     }
 
-    if (safeMap["rss_articles"]) {
+    if (safeMap["rss_articles"] || perEntityArticles.length > 0) {
         try {
-            const incoming = JSON.parse(safeMap["rss_articles"]);
-            if (Array.isArray(incoming)) {
+            // Per-article entries plus the legacy whole-list entry (older peers,
+            // and deletions, still write it).
+            const blob = safeMap["rss_articles"] ? JSON.parse(safeMap["rss_articles"]) : [];
+            const incoming = [...(Array.isArray(blob) ? blob : []), ...perEntityArticles];
+            if (incoming.length > 0) {
                 const currentArticles = useRssStore.getState().articles;
                 debug(`[sync-merge] rss_articles: ${incoming.length} incoming, ${currentArticles.length} existing`);
                 const merged = mergeRssArticles(incoming, currentArticles, feedIdMap, allTombstones);
@@ -1714,6 +1728,11 @@ export function subscribeZustandToIrohDocs(): () => void {
 
     let prevFeeds = useRssStore.getState().feeds;
     let prevArticles = useRssStore.getState().articles;
+    // Articles sync one entry each (only changed ones are written); a deletion
+    // also rewrites the whole-list entry, like collections, so peers drop it.
+    const articleIndex = new Map<string, { ref: unknown; serialized: string }>();
+    let prevArticleIds = new Set(prevArticles.map((a) => a.id));
+    for (const article of prevArticles) articleIndex.set(article.id, { ref: article, serialized: JSON.stringify(article) });
     unsubs.push(useRssStore.subscribe((state) => {
         if (_bridgePaused) return;
         if (state.feeds !== prevFeeds) {
@@ -1722,7 +1741,30 @@ export function subscribeZustandToIrohDocs(): () => void {
         }
         if (state.articles !== prevArticles) {
             prevArticles = state.articles;
-            scheduleDocsWrite("rss_articles", () => docsSetEntry("rss_articles", JSON.stringify(state.articles)), "rss_articles");
+            const articles = state.articles;
+            const seenIds = new Set<string>();
+            for (const article of articles) {
+                seenIds.add(article.id);
+                const entry = articleIndex.get(article.id);
+                if (entry && entry.ref === article) continue;
+                const serialized = JSON.stringify(article);
+                if (!entry || entry.serialized !== serialized) {
+                    articleIndex.set(article.id, { ref: article, serialized });
+                    const key = RSS_ARTICLE_KEY_PREFIX + article.id;
+                    scheduleDocsWrite(key, () => docsSetEntry(key, serialized), key);
+                } else {
+                    entry.ref = article;
+                }
+            }
+            let deletion = false;
+            for (const id of prevArticleIds) {
+                if (!seenIds.has(id)) { deletion = true; break; }
+            }
+            prevArticleIds = seenIds;
+            if (deletion) {
+                scheduleDocsWrite("rss_articles", () => docsSetEntry("rss_articles", JSON.stringify(articles)), "rss_articles");
+                for (const id of articleIndex.keys()) if (!seenIds.has(id)) articleIndex.delete(id);
+            }
         }
     }));
 
