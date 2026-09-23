@@ -412,6 +412,10 @@ const BookReaderPage = memo(function BookReaderPage() {
             pubdate: currentBookData?.publishedDate,
             identifier: currentBookData?.isbn,
             cover: currentBookData?.coverPath,
+            creator: info.creator,
+            producer: info.producer,
+            pdfVersion: info.pdfVersion,
+            pageSize: info.pageSize,
         });
         setToc(Array.isArray(info.toc) ? info.toc : []);
         setPdfHasOutline(Boolean(info.hasOutline ?? ((info.toc?.length || 0) > 0)));
@@ -523,13 +527,22 @@ const BookReaderPage = memo(function BookReaderPage() {
     }, [currentBookId, getBook, updateBook]);
 
     const handlePdfPageChange = useCallback((page: number, total: number, scale: number) => {
-        // 
-        setPdfCurrentPage(Math.max(1, page));
+        const safePage = Math.max(1, page);
+        setPdfCurrentPage(safePage);
         setPdfTotalPages((prevTotal) => {
-            if (total > 0) {
-                return total;
-            }
-            return prevTotal;
+            const resolvedTotal = total > 0 ? total : prevTotal;
+            const label = pdfReaderRef.current?.getPageLabel(safePage);
+            const percentage = resolvedTotal > 0 ? (safePage - 1) / Math.max(1, resolvedTotal - 1) : 0;
+            setLocation({
+                cfi: String(safePage),
+                percentage,
+                pageItem: label ? { label } : undefined,
+                pageInfo: {
+                    currentPage: safePage,
+                    totalPages: resolvedTotal,
+                },
+            });
+            return resolvedTotal;
         });
         setPdfZoom(scale);
     }, []);
@@ -1417,7 +1430,10 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const goTo = useCallback(async (target: string) => {
         if (isPdfFormat) {
-            const pageNumber = resolvePdfTargetPage(target);
+            let pageNumber = resolvePdfTargetPage(target);
+            if (!pageNumber && pdfReaderRef.current?.getPageNumberFromLabel) {
+                pageNumber = pdfReaderRef.current.getPageNumberFromLabel(target);
+            }
             if (pageNumber) {
                 pdfReaderRef.current?.goToPage(pageNumber);
             }
@@ -1547,6 +1563,22 @@ const BookReaderPage = memo(function BookReaderPage() {
         const m = new Map<number, Annotation>();
         for (const a of annotations) {
             if (a.type === 'bookmark' && a.pageNumber !== undefined) m.set(a.pageNumber, a);
+        }
+        return m;
+    }, [annotations]);
+    const annotationsBySelectedText = useMemo(() => {
+        const m = new Map<string, Annotation>();
+        for (const a of annotations) {
+            if ((a.type === 'highlight' || a.type === 'note') && a.selectedText) {
+                m.set(a.selectedText.trim(), a);
+            }
+        }
+        return m;
+    }, [annotations]);
+    const bookmarkByLocation = useMemo(() => {
+        const m = new Map<string, Annotation>();
+        for (const a of annotations) {
+            if (a.type === 'bookmark') m.set(a.location, a);
         }
         return m;
     }, [annotations]);
@@ -1854,9 +1886,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const [isBookReady, setIsBookReady] = useState(false);
 
-    const isCurrentPageBookmarked = annotations.some(
-        a => a.type === 'bookmark' && a.location === location?.cfi
-    );
+    const isCurrentPageBookmarked = location?.cfi ? bookmarkByLocation.has(location.cfi) : false;
 
     useEffect(() => {
         if (activeDocId && isBookReady) {
@@ -1876,8 +1906,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         if (initialLocation) {
             debug('[Reader] CFI was provided, engine should have navigated');
             hasAppliedInitialLocationRef.current = true;
-            const currentBookAnnotations = activeDocId ? getBookAnnotations(activeDocId) : [];
-            const ann = currentBookAnnotations.find(a => a.location === initialLocation) || annotations.find(a => a.location === initialLocation);
+            const ann = annotationsByLocation.get(initialLocation) || (activeDocId ? getBookAnnotations(activeDocId).find(a => a.location === initialLocation) : undefined);
             if (ann) {
                 readerRef.current?.goToAnnotation(ann);
             }
@@ -1946,31 +1975,22 @@ const BookReaderPage = memo(function BookReaderPage() {
             };
         };
 
-        let existingAnnotation = freshAnnotations.find(a => {
-            
-            if (a.location === cfi && (a.type === 'highlight' || a.type === 'note')) {
-                debug('[Reader] Matched annotation by exact CFI:', a.id);
-                return true;
-            }
-
-            // Note: do NOT match on prefix CFIs here. A new selection that
-            // merely overlaps an existing highlight (e.g. selecting a word
-            // inside it) must be treated as a fresh selection, not as an edit
-            // of the highlight — otherwise highlighted text cannot be selected.
-            // A genuine tap on a highlight is delivered as an exact CFI match
-            // above (see FoliateEngine's `show-annotation`).
-            
-            if (text && text.length > 3 && a.selectedText &&
-                a.type !== 'bookmark' &&
-                a.selectedText.trim() === text.trim()) {
-                debug('[Reader] Matched annotation by text content:', a.id);
-                return true;
-            }
-            return false;
-        });
-
+        let existingAnnotation = annotationsByLocation.get(cfi);
+        if (!existingAnnotation && text && text.length > 3) {
+            existingAnnotation = annotationsBySelectedText.get(text.trim());
+        }
         if (!existingAnnotation) {
-            existingAnnotation = freshAnnotations.find(a => a.location === cfi);
+            existingAnnotation = freshAnnotations.find(a => {
+                if (a.location === cfi && (a.type === 'highlight' || a.type === 'note')) {
+                    return true;
+                }
+                if (text && text.length > 3 && a.selectedText &&
+                    a.type !== 'bookmark' &&
+                    a.selectedText.trim() === text.trim()) {
+                    return true;
+                }
+                return a.location === cfi;
+            });
         }
 
         if (existingAnnotation) {
@@ -2075,7 +2095,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         const freshAnnotations = getBookAnnotations(activeDocId);
 
         if (editingHighlightId) {
-            const existingAnnotation = freshAnnotations.find(a => a.id === editingHighlightId);
+            const existingAnnotation = annotationsById.get(editingHighlightId) || freshAnnotations.find(a => a.id === editingHighlightId);
             if (existingAnnotation) {
                 
                 updateAnnotation(editingHighlightId, { color });
@@ -2103,10 +2123,12 @@ const BookReaderPage = memo(function BookReaderPage() {
             return;
         }
 
-        const existingHighlight = freshAnnotations.find(a =>
-            (a.type === 'highlight' || a.type === 'note') &&
-            (a.location === selectedCfi || (a.selectedText && a.selectedText.trim() === selectedText.trim()))
-        );
+        const existingHighlight = annotationsByLocation.get(selectedCfi) ||
+            (selectedText ? annotationsBySelectedText.get(selectedText.trim()) : undefined) ||
+            freshAnnotations.find(a =>
+                (a.type === 'highlight' || a.type === 'note') &&
+                (a.location === selectedCfi || (a.selectedText && a.selectedText.trim() === selectedText.trim()))
+            );
 
         if (existingHighlight) {
             
@@ -2298,9 +2320,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const handleAddPageBookmark = useCallback(() => {
         if (!activeDocId || !location) return;
 
-        const existingBookmark = annotations.find(
-            a => a.type === 'bookmark' && a.location === location.cfi
-        );
+        const existingBookmark = bookmarkByLocation.get(location.cfi);
 
         if (existingBookmark) {
             
@@ -2321,7 +2341,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             addAnnotation(annotation);
             setAnnotations(prev => [...prev, annotation]);
         }
-    }, [activeDocId, location, annotations, addAnnotation, removeAnnotation]);
+    }, [activeDocId, location, bookmarkByLocation, addAnnotation, removeAnnotation]);
 
     const handleDeleteFromColorPicker = useCallback(async () => {
         if (!editingHighlightId) {
@@ -2845,13 +2865,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                 visible={activePanel === 'search'}
                 onClose={() => setActivePanel(null)}
                 onNavigate={goTo}
-                onSearch={(q) => {
+                onSearch={(q, options) => {
                     if (isPdfFormat) {
-                        return pdfReaderRef.current?.search(q) || (async function* () {
+                        return pdfReaderRef.current?.search(q, options) || (async function* () {
                             yield 'done' as const;
                         })();
                     }
-                    return readerRef.current?.search(q) || (async function* () {
+                    return readerRef.current?.search(q, options) || (async function* () {
                         yield 'done' as const;
                     })();
                 }}

@@ -89,6 +89,7 @@ iroh-gossip = "0.101.0"
 iroh-mdns-address-lookup = "0.4.0"
 readability = { version = "0.3.0", default-features = false }
 url = "2.5.8"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 unrar-ng = "0.7.7"

@@ -59,7 +59,6 @@
         "build:android": "JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android build --debug"
     },
     "dependencies": {
-        "@mozilla/readability": "^0.6.0",
         "@radix-ui/react-context-menu": "^2.3.7",
         "@radix-ui/react-dialog": "^1.1.23",
         "@radix-ui/react-dropdown-menu": "^2.1.24",
@@ -85,7 +84,6 @@
         "idb-keyval": "^6.3.0",
         "knap": "^0.6.0",
         "lucide-react": "^1.47.0",
-        "markdown-it": "^15.0.2",
         "pdfjs-dist": "^6.3.289",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
@@ -99,7 +97,6 @@
     "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
         "@tauri-apps/cli": "^2.11.4",
-        "@types/markdown-it": "^14.2.0",
         "@types/node": "^26.6.1",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",

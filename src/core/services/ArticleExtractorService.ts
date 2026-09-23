@@ -102,10 +102,7 @@ export class ArticleExtractorService {
         }
 
         try {
-            const [{ Readability }, dompurifyModule] = await Promise.all([
-                import("@mozilla/readability"),
-                import("dompurify"),
-            ]);
+            const dompurifyModule = await import("dompurify");
             const DOMPurify = (dompurifyModule && (dompurifyModule.default || dompurifyModule)) as typeof import("dompurify").default;
 
             const parser = new DOMParser();
@@ -115,22 +112,34 @@ export class ArticleExtractorService {
                 resolveAbsoluteUrls(doc, url);
             }
 
-            // Remove clutter, scripts, widgets before Readability
-            doc.querySelectorAll("script, style, noscript, iframe, svg, form").forEach(el => el.remove());
+            // Remove clutter, scripts, widgets, nav, header, footer, ads before extraction
+            doc.querySelectorAll("script, style, noscript, iframe, svg, form, nav, header, footer, .ad-banner, .cookie-notice").forEach(el => el.remove());
 
-            // Clone document before Readability mutation
-            const docClone = doc.cloneNode(true) as Document;
-            const reader = new Readability(docClone, {
-                keepClasses: false,
-                charThreshold: 60,
-            });
+            // Extract title: og:title -> <title> -> <h1>
+            const ogTitle = doc.querySelector("meta[property='og:title']")?.getAttribute("content");
+            const docTitle = doc.querySelector("title")?.textContent;
+            const h1Title = doc.querySelector("h1")?.textContent;
+            const title = (ogTitle || docTitle || h1Title || "").trim();
 
-            const parsed = reader.parse();
-            if (!parsed || !parsed.content) {
+            // Extract byline
+            const byline = (
+                doc.querySelector("meta[name='author']")?.getAttribute("content") ||
+                doc.querySelector(".byline")?.textContent ||
+                ""
+            ).trim() || undefined;
+
+            // Target main content element: <article> -> <main> -> [role="main"] -> <body>
+            const articleEl = doc.querySelector("article") || doc.querySelector("main") || doc.querySelector('[role="main"]') || doc.body;
+            if (!articleEl) {
                 return null;
             }
 
-            const sanitizedContent = DOMPurify.sanitize(parsed.content, {
+            const rawContent = articleEl.innerHTML.trim();
+            if (!rawContent) {
+                return null;
+            }
+
+            const sanitizedContent = DOMPurify.sanitize(rawContent, {
                 ALLOWED_TAGS: [
                     "h1", "h2", "h3", "h4", "h5", "h6",
                     "p", "a", "img", "blockquote", "ul", "ol", "li",
@@ -141,26 +150,32 @@ export class ArticleExtractorService {
                 ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "id", "target", "rel", "width", "height"],
             });
 
-            // Find lead image if present
+            // Find lead image: og:image -> first <img>
             let leadImageUrl: string | undefined;
-            const firstImg = doc.querySelector<HTMLImageElement>("meta[property='og:image'], img");
-            if (firstImg) {
-                if (firstImg.tagName.toLowerCase() === "meta") {
-                    leadImageUrl = firstImg.getAttribute("content") || undefined;
-                } else {
+            const metaImg = doc.querySelector<HTMLMetaElement>("meta[property='og:image'], meta[name='twitter:image']");
+            if (metaImg) {
+                leadImageUrl = metaImg.getAttribute("content") || undefined;
+            } else {
+                const firstImg = articleEl.querySelector<HTMLImageElement>("img[src]");
+                if (firstImg) {
                     leadImageUrl = firstImg.getAttribute("src") || undefined;
                 }
             }
 
+            const textContent = articleEl.textContent?.trim() || "";
+            const excerpt = doc.querySelector("meta[name='description'], meta[property='og:description']")?.getAttribute("content") || undefined;
+            const siteName = doc.querySelector("meta[property='og:site_name']")?.getAttribute("content") || undefined;
+            const publishedTime = doc.querySelector("meta[property='article:published_time']")?.getAttribute("content") || undefined;
+
             return {
-                title: parsed.title || "",
-                byline: parsed.byline || undefined,
+                title,
+                byline,
                 content: sanitizedContent,
-                textContent: parsed.textContent || "",
-                excerpt: parsed.excerpt || undefined,
-                siteName: parsed.siteName || undefined,
+                textContent,
+                excerpt,
+                siteName,
                 leadImageUrl,
-                publishedTime: parsed.publishedTime || undefined,
+                publishedTime,
             };
         } catch (error) {
             console.error("[ArticleExtractor] Error parsing article HTML:", error);

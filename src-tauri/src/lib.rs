@@ -1256,9 +1256,8 @@ fn apply_linux_webkit_workarounds() {
         env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
-    if env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
-        env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-    }
+    // Hardware compositing is preserved by default for 60fps scrolling and GPU transforms.
+    // If an environment explicitly requires disabling compositing, WEBKIT_DISABLE_COMPOSITING_MODE=1 can be set.
 
     let existing_gdk_debug = env::var("GDK_DEBUG").unwrap_or_default();
     if existing_gdk_debug
@@ -1922,6 +1921,7 @@ pub fn run() {
             vault_export::vault_export_snapshot,
             rss_parser::parse_rss_feed_native,
             rss_parser::fetch_and_parse_rss_feed,
+            rss_parser::render_markdown_to_html,
             image_ops::downsample_cover,
             image_ops::extract_cover_palette,
             stemmer::lemmatize_word,

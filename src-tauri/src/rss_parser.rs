@@ -234,6 +234,12 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
                         extract_image_src_from_html(&final_content)
                     };
 
+                    let article_html = if looks_like_markdown(&final_content) {
+                        markdown_to_html(&final_content)
+                    } else {
+                        final_content
+                    };
+
                     articles.push(ParsedArticle {
                         title: (if item_title.is_empty() {
                             "Untitled"
@@ -242,7 +248,7 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
                         })
                         .into(),
                         url: item_link.trim().into(),
-                        content: final_content.into_boxed_str(),
+                        content: article_html.into_boxed_str(),
                         summary: if !item_desc.is_empty() && item_desc != item_content {
                             Some(item_desc.as_str().into())
                         } else {
@@ -433,6 +439,12 @@ fn parse_atom(bytes: &[u8]) -> Result<ParsedFeed, String> {
                         extract_image_src_from_html(&final_content)
                     };
 
+                    let article_html = if looks_like_markdown(&final_content) {
+                        markdown_to_html(&final_content)
+                    } else {
+                        final_content
+                    };
+
                     articles.push(ParsedArticle {
                         title: (if entry_title.is_empty() {
                             "Untitled"
@@ -441,7 +453,7 @@ fn parse_atom(bytes: &[u8]) -> Result<ParsedFeed, String> {
                         })
                         .into(),
                         url: entry_link.trim().into(),
-                        content: final_content.into_boxed_str(),
+                        content: article_html.into_boxed_str(),
                         summary: if !entry_summary.is_empty() && entry_summary != entry_content {
                             Some(entry_summary.as_str().into())
                         } else {
@@ -529,6 +541,49 @@ pub async fn fetch_and_parse_rss_feed(url: String) -> Result<ParsedFeed, String>
     tokio::task::spawn_blocking(move || parse_feed_bytes(&bytes))
         .await
         .map_err(|e| format!("Join error: {e}"))?
+}
+
+/// Convert markdown text into HTML using pulldown-cmark
+pub fn markdown_to_html(markdown: &str) -> String {
+    let mut options = pulldown_cmark::Options::empty();
+    options.insert(pulldown_cmark::Options::ENABLE_TABLES);
+    options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
+    options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
+    options.insert(pulldown_cmark::Options::ENABLE_TASKLISTS);
+
+    let parser = pulldown_cmark::Parser::new_ext(markdown, options);
+    let mut html_output = String::new();
+    pulldown_cmark::html::push_html(&mut html_output, parser);
+    html_output
+}
+
+/// Detects whether an article's text content looks like raw markdown rather than HTML
+pub fn looks_like_markdown(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.len() < 3 || trimmed.contains('<') {
+        return false;
+    }
+
+    trimmed.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("# ")
+            || line.starts_with("## ")
+            || line.starts_with("### ")
+            || line.starts_with("- ")
+            || line.starts_with("* ")
+            || line.starts_with("> ")
+            || line.starts_with("```")
+            || (line.len() > 3
+                && line.chars().next().is_some_and(|c| c.is_ascii_digit())
+                && line.contains(". "))
+    }) || (trimmed.contains("**") && trimmed.matches("**").count() >= 2)
+        || (trimmed.contains('`') && trimmed.matches('`').count() >= 2)
+        || (trimmed.contains("](") && trimmed.contains('['))
+}
+
+#[tauri::command]
+pub fn render_markdown_to_html(markdown: String) -> String {
+    markdown_to_html(&markdown)
 }
 
 #[cfg(test)]

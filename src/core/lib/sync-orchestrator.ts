@@ -248,7 +248,8 @@ async function mergeIncomingData(
             if (incoming.length > 0) {
                 const beforeIds = new Set(currentLibState.annotations.map(a => a.id));
                 const beforeMap = new Map(currentLibState.annotations.map(a => [a.id, a]));
-                const incomingIds = new Set(incoming.map(a => a.id));
+                const incomingMap = new Map(incoming.map(a => [a.id, a]));
+                const incomingIds = new Set(incomingMap.keys());
                 const merged = mergeAnnotations(incoming, currentLibState.annotations, allTombstones);
                 if (merged !== currentLibState.annotations) {
                     applyLibraryPatch({ annotations: merged });
@@ -257,7 +258,8 @@ async function mergeIncomingData(
                         if (beforeIds.has(ann.id) && incomingIds.has(ann.id)) {
                             const before = beforeMap.get(ann.id);
                             if (before && JSON.stringify(before) !== JSON.stringify(ann)) {
-                                const remoteWon = incoming.some(i => i.id === ann.id && JSON.stringify(i) === JSON.stringify(ann));
+                                const inc = incomingMap.get(ann.id);
+                                const remoteWon = inc !== undefined && JSON.stringify(inc) === JSON.stringify(ann);
                                 recordConflict("annotation", ann.id, remoteWon ? "remote" : "local", ann.selectedText?.slice(0, 40));
                             }
                         }
