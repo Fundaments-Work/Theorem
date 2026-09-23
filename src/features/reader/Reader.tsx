@@ -7,6 +7,7 @@ import {
     getBookBlob,
     getBookData,
     saveCoverImage,
+    isFallbackCover,
 } from "../../core/lib/storage";
 import {
     loadBookLocations,
@@ -432,7 +433,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         const book = getBook(bookId);
         if (!book) return;
 
-        const hasRealCover = book.coverPath && !book.coverPath.startsWith('data:image/svg+xml');
+        const hasRealCover = !!book.coverPath && !isFallbackCover(book.coverPath);
         if (hasRealCover && book.coverExtractionDone) {
             return;
         }

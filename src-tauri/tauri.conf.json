@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: asset: http://asset.localhost https: http:; font-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' data: blob: asset: http://asset.localhost https: http:; frame-src 'self' data: blob: asset: http://asset.localhost; child-src 'self' data: blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost ws: data: blob: asset: http://asset.localhost https: http:; worker-src 'self' blob: asset: http://asset.localhost",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob: asset: http://asset.localhost theorem-cover: http://theorem-cover.localhost https://theorem-cover.localhost https: http:; font-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' data: blob: asset: http://asset.localhost https: http:; frame-src 'self' data: blob: asset: http://asset.localhost; child-src 'self' data: blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost ws: data: blob: asset: http://asset.localhost https: http:; worker-src 'self' blob: asset: http://asset.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": [

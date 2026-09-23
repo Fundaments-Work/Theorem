@@ -12,6 +12,7 @@ pub mod book_search;
 pub mod cli;
 #[cfg(not(target_os = "android"))]
 pub mod cli_tui;
+pub mod cover_protocol;
 mod database;
 mod epub_parser;
 mod epub_rewriter;
@@ -1601,6 +1602,15 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(PendingOpenFiles::default())
         .manage(QuitCoordinator::default())
+        .register_asynchronous_uri_scheme_protocol(
+            cover_protocol::COVER_SCHEME,
+            |ctx, request, responder| {
+                let app = ctx.app_handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    responder.respond(cover_protocol::respond(&app, &request));
+                });
+            },
+        )
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
@@ -1800,6 +1810,7 @@ pub fn run() {
             supertonic::tts_engine_unload,
             trim_memory,
             app_quit_ready,
+            cover_protocol::sqlite_list_cover_versions,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,

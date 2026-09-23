@@ -4,11 +4,12 @@ import { triggerVaultAutoSync } from "../lib/vault-sync";
 import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import { deleteBookStorage } from "../lib/storage-manager";
-import { getCoverImage } from "../lib/storage";
+import { coverDisplayUrl, getCoverImage, INLINE_COVER_MAX_CHARS } from "../lib/storage";
 import { persistBookLocations } from "../lib/book-locations";
 import {
     sqliteSaveBookMetadata,
     sqliteSaveBookAnnotations,
+    sqliteListCoverVersions,
     sqliteIndexBooksFtsBatch,
     sqliteIndexBookFts,
     sqliteGetKv,
@@ -1497,7 +1498,23 @@ export const useLibraryStore = create<LibraryStore>()(
                 void (async () => {
                     try {
                         const allCovers = new Map<string, string>();
-                        for (let i = 0; i < bookIdsMissingCoverPath.length; i += COVER_RESTORE_BATCH_SIZE) {
+                        if (isTauri()) {
+                            // One call for every cover's version; the webview then loads only
+                            // the covers it shows via theorem-cover:// (was: every cover's
+                            // base64 bytes over IPC into the JS heap, one call per book).
+                            const wanted = new Set(bookIdsMissingCoverPath);
+                            const versions = await sqliteListCoverVersions();
+                            for (const row of versions) {
+                                if (!wanted.has(row.bookId)) continue;
+                                if (row.dataUrlLen < INLINE_COVER_MAX_CHARS) {
+                                    const inline = await getCoverImage(row.bookId);
+                                    if (inline) allCovers.set(row.bookId, inline);
+                                } else {
+                                    allCovers.set(row.bookId, coverDisplayUrl(row.bookId, row.updatedAt, row.isSvg));
+                                }
+                            }
+                        }
+                        for (let i = 0; !isTauri() && i < bookIdsMissingCoverPath.length; i += COVER_RESTORE_BATCH_SIZE) {
                             const batchIds = bookIdsMissingCoverPath.slice(i, i + COVER_RESTORE_BATCH_SIZE);
                             const batchEntries = await Promise.all(
                                 batchIds.map(async (bookId) => {

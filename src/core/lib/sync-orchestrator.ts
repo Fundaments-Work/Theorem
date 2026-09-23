@@ -24,9 +24,9 @@ import {
     mergeReadingStats,
 } from "./sync-import";
 import { isTauri } from "./env";
-import { saveCoverImage } from "./storage";
 import { sqliteDeleteVocabularyTerm, sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
 import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
+import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, coverPathForBookEntry, needsCoverEntry, parseCoverEntry } from "./sync-covers";
 
 async function notifySync(title: string, body?: string, icon?: string) {
     const settings = useSettingsStore.getState().settings;
@@ -75,7 +75,7 @@ async function mergeIncomingData(
         }
         
         for (const key of Object.keys(incomingMap)) {
-            if (key.startsWith("book:") || key.startsWith("annotation:") || key.startsWith("anno:") || key.startsWith("collection:")) {
+            if (key.startsWith("book:") || key.startsWith("annotation:") || key.startsWith("anno:") || key.startsWith("collection:") || key.startsWith(COVER_KEY_PREFIX)) {
                 if (!safeMap[key]) {
                     safeMap[key] = incomingMap[key];
                 }
@@ -112,6 +112,13 @@ async function mergeIncomingData(
                 }
             } catch {}
         }
+    }
+
+    const incomingCovers: Array<{ id: string; dataUrl: string }> = [];
+    for (const key of Object.keys(safeMap)) {
+        if (!key.startsWith(COVER_KEY_PREFIX)) continue;
+        const cover = parseCoverEntry(safeMap[key]);
+        if (cover) incomingCovers.push(cover);
     }
 
     let allTombstones = useLibraryStore.getState().deletionTombstones;
@@ -221,13 +228,12 @@ async function mergeIncomingData(
                 const incomingWithCovers = (incoming as { id: string; coverPath?: string }[])
                     .filter((b) => b.coverPath && b.coverPath.startsWith("data:"));
 
-                await Promise.allSettled(incomingWithCovers.map(async (inc) => {
-                    try {
-                        const response = await fetch(inc.coverPath!);
-                        const blob = await response.blob();
-                        if (blob.size > 0) await saveCoverImage(inc.id, blob);
-                    } catch {}
-                }));
+                // Older peers still embed covers in book entries.
+                for (const inc of incomingWithCovers) {
+                    if (!incomingCovers.some((c) => c.id === inc.id)) {
+                        incomingCovers.push({ id: inc.id, dataUrl: inc.coverPath! });
+                    }
+                }
             }
         } catch (e) {
         }
@@ -283,6 +289,30 @@ async function mergeIncomingData(
 
     if (Object.keys(libraryPatch).length > 0) {
         useLibraryStore.setState(libraryPatch as Parameters<typeof useLibraryStore.setState>[0]);
+    }
+
+    if (incomingCovers.length > 0) {
+        const updatedCovers = new Map<string, string>();
+        for (const cover of incomingCovers) {
+            try {
+                const path = await applyIncomingCover(cover.id, cover.dataUrl);
+                if (path) updatedCovers.set(cover.id, path);
+            } catch {}
+        }
+        if (updatedCovers.size > 0) {
+            for (const [id, path] of updatedCovers) {
+                // Known to peers already: neither provisioning nor the live bridge re-sends it.
+                _provisionedValues.set(coverEntryKey(id), path);
+                _receivedCoverPaths.add(path);
+            }
+            useLibraryStore.setState((state) => ({
+                books: state.books.map((book) => {
+                    const path = updatedCovers.get(book.id);
+                    return path ? { ...book, coverPath: path, coverExtractionDone: true } : book;
+                }),
+            }));
+            markUpdated("covers");
+        }
     }
 
     if (safeMap["vocabulary"]) {
@@ -1087,6 +1117,8 @@ const AUTO_SYNC_INTERVAL_MS = 2 * 60 * 1000;
 const STARTUP_SYNC_DELAY_MS = 5000;
 
 const MUTATION_SYNC_DEBOUNCE_MS = 2000;
+/** Cover paths that arrived from a peer: the live bridge must not echo them back. */
+const _receivedCoverPaths = new Set<string>();
 const READING_SYNC_THROTTLE_MS = 30_000;
 
 let _autoSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -1379,7 +1411,7 @@ export async function provisionToIrohDocs(): Promise<boolean> {
                 ...stripped,
                 ...(book.blobHash ? { blobHash: book.blobHash } : {}),
                 ...(book.coverBlobHash ? { coverBlobHash: book.coverBlobHash } : {}),
-                ...(coverPath ? { coverPath } : {}),
+                ...(coverPathForBookEntry(coverPath) ? { coverPath: coverPathForBookEntry(coverPath) } : {}),
             });
         };
 
@@ -1401,6 +1433,21 @@ export async function provisionToIrohDocs(): Promise<boolean> {
                 const msg = `book ${book.id} (${book.title || "unknown"}): ${e}`;
                 bookErrors.push(msg);
                 console.error(`[sync] Failed to provision ${msg}`);
+            }
+        }
+
+        // Covers travel as their own entries, re-sent only when the cover changes.
+        for (const book of lib.books) {
+            if (!needsCoverEntry(book.coverPath)) continue;
+            const key = coverEntryKey(book.id);
+            if (_provisionedValues.get(key) === book.coverPath) continue;
+            try {
+                const entry = await buildCoverEntry(book.id);
+                if (!entry) continue;
+                markSelfOriginated(key);
+                if (await docsSetEntry(key, entry)) _provisionedValues.set(key, book.coverPath!);
+            } catch {
+                // A missing cover must not fail provisioning.
             }
         }
 
@@ -1520,7 +1567,7 @@ export function subscribeZustandToIrohDocs(): () => void {
             ...stripped,
             ...(book.blobHash ? { blobHash: book.blobHash } : {}),
             ...(book.coverBlobHash ? { coverBlobHash: book.coverBlobHash } : {}),
-            ...(coverPath ? { coverPath } : {}),
+            ...(coverPathForBookEntry(coverPath) ? { coverPath: coverPathForBookEntry(coverPath) } : {}),
         });
     };
 
@@ -1559,6 +1606,19 @@ export function subscribeZustandToIrohDocs(): () => void {
             for (const book of state.books) {
                 const entry = bookIndex.get(book.id);
                 if (entry && entry.ref === book) continue;
+                // An existing cover changed (edit, re-extraction): send it. First-time
+                // covers (hydration, new imports) go out with the next provisioning.
+                const previousCover = (entry?.ref as { coverPath?: string } | undefined)?.coverPath;
+                if (previousCover && book.coverPath !== previousCover && needsCoverEntry(book.coverPath)
+                    && !_receivedCoverPaths.has(book.coverPath!)) {
+                    const coverKey = coverEntryKey(book.id);
+                    const coverPath = book.coverPath!;
+                    scheduleDocsWrite(coverKey, () => {
+                        void buildCoverEntry(book.id).then((value) => {
+                            if (value) return docsSetEntry(coverKey, value).then((ok) => { if (ok) _provisionedValues.set(coverKey, coverPath); });
+                        });
+                    }, coverKey);
+                }
                 const serialized = serializeBook(book);
                 if (!entry || entry.serialized !== serialized) {
                     bookIndex.set(book.id, { ref: book, serialized });

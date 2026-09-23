@@ -74,6 +74,19 @@ export async function sqliteGetCoverImage(bookId: string): Promise<string | null
     }) as Promise<string | null>;
 }
 
+export interface CoverVersionRow {
+    bookId: string;
+    updatedAt: number;
+    isSvg: boolean;
+    dataUrlLen: number;
+}
+
+/** Which books have a stored cover (one IPC call instead of one per cover). */
+export async function sqliteListCoverVersions(): Promise<CoverVersionRow[]> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_list_cover_versions') as Promise<CoverVersionRow[]>;
+}
+
 export async function sqliteDeleteCoverImage(bookId: string): Promise<void> {
     const invoke = await getInvoke();
     await invoke('sqlite_delete_cover_image', {

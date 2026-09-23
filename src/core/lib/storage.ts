@@ -1,5 +1,6 @@
 
 import { get, set, del } from 'idb-keyval';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { isTauri } from './env';
 import {
     sqliteDeleteBookData,
@@ -19,7 +20,27 @@ const STORAGE_READ_TIMEOUT_MS = 30000;
 
 let tauriFs: typeof import('@tauri-apps/plugin-fs') | null = null;
 
-const COVER_CACHE_MAX = 100;
+// Data URLs are only needed for sync/export now (display uses theorem-cover://),
+// so keep this small.
+const COVER_CACHE_MAX = 16;
+/** Data URLs shorter than this stay inline (placeholder icons, see TheoremBookCover). */
+export const INLINE_COVER_MAX_CHARS = 5000;
+
+/**
+ * Display URL for a cover stored in SQLite (desktop/mobile). Served by the
+ * Rust `theorem-cover` scheme, so the webview decodes only covers on screen
+ * and nothing is held in the JS heap. `version` busts the immutable cache.
+ */
+export function coverDisplayUrl(bookId: string, version: number | string, isFallback = false): string {
+    const base = convertFileSrc(bookId, 'theorem-cover');
+    return `${base}?v=${encodeURIComponent(String(version))}${isFallback ? '&fallback=1' : ''}`;
+}
+
+/** True for generated placeholder covers (SVG data URL or a fallback cover URL). */
+export function isFallbackCover(coverPath?: string | null): boolean {
+    if (!coverPath) return false;
+    return coverPath.startsWith('data:image/svg+xml') || /[?&]fallback=1(?:&|$)/.test(coverPath);
+}
 const THUMBNAIL_CACHE_MAX = 200;
 
 const blobCache = new Map<string, Blob>();
@@ -529,7 +550,8 @@ export async function saveCoverImage(bookId: string, blob: Blob): Promise<string
     if (isTauri()) {
         try {
             await sqliteSaveCoverImage(bookId, dataUrl);
-            return dataUrl;
+            if (dataUrl.length < INLINE_COVER_MAX_CHARS) return dataUrl;
+            return coverDisplayUrl(bookId, Date.now(), dataUrl.startsWith('data:image/svg+xml'));
         } catch (error) {
         }
     }
@@ -540,6 +562,23 @@ export async function saveCoverImage(bookId: string, blob: Blob): Promise<string
     } catch (error) {
         throw error;
     }
+}
+
+/**
+ * Store a cover data URL exactly as given (no re-encode) and return its
+ * display path. Used for covers received from another device: re-encoding
+ * would change the bytes, the device would send them back, and two devices
+ * would keep rewriting each other's covers.
+ */
+export async function saveCoverDataUrl(bookId: string, dataUrl: string): Promise<string> {
+    lruSet(coverCache, bookId, dataUrl, COVER_CACHE_MAX);
+    if (isTauri()) {
+        await sqliteSaveCoverImage(bookId, dataUrl);
+        if (dataUrl.length < INLINE_COVER_MAX_CHARS) return dataUrl;
+        return coverDisplayUrl(bookId, Date.now(), dataUrl.startsWith('data:image/svg+xml'));
+    }
+    await set(`${COVERS_STORE}-${bookId}`, dataUrl);
+    return dataUrl;
 }
 
 export async function getCoverImage(bookId: string): Promise<string | null> {
