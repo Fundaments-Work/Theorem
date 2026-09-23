@@ -1,0 +1,170 @@
+--- overlayer.js	2026-07-10 23:19:32.181099994 +0545
++++ overlayer.js	2026-09-23 09:59:08.349681226 +0545
+@@ -4,6 +4,9 @@
+ export class Overlayer {
+     #svg = createSVGElement('svg')
+     #map = new Map()
++    // Theorem: the live text selection, drawn from text-only rects so it hugs
++    // the glyphs like PDF selection. Kept out of #map so hitTest ignores it.
++    #selection = null
+     constructor() {
+         Object.assign(this.#svg.style, {
+             position: 'absolute', top: '0', left: '0',
+@@ -27,7 +30,34 @@
+         this.#svg.removeChild(this.#map.get(key).element)
+         this.#map.delete(key)
+     }
++    setSelection(getRects, color) {
++        this.#selection?.element?.remove()
++        this.#selection = getRects ? { getRects, color, element: null } : null
++        this.#drawSelection()
++    }
++    #drawSelection() {
++        const selection = this.#selection
++        if (!selection) return
++        selection.element?.remove()
++        const g = createSVGElement('g')
++        g.setAttribute('data-selection', 'true')
++        g.style.fill = selection.color
++        for (const { left, top, height, width } of selection.getRects()) {
++            if (!(width > 0) || !(height > 0)) continue
++            const el = createSVGElement('rect')
++            el.setAttribute('x', left)
++            el.setAttribute('y', top)
++            el.setAttribute('height', height)
++            el.setAttribute('width', width)
++            el.setAttribute('rx', '2')
++            g.append(el)
++        }
++        this.#svg.append(g)
++        selection.element = g
++    }
+     redraw() {
++        this.#selection?.element?.remove()
++        if (this.#selection) this.#selection.element = null
+         for (const obj of this.#map.values()) {
+             const { range, draw, options, element } = obj
+             this.#svg.removeChild(element)
+@@ -37,15 +67,21 @@
+             obj.element = el
+             obj.rects = rects
+         }
++        this.#drawSelection()
+     }
+-    hitTest({ x, y }) {
++    hitTest(point) {
++        const x = point?.x ?? point?.clientX
++        const y = point?.y ?? point?.clientY
++        if (typeof x !== 'number' || typeof y !== 'number') return []
+         const arr = Array.from(this.#map.entries())
+-        // loop in reverse to hit more recently added items first
++        
+         for (let i = arr.length - 1; i >= 0; i--) {
+             const [key, obj] = arr[i]
+-            for (const { left, top, right, bottom } of obj.rects)
++            for (const { left, top, right, bottom } of obj.rects) {
++                if (right <= left || bottom <= top) continue
+                 if (top <= y && left <= x && bottom > y && right > x)
+                     return [key, obj.range]
++            }
+         }
+         return []
+     }
+@@ -55,6 +91,7 @@
+         g.setAttribute('fill', color)
+         if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr')
+             for (const { right, top, height } of rects) {
++                if (!height || height <= 0) continue
+                 const el = createSVGElement('rect')
+                 el.setAttribute('x', right - strokeWidth)
+                 el.setAttribute('y', top)
+@@ -63,6 +100,7 @@
+                 g.append(el)
+             }
+         else for (const { left, bottom, width } of rects) {
++            if (!width || width <= 0) continue
+             const el = createSVGElement('rect')
+             el.setAttribute('x', left)
+             el.setAttribute('y', bottom - strokeWidth)
+@@ -78,6 +116,7 @@
+         g.setAttribute('fill', color)
+         if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr')
+             for (const { right, left, top, height } of rects) {
++                if (!height || height <= 0) continue
+                 const el = createSVGElement('rect')
+                 el.setAttribute('x', (right + left) / 2)
+                 el.setAttribute('y', top)
+@@ -86,6 +125,7 @@
+                 g.append(el)
+             }
+         else for (const { left, top, bottom, width } of rects) {
++            if (!width || width <= 0) continue
+             const el = createSVGElement('rect')
+             el.setAttribute('x', left)
+             el.setAttribute('y', (top + bottom) / 2)
+@@ -104,8 +144,9 @@
+         const block = strokeWidth * 1.5
+         if (writingMode === 'vertical-rl' || writingMode === 'vertical-lr')
+             for (const { right, top, height } of rects) {
++                if (!height || height <= 0) continue
+                 const el = createSVGElement('path')
+-                const n = Math.round(height / block / 1.5)
++                const n = Math.max(1, Math.round(height / block / 1.5))
+                 const inline = height / n
+                 const ls = Array.from({ length: n },
+                     (_, i) => `l${i % 2 ? -block : block} ${inline}`).join('')
+@@ -113,8 +154,9 @@
+                 g.append(el)
+             }
+         else for (const { left, bottom, width } of rects) {
++            if (!width || width <= 0) continue
+             const el = createSVGElement('path')
+-            const n = Math.round(width / block / 1.5)
++            const n = Math.max(1, Math.round(width / block / 1.5))
+             const inline = width / n
+             const ls = Array.from({ length: n },
+                 (_, i) => `l${inline} ${i % 2 ? block : -block}`).join('')
+@@ -127,14 +169,17 @@
+         const { color = 'red' } = options
+         const g = createSVGElement('g')
+         g.setAttribute('fill', color)
+-        g.style.opacity = 'var(--overlayer-highlight-opacity, .3)'
++        g.setAttribute('data-highlight', 'true')
++        g.style.opacity = 'var(--overlayer-highlight-opacity, .35)'
+         g.style.mixBlendMode = 'var(--overlayer-highlight-blend-mode, normal)'
+         for (const { left, top, height, width } of rects) {
++            if (!width || !height || width <= 0 || height <= 0) continue
+             const el = createSVGElement('rect')
+             el.setAttribute('x', left)
+             el.setAttribute('y', top)
+             el.setAttribute('height', height)
+             el.setAttribute('width', width)
++            el.setAttribute('rx', '2')
+             g.append(el)
+         }
+         return g
+@@ -146,6 +191,7 @@
+         g.setAttribute('stroke', color)
+         g.setAttribute('stroke-width', strokeWidth)
+         for (const { left, top, height, width } of rects) {
++            if (!width || !height || width <= 0 || height <= 0) continue
+             const el = createSVGElement('rect')
+             el.setAttribute('x', left)
+             el.setAttribute('y', top)
+@@ -156,10 +202,7 @@
+         }
+         return g
+     }
+-    // make an exact copy of an image in the overlay
+-    // one can then apply filters to the entire element, without affecting them;
+-    // it's a bit silly and probably better to just invert images twice
+-    // (though the color will be off in that case if you do heu-rotate)
++    
+     static copyImage([rect], options = {}) {
+         const { src } = options
+         const image = createSVGElement('image')
+@@ -172,4 +215,3 @@
+         return image
+     }
+ }
+-

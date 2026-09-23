@@ -4,6 +4,9 @@ const createSVGElement = tag =>
 export class Overlayer {
     #svg = createSVGElement('svg')
     #map = new Map()
+    // Theorem: the live text selection, drawn from text-only rects so it hugs
+    // the glyphs like PDF selection. Kept out of #map so hitTest ignores it.
+    #selection = null
     constructor() {
         Object.assign(this.#svg.style, {
             position: 'absolute', top: '0', left: '0',
@@ -27,7 +30,34 @@ export class Overlayer {
         this.#svg.removeChild(this.#map.get(key).element)
         this.#map.delete(key)
     }
+    setSelection(getRects, color) {
+        this.#selection?.element?.remove()
+        this.#selection = getRects ? { getRects, color, element: null } : null
+        this.#drawSelection()
+    }
+    #drawSelection() {
+        const selection = this.#selection
+        if (!selection) return
+        selection.element?.remove()
+        const g = createSVGElement('g')
+        g.setAttribute('data-selection', 'true')
+        g.style.fill = selection.color
+        for (const { left, top, height, width } of selection.getRects()) {
+            if (!(width > 0) || !(height > 0)) continue
+            const el = createSVGElement('rect')
+            el.setAttribute('x', left)
+            el.setAttribute('y', top)
+            el.setAttribute('height', height)
+            el.setAttribute('width', width)
+            el.setAttribute('rx', '2')
+            g.append(el)
+        }
+        this.#svg.append(g)
+        selection.element = g
+    }
     redraw() {
+        this.#selection?.element?.remove()
+        if (this.#selection) this.#selection.element = null
         for (const obj of this.#map.values()) {
             const { range, draw, options, element } = obj
             this.#svg.removeChild(element)
@@ -37,6 +67,7 @@ export class Overlayer {
             obj.element = el
             obj.rects = rects
         }
+        this.#drawSelection()
     }
     hitTest(point) {
         const x = point?.x ?? point?.clientX

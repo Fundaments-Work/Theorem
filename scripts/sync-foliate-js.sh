@@ -97,6 +97,7 @@ PATCHES=(
     "epub-js-runtime.patch:epub.js patched (in-flight loadText dedup)"
     "dict-js-runtime.patch:dict.js patched (StarDict gzip/dictzip loading)"
     "paginator-js-runtime.patch:paginator.js patched (overflow:clip, transform pagination)"
+    "overlayer-js-runtime.patch:overlayer.js patched (hitTest guards, text selection layer)"
 )
 for entry in "${PATCHES[@]}"; do
     file="${entry%%:*}"

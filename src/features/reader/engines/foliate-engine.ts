@@ -14,6 +14,7 @@ import type {
 } from '../../../core/types';
 import { isFixedLayout } from '../../../core/types';
 import { getTheme } from '../foliate/themes';
+import { computeTextSelectionRects } from '../foliate/selection-rects';
 import { getCSS } from '../foliate/reader.js';
 import { 
     registerEngineStyleCallback,
@@ -43,6 +44,9 @@ const READER_INITIAL_NAVIGATION_RETRIES = 1;
 // path or filename+size) so repeat opens skip EPUB OPF/nav re-parsing. The
 // Book keeps its source File/Blob alive, so the cache is intentionally small.
 const BOOK_MODEL_CACHE_LIMIT = 2;
+const SELECTION_OVERLAY_CLASS = 'theorem-selection-overlay';
+/** Same look as PDF selection (see .textLayer ::selection). */
+const SELECTION_FILL = 'color-mix(in srgb, var(--color-accent) 35%, transparent)';
 const bookModelCache = new Map<string, { book: unknown; cleanup: () => void }>();
 
 interface ReaderSearchExcerpt {
@@ -85,6 +89,8 @@ export class FoliateEngine {
     private annotationSectionCache: Map<string, number | null> = new Map();
     /** Overlayers that already hold every annotation of their section. */
     private populatedOverlayers: WeakSet<object> = new WeakSet();
+    /** Section documents whose selection is drawn by the overlayer. */
+    private selectionOverlayDocs: WeakSet<Document> = new WeakSet();
     private currentLocation: DocLocation | null = null;
     private sectionFractions: number[] = [];
 
@@ -612,6 +618,8 @@ export class FoliateEngine {
             const index = e?.detail?.index;
             if (typeof index === 'number') {
                 this.renderAnnotationsForSection(index);
+                const doc = (this.view?.renderer?.getContents?.() || []).find((c: any) => c.index === index)?.doc;
+                if (doc) this.attachSelectionOverlay(doc);
             }
         });
 
@@ -625,6 +633,7 @@ export class FoliateEngine {
                 if (typeof detail?.index === 'number') {
                     this.renderAnnotationsForSection(detail.index);
                 }
+                if (detail?.doc) this.attachSelectionOverlay(detail.doc);
             });
         });
 
@@ -991,6 +1000,11 @@ export class FoliateEngine {
                     ::selection {
                         background: color-mix(in srgb, ${colors.fg} 35%, transparent) !important;
                         color: ${colors.fg} !important;
+                    }
+
+                    /* The overlayer draws the selection (text-only rects). */
+                    html.${SELECTION_OVERLAY_CLASS} ::selection {
+                        background: transparent !important;
                     }
 
                     /* Suppress iOS native callout menu so Theorem's toolbar
@@ -1416,6 +1430,48 @@ export class FoliateEngine {
      * annotation set changed); otherwise repeated load/create-overlay events for
      * the same overlayer are no-ops.
      */
+    /**
+     * Draw this document's text selection in the overlayer from text-only rects
+     * (glyph boxes, like PDF) instead of the native paint, which floods block
+     * margins and the blank space between paragraphs. The native highlight is
+     * made transparent only once an overlayer that can draw it is present.
+     */
+    private attachSelectionOverlay(doc: Document): void {
+        if (!doc?.documentElement) return;
+        const findOverlayer = () =>
+            (this.view?.renderer?.getContents?.() || []).find((content: any) => content.doc === doc)?.overlayer;
+        const enable = () => {
+            if (typeof findOverlayer()?.setSelection !== 'function') return false;
+            doc.documentElement.classList.add(SELECTION_OVERLAY_CLASS);
+            return true;
+        };
+        if (this.selectionOverlayDocs.has(doc)) {
+            enable();
+            return;
+        }
+        this.selectionOverlayDocs.add(doc);
+        enable();
+
+        let frame = 0;
+        const update = () => {
+            frame = 0;
+            const overlayer = findOverlayer();
+            if (typeof overlayer?.setSelection !== 'function') return;
+            enable();
+            const selection = doc.getSelection();
+            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+                overlayer.setSelection(null);
+                return;
+            }
+            // A live clone: after a re-layout the overlayer recomputes rects from it.
+            const range = selection.getRangeAt(0).cloneRange();
+            overlayer.setSelection(() => computeTextSelectionRects(range), SELECTION_FILL);
+        };
+        doc.addEventListener('selectionchange', () => {
+            if (frame === 0) frame = requestAnimationFrame(update);
+        });
+    }
+
     async renderAnnotationsForSection(sectionIndex: number, force = false): Promise<void> {
         if (!this.view || !this.book || sectionIndex < 0) {
             return;
