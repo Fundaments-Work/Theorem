@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { XMLParser } from 'fast-xml-parser';
 import { isTauri } from '../lib/env';
 import { invoke } from '@tauri-apps/api/core';
+import { needsMarkdownRender, renderMarkdownBatch } from '../lib/article-markdown';
 
 interface ParsedFeed {
     title: string;
@@ -97,8 +98,6 @@ function resolveAbsoluteUrl(value: string, baseUrl: string): string {
         return value;
     }
 }
-
-
 
 function getCachedResponse(
     cache: Map<string, CachedTextResponse>,
@@ -683,44 +682,12 @@ function isLikelyCorsRestricted(url: string): boolean {
     return corsRestrictedServices.some(service => lowerUrl.includes(service));
 }
 
-function looksLikeMarkdown(text: string): boolean {
-    if (!text || text.length < 3) return false;
-    return /^#{1,6}\s/m.test(text)
-        || /^\s*[-*+]\s/m.test(text)
-        || /\*\*[^*]+\*\*/.test(text)
-        || /\[.+?\]\(.+?\)/.test(text)
-        || /^>\s/m.test(text)
-        || /`{3}[\s\S]*?`{3}/.test(text)
-        || /^\s*\d+[.)]\s/m.test(text)
-        || /~~.+?~~/.test(text);
-}
-
-function renderMarkdownBasic(text: string): string {
-    return text
-        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-        .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
-        .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/gim, '<em>$1</em>')
-        .replace(/`([^`]+)`/gim, '<code>$1</code>')
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2">$1</a>')
-        .replace(/\n\n/g, '<p></p>')
-        .replace(/\n/g, '<br />');
-}
-
 export async function convertMarkdownToHtml(html: string): Promise<string> {
-    if (!html || !looksLikeMarkdown(html) || /<[a-zA-Z][^>]*>/.test(html)) {
+    if (!needsMarkdownRender(html)) {
         return html;
     }
-    if (isTauri()) {
-        try {
-            return await invoke<string>('render_markdown_to_html', { markdown: html });
-        } catch {
-            // fallback below
-        }
-    }
-    return renderMarkdownBasic(html);
+    const [rendered] = await renderMarkdownBatch([html]);
+    return rendered;
 }
 
 export async function fetchAndParseFeed(

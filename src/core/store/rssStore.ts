@@ -12,6 +12,7 @@ import { isTauri } from "../lib/env";
 import { useLibraryStore } from "./libraryStore";
 import { useUIStore } from "./uiStore";
 import { mapSettledWithConcurrency } from "../lib/concurrency";
+import { needsMarkdownRender, renderMarkdownBatch } from "../lib/article-markdown";
 
 const RSS_REFRESH_CONCURRENCY = 4;
 
@@ -43,6 +44,38 @@ function rssArticleTimestamp(article: RssArticle): number {
  * with no usable date is treated as new rather than silently dropped. The
  * original array order is preserved so the UI does not reshuffle.
  */
+/**
+ * Articles stored before feeds were converted in Rust may still hold raw
+ * Markdown. Render those once (one batched IPC call) and return the patched
+ * array, or `null` when nothing needed converting.
+ */
+export async function convertStoredMarkdownArticles(
+    articles: RssArticle[],
+    render: (items: string[]) => Promise<string[]> = renderMarkdownBatch,
+): Promise<Map<string, Pick<RssArticle, "content" | "summary">> | null> {
+    const jobs: Array<{ id: string; field: "content" | "summary" }> = [];
+    const inputs: string[] = [];
+    for (const article of articles) {
+        for (const field of ["content", "summary"] as const) {
+            const value = article[field];
+            if (needsMarkdownRender(value)) {
+                jobs.push({ id: article.id, field });
+                inputs.push(value);
+            }
+        }
+    }
+    if (jobs.length === 0) return null;
+    const rendered = await render(inputs);
+    if (rendered.length !== inputs.length) return null;
+    const patches = new Map<string, Pick<RssArticle, "content" | "summary">>();
+    jobs.forEach((job, index) => {
+        const patch = patches.get(job.id) ?? {} as Pick<RssArticle, "content" | "summary">;
+        patch[job.field] = rendered[index];
+        patches.set(job.id, patch);
+    });
+    return patches;
+}
+
 export function selectPersistedRssArticles(articles: RssArticle[], now: number): RssArticle[] {
     const cutoff = now - PERSISTED_RSS_ARTICLE_MAX_AGE_MS;
     const candidates: Array<{ index: number; time: number }> = [];
@@ -565,6 +598,18 @@ export const useRssStore = create<RssStore>()(
             name: 'theorem-rss',
             version: 1,
             storage: deferredJsonStorage,
+            onRehydrateStorage: () => (state) => {
+                if (!state || !isTauri()) return;
+                void convertStoredMarkdownArticles(state.articles).then((patches) => {
+                    if (!patches) return;
+                    useRssStore.setState((current) => ({
+                        articles: current.articles.map((article) => {
+                            const patch = patches.get(article.id);
+                            return patch ? { ...article, ...patch } : article;
+                        }),
+                    }));
+                }).catch(() => {});
+            },
             partialize: memoizePartialize((state) => [state.feeds, state.articles], (state) => {
                 const filteredArticles = selectPersistedRssArticles(state.articles, Date.now());
 

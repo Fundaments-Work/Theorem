@@ -551,10 +551,51 @@ pub fn markdown_to_html(markdown: &str) -> String {
     options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
     options.insert(pulldown_cmark::Options::ENABLE_TASKLISTS);
 
-    let parser = pulldown_cmark::Parser::new_ext(markdown, options);
-    let mut html_output = String::new();
+    // Raw HTML is escaped and `javascript:`-style link/image targets are
+    // emptied, so the output only holds markup that pulldown-cmark generated.
+    let parser = pulldown_cmark::Parser::new_ext(markdown, options).map(|event| {
+        use pulldown_cmark::{Event, Tag};
+        match event {
+            Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) if !is_safe_url(&dest_url) => Event::Start(Tag::Link {
+                link_type,
+                dest_url: "".into(),
+                title,
+                id,
+            }),
+            Event::Start(Tag::Image {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) if !is_safe_url(&dest_url) => Event::Start(Tag::Image {
+                link_type,
+                dest_url: "".into(),
+                title,
+                id,
+            }),
+            other => other,
+        }
+    });
+    let mut html_output = String::with_capacity(markdown.len() + markdown.len() / 4);
     pulldown_cmark::html::push_html(&mut html_output, parser);
     html_output
+}
+
+fn is_safe_url(url: &str) -> bool {
+    let lower = url.trim_start().to_ascii_lowercase();
+    match lower.find(':') {
+        // Relative URLs, fragments and paths have no scheme before a `/`, `?` or `#`.
+        Some(colon) if !lower[..colon].contains(['/', '?', '#']) => {
+            matches!(&lower[..colon], "http" | "https" | "mailto")
+        }
+        _ => true,
+    }
 }
 
 /// Detects whether an article's text content looks like raw markdown rather than HTML
@@ -581,9 +622,17 @@ pub fn looks_like_markdown(text: &str) -> bool {
         || (trimmed.contains("](") && trimmed.contains('['))
 }
 
+/// Async so large documents render off the main thread (sync commands run on it).
 #[tauri::command]
-pub fn render_markdown_to_html(markdown: String) -> String {
+pub async fn render_markdown_to_html(markdown: String) -> String {
     markdown_to_html(&markdown)
+}
+
+/// Render many Markdown strings in one IPC round trip (used to convert
+/// articles stored before feeds were converted at parse time).
+#[tauri::command]
+pub async fn render_markdown_batch(items: Vec<String>) -> Vec<String> {
+    items.iter().map(|item| markdown_to_html(item)).collect()
 }
 
 #[cfg(test)]
@@ -636,5 +685,64 @@ mod tests {
         assert_eq!(&*feed.title, "Example Feed");
         assert_eq!(feed.articles.len(), 1);
         assert_eq!(&*feed.articles[0].title, "Atom-Powered Robots Run Amok");
+    }
+
+    #[test]
+    fn markdown_renders_common_blocks() {
+        let html = markdown_to_html(
+            "# Title\n\n- a\n- b\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n```\ncode <b>\n```",
+        );
+        assert!(html.contains("<h1>Title</h1>"));
+        assert!(html.contains("<ul>\n<li>a</li>\n<li>b</li>\n</ul>"));
+        assert!(html.contains("<table>"));
+        assert!(html.contains("<pre><code>code &lt;b&gt;\n</code></pre>"));
+    }
+
+    #[test]
+    fn markdown_escapes_raw_html_and_unsafe_links() {
+        let html = markdown_to_html(
+            "text <script>alert(1)</script>\n\n[x](javascript:alert(1)) [y](JaVaScRiPt:1) ![i](data:text/html,1) [ok](https://a.org) [rel](/p?a=b:c)",
+        );
+        assert!(!html.contains("<script"), "{html}");
+        assert!(!html.to_ascii_lowercase().contains("javascript:"), "{html}");
+        assert!(!html.contains("data:text/html"), "{html}");
+        assert!(html.contains("href=\"https://a.org\""));
+        assert!(html.contains("href=\"/p?a=b:c\""));
+    }
+
+    #[test]
+    fn markdown_detection() {
+        assert!(looks_like_markdown("## Heading\nbody"));
+        assert!(looks_like_markdown("see [a](https://b)"));
+        assert!(looks_like_markdown("**bold** text"));
+        assert!(!looks_like_markdown("<p>already html</p>"));
+        assert!(!looks_like_markdown("Just a plain sentence."));
+        assert!(!looks_like_markdown(""));
+        assert!(!looks_like_markdown("ab"));
+    }
+
+    #[test]
+    fn rss_markdown_content_is_converted_but_html_is_kept() {
+        let feed = br#"<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
+<item><title>md</title><link>https://a/1</link><description>## Hello
+
+- one
+- two</description></item>
+<item><title>html</title><link>https://a/2</link><description><![CDATA[<p>Hi <b>there</b></p>]]></description></item>
+</channel></rss>"#;
+        let parsed = parse_rss_2(feed).unwrap();
+        let md = parsed.articles.iter().find(|a| &*a.title == "md").unwrap();
+        assert!(md.content.contains("<h2>Hello</h2>"), "{}", md.content);
+        assert!(md.content.contains("<li>one</li>"));
+        let html = parsed
+            .articles
+            .iter()
+            .find(|a| &*a.title == "html")
+            .unwrap();
+        assert!(
+            html.content.contains("<p>Hi <b>there</b></p>"),
+            "{}",
+            html.content
+        );
     }
 }

@@ -1922,6 +1922,7 @@ pub fn run() {
             rss_parser::parse_rss_feed_native,
             rss_parser::fetch_and_parse_rss_feed,
             rss_parser::render_markdown_to_html,
+            rss_parser::render_markdown_batch,
             image_ops::downsample_cover,
             image_ops::extract_cover_palette,
             stemmer::lemmatize_word,
