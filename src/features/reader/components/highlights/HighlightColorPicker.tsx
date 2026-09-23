@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy, ArrowLeft } from 'lucide-react';
+import { Check, Copy, ArrowLeft, BookOpen, NotebookPen } from 'lucide-react';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { cn } from "../../../../core/lib/utils";
 import { Spinner } from "../../../../ui";
@@ -91,7 +91,10 @@ const ANIMATION_STYLES = `
     }
 `;
 
-const PICKER_ACTION_BUTTON_CLASS = [
+/** Shared with the PDF selection popup so both look the same. */
+export const PICKER_PANEL_CLASS = "w-[15.5rem] max-w-[calc(100vw-2rem)] bg-[var(--color-surface)] border-2 border-[var(--color-border)] shadow-none p-3";
+
+export const PICKER_ACTION_BUTTON_CLASS = [
     "flex w-full items-center justify-center",
     "border border-[var(--color-border)] bg-[var(--color-surface)]",
     "px-3 py-2.5 text-sm font-medium text-[color:var(--color-text-secondary)]",
@@ -424,11 +427,7 @@ export function HighlightColorPicker({
                 onMouseDownCapture={handlePopupMouseDownCapture}
                 className={cn(
                     "fixed",
-                    "w-[15.5rem] max-w-[calc(100vw-2rem)]",
-                    "bg-[var(--color-surface)]",
-                    "border-2 border-[var(--color-border)]",
-                    "shadow-none",
-                    "p-3",
+                    PICKER_PANEL_CLASS,
                     isDictionaryView && "w-[20rem] max-w-[calc(100vw-2rem)]",
                     isClosing ? "picker-animate-out" : "picker-animate-in"
                 )}
@@ -613,12 +612,12 @@ export function HighlightColorPicker({
                             )}
                             <button onClick={() => { onAddNote(); handleClose(); }}
                                 className={PICKER_ACTION_BUTTON_CLASS}>
-                                Add Note
+                                <NotebookPen className="w-4 h-4 mr-2" /> Add Note
                             </button>
                             <button onClick={() => onDefine?.()}
                                 className={PICKER_ACTION_BUTTON_CLASS}
                                 disabled={!onDefine}>
-                                Define
+                                <BookOpen className="w-4 h-4 mr-2" /> Define
                             </button>
                         </div>
 
