@@ -10,6 +10,7 @@ import type {
     Annotation,
     Book,
     RssArticle,
+    VaultExportPreset,
     VaultIntegrationSettings,
     VocabularyTerm,
 } from "../types";
@@ -322,6 +323,7 @@ export function buildBookPageMarkdown(
     source: ExportSource,
     annotations: Annotation[],
     _generatedAt?: string,
+    preset: VaultExportPreset = "obsidian",
 ): string {
     const sorted = sortAnnotations(annotations);
 
@@ -358,14 +360,40 @@ export function buildBookPageMarkdown(
         const quote = toMultilineText(annotation.selectedText);
         const note = toMultilineText(annotation.noteContent);
 
-        if (quote) {
-            lines.push(toHighlightedQuote(quote));
-            lines.push("");
-        }
-
-        if (note) {
-            lines.push(note);
-            lines.push("");
+        if (preset === "logseq") {
+            if (quote) {
+                const qlines = quote.split("\n");
+                lines.push(qlines[0] ? `- > ==${qlines[0]}==` : "- >");
+                for (let i = 1; i < qlines.length; i++) {
+                    lines.push(qlines[i] ? `  > ==${qlines[i]}==` : "  >");
+                }
+                if (note) {
+                    lines.push(`  - **Note**: ${note}`);
+                }
+                lines.push("");
+            } else if (note) {
+                lines.push(`- **Note**: ${note}`);
+                lines.push("");
+            }
+        } else if (preset === "minimalist") {
+            if (quote) {
+                lines.push(quote.split("\n").map((line) => line ? `> ${line}` : ">").join("\n"));
+                lines.push("");
+            }
+            if (note) {
+                lines.push(note);
+                lines.push("");
+            }
+        } else {
+            // "obsidian" (default)
+            if (quote) {
+                lines.push(toHighlightedQuote(quote));
+                lines.push("");
+            }
+            if (note) {
+                lines.push(note);
+                lines.push("");
+            }
         }
     });
 
@@ -552,6 +580,7 @@ export async function syncVaultMarkdownSnapshot({
                         vaultPath,
                         highlightsFolder,
                         vocabularyFileName,
+                        exportPreset: settings.exportPreset || "obsidian",
                         books: books.map((b) => ({
                             id: b.id,
                             title: b.title,
@@ -616,7 +645,7 @@ export async function syncVaultMarkdownSnapshot({
             await Promise.all(batch.map((page) =>
                 fs.writeTextFile(
                     page.absolutePath,
-                    buildBookPageMarkdown(page.source, page.annotations, generatedAt),
+                    buildBookPageMarkdown(page.source, page.annotations, generatedAt, settings.exportPreset || "obsidian"),
                 ),
             ));
         }

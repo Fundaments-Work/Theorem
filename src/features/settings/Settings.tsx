@@ -13,6 +13,7 @@ import {
 import { ConfirmDialog, AlertDialog } from "../../ui";
 import { syncVaultMarkdownSnapshot, triggerVaultAutoSync } from "../../core/lib/vault-sync";
 import { exportUnifiedSyncBundle, estimateSyncBundleSizeBytes } from "../../core/lib/sync-bundle";
+import type { VaultExportPreset } from "../../core/types";
 
 import {
     useVocabularyStore,
@@ -1190,6 +1191,21 @@ export const SettingsPage = memo(function SettingsPage() {
                                         </button>
                                     )}
                                 </div>
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Export Preset"
+                                description="Format output notes for your preferred PKM app"
+                            >
+                                <ButtonSelect<VaultExportPreset>
+                                    options={[
+                                        { value: "obsidian", label: "Obsidian" },
+                                        { value: "logseq", label: "Logseq" },
+                                        { value: "minimalist", label: "Minimalist" },
+                                    ]}
+                                    value={settings.vault.exportPreset || "obsidian"}
+                                    onChange={(v) => updateVaultSettings({ exportPreset: v })}
+                                />
                             </SettingRow>
 
                             <SettingRow

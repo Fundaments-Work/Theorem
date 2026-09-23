@@ -49,6 +49,7 @@ const defaultVaultSettings: AppSettings["vault"] = {
     autoExportHighlights: true,
     highlightsFileName: "Books",
     vocabularyFileName: "Vocabulary.md",
+    exportPreset: "obsidian",
 };
 
 const defaultDeviceSyncSettings: AppSettings["deviceSync"] = {
@@ -397,6 +398,9 @@ export const useSettingsStore = create<SettingsStore>()(
                     }
                     if (state.settings.vault.vocabularyFileName === "theorem-vocabulary.md" || state.settings.vault.vocabularyFileName === "theorem-vocabulary") {
                         state.settings.vault.vocabularyFileName = "Vocabulary.md";
+                    }
+                    if (!state.settings.vault.exportPreset) {
+                        state.settings.vault.exportPreset = "obsidian";
                     }
                 }
 

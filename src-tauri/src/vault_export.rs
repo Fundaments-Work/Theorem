@@ -63,12 +63,22 @@ pub struct VaultRssArticle {
     pub url: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum VaultExportPreset {
+    #[default]
+    Obsidian,
+    Logseq,
+    Minimalist,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultExportPayload {
     pub vault_path: String,
     pub highlights_folder: Option<String>,
     pub vocabulary_file_name: Option<String>,
+    pub export_preset: Option<String>,
     pub books: Vec<VaultBook>,
     pub annotations: Vec<VaultAnnotation>,
     pub vocabulary_terms: Vec<VaultVocabularyTerm>,
@@ -262,6 +272,7 @@ pub fn build_book_page_markdown(
     source: &ExportSource,
     annotations: &[VaultAnnotation],
     _generated_at: &str,
+    preset: VaultExportPreset,
 ) -> String {
     let mut sorted = annotations.to_vec();
     sorted.sort_by(|a, b| {
@@ -298,25 +309,79 @@ pub fn build_book_page_markdown(
     }
 
     for anno in &sorted {
-        if let Some(ref quote) = anno.selected_text {
-            let clean_quote = quote.trim();
-            if !clean_quote.is_empty() {
-                for qline in clean_quote.lines() {
-                    if qline.trim().is_empty() {
-                        lines.push(">".to_string());
-                    } else {
-                        lines.push(format!("> =={}==", qline.trim()));
-                    }
-                }
-                lines.push(String::new());
-            }
-        }
+        let quote_opt = anno
+            .selected_text
+            .as_ref()
+            .map(|q| q.trim())
+            .filter(|q| !q.is_empty());
+        let note_opt = anno
+            .note_content
+            .as_ref()
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty());
 
-        if let Some(ref note) = anno.note_content {
-            let clean_note = note.trim();
-            if !clean_note.is_empty() {
-                lines.push(clean_note.to_string());
-                lines.push(String::new());
+        match preset {
+            VaultExportPreset::Obsidian => {
+                if let Some(quote) = quote_opt {
+                    for qline in quote.lines() {
+                        let trimmed = qline.trim();
+                        if trimmed.is_empty() {
+                            lines.push(">".to_string());
+                        } else {
+                            lines.push(format!("> =={}==", trimmed));
+                        }
+                    }
+                    lines.push(String::new());
+                }
+                if let Some(note) = note_opt {
+                    lines.push(note.to_string());
+                    lines.push(String::new());
+                }
+            }
+            VaultExportPreset::Logseq => {
+                if let Some(quote) = quote_opt {
+                    let mut qlines = quote.lines();
+                    if let Some(first) = qlines.next() {
+                        let trimmed = first.trim();
+                        if trimmed.is_empty() {
+                            lines.push("- >".to_string());
+                        } else {
+                            lines.push(format!("- > =={}==", trimmed));
+                        }
+                        for qline in qlines {
+                            let trimmed = qline.trim();
+                            if trimmed.is_empty() {
+                                lines.push("  >".to_string());
+                            } else {
+                                lines.push(format!("  > =={}==", trimmed));
+                            }
+                        }
+                    }
+                    if let Some(note) = note_opt {
+                        lines.push(format!("  - **Note**: {}", note));
+                    }
+                    lines.push(String::new());
+                } else if let Some(note) = note_opt {
+                    lines.push(format!("- **Note**: {}", note));
+                    lines.push(String::new());
+                }
+            }
+            VaultExportPreset::Minimalist => {
+                if let Some(quote) = quote_opt {
+                    for qline in quote.lines() {
+                        let trimmed = qline.trim();
+                        if trimmed.is_empty() {
+                            lines.push(">".to_string());
+                        } else {
+                            lines.push(format!("> {}", trimmed));
+                        }
+                    }
+                    lines.push(String::new());
+                }
+                if let Some(note) = note_opt {
+                    lines.push(note.to_string());
+                    lines.push(String::new());
+                }
             }
         }
     }
@@ -479,11 +544,17 @@ pub fn export_vault_snapshot_impl(
     let mut files_to_write: Vec<(PathBuf, String)> =
         Vec::with_capacity(grouped_annotations.len() + 1);
 
+    let preset = match payload.export_preset.as_deref() {
+        Some("logseq") => VaultExportPreset::Logseq,
+        Some("minimalist") => VaultExportPreset::Minimalist,
+        _ => VaultExportPreset::Obsidian,
+    };
+
     for (book_id, annos) in &grouped_annotations {
         let source = build_export_source(book_id, &books_by_id, &rss_by_id);
         let file_name = build_unique_file_name(&source, &mut used_names);
         let abs_path = pages_dir.join(file_name);
-        let content = build_book_page_markdown(&source, annos, &generated_at);
+        let content = build_book_page_markdown(&source, annos, &generated_at, preset);
         files_to_write.push((abs_path, content));
     }
 
@@ -638,6 +709,7 @@ mod tests {
                 vault_path: self.0.to_string_lossy().into_owned(),
                 highlights_folder: None,
                 vocabulary_file_name: None,
+                export_preset: None,
                 books: books
                     .into_iter()
                     .map(|(id, title)| VaultBook {
@@ -858,7 +930,12 @@ mod tests {
             },
         ];
 
-        let md = build_book_page_markdown(&source, &annotations, "2026-09-13T12:00:00Z");
+        let md = build_book_page_markdown(
+            &source,
+            &annotations,
+            "2026-09-13T12:00:00Z",
+            VaultExportPreset::Obsidian,
+        );
         assert!(md.contains("title: \"Dune\""));
         assert!(md.contains("author: \"Frank Herbert\""));
         assert!(md.contains("total_highlights: 2"));
@@ -871,5 +948,26 @@ mod tests {
         assert!(md.contains("> ==Fear is the mind-killer.=="));
         assert!(md.contains("> ==I must not fear.=="));
         assert!(md.contains("The Litany Against Fear."));
+
+        let md_logseq = build_book_page_markdown(
+            &source,
+            &annotations,
+            "2026-09-13T12:00:00Z",
+            VaultExportPreset::Logseq,
+        );
+        assert!(md_logseq.contains("- > ==Fear is the mind-killer.=="));
+        assert!(md_logseq.contains("- > ==I must not fear.=="));
+        assert!(md_logseq.contains("  - **Note**: The Litany Against Fear."));
+
+        let md_minimal = build_book_page_markdown(
+            &source,
+            &annotations,
+            "2026-09-13T12:00:00Z",
+            VaultExportPreset::Minimalist,
+        );
+        assert!(md_minimal.contains("> Fear is the mind-killer."));
+        assert!(md_minimal.contains("> I must not fear."));
+        assert!(!md_minimal.contains("=="));
+        assert!(md_minimal.contains("The Litany Against Fear."));
     }
 }

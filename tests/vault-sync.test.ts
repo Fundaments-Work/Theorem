@@ -187,6 +187,22 @@ describe("Vault Sync — Obsidian Book Highlights & Notes", () => {
         expect(md).not.toContain("theorem://");
     });
 
+    it("formats quotes with logseq outline preset", () => {
+        const md = buildBookPageMarkdown(mockSource, mockAnnotations, "2026-09-11T12:00:00.000Z", "logseq");
+        expect(md).toContain("- > ==Fear is the mind-killer.==");
+        expect(md).toContain("- > ==I must not fear.==");
+        expect(md).toContain("  - **Note**: The Litany Against Fear, repeated when facing terror.");
+        expect(md).toContain("- > ==Line 1 of quote==\n  > ==Line 2 of quote==");
+    });
+
+    it("formats quotes with clean minimalist markdown preset", () => {
+        const md = buildBookPageMarkdown(mockSource, mockAnnotations, "2026-09-11T12:00:00.000Z", "minimalist");
+        expect(md).toContain("> Fear is the mind-killer.");
+        expect(md).toContain("> I must not fear.");
+        expect(md).not.toContain("==");
+        expect(md).toContain("The Litany Against Fear, repeated when facing terror.");
+    });
+
     it("buildBookPages assigns paths in the target directory", () => {
         const books: Book[] = [
             {

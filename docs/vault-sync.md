@@ -2,156 +2,152 @@
 
 ## Why Markdown Export
 
-Theorem exports highlights and vocabulary to Markdown files that are compatible with **Obsidian** and **Logseq**. This provides:
+Theorem exports highlights, notes, and vocabulary to Markdown files compatible with popular PKM (Personal Knowledge Management) systems like **Obsidian**, **Logseq**, and minimalist plain-text vaults:
 
-- **No lock-in**: Your reading notes are plain Markdown files, readable by any text editor
-- **Searchable**: Obsidian's full-text search works across all exported highlights
-- **Linkable**: Each book gets its own page; terms link back via backlinks
-- **Portable**: Copy your vault folder to any device — notes follow
+- **No lock-in**: Your reading notes are plain Markdown files, readable by any text editor or note-taking tool.
+- **Searchable**: Full-text search works natively across all exported highlights in your PKM application.
+- **Linkable**: Each book gets its own page; terms link back via backlinks or wikilinks.
+- **High Performance**: Native multi-threaded Rust batch export engine (`vault_export.rs`) using Rayon writes hundreds of notes in <50ms with zero-overhead change detection (only modified files are rewritten).
 
-## Output Format
+## Output Presets
 
-### Per-Book Highlights File
+Theorem provides 3 built-in output presets configured in **Settings → Markdown Export → Export Preset**:
 
-Each book has a Markdown file in a subdirectory `{highlightsFileName}-books/`:
+### 1. Obsidian (Default)
+
+Formats book notes with YAML frontmatter, clean typography, and Obsidian highlight syntax (`> ==quote==`):
 
 ```markdown
 ---
-title: "Book Title"
-type: theorem-book-highlights
-author: "Author Name"
-format: epub
-source_path: "/path/to/book.epub"
-generated_at: "2025-03-20T10:00:00.000Z"
-annotations_total: 2
-highlights_total: 2
-notes_total: 0
+title: "Dune"
+type: "theorem-book-highlights"
+author: "Frank Herbert"
+total_highlights: 2
 tags:
   - theorem
   - highlights
-  - notes
 ---
 
-# Book Title
+# Dune
+*Frank Herbert*
 
-- Author: Author Name
-- Format: epub
-- Exported at: 2025-03-20T10:00:00.000Z
+## Highlights
 
-## Highlights and Notes
+> ==Fear is the mind-killer.==
 
-### 1. Highlight
-- Created: 2025-01-15T00:00:00.000Z
-- Color: yellow
+> ==I must not fear.==
 
-**Quote**
-
-> This is a highlighted passage.
-
----
-
-### 2. Highlight
-- Created: 2025-03-20T00:00:00.000Z
-- Color: green
-
-**Quote**
-
-> Another highlight from a different location.
-
----
+The Litany Against Fear, repeated when facing terror.
 ```
 
-### Vocabulary File
+### 2. Logseq
 
-A single vocabulary file aggregates all saved terms:
+Formats book notes as an outline hierarchy using bullet blocks (`- > ==quote==`) and nested note items (`  - **Note**: ...`):
 
 ```markdown
 ---
-title: Theorem Vocabulary
-type: theorem-vocabulary
-generated_at: "2025-03-20T10:00:00.000Z"
-terms_total: 2
+title: "Dune"
+type: "theorem-book-highlights"
+author: "Frank Herbert"
+total_highlights: 2
+tags:
+  - theorem
+  - highlights
+---
+
+# Dune
+*Frank Herbert*
+
+## Highlights
+
+- > ==Fear is the mind-killer.==
+
+- > ==I must not fear.==
+  - **Note**: The Litany Against Fear, repeated when facing terror.
+```
+
+### 3. Minimalist
+
+Formats book notes using clean standard Markdown blockquotes (`> quote`) without any highlight markup:
+
+```markdown
+---
+title: "Dune"
+type: "theorem-book-highlights"
+author: "Frank Herbert"
+total_highlights: 2
+tags:
+  - theorem
+  - highlights
+---
+
+# Dune
+*Frank Herbert*
+
+## Highlights
+
+> Fear is the mind-killer.
+
+> I must not fear.
+
+The Litany Against Fear, repeated when facing terror.
+```
+
+## Vocabulary & Flashcards Export
+
+A single `Vocabulary.md` file aggregates saved terms in a format directly parseable by **Lemma FSRS** or Anki/Obsidian flashcard plugins:
+
+```markdown
+---
+title: "Theorem Vocabulary"
+type: "theorem-vocabulary"
+generated_at: "2026-09-11T12:00:00.000Z"
+terms_total: 1
 languages:
   - "en"
 tags:
+  - flashcards
   - theorem
   - vocabulary
 ---
 
 # Theorem Vocabulary
 
-- Exported at: 2025-03-20T10:00:00.000Z
-- Terms: 2
+- Exported at: 2026-09-11T12:00:00.000Z
+- Terms: 1
 
-## 1. epiphany
-- Term ID: `...`
-- Language: en
-- Phonetic: /e-piph-a-ny/
-- Created: 2025-01-15T00:00:00.000Z
-- Providers: stardict
-
-### Definitions
-
-1. a moment of sudden revelation or insight
-
+---card---
+### ephemeral *[/ɪˈfɛm(ə)rəl/]* ^fsrs-vocab-vocab-1
+> "The beauty of the cherry blossoms was ephemeral."
 ---
-
-## 2. serendipity
-- Term ID: `...`
-- Language: en
-- Phonetic: /ser-en-dip-i-tee/
-- Created: 2025-01-15T00:00:00.000Z
-
-### Definitions
-
-1. the occurrence and development of events by chance in a happy or beneficial way
-
----
+1. **adjective**: Lasting for a very short time.
+2. **noun**: An ephemeral plant or insect.
 ```
 
 ## Configuration
 
-Vault sync is configured in Settings → Devices & Export → Markdown Export:
+Vault sync is configured in **Settings → Markdown Export**:
 
-| Setting | Purpose |
-|---------|---------|
-| Vault path | Root directory of your Obsidian vault |
-| Auto-export highlights | Export on every annotation change (default: on) |
-| Highlights filename | Prefix for per-book files (default: `theorem-highlights`) |
-| Vocabulary filename | Filename for vocabulary export (default: `theorem-vocabulary.md`) |
+| Setting | Purpose | Default |
+|---------|---------|---------|
+| **Export Folder** | Root directory of your PKM vault | `""` |
+| **Export Preset** | Output style: `Obsidian`, `Logseq`, or `Minimalist` | `Obsidian` |
+| **Auto-export highlights** | Auto-write on annotation changes | `true` |
+| **Highlights folder** | Subfolder for per-book files | `Books` |
+| **Vocabulary file** | Filename for vocabulary export | `Vocabulary.md` |
 
 ## When Export Happens
 
-- **Auto**: After every annotation mutation (add/delete/edit highlight or note). Debounced to avoid excessive writes during bulk operations.
-- **Manual**: From Settings → Devices & Export → Markdown Export → "Export now" button.
+- **Auto**: Triggered on annotation mutations (add/delete/edit highlight or note) after a short debounce to avoid excessive disk I/O.
+- **Manual**: Via the **Export now** button in Settings → Markdown Export.
+- **Diff Detection**: Theorem compares byte hashes and only writes files that have actually changed, avoiding re-indexing cycles in Obsidian, Syncthing, or Git.
 
-The export function (`syncVaultMarkdownSnapshot`) writes all files atomically: it generates all content in memory, then writes files one by one. If any write fails, the error is reported but previously written files are not rolled back (partial export is recoverable).
+## Implementation Architecture
 
-## Implementation & Headless CLI
-
-The core function is `syncVaultMarkdownSnapshot()` in `src/core/lib/vault-sync.ts`:
-
-1. Reads all books with annotations from `libraryStore`
-2. Groups annotations by book
-3. For each book: generates Markdown with YAML frontmatter
-4. Generates vocabulary file with all terms from `vocabularyStore`
-5. Writes files to `{vaultPath}/{highlightsFileName}-books/{book-slug}.md`
-6. Writes vocabulary to `{vaultPath}/{vocabularyFileName}`
-7. Removes the legacy highlights index file, if present
-
-File writes use Tauri's `writeTextFile` via `@tauri-apps/plugin-fs`. On web, the export is not available (no filesystem access).
-
-In the **Headless CLI**, a JSON snapshot can be exported headlessly:
-```bash
-theorem export --out ~/backup/reading_data.json
-```
-Markdown/vault export is GUI-only — there is no headless `vault` subcommand.
-
-## Roadmap: v1.6.0 Template-Driven Customization
-
-In **v1.6.0**, Theorem will introduce native user-customizable export templates:
-- **Jinja/Mustache Syntax**: Customize Markdown output templates in Settings → Devices & Export (e.g. `{{author}}/{{title}}.md`, custom YAML frontmatter fields, quote callout formatting `> [!quote]` or `> [!note]`).
-- **Universal PKM Compatibility**: First-class template presets for Obsidian, Logseq, Foam, SilverBullet, Anytype, and Joplin.
-- **Outgoing Webhooks**: Automatically push highlights to Readwise, Notion, or custom HTTP endpoints upon creation.
-- **Vocabulary & SRS**: Tight integration with Lemma companion for spaced-repetition flashcards directly from exported vocabulary.
+1. **Rust Native Path (`src-tauri/src/vault_export.rs`)**: On desktop, the Tauri command `vault_export_snapshot` processes all books and annotations in parallel using Rayon threads.
+2. **TypeScript Web Fallback (`src/core/lib/vault-sync.ts`)**: In non-Tauri / test environments, a modular builder formats the markdown and outputs preset-specific structures.
+3. **Headless CLI**:
+   ```bash
+   theorem export --out ~/backup/reading_data.json
+   ```
 
