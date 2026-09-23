@@ -1,0 +1,19 @@
+% Fixture for tests/pdf-page-labels.test.ts: roman front matter (i, ii),
+% arabic body (1-3), appendix labelled A-1, A-2.
+% Build: pdflatex -output-directory=.. page-labels.tex
+\documentclass{article}
+\usepackage[pdfpagelabels]{hyperref}
+\hypersetup{pdfauthor={Theorem Tests},pdftitle={Page Labels Fixture},pdfcreationdate={D:20260102030405+01'00'}}
+\begin{document}
+\pagenumbering{roman}
+Front matter one.\newpage
+Front matter two.\newpage
+\pagenumbering{arabic}
+Body one.\newpage
+Body two.\newpage
+Body three.\newpage
+\renewcommand{\thepage}{A-\arabic{page}}
+\setcounter{page}{1}
+Appendix one.\newpage
+Appendix two.
+\end{document}

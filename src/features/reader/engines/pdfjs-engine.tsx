@@ -19,6 +19,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { Dropdown, PageLoader } from "../../../ui";
 import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
+import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLabel, parsePdfDate } from "./pdf-page-labels";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, ReaderTheme, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
@@ -2107,10 +2108,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     pdf.getPageLabels().catch(() => null),
                                 ]);
                                 if (cancelled) return;
-                                const labels = Array.isArray(rawLabels) && rawLabels.length > 0 ? (rawLabels as string[]) : undefined;
-                                if (labels) {
-                                    setPageLabels(labels);
-                                }
+                                const labels = normalizePageLabels(rawLabels, totalPageCount) ?? undefined;
+                                setPageLabels(labels ?? null);
                                 const metaInfo = metadata.info as Record<string, unknown>;
                                 const pdfVersion = (metaInfo?.PDFFormatVersion as string) || undefined;
                                 const creator = metaInfo?.Creator as string | undefined;
@@ -2135,8 +2134,9 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     author: metaInfo?.Author as string | undefined, subject: metaInfo?.Subject as string | undefined,
                                     keywords: metaInfo?.Keywords as string | undefined, creator,
                                     producer,
-                                    creationDate: metaInfo?.CreationDate ? new Date(metaInfo.CreationDate as string) : undefined,
-                                    modificationDate: metaInfo?.ModDate ? new Date(metaInfo.ModDate as string) : undefined,
+                                    // PDF dates are `D:YYYYMMDDHHmmSS+hh'mm'`, which `new Date()` cannot parse.
+                                    creationDate: parsePdfDate(metaInfo?.CreationDate),
+                                    modificationDate: parsePdfDate(metaInfo?.ModDate),
                                     totalPages: totalPageCount, filename: displayFilename, hasOutline, toc: tocItems,
                                     pageLabels: labels,
                                     pdfVersion,
@@ -2148,9 +2148,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         })();
                     } else if (!cancelled) {
                         const cached = getCachedPdfDocumentInfo(infoCacheKey, totalPageCount);
-                        if (cached?.pageLabels) {
-                            setPageLabels(cached.pageLabels);
-                        }
+                        setPageLabels(cached?.pageLabels ?? null);
                     }
                 } catch (err) {
                     if (!cancelled) {
@@ -3010,16 +3008,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             getPresentationMode: () => presentationModeRef.current,
             search: (query: string, options?: { matchCase?: boolean; wholeWord?: boolean }) => search(query, options),
             clearSearch: () => clearSearch(),
-            getPageLabel: (pageNumber: number) => {
-                if (!pageLabels || pageNumber < 1 || pageNumber > pageLabels.length) return undefined;
-                return pageLabels[pageNumber - 1];
-            },
-            getPageNumberFromLabel: (label: string) => {
-                if (!pageLabels) return null;
-                const clean = label.trim().toLowerCase();
-                const idx = pageLabels.findIndex((l) => l && l.trim().toLowerCase() === clean);
-                return idx >= 0 ? idx + 1 : null;
-            },
+            getPageLabel: (pageNumber: number) => pageLabelAt(pageLabels, pageNumber) ?? undefined,
+            getPageNumberFromLabel: (label: string) => pageNumberForLabel(pageLabels, label),
         }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, search]);
 
         const displayError = error?.replace(/\s+/g, " ").trim();
@@ -3196,12 +3186,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     const spreadEnd = Math.min(totalPages, spreadStart + 1);
                                     return spreadStart === spreadEnd ? `${spreadStart}` : `${spreadStart}–${spreadEnd}`;
                                 })()
-                            ) : (() => {
-                                const currentLabel = pageLabels && pageLabels[currentPage - 1] && pageLabels[currentPage - 1] !== String(currentPage)
-                                    ? pageLabels[currentPage - 1]
-                                    : null;
-                                return currentLabel ? `${currentLabel} (${currentPage})` : currentPage;
-                            })()}
+                            ) : formatPageIndicator(pageLabels, currentPage)}
                         </span>
                         <span className="text-[color:var(--color-text-muted)]">/</span>
                         <span className="tabular-nums px-0.5">{totalPages}</span>
