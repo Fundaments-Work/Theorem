@@ -1412,6 +1412,21 @@ pub fn open_reader_window(app: &AppHandle, book_id: &str, title: &str) -> Result
 
 // ── CLI symlink setup (Settings → Terminal CLI + `theorem setup-cli`) ────────
 
+/// Native print dialog for the calling webview. `window.print()` does nothing
+/// in macOS WKWebView; on Linux this runs WebKitGTK's print operation.
+#[tauri::command]
+fn print_webview(webview: tauri::Webview) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        webview.print().map_err(|e| e.to_string())
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = webview;
+        Err("Printing is not supported on this platform".to_string())
+    }
+}
+
 /// Tauri command backing the "Enable CLI" toggle. Creates (or refreshes) a
 /// `theorem` symlink in `~/.local/bin` pointing at the running executable.
 #[tauri::command]
@@ -1775,6 +1790,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             setup_linux_cli_symlink,
+            print_webview,
             tts_get_engines,
             tts_set_engine,
             tts_synthesize_to_file,

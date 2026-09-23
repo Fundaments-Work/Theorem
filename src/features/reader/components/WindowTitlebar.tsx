@@ -13,6 +13,8 @@ import {
     Info,
     Headphones,
     Zap,
+    Presentation,
+    Printer,
 } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import { isMobile, isTauri } from "../../../core/lib/env";
@@ -40,6 +42,9 @@ interface WindowTitlebarProps {
     activePanel: string | null;
     fullscreen?: boolean;
     onToggleFullscreen?: () => void;
+    /** PDF: full-screen, one page at a time. */
+    onPresent?: () => void;
+    onPrint?: () => void;
     immersionMode?: boolean;
     onToggleImmersion?: () => void;
     speedReadMode?: boolean;
@@ -162,6 +167,8 @@ export function WindowTitlebar({
     activePanel,
     fullscreen,
     onToggleFullscreen,
+    onPresent,
+    onPrint,
     immersionMode,
     onToggleImmersion,
     speedReadMode,
@@ -248,6 +255,13 @@ export function WindowTitlebar({
             onClick: onToggleFullscreen,
             active: fullscreen,
         });
+    }
+
+    if (onPresent && !isMobileRuntime) {
+        menuItems.push({ label: "Present", icon: <Presentation className="w-4 h-4" />, onClick: onPresent });
+    }
+    if (onPrint && !isMobileRuntime) {
+        menuItems.push({ label: "Print…", icon: <Printer className="w-4 h-4" />, onClick: onPrint });
     }
 
     if (onToggleImmersion) {

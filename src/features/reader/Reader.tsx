@@ -18,7 +18,7 @@ import {
     shouldUseExtractedAuthor,
 } from "../../core/lib/cover-extractor";
 import { extractFilenameFromPath, ensureFilenameForFormat } from "../../core/lib/import";
-import { isTauri, isTauriDesktop, useAndroidBackButton } from "../../core/lib/env";
+import { isTauri, isTauriDesktop, isTauriMobile, useAndroidBackButton } from "../../core/lib/env";
 import { sqliteShrinkMemory } from "../../core/lib/sqlite-storage";
 import { registerPrePersistFlush } from "../../core/lib/persist-storage";
 import { isNativeRangeFile, openNativeRangeFile, type BookSource } from "../../core/lib/native-range-file";
@@ -951,9 +951,50 @@ const BookReaderPage = memo(function BookReaderPage() {
         lastRecordedLocKeyRef.current = null;
     }, [currentBookId]);
 
+    // PDF presentation: full screen, one page at a time, whole page visible.
+    // Leaving full screen (Esc, F11, menu) ends it and restores the layout.
+    const presentationRestoreRef = useRef<{ mode: 'scroll' | 'paged' | 'two-page'; zoom: number } | null>(null);
+    const stopPresentation = useCallback(() => {
+        const restore = presentationRestoreRef.current;
+        if (!restore) return;
+        presentationRestoreRef.current = null;
+        const engine = pdfReaderRef.current;
+        engine?.setPresentationMode(restore.mode);
+        engine?.setZoom(restore.zoom);
+        setShowToolbar(true);
+    }, []);
+    const startPresentation = useCallback(() => {
+        const engine = pdfReaderRef.current;
+        if (!engine || presentationRestoreRef.current) return;
+        presentationRestoreRef.current = { mode: engine.getPresentationMode(), zoom: engine.getZoom() };
+        engine.setPresentationMode('paged');
+        engine.zoomFitPage();
+        setActivePanel(null);
+        setShowToolbar(false);
+        updateReaderSettings({ fullscreen: true });
+    }, [updateReaderSettings]);
+
+    const handlePrint = useCallback(async () => {
+        const engine = pdfReaderRef.current;
+        if (!engine) return;
+        const id = toast.loading("Preparing pages for printing…");
+        try {
+            await engine.print({
+                onProgress: (done, total) => toast.loading(`Preparing page ${done} of ${total}…`, { id }),
+                openDialog: isTauriDesktop()
+                    ? () => import("@tauri-apps/api/core").then(({ invoke }) => invoke<void>("print_webview"))
+                    : undefined,
+            });
+            toast.dismiss(id);
+        } catch (error) {
+            toast.error(`Print failed: ${error instanceof Error ? error.message : String(error)}`, { id });
+        }
+    }, []);
+
     const handleReaderExitFullscreen = useCallback(() => {
         updateReaderSettings({ fullscreen: false });
-    }, [updateReaderSettings]);
+        stopPresentation();
+    }, [updateReaderSettings, stopPresentation]);
 
     useReaderFullscreen({
         fullscreen: settings.readerSettings.fullscreen,
@@ -2410,7 +2451,22 @@ const BookReaderPage = memo(function BookReaderPage() {
                 label: "Toggle fullscreen",
                 keys: "F11",
                 category: "Reader",
-                handler: () => updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen }),
+                handler: () => {
+                    if (settings.readerSettings.fullscreen) stopPresentation();
+                    updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen });
+                },
+            },
+            {
+                label: "Present PDF (full screen, one page)",
+                keys: "F5",
+                category: "Reader",
+                handler: () => { if (isPdfFormat) startPresentation(); },
+            },
+            {
+                label: "Print PDF",
+                keys: "Ctrl+P",
+                category: "Reader",
+                handler: () => { if (isPdfFormat && !isTauriMobile()) void handlePrint(); },
             },
             {
                 label: "Table of contents",
@@ -2449,7 +2505,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 },
             },
         ], "reader");
-    }, [isPdfFormat, settings.readerSettings.fullscreen, updateReaderSettings, handlePdfAddBookmark, handleAddPageBookmark]);
+    }, [isPdfFormat, settings.readerSettings.fullscreen, updateReaderSettings, handlePdfAddBookmark, handleAddPageBookmark, startPresentation, stopPresentation, handlePrint]);
 
     if (downloadingBookId && currentBookId && downloadingBookId === currentBookId) {
         const pct = downloadProgress?.progress ?? 0;
@@ -2628,7 +2684,12 @@ const BookReaderPage = memo(function BookReaderPage() {
                     isCurrentPageBookmarked={isPdfFormat ? isPdfPageBookmarked : isCurrentPageBookmarked}
                     activePanel={activePanel}
                     fullscreen={settings.readerSettings.fullscreen}
-                    onToggleFullscreen={() => updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen })}
+                    onToggleFullscreen={() => {
+                        if (settings.readerSettings.fullscreen) stopPresentation();
+                        updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen });
+                    }}
+                    onPresent={isPdfFormat ? startPresentation : undefined}
+                    onPrint={isPdfFormat && !isTauriMobile() ? () => { void handlePrint(); } : undefined}
                     immersionMode={immersionMode}
                     onToggleImmersion={!isPdfFormat ? () => {
                         if (!ttsEnabled) {

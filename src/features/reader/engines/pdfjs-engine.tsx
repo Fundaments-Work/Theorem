@@ -21,6 +21,7 @@ import { TextLayer } from "pdfjs-dist";
 import { buildPdfSearchPattern, findPdfTextMatches, normalizeSearchText, pdfSearchExcerpt, pdfSearchLocation } from "./pdf-search";
 import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLabel, parsePdfDate } from "./pdf-page-labels";
 import { attachmentBytes, listPdfAttachments, type PdfAttachmentInfo } from "./pdf-attachments";
+import { clearPrintJob, printPdfDocument, type PrintOptions } from "./pdf-print";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
@@ -129,6 +130,8 @@ export interface PDFJsEngineRef {
     getPageNumberFromLabel: (label: string) => number | null;
     /** Bytes and name of an embedded file listed in `PDFDocumentInfo.attachments`. */
     getAttachment: (key: string) => Promise<{ name: string; bytes: Uint8Array } | null>;
+    /** Render every page for printing, then open the print dialog. */
+    print: (options?: PrintOptions) => Promise<void>;
 }
 
 /** Shape of the `prefetch_pdf_structure` Tauri command response. */
@@ -1292,6 +1295,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const [isViewportInteracting, setIsViewportInteracting] = useState(false);
         const [isInitialRenderStabilizing, setIsInitialRenderStabilizing] = useState(false);
         const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
+        // Free a print job's page images when the reader closes.
+        useEffect(() => clearPrintJob, []);
         const [pages, setPages] = useState<PDFPageProxy[]>([]);
         const hasAppliedInitialViewStateRef = useRef(false);
         const initialPageRestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2901,6 +2906,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (!info) return null;
                 const bytes = attachmentBytes(raw, key) ?? await pdfDocument.getAttachmentContent(key).catch(() => null);
                 return bytes ? { name: info.name, bytes } : null;
+            },
+            print: async (options?: PrintOptions) => {
+                if (!pdfDocument) throw new Error("The document is still loading");
+                await printPdfDocument(pdfDocument, options);
             },
         }), [applyZoom, clearSearch, firstLoadedPage, navigateToPage, onPresentationModeChange, pageLabels, pdfDocument, search]);
 

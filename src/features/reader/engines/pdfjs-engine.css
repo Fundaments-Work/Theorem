@@ -222,3 +222,33 @@
     outline: none;
 }
 
+
+/* Print (pdf-print.ts): only the rendered page images, one per sheet. */
+#theorem-print-root {
+    display: none;
+}
+
+@media print {
+    @page {
+        margin: 0;
+    }
+
+    html.theorem-printing body > *:not(#theorem-print-root) {
+        display: none !important;
+    }
+
+    html.theorem-printing #theorem-print-root {
+        display: block;
+    }
+
+    #theorem-print-root img {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        object-fit: contain;
+    }
+
+    #theorem-print-root img:not(:last-child) {
+        break-after: page;
+    }
+}
