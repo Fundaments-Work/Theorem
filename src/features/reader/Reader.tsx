@@ -878,7 +878,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
     }, [currentBookId]);
 
-    const { recordPageTurn } = useReadingTime({
+    const { recordPageTurn, setCurrentPageWordCount } = useReadingTime({
         currentBookId,
         addReadingTime,
         isTtsActive: ttsState === 'playing',
@@ -1068,7 +1068,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         const currentData = readerRef.current?.getVisibleTextForTts?.();
                         const words = currentData?.text ? currentData.text.trim().split(/\s+/).filter(Boolean).length : undefined;
                         if (words && words > 20) {
-                            recordPageTurn(words);
+                            setCurrentPageWordCount(words);
                         }
                     };
                     if (typeof requestIdleCallback !== 'undefined') {
@@ -1109,7 +1109,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             useRssStore.getState().updateArticleProgress(currentArticle.id, safePercentage);
         }
 
-    }, [currentBookId, currentArticle, scheduleProgressUpdate, updateProgress, recordPageTurn]);
+    }, [currentBookId, currentArticle, scheduleProgressUpdate, updateProgress, recordPageTurn, setCurrentPageWordCount]);
 
     useEffect(() => {
         if (isPdfFormat || !location?.cfi) return;

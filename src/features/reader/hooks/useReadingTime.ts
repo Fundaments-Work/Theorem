@@ -47,6 +47,15 @@ export function useReadingTime({
     const isTtsActiveRef = useRef<boolean>(!!isTtsActive);
     isTtsActiveRef.current = !!isTtsActive;
 
+    /**
+     * Words on the page just turned to, sampled after the page settles. Only
+     * sets the count used for the next WPM sample; it must not touch the turn
+     * time (re-recording the turn here measured every page ~1s short).
+     */
+    const setCurrentPageWordCount = useCallback((wordsOnPage: number) => {
+        if (Number.isFinite(wordsOnPage) && wordsOnPage > 20) lastWordCountRef.current = wordsOnPage;
+    }, []);
+
     const recordPageTurn = useCallback((wordsOnPage?: number) => {
         const now = Date.now();
         const lastTurn = lastPageTurnTimeRef.current;
@@ -245,5 +254,5 @@ export function useReadingTime({
         };
     }, [currentBookId, addReadingTime, updateStats]);
 
-    return { recordPageTurn };
+    return { recordPageTurn, setCurrentPageWordCount };
 }
