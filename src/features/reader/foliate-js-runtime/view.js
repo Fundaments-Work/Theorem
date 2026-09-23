@@ -189,7 +189,7 @@ export const makeBook = async (file, prefetchPromise) => {
     else {
         const { isMOBI, MOBI } = await import('./mobi.js')
         if (await isMOBI(file)) {
-            const fflate = await import('./vendor/fflate.js')
+            const fflate = await import('fflate')
             book = await new MOBI({ unzlib: fflate.unzlibSync }).open(file)
         }
         else if (isFB2(file)) {

@@ -27,7 +27,8 @@ CORE_FILES=(
     fixed-layout.js epubcfi.js progress.js overlayer.js text-walker.js
     search.js tts.js pdf.js types.d.ts LICENSE
 )
-VENDOR_FILES=(zip.js fflate.js)
+# fflate comes from npm (see view.js, dict.js); only zip.js is vendored.
+VENDOR_FILES=(zip.js)
 
 # Upstream files plus the mechanical pdfjs-dist rewrites, no patches.
 build_pristine() {

@@ -6,7 +6,7 @@
  * and lookup throughput without requiring a running Tauri backend.
  */
 import { describe, it, expect } from "vitest";
-import { inflateSync, deflateSync, Inflate, Gunzip } from "fflate";
+import { inflateSync, deflateSync, Inflate, Gunzip, unzipSync } from "fflate";
 
 // ---- Test helpers ----
 
@@ -214,19 +214,12 @@ describe("Dictionary integration with real download", () => {
 
         expect(buffer.byteLength).toBeGreaterThan(1_000_000); // ~31 MB
 
-        // Extract ZIP using JSZip-like parsing (we'll use the zip.js lib)
-        const { ZipReader, Uint8ArrayReader, Uint8ArrayWriter } = await import("@zip.js/zip.js");
-        const reader = new ZipReader(new Uint8ArrayReader(new Uint8Array(buffer)));
-        const entries = await reader.getEntries();
-
+        // Extract the ZIP with fflate (the app's own dependency).
         const files: Record<string, Uint8Array> = {};
-        for (const entry of entries) {
-            if (entry.directory) continue;
-            const name = entry.filename.split("/").pop() || entry.filename;
-            const data = await (entry as any).getData(new Uint8ArrayWriter());
-            files[name] = data;
+        for (const [path, data] of Object.entries(unzipSync(new Uint8Array(buffer)))) {
+            if (path.endsWith("/")) continue;
+            files[path.split("/").pop() || path] = data;
         }
-        await reader.close();
 
         const ifoName = Object.keys(files).find((k) => k.endsWith(".ifo"));
         const idxName = Object.keys(files).find((k) => k.endsWith(".idx"));

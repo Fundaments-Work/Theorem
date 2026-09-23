@@ -1,2 +1,5 @@
 [env]
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+# Build libopus from audiopus_sys's bundled source (static) instead of
+# linking the distro's shared library found via pkg-config.
+LIBOPUS_NO_PKG = "1"

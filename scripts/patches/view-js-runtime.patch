@@ -146,6 +146,15 @@
          }
      }
      else if (await isPDF(file)) {
+@@ -110,7 +189,7 @@
+     else {
+         const { isMOBI, MOBI } = await import('./mobi.js')
+         if (await isMOBI(file)) {
+-            const fflate = await import('./vendor/fflate.js')
++            const fflate = await import('fflate')
+             book = await new MOBI({ unzlib: fflate.unzlibSync }).open(file)
+         }
+         else if (isFB2(file)) {
 @@ -133,7 +212,7 @@
          this.#state = state
          if (this.#state.hidden) this.hide()
