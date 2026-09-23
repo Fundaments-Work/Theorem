@@ -345,7 +345,6 @@ function ensureGlobalTextLayerSelectionListeners(): void {
     let pointerDown = false;
     let isFirefox: boolean | undefined;
     let previousRange: Range | null = null;
-    let selectionFrameId = 0;
     let autoScrollRafId = 0;
     let autoScrollVelocity = 0;
     let autoScrollTarget: HTMLElement | null = null;
@@ -409,10 +408,11 @@ function ensureGlobalTextLayerSelectionListeners(): void {
         if (autoScrollRafId === 0) autoScrollRafId = requestAnimationFrame(runAutoScroll);
     }, { signal, passive: true });
 
+    // Synchronous, as in pdf.js: deferring this to the next frame paints one
+    // frame with the selection snapped to the end of the page on every drag
+    // step, which reads as the selection blinking up and down.
     document.addEventListener("selectionchange", () => {
-        if (selectionFrameId !== 0) return;
-        selectionFrameId = requestAnimationFrame(() => {
-            selectionFrameId = 0;
+        {
             const selection = document.getSelection();
             if (!selection || selection.rangeCount === 0) {
                 if (pointerDown) return;
@@ -454,13 +454,26 @@ function ensureGlobalTextLayerSelectionListeners(): void {
                 anchorElement?.parentElement?.insertBefore(endNode, modifyStart ? anchorElement : anchorElement?.nextSibling ?? null);
             }
             previousRange = range.cloneRange();
-        });
+        }
     }, { signal });
 
     signal.addEventListener("abort", () => {
-        if (selectionFrameId !== 0) { cancelAnimationFrame(selectionFrameId); selectionFrameId = 0; }
         stopAutoScroll();
     }, { once: true });
+}
+
+/** True when the current document selection touches `node`. */
+function selectionIntersects(node: Node): boolean {
+    const selection = typeof document !== "undefined" ? document.getSelection() : null;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+    for (let i = 0; i < selection.rangeCount; i++) {
+        try {
+            if (selection.getRangeAt(i).intersectsNode(node)) return true;
+        } catch {
+            // Detached ranges throw; treat as not intersecting.
+        }
+    }
+    return false;
 }
 
 function registerTextLayer(layerNode: HTMLDivElement, endNode: HTMLDivElement): void {
@@ -881,16 +894,27 @@ const PageCanvas = memo(function PageCanvas({
     calibrateTextLayerWidths, searchQuery, onAnnotationAdd, onAnnotationChange, onAnnotationRemove,
 }: PageCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+    // The canvas is swapped out wholesale after each render (see renderPage), so
+    // it lives in a host React never reconciles into.
+    const canvasHostRef = useRef<HTMLDivElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const textLayerRef = useRef<HTMLDivElement>(null);
     const renderTaskRef = useRef<ReturnType<PDFPageProxy["render"]> | null>(null);
     const textLayerInstanceRef = useRef<TextLayer | null>(null);
     const inactiveReleaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const lastCanvasRenderKeyRef = useRef<string>("");
     const hasRenderedCanvasRef = useRef(false);
     const [isNearViewport, setIsNearViewport] = useState(() => isRenderActive || forceRenderActive || page.pageNumber <= 3);
     const shouldRenderAnnotationLayer = annotationMode !== "none" || annotations.length > 0;
     const shouldRender = isNearViewport || isRenderActive || forceRenderActive;
+
+    useLayoutEffect(() => {
+        const host = canvasHostRef.current;
+        if (!host || canvasRef.current) return;
+        const canvas = document.createElement("canvas");
+        canvas.className = PAGE_CANVAS_CLASS;
+        host.appendChild(canvas);
+        canvasRef.current = canvas;
+    }, []);
 
     useLayoutEffect(() => {
         const container = containerRef.current;
@@ -930,22 +954,27 @@ const PageCanvas = memo(function PageCanvas({
             return;
         }
         if (inactiveReleaseTimeoutRef.current) return;
-        const canvas = canvasRef.current;
         const textLayerDiv = textLayerRef.current;
         inactiveReleaseTimeoutRef.current = setTimeout(() => {
+            const canvas = canvasRef.current;
             inactiveReleaseTimeoutRef.current = null;
             try { renderTaskRef.current?.cancel(); } catch {  }
             renderTaskRef.current = null;
             try { textLayerInstanceRef.current?.cancel(); } catch {  }
             textLayerInstanceRef.current = null;
-            if (enableTextLayer && textLayerDiv) { unregisterTextLayer(textLayerDiv); textLayerDiv.innerHTML = ""; }
+            const keepTextLayer = !!textLayerDiv && selectionIntersects(textLayerDiv);
+            if (textLayerDiv && !keepTextLayer) {
+                unregisterTextLayer(textLayerDiv);
+                textLayerDiv.replaceChildren();
+                textLayerKeyRef.current = "";
+            }
             if (canvas && hasRenderedCanvasRef.current) {
                 canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
                 canvas.width = 0; canvas.height = 0;
             }
             hasRenderedCanvasRef.current = false;
-            lastCanvasRenderKeyRef.current = "";
-            page.cleanup();
+            canvasGeometryKeyRef.current = "";
+            if (!keepTextLayer) page.cleanup();
         }, inactiveReleaseDelayMs);
 
         return () => {
@@ -972,131 +1001,100 @@ const PageCanvas = memo(function PageCanvas({
         page.cleanup();
     }, [page]);
 
+    // Values read when a render starts; changing them must not restart work that
+    // is already correct (a scroll must never tear down canvases or text layers).
+    const reduceRenderQualityRef = useRef(reduceRenderQuality);
+    reduceRenderQualityRef.current = reduceRenderQuality;
+    const getRenderPriorityRef = useRef(getRenderPriority);
+    getRenderPriorityRef.current = getRenderPriority;
+    const useStreamTextLayerRef = useRef(useStreamTextLayer);
+    useStreamTextLayerRef.current = useStreamTextLayer;
+    const calibrateTextLayerWidthsRef = useRef(calibrateTextLayerWidths);
+    calibrateTextLayerWidthsRef.current = calibrateTextLayerWidths;
+    const searchQueryRef = useRef(searchQuery);
+    searchQueryRef.current = searchQuery;
+    /** page:scale:rotation the canvas was last painted for, and whether at reduced quality. */
+    const canvasGeometryKeyRef = useRef("");
+    const canvasWasReducedRef = useRef(false);
+    const textLayerKeyRef = useRef("");
+    // Upgrading a canvas painted at reduced quality mid-scroll happens once,
+    // when the interaction ends; nothing is ever downgraded.
+    const [qualityEpoch, setQualityEpoch] = useState(0);
+    useEffect(() => {
+        if (!reduceRenderQuality && canvasWasReducedRef.current) setQualityEpoch((n) => n + 1);
+    }, [reduceRenderQuality]);
+
+    // ── Canvas ───────────────────────────────────────────────────────────
     useEffect(() => {
         if (!shouldRender) return;
         let cancelled = false;
         let cancelQueuedRenderSlot: (() => void) | null = null;
         let releaseRenderSlot: (() => void) | null = null;
-        const canvas = canvasRef.current;
-        const textLayerDiv = textLayerRef.current;
-        if (!canvas) return;
-        if (enableTextLayer && !textLayerDiv) return;
+        if (!canvasRef.current) return;
 
-        const renderPage = async () => {
+        const geometryKey = `${page.pageNumber}:${scale.toFixed(4)}:${rotation}`;
+        const reduced = reduceRenderQualityRef.current;
+        if (hasRenderedCanvasRef.current && canvasGeometryKeyRef.current === geometryKey && (reduced || !canvasWasReducedRef.current)) {
+            return;
+        }
+
+        const renderCanvas = async () => {
             try { renderTaskRef.current?.cancel(); } catch {  }
             renderTaskRef.current = null;
-            try { textLayerInstanceRef.current?.cancel(); } catch {  }
-            textLayerInstanceRef.current = null;
-
             try {
                 const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
                 const cssWidth = getCssDimension(viewport.width, snapCssToPixels);
                 const cssHeight = getCssDimension(viewport.height, snapCssToPixels);
-                const outputScale = getCanvasPixelRatio(cssWidth, cssHeight, preferSharpCanvas, scale, reduceRenderQuality);
+                const outputScale = getCanvasPixelRatio(cssWidth, cssHeight, preferSharpCanvas, scale, reduced);
                 const sizing = getCanvasSizing(cssWidth, cssHeight, outputScale);
-                const canvasRenderKey = [page.pageNumber, viewport.scale.toFixed(4), rotation, sizing.canvasWidth, sizing.canvasHeight].join(":");
-                const shouldRenderCanvas = !hasRenderedCanvasRef.current || lastCanvasRenderKeyRef.current !== canvasRenderKey;
 
-                containerRef.current?.style.setProperty("--scale-factor", `${viewport.scale}`);
-                containerRef.current?.style.setProperty("--total-scale-factor", `${viewport.scale}`);
                 containerRef.current?.style.setProperty("--scale-round-x", `${sizing.scaleRoundX}px`);
                 containerRef.current?.style.setProperty("--scale-round-y", `${sizing.scaleRoundY}px`);
 
-                if (shouldRenderCanvas) {
-                    const slotRequest = requestCanvasRenderSlot(getRenderPriority(page.pageNumber));
-                    cancelQueuedRenderSlot = slotRequest.cancel;
-                    releaseRenderSlot = await slotRequest.promise;
-                    cancelQueuedRenderSlot = null;
-                    if (cancelled) { releaseRenderSlot(); releaseRenderSlot = null; return; }
+                const slotRequest = requestCanvasRenderSlot(getRenderPriorityRef.current(page.pageNumber));
+                cancelQueuedRenderSlot = slotRequest.cancel;
+                releaseRenderSlot = await slotRequest.promise;
+                cancelQueuedRenderSlot = null;
+                if (cancelled) return;
 
-                    // Double-buffered rendering: draw to offscreen canvas first so the on-screen
-                    // canvas maintains its previous content (smoothly scaled via CSS width/height)
-                    // without any blank white flash during zoom or resolution changes.
-                    const offscreen = document.createElement("canvas");
-                    offscreen.width = sizing.canvasWidth;
-                    offscreen.height = sizing.canvasHeight;
-                    const offscreenCtx = offscreen.getContext("2d", { alpha: false });
-                    if (!offscreenCtx || cancelled) { releaseRenderSlot(); releaseRenderSlot = null; return; }
+                // Double-buffered rendering: draw into a detached canvas so the visible one
+                // keeps its previous content (CSS-scaled) until the new one is complete,
+                // then swap the elements. No full-resolution copy, no doubled memory.
+                const offscreen = document.createElement("canvas");
+                offscreen.width = sizing.canvasWidth;
+                offscreen.height = sizing.canvasHeight;
+                const offscreenCtx = offscreen.getContext("2d", { alpha: false });
+                if (!offscreenCtx || cancelled) return;
 
-                    const renderTask = page.render({
-                        canvas: null,
-                        canvasContext: offscreenCtx,
-                        viewport,
-                        transform: [sizing.renderScaleX, 0, 0, sizing.renderScaleY, 0, 0]
-                    });
-                    renderTaskRef.current = renderTask;
-                    await renderTask.promise;
-                    if (cancelled) return;
+                const renderTask = page.render({
+                    canvas: null,
+                    canvasContext: offscreenCtx,
+                    viewport,
+                    transform: [sizing.renderScaleX, 0, 0, sizing.renderScaleY, 0, 0]
+                });
+                renderTaskRef.current = renderTask;
+                await renderTask.promise;
+                if (cancelled) { offscreen.width = 0; offscreen.height = 0; return; }
 
-                    // Atomically blit the completed offscreen image onto the visible canvas in a single frame
-                    canvas.width = sizing.canvasWidth;
-                    canvas.height = sizing.canvasHeight;
-                    const mainCtx = canvas.getContext("2d", { alpha: false });
-                    if (mainCtx) {
-                        mainCtx.drawImage(offscreen, 0, 0);
-                    }
-
-                    hasRenderedCanvasRef.current = true;
-                    lastCanvasRenderKeyRef.current = canvasRenderKey;
-                    releaseRenderSlot();
-                    releaseRenderSlot = null;
+                const visible = canvasRef.current;
+                offscreen.className = PAGE_CANVAS_CLASS;
+                offscreen.style.width = `${cssWidth}px`;
+                offscreen.style.height = `${cssHeight}px`;
+                if (visible?.parentNode) {
+                    visible.replaceWith(offscreen);
+                } else {
+                    canvasHostRef.current?.appendChild(offscreen);
+                }
+                canvasRef.current = offscreen;
+                if (visible && visible !== offscreen) {
+                    visible.width = 0;
+                    visible.height = 0;
                 }
 
-                if (enableTextLayer && textLayerDiv) {
-                    unregisterTextLayer(textLayerDiv);
-                    textLayerDiv.innerHTML = "";
-                    textLayerDiv.tabIndex = 0;
-                    if (textLayerDiv.dataset.textSelectionBound !== "1") {
-                        textLayerDiv.addEventListener("pointerdown", () => { textLayerDiv.classList.add(TEXT_LAYER_SELECTING_CLASS); });
-                        textLayerDiv.addEventListener("copy", (event) => {
-                            const selection = document.getSelection();
-                            if (!selection) return;
-                            event.preventDefault();
-                            event.clipboardData?.setData("text/plain", selection.toString());
-                        });
-                        textLayerDiv.dataset.textSelectionBound = "1";
-                    }
-
-                    try {
-                        let textItemsForCalibration: TextItemLike[] | null = null;
-                        let textContentSource: PageTextContent | ReturnType<PDFPageProxy["streamTextContent"]>;
-                        if (useStreamTextLayer) {
-                            textContentSource = page.streamTextContent({ includeMarkedContent: true, disableNormalization: true });
-                        } else {
-                            const textContent = await getPageTextContent(page);
-                            textContentSource = textContent;
-                            textItemsForCalibration = (textContentSource.items as unknown as TextItemLike[]) ?? null;
-                        }
-                        if (cancelled) return;
-
-                        const textLayer = new TextLayer({ textContentSource, container: textLayerDiv, viewport });
-                        textLayerInstanceRef.current = textLayer;
-                        await textLayer.render();
-
-                        if (calibrateTextLayerWidths && textItemsForCalibration) {
-                            const renderedSpans = textLayer.textDivs as unknown as HTMLSpanElement[];
-                            const firstPassMaxDeviation = calibrateWebKitTextLayerWidth(renderedSpans, textItemsForCalibration, viewport.scale);
-                            if (firstPassMaxDeviation >= WEBKIT_CALIBRATION_SECOND_PASS_THRESHOLD) {
-                                await waitForNextFrame();
-                                await waitForNextFrame();
-                                if (!cancelled) calibrateWebKitTextLayerWidth(renderedSpans, textItemsForCalibration, viewport.scale);
-                            }
-                        }
-
-                        const endOfContent = document.createElement("div");
-                        endOfContent.className = "endOfContent";
-                        textLayerDiv.append(endOfContent);
-                        registerTextLayer(textLayerDiv, endOfContent);
-                        if (searchQuery) {
-                            applySearchHighlights(textLayerDiv, searchQuery);
-                        }
-                    } catch (textError) {
-                        const isAbortError = textError instanceof Error && (textError.name === "AbortException" || textError.message.toLowerCase().includes("abort") || textError.message.toLowerCase().includes("cancel"));
-                        if (!isAbortError) {  }
-                    }
-                }
-
-                if (!cancelled) { renderTaskRef.current = null; }
+                hasRenderedCanvasRef.current = true;
+                canvasGeometryKeyRef.current = geometryKey;
+                canvasWasReducedRef.current = reduced;
+                renderTaskRef.current = null;
             } catch (error: unknown) {
                 const isCancelled = error instanceof Error && (error.message.includes("cancelled") || error.message.includes("Rendering cancelled"));
                 if (!isCancelled) {  }
@@ -1106,23 +1104,107 @@ const PageCanvas = memo(function PageCanvas({
             }
         };
 
-        renderPage();
+        void renderCanvas();
 
         return () => {
             cancelled = true;
-            if (inactiveReleaseTimeoutRef.current) {
-                clearTimeout(inactiveReleaseTimeoutRef.current);
-                inactiveReleaseTimeoutRef.current = null;
-            }
             cancelQueuedRenderSlot?.();
             releaseRenderSlot?.();
             try { renderTaskRef.current?.cancel(); } catch {  }
-            if (enableTextLayer) {
-                try { textLayerInstanceRef.current?.cancel(); } catch {  }
-                if (textLayerRef.current) unregisterTextLayer(textLayerRef.current);
+        };
+    }, [page, scale, rotation, shouldRender, preferSharpCanvas, snapCssToPixels, qualityEpoch]);
+
+    // ── Text layer ───────────────────────────────────────────────────────
+    const textLayerActive = enableTextLayer && shouldRender;
+    useEffect(() => {
+        const textLayerDiv = textLayerRef.current;
+        if (!textLayerDiv || !textLayerActive) return;
+        const layerKey = `${page.pageNumber}:${scale.toFixed(4)}:${rotation}`;
+        if (textLayerKeyRef.current === layerKey && textLayerDiv.childElementCount > 0) return;
+        let cancelled = false;
+
+        const buildTextLayer = async () => {
+            try { textLayerInstanceRef.current?.cancel(); } catch {  }
+            textLayerInstanceRef.current = null;
+            const viewport = page.getViewport({ scale: scale * PDF_TO_CSS_UNITS, rotation });
+            containerRef.current?.style.setProperty("--scale-factor", `${viewport.scale}`);
+            containerRef.current?.style.setProperty("--total-scale-factor", `${viewport.scale}`);
+
+            if (textLayerDiv.dataset.textSelectionBound !== "1") {
+                textLayerDiv.tabIndex = 0;
+                textLayerDiv.addEventListener("pointerdown", () => { textLayerDiv.classList.add(TEXT_LAYER_SELECTING_CLASS); });
+                textLayerDiv.addEventListener("copy", (event) => {
+                    const selection = document.getSelection();
+                    if (!selection) return;
+                    event.preventDefault();
+                    event.clipboardData?.setData("text/plain", selection.toString());
+                });
+                textLayerDiv.dataset.textSelectionBound = "1";
+            }
+
+            try {
+                const calibrate = calibrateTextLayerWidthsRef.current;
+                let textItemsForCalibration: TextItemLike[] | null = null;
+                let textContentSource: PageTextContent | ReturnType<PDFPageProxy["streamTextContent"]>;
+                if (useStreamTextLayerRef.current && !calibrate) {
+                    textContentSource = page.streamTextContent({ includeMarkedContent: true, disableNormalization: true });
+                } else {
+                    const textContent = await getPageTextContent(page);
+                    textContentSource = textContent;
+                    textItemsForCalibration = (textContentSource.items as unknown as TextItemLike[]) ?? null;
+                }
+                if (cancelled) return;
+
+                // Build off-DOM, then swap in one step: the old layer (and any
+                // selection in it) stays intact until the new one is ready.
+                const nextLayer = document.createElement("div");
+                const textLayer = new TextLayer({ textContentSource, container: nextLayer, viewport });
+                textLayerInstanceRef.current = textLayer;
+                await textLayer.render();
+                if (cancelled) return;
+
+                unregisterTextLayer(textLayerDiv);
+                textLayerDiv.replaceChildren(...nextLayer.childNodes);
+                const endOfContent = document.createElement("div");
+                endOfContent.className = "endOfContent";
+                textLayerDiv.append(endOfContent);
+                registerTextLayer(textLayerDiv, endOfContent);
+                textLayerKeyRef.current = layerKey;
+
+                if (calibrate && textItemsForCalibration) {
+                    const renderedSpans = textLayer.textDivs as unknown as HTMLSpanElement[];
+                    const firstPassMaxDeviation = calibrateWebKitTextLayerWidth(renderedSpans, textItemsForCalibration, viewport.scale);
+                    if (firstPassMaxDeviation >= WEBKIT_CALIBRATION_SECOND_PASS_THRESHOLD) {
+                        await waitForNextFrame();
+                        if (!cancelled) calibrateWebKitTextLayerWidth(renderedSpans, textItemsForCalibration, viewport.scale);
+                    }
+                }
+                const query = searchQueryRef.current;
+                if (query) applySearchHighlights(textLayerDiv, query);
+            } catch (textError) {
+                const isAbortError = textError instanceof Error && (textError.name === "AbortException" || textError.message.toLowerCase().includes("abort") || textError.message.toLowerCase().includes("cancel"));
+                if (!isAbortError) {  }
             }
         };
-    }, [page, scale, rotation, shouldRender, enableTextLayer, preferSharpCanvas, reduceRenderQuality, snapCssToPixels, useStreamTextLayer, calibrateTextLayerWidths, getRenderPriority, searchQuery]);
+
+        void buildTextLayer();
+
+        return () => {
+            cancelled = true;
+            try { textLayerInstanceRef.current?.cancel(); } catch {  }
+        };
+    }, [page, scale, rotation, textLayerActive]);
+
+    // Leaving the text-layer window drops the layer, unless it holds the
+    // user's selection: scrolling must never wipe what they selected.
+    useEffect(() => {
+        const textLayerDiv = textLayerRef.current;
+        if (!textLayerDiv || textLayerActive) return;
+        if (selectionIntersects(textLayerDiv)) return;
+        unregisterTextLayer(textLayerDiv);
+        textLayerDiv.replaceChildren();
+        textLayerKeyRef.current = "";
+    }, [textLayerActive]);
 
     useEffect(() => {
         const textLayerDiv = textLayerRef.current;
@@ -1135,8 +1217,10 @@ const PageCanvas = memo(function PageCanvas({
 
     return (
         <div ref={containerRef} className="pdf-page-container">
-            <canvas ref={canvasRef} className="block absolute inset-0" />
-            {enableTextLayer && <div ref={textLayerRef} className="textLayer" />}
+            <div ref={canvasHostRef} className="absolute inset-0" />
+            {/* Always mounted: React must never remove a layer that holds the
+                user's selection. Its contents are managed by the effects above. */}
+            <div ref={textLayerRef} className="textLayer" />
             {shouldRender && <PDFLinkLayer page={page} cssScale={scale * PDF_TO_CSS_UNITS} rotation={rotation} />}
             {shouldRender && shouldRenderAnnotationLayer && (
                 <PDFAnnotationLayer
@@ -1150,6 +1234,10 @@ const PageCanvas = memo(function PageCanvas({
         </div>
     );
 });
+
+const PAGE_CANVAS_CLASS = "block absolute inset-0";
+/** Above this zoom, pages render only when near the viewport (no ±N pre-render window). */
+const HIGH_ZOOM_RENDER_WINDOW_SCALE = 1.6;
 
 interface PageLayoutEntry { pageNumber: number; top: number; bottom: number; left: number; width: number; }
 
@@ -2895,7 +2983,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const renderPageSlot = (pageNumber: number) => {
             const page = pageProxyMap.get(pageNumber);
             const pageDistanceFromCurrent = Math.abs(pageNumber - currentPage);
-            const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= canvasRenderWindow;
+            // At high zoom a page is several screens tall: pre-rendering ±N pages
+            // repaints huge canvases nobody sees. Rely on the viewport observer.
+            const effectiveRenderWindow = scale > HIGH_ZOOM_RENDER_WINDOW_SCALE ? 0 : canvasRenderWindow;
+            const pageIsInCanvasRenderWindow = pageDistanceFromCurrent <= effectiveRenderWindow;
             const pageTextLayerEnabled = enableTextLayer && pageDistanceFromCurrent <= textLayerPageWindow;
             const pageUseStreamTextLayer = isDesktopWebKit ? pageNumber !== currentPage : useStreamTextLayer;
 
