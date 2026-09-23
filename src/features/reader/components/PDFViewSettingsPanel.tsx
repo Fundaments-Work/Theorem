@@ -54,14 +54,16 @@ export function PDFViewSettingsPanel({
                 visible={visible}
                 className={cn("z-[160] overflow-hidden bg-[var(--color-surface)]", className)}
             >
-                <div className="reader-panel-header flex items-center justify-between border-b border-[var(--color-border)] p-4">
-                    <div className="flex items-center gap-2">
-                        <SlidersHorizontal className="w-5 h-5 text-[color:var(--color-text-primary)]" />
-                        <h2 className="text-base font-medium text-[color:var(--color-text-primary)]">View Settings</h2>
+                <div className="reader-panel-header flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
+                    <div className="flex items-center gap-2.5">
+                        <span className="inline-flex h-10 w-10 items-center justify-center bg-[var(--color-surface-muted)]">
+                            <SlidersHorizontal className="w-4 h-4 text-[color:var(--color-text-secondary)]" />
+                        </span>
+                        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[color:var(--color-text-primary)]">View</span>
                     </div>
                     <button
                         onClick={onClose}
-                        className="ui-icon-btn"
+                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                         aria-label="Close view settings"
                     >
                         <X className="w-4 h-4" />
@@ -71,7 +73,7 @@ export function PDFViewSettingsPanel({
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-5 [content-visibility:auto] overscroll-contain">
                     {/* Layout / Presentation Mode */}
                     <section className="space-y-2">
-                        <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Layout</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Layout</p>
                         <div className="grid grid-cols-3 gap-1.5">
                             {[
                                 { id: "scroll" as const, label: "Continuous", icon: Scroll },
@@ -85,10 +87,10 @@ export function PDFViewSettingsPanel({
                                         type="button"
                                         onClick={() => onPresentationModeChange?.(id)}
                                         className={cn(
-                                            "flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 rounded-none border text-center transition-colors min-h-[52px] select-none",
+                                            "flex flex-col items-center justify-center gap-1.5 py-2.5 px-1 border text-center transition-colors min-h-[52px] select-none",
                                             active
-                                                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-contrast)] font-medium"
-                                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text-primary)]"
+                                                ? "border-[var(--color-text-primary)] text-[color:var(--color-text-primary)] font-medium"
+                                                : "border-[var(--color-border)] text-[color:var(--color-text-secondary)] hover:border-[var(--color-text-muted)] hover:text-[color:var(--color-text-primary)]"
                                         )}
                                         data-active={active}
                                         aria-pressed={active}
@@ -107,7 +109,7 @@ export function PDFViewSettingsPanel({
                     {/* Zoom Controls */}
                     <section className="space-y-2">
                         <div className="flex items-center justify-between">
-                            <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Zoom</p>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Zoom</p>
                             <span className="text-xs text-[color:var(--color-text-secondary)]">{zoomLabel}</span>
                         </div>
                         <div className="grid grid-cols-3 gap-1.5">
@@ -146,7 +148,7 @@ export function PDFViewSettingsPanel({
 
                     {/* Fit Controls */}
                     <section className="space-y-2">
-                        <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Fit</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Fit</p>
                         <div className="grid grid-cols-2 gap-1.5">
                             <button
                                 type="button"
@@ -175,7 +177,7 @@ export function PDFViewSettingsPanel({
 
                     {/* Page Rotation */}
                     <section className="space-y-2">
-                        <p className="text-xs font-medium text-[color:var(--color-text-muted)]">Page</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Page</p>
                         <button
                             type="button"
                             onClick={onRotate}
