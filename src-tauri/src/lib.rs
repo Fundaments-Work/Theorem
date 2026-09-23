@@ -1955,29 +1955,35 @@ async fn set_android_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn Java_work_fundamentals_theorem_MainActivity_initNdkContext(
-    env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-    context: jni::objects::JObject,
+pub extern "C" fn Java_work_fundamentals_theorem_MainActivity_initNdkContext<'caller>(
+    mut unowned_env: jni::EnvUnowned<'caller>,
+    _class: jni::objects::JClass<'caller>,
+    context: jni::objects::JObject<'caller>,
 ) {
-    let jvm = match env.get_java_vm() {
-        Ok(vm) => vm,
-        Err(e) => {
-            eprintln!("[ndk-context] Failed to get JavaVM: {e}");
+    // jni 0.22: work inside `with_env` (catches panics so they never unwind
+    // into the JVM). The global ref is leaked on purpose: ndk-context keeps
+    // the application context for the life of the process.
+    let outcome = unowned_env
+        .with_env(|env| -> jni::errors::Result<_> {
+            let jvm = env.get_java_vm()?;
+            let global_ref = env.new_global_ref(&context)?;
+            Ok((
+                jvm.get_raw() as *mut std::ffi::c_void,
+                global_ref.into_raw() as *mut std::ffi::c_void,
+            ))
+        })
+        .into_outcome();
+    let (jvm_ptr, raw_ptr) = match outcome {
+        jni::Outcome::Ok(ptrs) => ptrs,
+        jni::Outcome::Err(e) => {
+            eprintln!("[ndk-context] Failed to initialize: {e}");
+            return;
+        }
+        jni::Outcome::Panic(_) => {
+            eprintln!("[ndk-context] Panicked while initializing");
             return;
         }
     };
-    let jvm_ptr = jvm.get_java_vm_pointer() as *mut std::ffi::c_void;
-
-    let global_ref = match env.new_global_ref(context) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[ndk-context] Failed to create global ref: {e}");
-            return;
-        }
-    };
-    let raw_ptr = global_ref.as_raw() as *mut std::ffi::c_void;
-    std::mem::forget(global_ref);
 
     unsafe {
         ndk_context::initialize_android_context(jvm_ptr, raw_ptr);
