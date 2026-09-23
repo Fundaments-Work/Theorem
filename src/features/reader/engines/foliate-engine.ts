@@ -83,6 +83,10 @@ export class FoliateEngine {
     private options: FoliateEngineOptions = {};
     private annotations: Map<string, Annotation> = new Map();
     private annotationLocations: Map<string, Annotation> = new Map();
+    /** location → spine index, resolved once through foliate (null = unresolvable). */
+    private annotationSectionCache: Map<string, number | null> = new Map();
+    /** Overlayers that already hold every annotation of their section. */
+    private populatedOverlayers: WeakSet<object> = new WeakSet();
     private currentLocation: DocLocation | null = null;
     private sectionFractions: number[] = [];
 
@@ -350,6 +354,7 @@ export class FoliateEngine {
             }
             this.searchSectionCache = null;
             this.searchCacheBookRef = this.book;
+            this.annotationSectionCache.clear();
 
             this.view = document.createElement('foliate-view');
             this.view.style.width = '100%';
@@ -592,7 +597,7 @@ export class FoliateEngine {
 
             if (detail.reason === 'selection') {
                 const sectionIndex = typeof detail.index === 'number' ? detail.index : -1;
-                this.renderAnnotationsForSection(sectionIndex);
+                this.renderAnnotationsForSection(sectionIndex, true);
             }
         });
 
@@ -1391,23 +1396,50 @@ export class FoliateEngine {
         return Array.from(this.annotations.values()).filter(a => a.bookId === bookId);
     }
 
-    async renderAnnotationsForSection(_sectionIndex: number): Promise<void> {
-        if (!this.view || !this.book) {
+    private annotationSectionIndex(location: string): number | null {
+        const cached = this.annotationSectionCache.get(location);
+        if (cached !== undefined) return cached;
+        let index: number | null = null;
+        try {
+            const resolved = this.view?.resolveNavigation?.(location);
+            if (Number.isInteger(resolved?.index) && resolved.index >= 0) index = resolved.index;
+        } catch {
+            index = null;
+        }
+        this.annotationSectionCache.set(location, index);
+        return index;
+    }
+
+    /**
+     * Draw the highlights/notes that belong to one loaded section. Each
+     * annotation's section is resolved once and cached, so a chapter turn costs
+     * O(annotations in that chapter) instead of re-resolving every CFI in the
+     * book. `force` redraws an overlayer that was already populated (after the
+     * annotation set changed); otherwise repeated load/create-overlay events for
+     * the same overlayer are no-ops.
+     */
+    async renderAnnotationsForSection(sectionIndex: number, force = false): Promise<void> {
+        if (!this.view || !this.book || sectionIndex < 0) {
             return;
         }
+        const contents = this.view.renderer?.getContents?.() || [];
+        const overlayer = contents.find((content: any) => content.index === sectionIndex)?.overlayer;
+        if (!overlayer) return;
+        if (!force && this.populatedOverlayers.has(overlayer)) return;
+        this.populatedOverlayers.add(overlayer);
 
-        const allAnnotations = Array.from(this.annotations.values());
-        
-        for (const annotation of allAnnotations) {
-            if ((annotation.type === 'highlight' || annotation.type === 'note') && annotation.location) {
-                try {
-                    await this.view?.addAnnotation?.({
-                        value: annotation.location,
-                        color: annotation.color,
-                        selectedText: annotation.selectedText,
-                    });
-                } catch (e) {
-                }
+        for (const annotation of this.annotations.values()) {
+            if ((annotation.type !== 'highlight' && annotation.type !== 'note') || !annotation.location) continue;
+            const index = this.annotationSectionIndex(annotation.location);
+            // Unresolvable CFIs keep the old behaviour: foliate decides per section.
+            if (index !== null && index !== sectionIndex) continue;
+            try {
+                await this.view?.addAnnotation?.({
+                    value: annotation.location,
+                    color: annotation.color,
+                    selectedText: annotation.selectedText,
+                });
+            } catch (e) {
             }
         }
     }
@@ -1431,7 +1463,7 @@ export class FoliateEngine {
         const contents = this.view.renderer?.getContents?.() || [];
         for (const content of contents) {
             if (typeof content.index === 'number') {
-                await this.renderAnnotationsForSection(content.index);
+                await this.renderAnnotationsForSection(content.index, true);
                 content.overlayer?.redraw();
             }
         }
@@ -2549,6 +2581,7 @@ export class FoliateEngine {
         }
         this.annotations.clear();
         this.annotationLocations.clear();
+        this.annotationSectionCache.clear();
         this.searchSectionCache = null;
         this.searchCacheBookRef = null;
         if (this.book) {
