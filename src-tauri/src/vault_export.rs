@@ -5,7 +5,7 @@
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -324,7 +324,10 @@ pub fn build_book_page_markdown(
     lines.join("\n")
 }
 
-pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], generated_at: &str) -> String {
+/// `_generated_at` is intentionally unused: a timestamp in the note made its
+/// bytes differ on every export, so the file was rewritten (and re-synced by
+/// Obsidian / Syncthing) even when no term changed.
+pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &str) -> String {
     let mut sorted = terms.to_vec();
     sorted.sort_by(|a, b| a.term.cmp(&b.term));
 
@@ -340,7 +343,6 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], generated_at: &s
     lines.push("---".to_string());
     lines.push("title: \"Theorem Vocabulary\"".to_string());
     lines.push("type: \"theorem-vocabulary\"".to_string());
-    lines.push(format!("generated_at: {}", to_yaml_string(generated_at)));
     lines.push(format!("terms_total: {}", sorted.len()));
     lines.push("languages:".to_string());
     if languages.is_empty() {
@@ -358,7 +360,6 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], generated_at: &s
     lines.push(String::new());
     lines.push("# Theorem Vocabulary".to_string());
     lines.push(String::new());
-    lines.push(format!("- Exported at: {generated_at}"));
     lines.push(format!("- Terms: {}", sorted.len()));
     lines.push(String::new());
 
@@ -461,8 +462,9 @@ pub fn export_vault_snapshot_impl(
         .map(|a| (a.id.clone(), a))
         .collect();
 
-    // Group annotations by book_id
-    let mut grouped_annotations: HashMap<String, Vec<VaultAnnotation>> = HashMap::new();
+    // Group annotations by book_id. BTreeMap: a stable order keeps the
+    // " 2" suffix of colliding file names on the same book every run.
+    let mut grouped_annotations: BTreeMap<String, Vec<VaultAnnotation>> = BTreeMap::new();
     for anno in &payload.annotations {
         if anno.r#type == "highlight" || anno.r#type == "note" {
             grouped_annotations
@@ -489,20 +491,52 @@ pub fn export_vault_snapshot_impl(
     let vocab_content = build_vocabulary_markdown(&payload.vocabulary_terms, &generated_at);
     files_to_write.push((vocab_path, vocab_content));
 
-    // Parallel multi-threaded write using Rayon
-    let write_errors: Vec<String> = files_to_write
+    // Only touch files whose bytes changed: rewriting every note on every
+    // highlight made Obsidian re-index and file-sync tools re-upload the vault.
+    let outcomes: Vec<Result<bool, String>> = files_to_write
         .par_iter()
-        .filter_map(|(path, content)| {
-            if let Err(e) = fs::write(path, content) {
-                Some(format!("Failed to write {}: {e}", path.display()))
-            } else {
-                None
-            }
-        })
+        .map(|(path, content)| write_if_changed(path, content.as_bytes()))
         .collect();
+    let mut files_written = 0usize;
+    for outcome in &outcomes {
+        match outcome {
+            Ok(true) => files_written += 1,
+            Ok(false) => {}
+            Err(e) => return Err(e.clone()),
+        }
+    }
 
-    if let Some(first_err) = write_errors.first() {
-        return Err(first_err.clone());
+    // Remove notes Theorem wrote last time that no longer correspond to a
+    // source (book renamed, last highlight deleted), but only if they are still
+    // byte-identical to what Theorem wrote: a note the user edited is kept.
+    let manifest_path = theorem_dir.join(EXPORT_MANIFEST_FILE_NAME);
+    let previous = read_export_manifest(&manifest_path);
+    let mut current: BTreeMap<String, String> = BTreeMap::new();
+    for (path, content) in &files_to_write {
+        if let Ok(rel) = path.strip_prefix(&theorem_dir) {
+            current.insert(
+                rel.to_string_lossy().into_owned(),
+                sha256_hex(content.as_bytes()),
+            );
+        }
+    }
+    let mut files_removed = 0usize;
+    for (rel, hash) in &previous {
+        if current.contains_key(rel) || !is_safe_relative_path(rel) {
+            continue;
+        }
+        let stale = theorem_dir.join(rel);
+        match fs::read(&stale) {
+            Ok(bytes) if sha256_hex(&bytes) == *hash && fs::remove_file(&stale).is_ok() => {
+                files_removed += 1;
+            }
+            _ => {}
+        }
+    }
+    if previous != current {
+        let json = serde_json::to_vec_pretty(&ExportManifest { files: current })
+            .map_err(|e| format!("Failed to encode export manifest: {e}"))?;
+        write_if_changed(&manifest_path, &json)?;
     }
 
     let file_paths: Vec<String> = files_to_write
@@ -510,13 +544,62 @@ pub fn export_vault_snapshot_impl(
         .map(|(p, _)| p.to_string_lossy().to_string())
         .collect();
 
-    let count = file_paths.len();
+    let total = file_paths.len();
     Ok(VaultExportResult {
         status: "synced".to_string(),
-        message: format!("Successfully exported {count} files to Obsidian vault."),
-        files_written: count,
+        message: if files_removed > 0 {
+            format!("Exported {total} notes ({files_written} updated, {files_removed} removed).")
+        } else {
+            format!("Exported {total} notes ({files_written} updated).")
+        },
+        files_written,
         file_paths,
     })
+}
+
+const EXPORT_MANIFEST_FILE_NAME: &str = ".theorem-export-manifest.json";
+
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+struct ExportManifest {
+    files: BTreeMap<String, String>,
+}
+
+fn read_export_manifest(path: &Path) -> BTreeMap<String, String> {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<ExportManifest>(&bytes).ok())
+        .map(|m| m.files)
+        .unwrap_or_default()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Manifest paths must stay inside the export folder.
+fn is_safe_relative_path(rel: &str) -> bool {
+    let path = Path::new(rel);
+    !rel.is_empty()
+        && path.is_relative()
+        && path
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
+/// Write `content` unless the file already holds exactly these bytes.
+/// Returns whether the file was written.
+fn write_if_changed(path: &Path, content: &[u8]) -> Result<bool, String> {
+    if let Ok(existing) = fs::read(path) {
+        if existing == content {
+            return Ok(false);
+        }
+    }
+    fs::write(path, content).map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -531,6 +614,191 @@ pub async fn vault_export_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TempVault(PathBuf);
+    impl TempVault {
+        fn new(tag: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "theorem-vault-{tag}-{}-{nanos}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            TempVault(dir)
+        }
+        fn payload(
+            &self,
+            books: Vec<(&str, &str)>,
+            annos: Vec<(&str, &str)>,
+        ) -> VaultExportPayload {
+            VaultExportPayload {
+                vault_path: self.0.to_string_lossy().into_owned(),
+                highlights_folder: None,
+                vocabulary_file_name: None,
+                books: books
+                    .into_iter()
+                    .map(|(id, title)| VaultBook {
+                        id: id.to_string(),
+                        title: title.to_string(),
+                        author: Some("Same Author".to_string()),
+                        format: Some("epub".to_string()),
+                        file_path: None,
+                    })
+                    .collect(),
+                annotations: annos
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (book_id, text))| VaultAnnotation {
+                        id: format!("a{i}"),
+                        book_id: book_id.to_string(),
+                        r#type: "highlight".to_string(),
+                        selected_text: Some(text.to_string()),
+                        note_content: None,
+                        color: Some("yellow".to_string()),
+                        created_at: "2026-09-01T10:00:00Z".to_string(),
+                        updated_at: None,
+                    })
+                    .collect(),
+                vocabulary_terms: vec![],
+                rss_articles: None,
+                generated_at: None,
+            }
+        }
+        fn pages(&self) -> Vec<String> {
+            let mut names: Vec<String> =
+                fs::read_dir(self.0.join("Theorem").join(DEFAULT_HIGHLIGHTS_FOLDER_NAME))
+                    .unwrap()
+                    .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                    .collect();
+            names.sort();
+            names
+        }
+    }
+    impl Drop for TempVault {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn re_export_of_unchanged_data_writes_nothing() {
+        let vault = TempVault::new("unchanged");
+        let payload = vault.payload(
+            vec![("b1", "Dune")],
+            vec![("b1", "Fear is the mind-killer.")],
+        );
+        let first = export_vault_snapshot_impl(&payload).unwrap();
+        assert_eq!(first.files_written, 2); // book page + vocabulary
+        let second = export_vault_snapshot_impl(&payload).unwrap();
+        assert_eq!(
+            second.files_written, 0,
+            "identical export must not touch any file"
+        );
+    }
+
+    #[test]
+    fn a_new_highlight_rewrites_only_that_book() {
+        let vault = TempVault::new("one-book");
+        let base = vec![("b1", "Dune"), ("b2", "Emma")];
+        export_vault_snapshot_impl(&vault.payload(base.clone(), vec![("b1", "x"), ("b2", "y")]))
+            .unwrap();
+        let result = export_vault_snapshot_impl(
+            &vault.payload(base, vec![("b1", "x"), ("b2", "y"), ("b2", "z")]),
+        )
+        .unwrap();
+        assert_eq!(result.files_written, 1);
+    }
+
+    #[test]
+    fn renamed_book_removes_the_old_note() {
+        let vault = TempVault::new("rename");
+        export_vault_snapshot_impl(&vault.payload(vec![("b1", "Dune")], vec![("b1", "x")]))
+            .unwrap();
+        let before = vault.pages();
+        export_vault_snapshot_impl(&vault.payload(vec![("b1", "Dune Messiah")], vec![("b1", "x")]))
+            .unwrap();
+        let after = vault.pages();
+        assert_eq!(before.len(), 1);
+        assert_eq!(after.len(), 1);
+        assert_ne!(before, after);
+        assert!(after[0].starts_with("Dune Messiah"));
+    }
+
+    #[test]
+    fn deleting_the_last_highlight_removes_the_note() {
+        let vault = TempVault::new("delete");
+        export_vault_snapshot_impl(&vault.payload(vec![("b1", "Dune")], vec![("b1", "x")]))
+            .unwrap();
+        let result =
+            export_vault_snapshot_impl(&vault.payload(vec![("b1", "Dune")], vec![])).unwrap();
+        assert!(vault.pages().is_empty());
+        assert!(result.message.contains("1 removed"), "{}", result.message);
+    }
+
+    #[test]
+    fn a_note_the_user_edited_is_never_deleted() {
+        let vault = TempVault::new("user-edit");
+        export_vault_snapshot_impl(&vault.payload(vec![("b1", "Dune")], vec![("b1", "x")]))
+            .unwrap();
+        let page = vault
+            .0
+            .join("Theorem")
+            .join(DEFAULT_HIGHLIGHTS_FOLDER_NAME)
+            .join(&vault.pages()[0]);
+        fs::write(&page, "my own notes").unwrap();
+        export_vault_snapshot_impl(&vault.payload(vec![("b1", "Dune")], vec![])).unwrap();
+        assert_eq!(fs::read_to_string(&page).unwrap(), "my own notes");
+    }
+
+    #[test]
+    fn manifest_paths_outside_the_export_folder_are_ignored() {
+        let vault = TempVault::new("escape");
+        let outside = vault.0.join("keep.md");
+        fs::write(&outside, "x").unwrap();
+        let theorem = vault.0.join("Theorem");
+        fs::create_dir_all(&theorem).unwrap();
+        let manifest = ExportManifest {
+            files: BTreeMap::from([("../keep.md".to_string(), sha256_hex(b"x"))]),
+        };
+        fs::write(
+            theorem.join(EXPORT_MANIFEST_FILE_NAME),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        export_vault_snapshot_impl(&vault.payload(vec![], vec![])).unwrap();
+        assert!(outside.exists());
+        assert!(!is_safe_relative_path("../x"));
+        assert!(!is_safe_relative_path("/etc/passwd"));
+        assert!(!is_safe_relative_path(""));
+        assert!(is_safe_relative_path("Highlights/a.md"));
+    }
+
+    #[test]
+    fn colliding_file_names_are_stable_whatever_the_payload_order() {
+        let a = TempVault::new("order-a");
+        let b = TempVault::new("order-b");
+        export_vault_snapshot_impl(&a.payload(
+            vec![("b1", "Same"), ("b2", "Same")],
+            vec![("b1", "x"), ("b2", "y")],
+        ))
+        .unwrap();
+        export_vault_snapshot_impl(&b.payload(
+            vec![("b2", "Same"), ("b1", "Same")],
+            vec![("b2", "y"), ("b1", "x")],
+        ))
+        .unwrap();
+        assert_eq!(a.pages(), b.pages());
+    }
+
+    #[test]
+    fn vocabulary_note_has_no_timestamp() {
+        let md = build_vocabulary_markdown(&[], "2026-09-13T12:00:00Z");
+        assert!(!md.contains("2026-09-13"));
+        assert_eq!(md, build_vocabulary_markdown(&[], "2030-01-01T00:00:00Z"));
+    }
 
     #[test]
     fn test_to_yaml_string() {
