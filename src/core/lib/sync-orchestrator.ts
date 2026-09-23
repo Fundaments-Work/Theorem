@@ -24,7 +24,7 @@ import {
     mergeReadingStats,
 } from "./sync-import";
 import { isTauri } from "./env";
-import { sqliteDeleteVocabularyTerm, sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
+import { invokeSqliteInOrder, sqliteDeleteVocabularyTerm, sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
 import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
 import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, coverPathForBookEntry, needsCoverEntry, parseCoverEntry } from "./sync-covers";
 
@@ -1508,8 +1508,7 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
 
         if (isTauri()) {
             try {
-                const { invoke } = await import("@tauri-apps/api/core");
-                await invoke("sqlite_merge_sync_entries", { entries });
+                await invokeSqliteInOrder("sqlite_merge_sync_entries", { entries });
             } catch (err) {
                 if (import.meta.env.DEV) {
                     console.warn("[sync] Native sqlite_merge_sync_entries failed, falling back to JS merge:", err);

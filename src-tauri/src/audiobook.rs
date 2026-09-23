@@ -501,7 +501,6 @@ fn ms_to_sec(ms: u64) -> f64 {
     ms as f64 / 1000.0
 }
 
-#[tauri::command]
 pub fn extract_audiobook_metadata(path: String) -> Result<AudiobookMetadata, String> {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".m4b") || lower.ends_with(".m4a") {

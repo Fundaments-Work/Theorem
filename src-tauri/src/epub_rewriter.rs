@@ -380,7 +380,6 @@ fn rewrite_epub_bytes(
     )
 }
 
-#[tauri::command]
 pub fn rewrite_epub_metadata(
     app: tauri::AppHandle,
     book_id: String,

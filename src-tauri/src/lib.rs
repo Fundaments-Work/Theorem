@@ -23,6 +23,7 @@ pub mod image_ops;
 mod iroh_sync;
 pub mod mdict;
 pub mod mobi_parser;
+mod offload_commands;
 pub mod opds_parser;
 pub mod rss_parser;
 pub mod stardict;
@@ -528,7 +529,6 @@ fn read_object_body(
     Some(buf[body_start..end].to_vec())
 }
 
-#[tauri::command]
 fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, String> {
     let clean = normalize_pdf_path(&path);
     let target = if clean.exists() {
@@ -623,13 +623,11 @@ fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, String> {
     })
 }
 
-#[tauri::command]
 fn read_file(path: String) -> Result<Response, String> {
     let data = fs::read(&path).map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
     Ok(Response::new(data))
 }
 
-#[tauri::command]
 fn read_cbr_as_cbz(path: String) -> Result<Response, String> {
     #[cfg(not(target_os = "android"))]
     {
@@ -697,7 +695,6 @@ fn normalize_pdf_path(raw: &str) -> PathBuf {
     PathBuf::from(s_clean)
 }
 
-#[tauri::command]
 fn read_pdf_file(path: String) -> Result<Response, String> {
     let clean = normalize_pdf_path(&path);
     let target = if clean.exists() {
@@ -710,7 +707,6 @@ fn read_pdf_file(path: String) -> Result<Response, String> {
     Ok(Response::new(data))
 }
 
-#[tauri::command]
 fn read_pdf_file_size(path: String) -> Result<u64, String> {
     let clean = normalize_pdf_path(&path);
     let target = if clean.exists() {
@@ -723,7 +719,6 @@ fn read_pdf_file_size(path: String) -> Result<u64, String> {
         .map_err(|e| format!("Failed to read PDF file metadata '{target:?}': {e}"))
 }
 
-#[tauri::command]
 fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<Response, String> {
     if length == 0 {
         return Ok(Response::new(Vec::new()));
@@ -763,7 +758,6 @@ fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<Response, St
     Ok(Response::new(buffer))
 }
 
-#[tauri::command]
 fn get_pdf_metadata(path: String) -> Result<PdfMetadata, String> {
     let metadata = fs::metadata(&path)
         .map_err(|e| format!("Failed to read PDF file metadata '{}': {}", path, e))?;
@@ -965,7 +959,6 @@ fn decode_hex_string(hex: &str) -> Option<String> {
         })
 }
 
-#[tauri::command]
 fn fetch_rss_feed(url: String) -> Result<String, String> {
     let response = shared_http_client()
         .get(&url)
@@ -988,7 +981,6 @@ fn fetch_rss_feed(url: String) -> Result<String, String> {
         .map_err(|e| format!("Failed to read response: {}", e))
 }
 
-#[tauri::command]
 fn fetch_url_content(url: String) -> Result<String, String> {
     let parsed_url =
         reqwest::Url::parse(&url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
@@ -1076,7 +1068,6 @@ fn fetch_url_content(url: String) -> Result<String, String> {
     Err(last_error.unwrap_or_else(|| "Failed to fetch URL content".to_string()))
 }
 
-#[tauri::command]
 fn fetch_binary_content(url: String) -> Result<Response, String> {
     let parsed_url =
         reqwest::Url::parse(&url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
@@ -1145,7 +1136,6 @@ fn scan_library_folder_mobile(
     }
 }
 
-#[tauri::command]
 fn scan_library_folder_desktop(folder_path: String) -> Result<Vec<String>, String> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
@@ -1786,7 +1776,7 @@ pub fn run() {
             tts_model::tts_model_download_asset,
             tts_model::tts_model_remove,
             supertonic::tts_synthesize,
-            audiobook::extract_audiobook_metadata,
+            offload_commands::extract_audiobook_metadata,
             audio_player::tts_audio_play,
             audio_player::tts_audio_append,
             supertonic::tts_engine_preload,
@@ -1809,7 +1799,7 @@ pub fn run() {
             supertonic::tts_engine_unload,
             trim_memory,
             app_quit_ready,
-            cover_protocol::sqlite_list_cover_versions,
+            offload_commands::sqlite_list_cover_versions,
             cli_setup_status,
             remove_linux_cli_symlink,
             tts_speak,
@@ -1818,72 +1808,72 @@ pub fn run() {
             tts_resume,
             tts_get_voices,
             epub_parser::prefetch_zip_metadata,
-            epub_rewriter::rewrite_epub_metadata,
-            read_file,
-            read_cbr_as_cbz,
-            read_pdf_file,
-            read_pdf_file_size,
-            read_pdf_range,
-            get_pdf_metadata,
-            prefetch_pdf_structure,
+            offload_commands::rewrite_epub_metadata,
+            offload_commands::read_file,
+            offload_commands::read_cbr_as_cbz,
+            offload_commands::read_pdf_file,
+            offload_commands::read_pdf_file_size,
+            offload_commands::read_pdf_range,
+            offload_commands::get_pdf_metadata,
+            offload_commands::prefetch_pdf_structure,
             take_pending_open_files,
             app_build_info,
-            fetch_rss_feed,
-            fetch_url_content,
-            fetch_binary_content,
+            offload_commands::fetch_rss_feed,
+            offload_commands::fetch_url_content,
+            offload_commands::fetch_binary_content,
             pick_library_folder_mobile,
             scan_library_folder_mobile,
-            scan_library_folder_desktop,
+            offload_commands::scan_library_folder_desktop,
             save_share_image_mobile,
             save_file_mobile,
             materialize_android_content_uri,
-            database::sqlite_save_book_data,
-            database::sqlite_register_materialized_book,
-            database::sqlite_get_book_data,
-            database::sqlite_delete_book_data,
-            database::sqlite_get_materialized_book_path,
-            database::sqlite_save_cover_image,
-            database::sqlite_get_cover_image,
-            database::sqlite_delete_cover_image,
-            database::sqlite_get_storage_stats,
-            database::sqlite_cleanup_orphaned_storage,
-            database::sqlite_clear_all_storage,
-            database::sqlite_get_kv,
-            database::sqlite_check_goal_reminder,
-            database::sqlite_batch_get_kv,
-            database::sqlite_set_kv,
-            database::sqlite_delete_kv,
-            database::sqlite_count_kv_by_prefix,
-            database::sqlite_delete_kv_by_prefix,
-            database::sqlite_set_blob,
-            database::sqlite_get_blob,
-            database::sqlite_delete_blob,
-            database::sqlite_delete_blobs_by_prefix,
-            database::sqlite_get_blob_stats,
-            database::sqlite_index_book_fts,
-            database::sqlite_index_books_fts_batch,
-            database::sqlite_search_books,
-            database::sqlite_save_book_metadata,
-            database::sqlite_get_book_metadata,
-            database::sqlite_save_book_annotations,
-            database::sqlite_get_book_annotations,
-            database::sqlite_merge_sync_entries,
-            database::sqlite_shrink_memory,
-            database::sqlite_query_books_window,
-            database::sqlite_get_rss_feeds,
-            database::sqlite_save_rss_feed,
-            database::sqlite_delete_rss_feed,
-            database::sqlite_get_rss_articles,
-            database::sqlite_get_rss_article_content,
-            database::sqlite_save_rss_article,
-            database::sqlite_mark_article_read,
-            database::sqlite_mark_article_favorite,
-            database::sqlite_delete_rss_article,
-            database::sqlite_record_reading_session,
-            database::sqlite_get_reading_sessions,
-            database::sqlite_get_vocabulary_terms,
-            database::sqlite_save_vocabulary_term,
-            database::sqlite_delete_vocabulary_term,
+            offload_commands::sqlite_save_book_data,
+            offload_commands::sqlite_register_materialized_book,
+            offload_commands::sqlite_get_book_data,
+            offload_commands::sqlite_delete_book_data,
+            offload_commands::sqlite_get_materialized_book_path,
+            offload_commands::sqlite_save_cover_image,
+            offload_commands::sqlite_get_cover_image,
+            offload_commands::sqlite_delete_cover_image,
+            offload_commands::sqlite_get_storage_stats,
+            offload_commands::sqlite_cleanup_orphaned_storage,
+            offload_commands::sqlite_clear_all_storage,
+            offload_commands::sqlite_get_kv,
+            offload_commands::sqlite_check_goal_reminder,
+            offload_commands::sqlite_batch_get_kv,
+            offload_commands::sqlite_set_kv,
+            offload_commands::sqlite_delete_kv,
+            offload_commands::sqlite_count_kv_by_prefix,
+            offload_commands::sqlite_delete_kv_by_prefix,
+            offload_commands::sqlite_set_blob,
+            offload_commands::sqlite_get_blob,
+            offload_commands::sqlite_delete_blob,
+            offload_commands::sqlite_delete_blobs_by_prefix,
+            offload_commands::sqlite_get_blob_stats,
+            offload_commands::sqlite_index_book_fts,
+            offload_commands::sqlite_index_books_fts_batch,
+            offload_commands::sqlite_search_books,
+            offload_commands::sqlite_save_book_metadata,
+            offload_commands::sqlite_get_book_metadata,
+            offload_commands::sqlite_save_book_annotations,
+            offload_commands::sqlite_get_book_annotations,
+            offload_commands::sqlite_merge_sync_entries,
+            offload_commands::sqlite_shrink_memory,
+            offload_commands::sqlite_query_books_window,
+            offload_commands::sqlite_get_rss_feeds,
+            offload_commands::sqlite_save_rss_feed,
+            offload_commands::sqlite_delete_rss_feed,
+            offload_commands::sqlite_get_rss_articles,
+            offload_commands::sqlite_get_rss_article_content,
+            offload_commands::sqlite_save_rss_article,
+            offload_commands::sqlite_mark_article_read,
+            offload_commands::sqlite_mark_article_favorite,
+            offload_commands::sqlite_delete_rss_article,
+            offload_commands::sqlite_record_reading_session,
+            offload_commands::sqlite_get_reading_sessions,
+            offload_commands::sqlite_get_vocabulary_terms,
+            offload_commands::sqlite_save_vocabulary_term,
+            offload_commands::sqlite_delete_vocabulary_term,
             fuzzy_search::fuzzy_rank_candidates,
             fuzzy_search::two_tier_search_books,
             sync_commands::iroh_start,
@@ -1911,10 +1901,10 @@ pub fn run() {
             fetch_online_definition,
             batch_ingest::ingest_books_native,
             book_search::search_book_content,
-            mobi_parser::decompress_palmdoc_record,
-            mobi_parser::get_mobi_metadata,
+            offload_commands::decompress_palmdoc_record,
+            offload_commands::get_mobi_metadata,
             article_extractor::fetch_and_extract_article_native,
-            article_extractor::extract_article_from_html_native,
+            offload_commands::extract_article_from_html_native,
             opds_parser::fetch_and_parse_opds_native,
             open_book_in_new_window,
             mdict::mdx_lookup,

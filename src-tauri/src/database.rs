@@ -494,7 +494,6 @@ where
     operation(&connection).map_err(|error| format!("SQLite operation failed: {error}"))
 }
 
-#[tauri::command]
 pub fn sqlite_save_book_data(app: AppHandle, id: String, data: Vec<u8>) -> Result<String, String> {
     let materialized_path = materialized_book_path(&app, &id)?;
     fs::write(&materialized_path, &data).map_err(|error| {
@@ -536,14 +535,12 @@ pub fn sqlite_register_materialized_book_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_register_materialized_book(app: AppHandle, id: String) -> Result<(), String> {
     with_connection(&app, |connection| {
         sqlite_register_materialized_book_inner(connection, &id)
     })
 }
 
-#[tauri::command]
 pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>>, String> {
     if let Ok(Some(path)) = sqlite_get_materialized_book_path(app.clone(), id.clone()) {
         let content = fs::read(&path).map_err(|e| format!("Failed to read book file: {}", e))?;
@@ -561,7 +558,6 @@ pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>
     })
 }
 
-#[tauri::command]
 pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String> {
     remove_materialized_cache_file(&app, &id);
 
@@ -575,7 +571,6 @@ pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String>
     })
 }
 
-#[tauri::command]
 pub fn sqlite_get_materialized_book_path(
     app: AppHandle,
     id: String,
@@ -630,7 +625,6 @@ pub fn sqlite_save_cover_image_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_save_cover_image(
     app: AppHandle,
     book_id: String,
@@ -654,7 +648,6 @@ pub fn sqlite_get_cover_image_inner(
         .optional()
 }
 
-#[tauri::command]
 pub fn sqlite_get_cover_image(app: AppHandle, book_id: String) -> Result<Option<String>, String> {
     with_connection(&app, |connection| {
         sqlite_get_cover_image_inner(connection, &book_id)
@@ -669,14 +662,12 @@ pub fn sqlite_delete_cover_image_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_delete_cover_image(app: AppHandle, book_id: String) -> Result<(), String> {
     with_connection(&app, |connection| {
         sqlite_delete_cover_image_inner(connection, &book_id)
     })
 }
 
-#[tauri::command]
 pub fn sqlite_get_storage_stats(app: AppHandle) -> Result<SqliteStorageStats, String> {
     let mut binaries_size = 0;
 
@@ -732,7 +723,6 @@ pub fn sqlite_get_storage_stats(app: AppHandle) -> Result<SqliteStorageStats, St
     })
 }
 
-#[tauri::command]
 pub fn sqlite_cleanup_orphaned_storage(
     app: AppHandle,
     existing_book_ids: Vec<String>,
@@ -789,7 +779,6 @@ pub fn sqlite_clear_all_storage_inner(connection: &Connection) -> rusqlite::Resu
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), String> {
     let cache_dir = app
         .path()
@@ -816,7 +805,6 @@ pub fn sqlite_get_kv_inner(connection: &Connection, key: &str) -> rusqlite::Resu
         .optional()
 }
 
-#[tauri::command]
 pub fn sqlite_get_kv(app: AppHandle, key: String) -> Result<Option<String>, String> {
     with_connection(&app, |connection| sqlite_get_kv_inner(connection, &key))
 }
@@ -883,7 +871,6 @@ pub fn check_goal_reminder_inner(
     }))
 }
 
-#[tauri::command]
 pub fn sqlite_check_goal_reminder(app: AppHandle) -> Result<Option<GoalReminderData>, String> {
     with_connection(&app, check_goal_reminder_inner)
 }
@@ -914,7 +901,6 @@ pub fn sqlite_batch_get_kv_inner(
     rows.collect::<rusqlite::Result<Vec<(String, String)>>>()
 }
 
-#[tauri::command]
 pub fn sqlite_batch_get_kv(
     app: AppHandle,
     keys: Vec<String>,
@@ -942,7 +928,6 @@ pub fn sqlite_set_kv_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_set_kv(app: AppHandle, key: String, value: String) -> Result<(), String> {
     with_connection(&app, |connection| {
         sqlite_set_kv_inner(connection, &key, &value)
@@ -954,7 +939,6 @@ pub fn sqlite_delete_kv_inner(connection: &Connection, key: &str) -> rusqlite::R
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_delete_kv(app: AppHandle, key: String) -> Result<(), String> {
     with_connection(&app, |connection| sqlite_delete_kv_inner(connection, &key))
 }
@@ -970,7 +954,6 @@ pub fn sqlite_count_kv_by_prefix_inner(
     )
 }
 
-#[tauri::command]
 pub fn sqlite_count_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, String> {
     with_connection(&app, |connection| {
         sqlite_count_kv_by_prefix_inner(connection, &prefix)
@@ -988,7 +971,6 @@ pub fn sqlite_delete_kv_by_prefix_inner(
     Ok(affected as u64)
 }
 
-#[tauri::command]
 pub fn sqlite_delete_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, String> {
     with_connection(&app, |connection| {
         sqlite_delete_kv_by_prefix_inner(connection, &prefix)
@@ -1013,7 +995,6 @@ pub fn sqlite_set_blob_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_set_blob(app: AppHandle, key: String, data: Vec<u8>) -> Result<(), String> {
     with_connection(&app, |connection| {
         sqlite_set_blob_inner(connection, &key, &data)
@@ -1033,7 +1014,6 @@ pub fn sqlite_get_blob_inner(
         .optional()
 }
 
-#[tauri::command]
 pub fn sqlite_get_blob(app: AppHandle, key: String) -> Result<Option<Vec<u8>>, String> {
     with_connection(&app, |connection| sqlite_get_blob_inner(connection, &key))
 }
@@ -1043,7 +1023,6 @@ pub fn sqlite_delete_blob_inner(connection: &Connection, key: &str) -> rusqlite:
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_delete_blob(app: AppHandle, key: String) -> Result<(), String> {
     with_connection(&app, |connection| {
         sqlite_delete_blob_inner(connection, &key)
@@ -1061,7 +1040,6 @@ pub fn sqlite_delete_blobs_by_prefix_inner(
     Ok(affected as u64)
 }
 
-#[tauri::command]
 pub fn sqlite_delete_blobs_by_prefix(app: AppHandle, prefix: String) -> Result<u64, String> {
     with_connection(&app, |connection| {
         sqlite_delete_blobs_by_prefix_inner(connection, &prefix)
@@ -1089,7 +1067,6 @@ pub fn sqlite_get_blob_stats_inner(
     Ok(SqliteBlobStats { count, total_size })
 }
 
-#[tauri::command]
 pub fn sqlite_get_blob_stats(
     app: AppHandle,
     prefix: Option<String>,
@@ -1119,7 +1096,6 @@ pub fn sqlite_index_book_fts_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_index_book_fts(
     app: AppHandle,
     book_id: String,
@@ -1147,7 +1123,6 @@ pub fn sqlite_index_books_fts_batch_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_index_books_fts_batch(
     app: AppHandle,
     entries: Vec<(String, String, String)>,
@@ -1177,7 +1152,6 @@ pub fn sqlite_search_books_inner(
     rows.collect::<rusqlite::Result<Vec<_>>>()
 }
 
-#[tauri::command]
 pub fn sqlite_search_books(
     app: AppHandle,
     query: String,
@@ -1201,7 +1175,6 @@ pub fn sqlite_save_book_metadata_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_save_book_metadata(
     app: AppHandle,
     book_id: String,
@@ -1225,7 +1198,6 @@ pub fn sqlite_get_book_metadata_inner(
         .optional()
 }
 
-#[tauri::command]
 pub fn sqlite_get_book_metadata(app: AppHandle, book_id: String) -> Result<Option<String>, String> {
     with_connection(&app, |connection| {
         sqlite_get_book_metadata_inner(connection, &book_id)
@@ -1258,7 +1230,6 @@ pub fn sqlite_save_book_annotations_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_save_book_annotations(
     app: AppHandle,
     book_id: String,
@@ -1280,7 +1251,6 @@ pub fn sqlite_get_book_annotations_inner(
     rows.collect::<rusqlite::Result<Vec<_>>>()
 }
 
-#[tauri::command]
 pub fn sqlite_get_book_annotations(app: AppHandle, book_id: String) -> Result<Vec<String>, String> {
     with_connection(&app, |connection| {
         sqlite_get_book_annotations_inner(connection, &book_id)
@@ -1473,7 +1443,6 @@ pub fn sqlite_merge_sync_entries_inner(
     })
 }
 
-#[tauri::command]
 pub fn sqlite_merge_sync_entries(
     app: AppHandle,
     entries: std::collections::HashMap<String, String>,
@@ -1483,7 +1452,6 @@ pub fn sqlite_merge_sync_entries(
     })
 }
 
-#[tauri::command]
 pub fn sqlite_shrink_memory(app: AppHandle) -> Result<(), String> {
     with_connection(&app, |connection| {
         connection.execute_batch("PRAGMA shrink_memory; PRAGMA wal_checkpoint(PASSIVE);")
@@ -1516,7 +1484,6 @@ pub fn sqlite_query_books_window_inner(
     })
 }
 
-#[tauri::command]
 pub fn sqlite_query_books_window(
     app: AppHandle,
     limit: u32,
@@ -1601,7 +1568,6 @@ pub fn sqlite_get_rss_feeds_inner(connection: &Connection) -> rusqlite::Result<V
     rows.collect()
 }
 
-#[tauri::command]
 pub fn sqlite_get_rss_feeds(app: AppHandle) -> Result<Vec<RssFeedDto>, String> {
     with_connection(&app, sqlite_get_rss_feeds_inner)
 }
@@ -1643,7 +1609,6 @@ pub fn sqlite_save_rss_feed_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_save_rss_feed(app: AppHandle, feed: RssFeedDto) -> Result<(), String> {
     with_connection(&app, |conn| sqlite_save_rss_feed_inner(conn, &feed))
 }
@@ -1664,7 +1629,6 @@ pub fn sqlite_delete_rss_feed_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), String> {
     with_connection(&app, |conn| sqlite_delete_rss_feed_inner(conn, &feed_id))
 }
@@ -1721,7 +1685,6 @@ pub fn sqlite_get_rss_articles_inner(
     rows.collect()
 }
 
-#[tauri::command]
 pub fn sqlite_get_rss_articles(
     app: AppHandle,
     feed_id: Option<String>,
@@ -1750,7 +1713,6 @@ pub fn sqlite_get_rss_article_content_inner(
     .optional()
 }
 
-#[tauri::command]
 pub fn sqlite_get_rss_article_content(
     app: AppHandle,
     article_id: String,
@@ -1822,7 +1784,6 @@ pub fn sqlite_save_rss_article_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_save_rss_article(
     app: AppHandle,
     article: RssArticleDto,
@@ -1846,7 +1807,6 @@ pub fn sqlite_mark_article_read_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_mark_article_read(
     app: AppHandle,
     article_id: String,
@@ -1869,7 +1829,6 @@ pub fn sqlite_mark_article_favorite_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_mark_article_favorite(
     app: AppHandle,
     article_id: String,
@@ -1895,7 +1854,6 @@ pub fn sqlite_delete_rss_article_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
     with_connection(&app, |conn| {
         sqlite_delete_rss_article_inner(conn, &article_id)
@@ -1924,7 +1882,6 @@ pub fn sqlite_record_reading_session_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_record_reading_session(
     app: AppHandle,
     session_id: String,
@@ -1992,7 +1949,6 @@ pub fn sqlite_get_reading_sessions_inner(
     rows.collect()
 }
 
-#[tauri::command]
 pub fn sqlite_get_reading_sessions(
     app: AppHandle,
     start_date: Option<String>,
@@ -2297,12 +2253,10 @@ pub fn sqlite_delete_vocabulary_term_inner(
     Ok(())
 }
 
-#[tauri::command]
 pub fn sqlite_get_vocabulary_terms(app: AppHandle) -> Result<Vec<SqliteVocabularyTerm>, String> {
     with_connection(&app, sqlite_get_vocabulary_terms_inner)
 }
 
-#[tauri::command]
 pub fn sqlite_save_vocabulary_term(
     app: AppHandle,
     term: SqliteVocabularyTerm,
@@ -2310,7 +2264,6 @@ pub fn sqlite_save_vocabulary_term(
     with_connection(&app, |conn| sqlite_save_vocabulary_term_inner(conn, &term))
 }
 
-#[tauri::command]
 pub fn sqlite_delete_vocabulary_term(app: AppHandle, term_id: String) -> Result<(), String> {
     with_connection(&app, |conn| {
         sqlite_delete_vocabulary_term_inner(conn, &term_id)

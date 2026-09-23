@@ -281,7 +281,6 @@ pub async fn fetch_and_extract_article_native(
     Ok(extracted)
 }
 
-#[tauri::command]
 pub fn extract_article_from_html_native(
     html: String,
     base_url: Option<String>,

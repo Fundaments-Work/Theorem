@@ -460,13 +460,11 @@ fn load_cdic(dictionary: &mut Vec<(Vec<u8>, bool)>, cdic: &[u8]) -> Result<(), S
 // TAURI COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
 pub fn decompress_palmdoc_record(record_bytes: Vec<u8>) -> Result<String, String> {
     let decompressed = decompress_palmdoc(&record_bytes)?;
     Ok(String::from_utf8_lossy(&decompressed).into_owned())
 }
 
-#[tauri::command]
 pub fn get_mobi_metadata(path: String) -> Result<MobiMetadata, String> {
     let file_path = Path::new(&path);
     if !file_path.exists() {
