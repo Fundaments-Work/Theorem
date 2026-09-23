@@ -183,3 +183,66 @@ jobs:
 
       - name: Check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-features
+
+  rust-android-check:
+    # Desktop CI does not compile the `cfg(target_os = "android")` code; the
+    # jni 0.22 bump once broke Android while every desktop check passed.
+    name: Rust Check (Android)
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_NET_RETRY: 5
+      CARGO_HTTP_TIMEOUT: 120
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+          components: clippy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install frontend dependencies (bundled pdf.js resources)
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install NDK
+        run: sdkmanager "ndk;29.0.13846066"
+
+      - name: Configure NDK toolchain
+        run: |
+          BIN="$ANDROID_SDK_ROOT/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "CC_aarch64_linux_android=$BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_linux_android=$BIN/aarch64-linux-android24-clang++" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$BIN/llvm-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.13846066" >> "$GITHUB_ENV"
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-android-check-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-android-check-
+
+      - name: Clippy (aarch64-linux-android)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --target aarch64-linux-android -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
