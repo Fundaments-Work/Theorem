@@ -23,6 +23,7 @@ import { formatPageIndicator, normalizePageLabels, pageLabelAt, pageNumberForLab
 import { attachmentBytes, listPdfAttachments, type PdfAttachmentInfo } from "./pdf-attachments";
 import { clearPrintJob, printPdfDocument, type PrintOptions } from "./pdf-print";
 import { viewRotation } from "./pdf-rotation";
+import { interactionPixelRatio, isFastScroll } from "./pdf-render-quality";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation, HighlightColor, PdfZoomMode, SearchResult, TocItem } from "../../../core/types";
 import { PDFAnnotationLayer } from "../components/PDFAnnotationLayer";
@@ -327,11 +328,12 @@ function getCanvasPixelRatio(
     const preferredRatio = preferSharpCanvas
         ? (isAndroid ? deviceRatio : Math.max(deviceRatio, sharpRatioTarget))
         : deviceRatio;
-    const interactionRatioCap = reduceRenderQuality ? (isAndroid ? 1.0 : 1.2) : Number.POSITIVE_INFINITY;
-    const targetRatio = Math.min(preferredRatio, interactionRatioCap);
     const safePixelBudget = Math.max(1, cssWidth * cssHeight);
     const maxAllowedRatio = Math.sqrt(MAX_CANVAS_PIXEL_COUNT / safePixelBudget);
-    return Math.max(1, Math.min(targetRatio, maxAllowedRatio));
+    // Fast scroll/zoom: a low-resolution first pass (see pdf-render-quality.ts);
+    // the page is re-rendered sharp when the interaction ends.
+    if (reduceRenderQuality) return Math.min(interactionPixelRatio(isAndroid), maxAllowedRatio);
+    return Math.max(1, Math.min(preferredRatio, maxAllowedRatio));
 }
 
 function getCssDimension(value: number, snapToPixelGrid: boolean): number {
@@ -1371,6 +1373,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const loadedPageBoundsRef = useRef<{ min: number; max: number }>({ min: 0, max: 0 });
         const lastEdgePrefetchAtRef = useRef(0);
         const lastScrollTopRef = useRef(0);
+        const lastScrollTimeRef = useRef(0);
         const pageLayoutRef = useRef<PageLayoutEntry[]>([]);
         const currentPageRef = useRef(initialPage);
         const totalPagesRef = useRef(0);
@@ -2200,6 +2203,12 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     const scrollDelta = scrollTop - lastScrollTopRef.current;
                     const scrollDirection = scrollDelta > 0 ? 1 : scrollDelta < 0 ? -1 : 0;
                     lastScrollTopRef.current = scrollTop;
+                    const now = performance.now();
+                    const elapsed = now - lastScrollTimeRef.current;
+                    lastScrollTimeRef.current = now;
+                    // A fling or scrollbar drag: pages entering now render at
+                    // low resolution first instead of staying white.
+                    if (elapsed < 250 && isFastScroll(scrollDelta, elapsed, container.clientHeight)) markViewportInteracting();
                     const centerY = scrollTop + (container.clientHeight / 2);
                     const newPage = findPageForScrollCenter(pageLayoutRef.current, centerY) ?? currentPageRef.current;
                     const totalPageCount = totalPagesRef.current;
