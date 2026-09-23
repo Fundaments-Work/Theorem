@@ -11,6 +11,9 @@ import type { RssFeed, RssArticle, DeletionTombstone } from "../types";
 import { isTauri } from "../lib/env";
 import { useLibraryStore } from "./libraryStore";
 import { useUIStore } from "./uiStore";
+import { mapSettledWithConcurrency } from "../lib/concurrency";
+
+const RSS_REFRESH_CONCURRENCY = 4;
 
 const rssArticleSortCache = new WeakMap<RssArticle[], {
     allSorted: RssArticle[];
@@ -345,7 +348,9 @@ export const useRssStore = create<RssStore>()(
             refreshAll: async () => {
                 set({ isLoading: true });
                 const feeds = get().feeds;
-                await Promise.allSettled(feeds.map(f => get().refreshFeed(f.id)));
+                // Bounded: all feeds at once meant N parallel fetches + parses + markdown
+                // conversions competing with the UI.
+                await mapSettledWithConcurrency(feeds, RSS_REFRESH_CONCURRENCY, (f) => get().refreshFeed(f.id));
                 set({ isLoading: false });
             },
 
