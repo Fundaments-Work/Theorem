@@ -412,7 +412,7 @@ mod tests {
         let options = zip::write::FileOptions::<()>::default()
             .compression_method(zip::CompressionMethod::Stored);
         for (name, data) in entries {
-            writer.start_file(*name, options.clone()).unwrap();
+            writer.start_file(*name, options).unwrap();
             writer.write_all(data).unwrap();
         }
         writer.finish().unwrap().into_inner()

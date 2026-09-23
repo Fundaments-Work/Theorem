@@ -1,0 +1,50 @@
+{
+  "source": {
+    "id": "book-dune",
+    "title": "Dune: \"Deluxe\" Edition",
+    "author": "Frank Herbert",
+    "format": "epub",
+    "filePath": "/books/dune.epub"
+  },
+  "annotations": [
+    {
+      "id": "a3",
+      "bookId": "book-dune",
+      "type": "note",
+      "noteContent": "Standalone thought\r\nwith a second line\r\n\r\nand a paragraph.",
+      "createdAt": "2026-09-03T10:00:00.000Z"
+    },
+    {
+      "id": "a1",
+      "bookId": "book-dune",
+      "type": "highlight",
+      "selectedText": "  I must not fear.\r\n   Fear is the mind-killer.\r\n\r\n  Fear is the little-death.  ",
+      "noteContent": "The Litany Against Fear.",
+      "color": "yellow",
+      "createdAt": "2026-09-01T10:00:00.000Z"
+    },
+    {
+      "id": "a2",
+      "bookId": "book-dune",
+      "type": "highlight",
+      "selectedText": "The spice must flow.",
+      "noteContent": "   ",
+      "createdAt": "2026-09-02T10:00:00.000Z"
+    },
+    {
+      "id": "a0",
+      "bookId": "book-dune",
+      "type": "highlight",
+      "selectedText": "Same timestamp, sorted by id.",
+      "noteContent": "Multi-line note\n- with a list item",
+      "createdAt": "2026-09-02T10:00:00.000Z"
+    },
+    {
+      "id": "a4",
+      "bookId": "book-dune",
+      "type": "highlight",
+      "selectedText": "   ",
+      "createdAt": "2026-09-04T10:00:00.000Z"
+    }
+  ]
+}

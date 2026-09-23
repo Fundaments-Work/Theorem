@@ -132,24 +132,39 @@ function normalizeDirectoryPath(value: string): string {
     }
 }
 
+// File names, hashes and truncation follow `vault_export.rs` byte for byte
+// (UTF-8 lengths, FNV-1a over UTF-8, hex), so the native exporter and this
+// fallback always write to the same note paths.
+const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
+
 function toShortHash(input: string): string {
     let hash = 2166136261;
-    for (let index = 0; index < input.length; index += 1) {
-        hash ^= input.charCodeAt(index);
+    for (const byte of utf8Encoder.encode(input)) {
+        hash ^= byte;
         hash = Math.imul(hash, 16777619);
     }
-    return (hash >>> 0).toString(36);
+    return (hash >>> 0).toString(16);
+}
+
+/** Cut to at most `maxBytes` UTF-8 bytes on a character boundary. */
+function truncateUtf8(value: string, maxBytes: number): string {
+    const bytes = utf8Encoder.encode(value);
+    if (bytes.length <= maxBytes) return value;
+    let end = maxBytes;
+    while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+    return utf8Decoder.decode(bytes.subarray(0, end));
 }
 
 function truncateSegment(value: string, maxLength: number): string {
-    if (value.length <= maxLength) {
+    if (utf8Encoder.encode(value).length <= maxLength) {
         return value;
     }
-    return value.slice(0, maxLength).trim();
+    return truncateUtf8(value, maxLength).trim();
 }
 
 function clampFileNameLength(fileName: string, maxLength: number): string {
-    if (fileName.length <= maxLength) {
+    if (utf8Encoder.encode(fileName).length <= maxLength) {
         return fileName;
     }
 
@@ -157,7 +172,7 @@ function clampFileNameLength(fileName: string, maxLength: number): string {
     const withoutExtension = fileName.endsWith(extension)
         ? fileName.slice(0, -extension.length)
         : fileName;
-    const clampedBase = withoutExtension.slice(0, Math.max(8, maxLength - extension.length)).trim();
+    const clampedBase = truncateUtf8(withoutExtension, Math.max(8, maxLength - extension.length)).trim();
     return `${clampedBase}${extension}`;
 }
 
@@ -207,15 +222,6 @@ function joinPath(basePath: string, part: string): string {
     return `${trimmedBase}${separator}${part}`;
 }
 
-
-function toHighlightedQuote(quote: string): string {
-    const trimmed = quote.trim();
-    if (!trimmed) return "";
-    return trimmed
-        .split("\n")
-        .map((line) => line ? `> ==${line}==` : ">")
-        .join("\n");
-}
 
 function getHighlightAnnotations(annotations: Annotation[]): Annotation[] {
     return annotations.filter((annotation) => annotation.type === "highlight" || annotation.type === "note");
@@ -305,7 +311,7 @@ function buildUniqueFileName(
         48,
     );
     const idSeed = normalizeFileSegment(source.id, "source");
-    const shortId = toShortHash(idSeed || `${safeTitle}:${safeAuthor}`);
+    const shortId = toShortHash(`${idSeed}:${safeTitle}:${safeAuthor}`);
     const base = `${safeTitle} - ${safeAuthor} (${shortId})`;
     let candidate = clampFileNameLength(`${base}.md`, MAX_BOOK_PAGE_FILE_NAME_LENGTH);
     let index = 2;
@@ -356,44 +362,44 @@ export function buildBookPageMarkdown(
         return lines.join("\n");
     }
 
+    const logseq = preset === "logseq";
+    const mark = preset === "minimalist" ? "" : "==";
     sorted.forEach((annotation) => {
-        const quote = toMultilineText(annotation.selectedText);
+        // Quote lines are trimmed (selections carry layout indentation);
+        // notes keep their own indentation (they may hold nested lists).
+        const quote = toMultilineText(annotation.selectedText).split("\n").map((line) => line.trim());
         const note = toMultilineText(annotation.noteContent);
+        const hasQuote = quote.some(Boolean);
 
-        if (preset === "logseq") {
-            if (quote) {
-                const qlines = quote.split("\n");
-                lines.push(qlines[0] ? `- > ==${qlines[0]}==` : "- >");
-                for (let i = 1; i < qlines.length; i++) {
-                    lines.push(qlines[i] ? `  > ==${qlines[i]}==` : "  >");
-                }
-                if (note) {
-                    lines.push(`  - **Note**: ${note}`);
-                }
+        if (logseq) {
+            // One outline block per annotation; every continuation line is
+            // indented under it, blank lines would end the block.
+            const noteLines = note ? note.split("\n").filter((line) => line.trim()) : [];
+            if (hasQuote) {
+                quote.forEach((line, index) => {
+                    const prefix = index === 0 ? "- >" : "  >";
+                    lines.push(line ? `${prefix} ${mark}${line}${mark}` : prefix);
+                });
+                noteLines.forEach((line, index) => {
+                    lines.push(index === 0 ? `  - **Note**: ${line}` : `    ${line}`);
+                });
                 lines.push("");
-            } else if (note) {
-                lines.push(`- **Note**: ${note}`);
-                lines.push("");
-            }
-        } else if (preset === "minimalist") {
-            if (quote) {
-                lines.push(quote.split("\n").map((line) => line ? `> ${line}` : ">").join("\n"));
-                lines.push("");
-            }
-            if (note) {
-                lines.push(note);
+            } else if (noteLines.length > 0) {
+                noteLines.forEach((line, index) => {
+                    lines.push(index === 0 ? `- **Note**: ${line}` : `  ${line}`);
+                });
                 lines.push("");
             }
-        } else {
-            // "obsidian" (default)
-            if (quote) {
-                lines.push(toHighlightedQuote(quote));
-                lines.push("");
-            }
-            if (note) {
-                lines.push(note);
-                lines.push("");
-            }
+            return;
+        }
+
+        if (hasQuote) {
+            lines.push(...quote.map((line) => line ? `> ${mark}${line}${mark}` : ">"));
+            lines.push("");
+        }
+        if (note) {
+            lines.push(note);
+            lines.push("");
         }
     });
 
@@ -421,17 +427,28 @@ function collectDefinitions(term: VocabularyTerm): string[] {
     return definitions;
 }
 
-export function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: string): string {
-    const sortedTerms = [...terms].sort((left, right) => left.term.localeCompare(right.term));
+/** Plain code-point order (same as Rust `str::cmp` for BMP text). */
+function compareCodePoints(left: string, right: string): number {
+    return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * `_generatedAt` is intentionally unused (like the native exporter): a
+ * timestamp would change the note's bytes on every export.
+ */
+export function buildVocabularyMarkdown(terms: VocabularyTerm[], _generatedAt?: string): string {
+    const sortedTerms = [...terms].sort((left, right) =>
+        compareCodePoints(left.term.toLowerCase(), right.term.toLowerCase())
+        || compareCodePoints(left.term, right.term)
+        || compareCodePoints(left.id, right.id));
     const languages = Array.from(
         new Set(sortedTerms.map((term) => toSingleLineText(term.language)).filter(Boolean)),
-    ).sort((left, right) => left.localeCompare(right));
+    ).sort(compareCodePoints);
 
     const lines: string[] = [
         "---",
         `title: ${toYamlString("Theorem Vocabulary")}`,
         `type: ${toYamlString("theorem-vocabulary")}`,
-        `generated_at: ${toYamlString(generatedAt)}`,
         `terms_total: ${sortedTerms.length}`,
         "languages:",
         ...(languages.length > 0
@@ -445,7 +462,6 @@ export function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: st
         "",
         "# Theorem Vocabulary",
         "",
-        `- Exported at: ${generatedAt}`,
         `- Terms: ${sortedTerms.length}`,
         "",
     ];
@@ -458,7 +474,8 @@ export function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: st
     sortedTerms.forEach((term) => {
         const safeId = term.id.replace(/[^a-zA-Z0-9-]/g, "") || toShortHash(term.term);
         const blockId = `^fsrs-vocab-${safeId}`;
-        const phoneticStr = term.phonetic ? ` *[/${toSingleLineText(term.phonetic)}/]*` : "";
+        const phonetic = toSingleLineText(term.phonetic);
+        const phoneticStr = phonetic ? ` *[/${phonetic}/]*` : "";
         const contextQuote = term.contexts && term.contexts.length > 0
             ? toSingleLineText(term.contexts[0])
             : "";
@@ -471,12 +488,14 @@ export function buildVocabularyMarkdown(terms: VocabularyTerm[], generatedAt: st
         lines.push("---");
 
         let defIndex = 1;
+        const seenDefs = new Set<string>();
         if (term.meanings && term.meanings.length > 0) {
             for (const meaning of term.meanings) {
                 const pos = meaning.partOfSpeech ? `**${meaning.partOfSpeech}**: ` : "";
                 for (const def of meaning.definitions) {
                     const normDef = toSingleLineText(def);
-                    if (normDef) {
+                    if (normDef && !seenDefs.has(normDef.toLowerCase())) {
+                        seenDefs.add(normDef.toLowerCase());
                         lines.push(`${defIndex}. ${pos}${normDef}`);
                         defIndex++;
                     }
@@ -517,7 +536,11 @@ export function buildBookPages(
 
     const usedFileNames = new Set<string>();
 
-    return Array.from(groupedAnnotations.entries()).map(([bookId, bookAnnotations]) => {
+    // Sorted by id like the native exporter's BTreeMap, so " 2" suffixes on
+    // colliding names are assigned the same way whatever the input order.
+    const entries = Array.from(groupedAnnotations.entries())
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return entries.map(([bookId, bookAnnotations]) => {
         const source = buildExportSource(bookId, booksById, rssArticlesById);
         const fileName = buildUniqueFileName(source, usedFileNames);
         const absolutePath = joinPath(pagesDirectoryPath, fileName);

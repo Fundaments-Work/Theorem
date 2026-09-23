@@ -1,0 +1,164 @@
+{
+ "highlightsFolder": null,
+ "vocabularyFileName": null,
+ "exportPreset": "obsidian",
+ "books": [
+  {
+   "id": "b-dune",
+   "title": "Dune",
+   "author": "Frank Herbert",
+   "format": "epub",
+   "filePath": "/x/dune.epub"
+  },
+  {
+   "id": "b-dune-2",
+   "title": "Dune",
+   "author": "Frank Herbert",
+   "format": "epub",
+   "filePath": "/x/dune2.epub"
+  },
+  {
+   "id": "b-greek",
+   "title": "Ψυχή και Κόσμος: Μεγάλος Τίτλος Μεγάλος Τίτλος Μεγάλος Τίτλος Μεγάλος Τίτλος Μεγάλος Τίτλος Μεγάλος Τίτλος Μεγάλος Τίτλος Μεγάλος Τίτλος ",
+   "author": "Συγγραφέας: Α/Β",
+   "format": "pdf",
+   "filePath": "/x/g.pdf"
+  },
+  {
+   "id": "b-empty",
+   "title": "   ",
+   "author": null,
+   "format": null,
+   "filePath": null
+  },
+  {
+   "id": "b-none",
+   "title": "No Highlights",
+   "author": "A",
+   "format": "epub",
+   "filePath": null
+  }
+ ],
+ "annotations": [
+  {
+   "id": "n1",
+   "bookId": "b-dune-2",
+   "type": "highlight",
+   "selectedText": "Second copy.",
+   "createdAt": "2026-09-01T00:00:00.000Z"
+  },
+  {
+   "id": "n2",
+   "bookId": "b-dune",
+   "type": "highlight",
+   "selectedText": "Fear is the mind-killer.",
+   "noteContent": "Litany",
+   "createdAt": "2026-09-01T00:00:00.000Z"
+  },
+  {
+   "id": "n3",
+   "bookId": "b-greek",
+   "type": "note",
+   "noteContent": "Σημείωση",
+   "createdAt": "2026-09-02T00:00:00.000Z"
+  },
+  {
+   "id": "n4",
+   "bookId": "b-empty",
+   "type": "highlight",
+   "selectedText": "untitled",
+   "createdAt": "2026-09-02T00:00:00.000Z"
+  },
+  {
+   "id": "n5",
+   "bookId": "rss:art-1",
+   "type": "highlight",
+   "selectedText": "From a feed.",
+   "createdAt": "2026-09-03T00:00:00.000Z"
+  },
+  {
+   "id": "n6",
+   "bookId": "ghost",
+   "type": "highlight",
+   "selectedText": "Orphan.",
+   "createdAt": "2026-09-03T00:00:00.000Z"
+  },
+  {
+   "id": "n7",
+   "bookId": "b-none",
+   "type": "bookmark",
+   "createdAt": "2026-09-03T00:00:00.000Z"
+  }
+ ],
+ "vocabularyTerms": [
+  {
+   "id": "v3",
+   "term": "zeitgeist",
+   "language": "de",
+   "phonetic": "ˈtsaɪtɡaɪst",
+   "meanings": [
+    {
+     "partOfSpeech": "noun",
+     "definitions": [
+      "The spirit of an age.",
+      "The spirit of an age.",
+      "  "
+     ]
+    }
+   ],
+   "contexts": [
+    "The zeitgeist of\nthe sixties."
+   ]
+  },
+  {
+   "id": "v1",
+   "term": "Ephemeral",
+   "language": "en",
+   "meanings": [
+    {
+     "partOfSpeech": "adjective",
+     "definitions": [
+      "Lasting a very short time."
+     ]
+    },
+    {
+     "definitions": [
+      "An ephemeral plant."
+     ]
+    }
+   ],
+   "contexts": []
+  },
+  {
+   "id": "v2",
+   "term": "apple",
+   "language": "en",
+   "meanings": [],
+   "contexts": [
+    "An apple a day.",
+    "  "
+   ]
+  },
+  {
+   "id": "v4",
+   "term": "éclair",
+   "language": "fr",
+   "meanings": [
+    {
+     "partOfSpeech": "noun",
+     "definitions": [
+      "A pastry | with *cream*."
+     ]
+    }
+   ]
+  }
+ ],
+ "rssArticles": [
+  {
+   "id": "art-1",
+   "title": "A Feed Post",
+   "author": "Blogger",
+   "url": "https://example.org/p"
+  }
+ ]
+}

@@ -1000,7 +1000,7 @@ trailer\n\
         let mut entries = std::fs::read_dir(&cache_dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "book"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "book"))
             .collect::<Vec<_>>();
 
         entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().map(|m| m.len()).unwrap_or(0)));

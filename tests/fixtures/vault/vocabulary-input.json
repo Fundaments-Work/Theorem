@@ -1,0 +1,13 @@
+{
+  "terms": [
+    { "id": "v3", "term": "zeitgeist", "language": "de", "phonetic": "ˈtsaɪtɡaɪst",
+      "meanings": [{ "partOfSpeech": "noun", "definitions": ["The spirit of an age.", "The spirit of an age.", "  "] }],
+      "contexts": ["The zeitgeist of\nthe sixties."] },
+    { "id": "v1", "term": "Ephemeral", "language": "en",
+      "meanings": [{ "partOfSpeech": "adjective", "definitions": ["Lasting a very short time."] }, { "definitions": ["An ephemeral plant."] }],
+      "contexts": [] },
+    { "id": "v2", "term": "apple", "language": "en", "meanings": [], "contexts": ["An apple a day.", "  "] },
+    { "id": "v4", "term": "éclair", "language": "fr",
+      "meanings": [{ "partOfSpeech": "noun", "definitions": ["A pastry | with *cream*."] }] }
+  ]
+}

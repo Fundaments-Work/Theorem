@@ -768,7 +768,7 @@ mod tests {
         let options = zip::write::FileOptions::<()>::default()
             .compression_method(zip::CompressionMethod::Stored);
         for (name, data) in entries {
-            zip.start_file(*name, options.clone()).unwrap();
+            zip.start_file(*name, options).unwrap();
             zip.write_all(data).unwrap();
         }
         let buf = zip.finish().unwrap();
@@ -925,14 +925,13 @@ mod tests {
     #[test]
     fn test_read_rootfile_path_percent_encoded() {
         // Create container.xml with percent-encoded path
-        let container = format!(
-            r#"<?xml version="1.0"?>
+        let container = r#"<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content%20file.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>"#
-        );
+            .to_string();
         let zip_data = create_zip(&[
             ("META-INF/container.xml", container.as_bytes()),
             (
@@ -1135,7 +1134,7 @@ mod tests {
         let mut entries = std::fs::read_dir(&cache_dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "book"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "book"))
             .collect::<Vec<_>>();
 
         // Sort by file size descending

@@ -268,6 +268,16 @@ fn build_unique_file_name(source: &ExportSource, used_names: &mut HashSet<String
     candidate
 }
 
+/// Collapse all whitespace runs to one space (matches `toSingleLineText`).
+fn single_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// CRLF → LF, then trim (matches `toMultilineText` in `vault-sync.ts`).
+fn normalize_multiline(value: Option<&str>) -> String {
+    value.unwrap_or("").replace("\r\n", "\n").trim().to_string()
+}
+
 pub fn build_book_page_markdown(
     source: &ExportSource,
     annotations: &[VaultAnnotation],
@@ -308,81 +318,67 @@ pub fn build_book_page_markdown(
         return lines.join("\n");
     }
 
+    let mark = if preset == VaultExportPreset::Minimalist {
+        ""
+    } else {
+        "=="
+    };
     for anno in &sorted {
-        let quote_opt = anno
-            .selected_text
-            .as_ref()
-            .map(|q| q.trim())
-            .filter(|q| !q.is_empty());
-        let note_opt = anno
-            .note_content
-            .as_ref()
-            .map(|n| n.trim())
-            .filter(|n| !n.is_empty());
+        // Quote lines are trimmed (selections carry layout indentation); notes
+        // keep their own indentation (they may hold nested lists). Must stay
+        // byte-identical to `buildBookPageMarkdown` in `vault-sync.ts`
+        // (golden files in `tests/fixtures/vault/`).
+        let quote = normalize_multiline(anno.selected_text.as_deref());
+        let quote_lines: Vec<&str> = quote.split('\n').map(str::trim).collect();
+        let has_quote = quote_lines.iter().any(|line| !line.is_empty());
+        let note = normalize_multiline(anno.note_content.as_deref());
 
-        match preset {
-            VaultExportPreset::Obsidian => {
-                if let Some(quote) = quote_opt {
-                    for qline in quote.lines() {
-                        let trimmed = qline.trim();
-                        if trimmed.is_empty() {
-                            lines.push(">".to_string());
-                        } else {
-                            lines.push(format!("> =={}==", trimmed));
-                        }
-                    }
-                    lines.push(String::new());
+        if preset == VaultExportPreset::Logseq {
+            // One outline block per annotation; blank lines would end the block.
+            let note_lines: Vec<&str> = note.split('\n').filter(|l| !l.trim().is_empty()).collect();
+            if has_quote {
+                for (index, line) in quote_lines.iter().enumerate() {
+                    let prefix = if index == 0 { "- >" } else { "  >" };
+                    lines.push(if line.is_empty() {
+                        prefix.to_string()
+                    } else {
+                        format!("{prefix} {mark}{line}{mark}")
+                    });
                 }
-                if let Some(note) = note_opt {
-                    lines.push(note.to_string());
-                    lines.push(String::new());
+                for (index, line) in note_lines.iter().enumerate() {
+                    lines.push(if index == 0 {
+                        format!("  - **Note**: {line}")
+                    } else {
+                        format!("    {line}")
+                    });
                 }
+                lines.push(String::new());
+            } else if !note_lines.is_empty() {
+                for (index, line) in note_lines.iter().enumerate() {
+                    lines.push(if index == 0 {
+                        format!("- **Note**: {line}")
+                    } else {
+                        format!("  {line}")
+                    });
+                }
+                lines.push(String::new());
             }
-            VaultExportPreset::Logseq => {
-                if let Some(quote) = quote_opt {
-                    let mut qlines = quote.lines();
-                    if let Some(first) = qlines.next() {
-                        let trimmed = first.trim();
-                        if trimmed.is_empty() {
-                            lines.push("- >".to_string());
-                        } else {
-                            lines.push(format!("- > =={}==", trimmed));
-                        }
-                        for qline in qlines {
-                            let trimmed = qline.trim();
-                            if trimmed.is_empty() {
-                                lines.push("  >".to_string());
-                            } else {
-                                lines.push(format!("  > =={}==", trimmed));
-                            }
-                        }
-                    }
-                    if let Some(note) = note_opt {
-                        lines.push(format!("  - **Note**: {}", note));
-                    }
-                    lines.push(String::new());
-                } else if let Some(note) = note_opt {
-                    lines.push(format!("- **Note**: {}", note));
-                    lines.push(String::new());
-                }
+            continue;
+        }
+
+        if has_quote {
+            for line in &quote_lines {
+                lines.push(if line.is_empty() {
+                    ">".to_string()
+                } else {
+                    format!("> {mark}{line}{mark}")
+                });
             }
-            VaultExportPreset::Minimalist => {
-                if let Some(quote) = quote_opt {
-                    for qline in quote.lines() {
-                        let trimmed = qline.trim();
-                        if trimmed.is_empty() {
-                            lines.push(">".to_string());
-                        } else {
-                            lines.push(format!("> {}", trimmed));
-                        }
-                    }
-                    lines.push(String::new());
-                }
-                if let Some(note) = note_opt {
-                    lines.push(note.to_string());
-                    lines.push(String::new());
-                }
-            }
+            lines.push(String::new());
+        }
+        if !note.is_empty() {
+            lines.push(note.clone());
+            lines.push(String::new());
         }
     }
 
@@ -393,12 +389,20 @@ pub fn build_book_page_markdown(
 /// bytes differ on every export, so the file was rewritten (and re-synced by
 /// Obsidian / Syncthing) even when no term changed.
 pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &str) -> String {
+    // Case-insensitive, then exact term, then id: deterministic and identical
+    // to `buildVocabularyMarkdown` in `vault-sync.ts`.
     let mut sorted = terms.to_vec();
-    sorted.sort_by(|a, b| a.term.cmp(&b.term));
+    sorted.sort_by(|a, b| {
+        a.term
+            .to_lowercase()
+            .cmp(&b.term.to_lowercase())
+            .then_with(|| a.term.cmp(&b.term))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 
     let mut languages: Vec<String> = sorted
         .iter()
-        .filter_map(|t| t.language.as_deref().map(|l| l.trim().to_string()))
+        .filter_map(|t| t.language.as_deref().map(single_line))
         .filter(|l| !l.is_empty())
         .collect();
     languages.sort();
@@ -446,17 +450,19 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &
             format!("^fsrs-vocab-{safe_id}")
         };
 
-        let phonetic_str = term
-            .phonetic
-            .as_deref()
-            .map(|p| format!(" *[/{}/]*", p.trim()))
-            .unwrap_or_default();
-        let context_quote = term
-            .contexts
-            .as_ref()
-            .and_then(|c| c.first())
-            .map(|c| c.trim())
-            .unwrap_or("");
+        let phonetic = single_line(term.phonetic.as_deref().unwrap_or(""));
+        let phonetic_str = if phonetic.is_empty() {
+            String::new()
+        } else {
+            format!(" *[/{phonetic}/]*")
+        };
+        // A line break inside the context would end the blockquote.
+        let context_quote = single_line(
+            term.contexts
+                .as_ref()
+                .and_then(|c| c.first())
+                .map_or("", String::as_str),
+        );
 
         lines.push("---card---".to_string());
         lines.push(format!("### {}{phonetic_str} {block_id}", term.term));
@@ -466,6 +472,7 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &
         lines.push("---".to_string());
 
         let mut def_index = 1;
+        let mut seen_defs: HashSet<String> = HashSet::new();
         if let Some(ref meanings) = term.meanings {
             for m in meanings {
                 let pos_prefix = m
@@ -474,8 +481,8 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &
                     .map(|p| format!("**{p}**: "))
                     .unwrap_or_default();
                 for def in &m.definitions {
-                    let clean_def = def.trim();
-                    if !clean_def.is_empty() {
+                    let clean_def = single_line(def);
+                    if !clean_def.is_empty() && seen_defs.insert(clean_def.to_lowercase()) {
                         lines.push(format!("{def_index}. {pos_prefix}{clean_def}"));
                         def_index += 1;
                     }
@@ -969,5 +976,163 @@ mod tests {
         assert!(md_minimal.contains("> I must not fear."));
         assert!(!md_minimal.contains("=="));
         assert!(md_minimal.contains("The Litany Against Fear."));
+    }
+
+    fn golden_input() -> (ExportSource, Vec<VaultAnnotation>) {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Source {
+            id: String,
+            title: String,
+            author: String,
+            format: String,
+            file_path: String,
+        }
+        #[derive(Deserialize)]
+        struct Input {
+            source: Source,
+            annotations: Vec<VaultAnnotation>,
+        }
+        let input: Input = serde_json::from_str(include_str!(
+            "../../tests/fixtures/vault/book-page-input.json"
+        ))
+        .unwrap();
+        let s = input.source;
+        (
+            ExportSource {
+                id: s.id,
+                title: s.title,
+                author: s.author,
+                format: s.format,
+                file_path: s.file_path,
+            },
+            input.annotations,
+        )
+    }
+
+    /// Same golden files as `tests/vault-preset-golden.test.ts`: the Rust
+    /// batch exporter and the JS fallback must write identical notes.
+    #[test]
+    fn presets_match_shared_golden_files() {
+        let (source, annotations) = golden_input();
+        let cases = [
+            (
+                VaultExportPreset::Obsidian,
+                include_str!("../../tests/fixtures/vault/book-page-expected-obsidian.md"),
+            ),
+            (
+                VaultExportPreset::Logseq,
+                include_str!("../../tests/fixtures/vault/book-page-expected-logseq.md"),
+            ),
+            (
+                VaultExportPreset::Minimalist,
+                include_str!("../../tests/fixtures/vault/book-page-expected-minimalist.md"),
+            ),
+        ];
+        for (preset, expected) in cases {
+            let md = build_book_page_markdown(&source, &annotations, "", preset);
+            assert_eq!(md, expected, "preset {preset:?}");
+            let mut reversed = annotations.clone();
+            reversed.reverse();
+            assert_eq!(build_book_page_markdown(&source, &reversed, "", preset), md);
+        }
+    }
+
+    #[test]
+    fn export_payload_selects_preset_and_rewrites_on_change() {
+        let vault = TempVault::new("preset-switch");
+        let mut payload = vault.payload(
+            vec![("b1", "Dune")],
+            vec![("b1", "Fear is the mind-killer.")],
+        );
+        let read_page = |vault: &TempVault| {
+            let pages = vault.pages();
+            assert_eq!(pages.len(), 1, "{pages:?}");
+            fs::read_to_string(
+                vault
+                    .0
+                    .join("Theorem")
+                    .join(DEFAULT_HIGHLIGHTS_FOLDER_NAME)
+                    .join(&pages[0]),
+            )
+            .unwrap()
+        };
+
+        payload.export_preset = Some("logseq".into());
+        export_vault_snapshot_impl(&payload).unwrap();
+        assert!(read_page(&vault).contains("- > ==Fear is the mind-killer.=="));
+
+        payload.export_preset = Some("minimalist".into());
+        export_vault_snapshot_impl(&payload).unwrap();
+        let text = read_page(&vault);
+        assert!(text.contains("\n> Fear is the mind-killer.\n"));
+        assert!(!text.contains("=="));
+
+        payload.export_preset = Some("unknown".into());
+        export_vault_snapshot_impl(&payload).unwrap();
+        assert!(read_page(&vault).contains("> ==Fear is the mind-killer.=="));
+    }
+
+    /// Whole-export golden (`tests/fixtures/vault/export-expected/`), shared with
+    /// `tests/vault-preset-golden.test.ts`: note paths, collision suffixes,
+    /// RSS/unknown sources and the vocabulary note. Regenerate with
+    /// `UPDATE_VAULT_GOLDEN=1 cargo test --lib vault_export`.
+    #[test]
+    fn full_export_matches_shared_golden_files() {
+        let vault = TempVault::new("golden");
+        let mut value: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/vault/export-input.json"))
+                .unwrap();
+        value["vaultPath"] = vault.0.to_string_lossy().into_owned().into();
+        let payload: VaultExportPayload = serde_json::from_value(value).unwrap();
+        export_vault_snapshot_impl(&payload).unwrap();
+
+        let out_root = vault.0.join("Theorem");
+        let mut produced = std::collections::BTreeMap::new();
+        let mut stack = vec![out_root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "md") {
+                    let rel = path
+                        .strip_prefix(&out_root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    produced.insert(rel, fs::read_to_string(&path).unwrap());
+                }
+            }
+        }
+
+        let golden_dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/vault/export-expected");
+        if std::env::var_os("UPDATE_VAULT_GOLDEN").is_some() {
+            let _ = fs::remove_dir_all(&golden_dir);
+            for (rel, content) in &produced {
+                let path = golden_dir.join(rel);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, content).unwrap();
+            }
+            let index: Vec<&String> = produced.keys().collect();
+            fs::write(
+                golden_dir.join("index.json"),
+                serde_json::to_string_pretty(&index).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let index: Vec<String> =
+            serde_json::from_str(&fs::read_to_string(golden_dir.join("index.json")).unwrap())
+                .unwrap();
+        assert_eq!(produced.keys().cloned().collect::<Vec<_>>(), index);
+        for (rel, content) in &produced {
+            assert_eq!(
+                content,
+                &fs::read_to_string(golden_dir.join(rel)).unwrap(),
+                "{rel}"
+            );
+        }
     }
 }
