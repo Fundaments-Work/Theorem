@@ -4,4 +4,5 @@ export type {
     UseDocumentReaderReturn,
 } from "./useDocumentReader";
 export { useReaderFullscreen } from "./useReaderFullscreen";
+export { usePdfTextSelection, readPdfTextSelection, type PdfTextSelection } from "./usePdfTextSelection";
 export { useToolbarHeight } from "./useToolbarHeight";

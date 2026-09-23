@@ -58,7 +58,8 @@ import { ReaderViewport } from "./components/ReaderViewport";
 import { HighlightColorPicker } from "./components/highlights/HighlightColorPicker";
 import { NoteEditor } from "./components/highlights/NoteEditor";
 const PDFReader = lazy(() => import("./components/PDFReader"));
-import { useReaderFullscreen, useToolbarHeight } from "./hooks";
+import { useReaderFullscreen, usePdfTextSelection, useToolbarHeight } from "./hooks";
+import { PdfSelectionBubble } from "./components/PdfSelectionBubble";
 import type { PDFJsEngineRef } from "./engines/pdfjs-engine";
 import type { ReaderViewportHandle } from "./components/ReaderViewport";
 import { PDFFloatingToolbar } from "./components/PDFFloatingToolbar";
@@ -2149,6 +2150,31 @@ const BookReaderPage = memo(function BookReaderPage() {
         await handleLookupWord(selectedText);
     }, [handleLookupWord, selectedText]);
 
+    const [pdfSelection, clearPdfSelection] = usePdfTextSelection(isPdfFormat && pdfAnnotationMode === 'none');
+    const handlePdfDefine = useCallback(() => {
+        if (!pdfSelection) return;
+        setColorPickerPosition(pdfSelection.position);
+        clearPdfSelection();
+        void handleLookupWord(pdfSelection.text);
+    }, [pdfSelection, clearPdfSelection, handleLookupWord]);
+    const handlePdfCopy = useCallback(() => {
+        if (!pdfSelection) return;
+        void navigator.clipboard?.writeText(pdfSelection.text).then(
+            () => toast.success("Copied"),
+            () => toast.error("Could not copy"),
+        );
+        clearPdfSelection();
+    }, [pdfSelection, clearPdfSelection]);
+    const closeDictionaryPicker = useCallback(() => {
+        setShowColorPicker(false);
+        setColorPickerMode("actions");
+        setDictionaryLookupTerm('');
+        setDictionaryLookupResult(null);
+        setDictionaryLookupError(null);
+        setDictionaryLookupLoading(false);
+        setDictionaryLookupSaved(false);
+    }, []);
+
     const handleSaveDictionaryResult = useCallback(() => {
         if (!dictionaryLookupResult || !settings.vocabulary.vocabularyEnabled) {
             return;
@@ -2157,6 +2183,20 @@ const BookReaderPage = memo(function BookReaderPage() {
         saveVocabularyTerm(vocabularyTermFromLookup(dictionaryLookupResult));
         setDictionaryLookupSaved(true);
     }, [dictionaryLookupResult, saveVocabularyTerm, settings.vocabulary.vocabularyEnabled]);
+
+    const dictionaryView = useMemo(() => ({
+        term: dictionaryLookupTerm,
+        result: dictionaryLookupResult,
+        loading: dictionaryLookupLoading,
+        error: dictionaryLookupError,
+        saved: dictionaryLookupSaved,
+        canSaveToVocabulary: settings.vocabulary.vocabularyEnabled,
+        saveDisabledMessage: "Enable Vocabulary Builder in Settings to save terms.",
+        onSave: handleSaveDictionaryResult,
+        onLookupTerm: handleLookupWord,
+        onBack: () => setColorPickerMode("actions"),
+    }), [dictionaryLookupTerm, dictionaryLookupResult, dictionaryLookupLoading, dictionaryLookupError, dictionaryLookupSaved,
+        settings.vocabulary.vocabularyEnabled, handleSaveDictionaryResult, handleLookupWord]);
 
     const handleColorSelect = useCallback(async (color: HighlightColor) => {
         if (!selectedCfi || !activeDocId) return;
@@ -2974,6 +3014,22 @@ const BookReaderPage = memo(function BookReaderPage() {
                 }}
             />
 
+            {isPdfFormat && pdfSelection && !showColorPicker && (
+                <PdfSelectionBubble selection={pdfSelection} onDefine={handlePdfDefine} onCopy={handlePdfCopy} />
+            )}
+            {isPdfFormat && colorPickerMode === "dictionary" && (
+                <HighlightColorPicker
+                    isOpen={showColorPicker}
+                    position={colorPickerPosition}
+                    onSelectColor={() => {}}
+                    onAddNote={() => {}}
+                    onBookmark={() => {}}
+                    viewportPadding={colorPickerViewportPadding}
+                    dictionary={{ ...dictionaryView, onBack: closeDictionaryPicker }}
+                    onClose={closeDictionaryPicker}
+                />
+            )}
+
             {!isPdfFormat && (
                 <>
                     <HighlightColorPicker
@@ -2991,22 +3047,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onBookmark={handleBookmarkFromSelection}
                         onDelete={editingHighlightId ? handleDeleteFromColorPicker : undefined}
                         viewportPadding={colorPickerViewportPadding}
-                        dictionary={colorPickerMode === "dictionary"
-                            ? {
-                                term: dictionaryLookupTerm,
-                                result: dictionaryLookupResult,
-                                loading: dictionaryLookupLoading,
-                                error: dictionaryLookupError,
-                                saved: dictionaryLookupSaved,
-                                canSaveToVocabulary: settings.vocabulary.vocabularyEnabled,
-                                saveDisabledMessage: "Enable Vocabulary Builder in Settings to save terms.",
-                                onSave: handleSaveDictionaryResult,
-                                onLookupTerm: handleLookupWord,
-                                onBack: () => {
-                                    setColorPickerMode("actions");
-                                },
-                            }
-                            : undefined}
+                        dictionary={colorPickerMode === "dictionary" ? dictionaryView : undefined}
                         onClose={() => {
                             setShowColorPicker(false);
                             setColorPickerMode("actions");
