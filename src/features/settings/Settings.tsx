@@ -26,6 +26,7 @@ import { clearAllApplicationStorage, getRssStorageStats } from "../../core/lib/s
 const DeviceSyncSection = lazy(() => import("./DeviceSync").then(m => ({ default: m.DeviceSyncSection })));
 const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => ({ default: m.NeuralVoiceSection })));
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
+import { KnapTemplateEditor } from "./KnapTemplateEditor";
 import {
     Database,
     RotateCcw,
@@ -1202,11 +1203,26 @@ export const SettingsPage = memo(function SettingsPage() {
                                         { value: "obsidian", label: "Obsidian" },
                                         { value: "logseq", label: "Logseq" },
                                         { value: "minimalist", label: "Minimalist" },
+                                        { value: "custom", label: "Custom (Knap)" },
                                     ]}
                                     value={settings.vault.exportPreset || "obsidian"}
                                     onChange={(v) => updateVaultSettings({ exportPreset: v })}
                                 />
                             </SettingRow>
+
+                            {settings.vault.exportPreset === "custom" && (
+                                <SettingRow
+                                    label="Custom Note Template"
+                                    description="Customize YAML frontmatter, wikilinks, callouts, and layout using Knap AST filters"
+                                >
+                                    <div className="w-full">
+                                        <KnapTemplateEditor
+                                            template={settings.vault.customTemplate || ""}
+                                            onChange={(newTemplate) => updateVaultSettings({ customTemplate: newTemplate })}
+                                        />
+                                    </div>
+                                </SettingRow>
+                            )}
 
                             <SettingRow
                                 label="Export Markdown Now"

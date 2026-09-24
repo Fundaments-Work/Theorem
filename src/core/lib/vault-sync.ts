@@ -14,6 +14,11 @@ import type {
     VaultIntegrationSettings,
     VocabularyTerm,
 } from "../types";
+import {
+    DEFAULT_KNAP_TEMPLATE,
+    renderKnapBookPage,
+    type KnapBookData,
+} from "./knap-templates";
 
 const DEFAULT_HIGHLIGHTS_FOLDER_NAME = "Books";
 const DEFAULT_VOCABULARY_FILE_NAME = "Vocabulary.md";
@@ -589,6 +594,38 @@ export async function syncVaultMarkdownSnapshot({
     const vocabularyPath = joinPath(theoremDir, vocabularyFileName);
     const generatedAt = new Date().toISOString();
 
+    const pages = buildBookPages(books, rssArticles, annotations, pagesDirectoryPath);
+
+    let customPages: Record<string, string> | undefined = undefined;
+    if (settings.exportPreset === "custom") {
+        customPages = {};
+        const template = settings.customTemplate?.trim() || DEFAULT_KNAP_TEMPLATE;
+        for (const page of pages) {
+            const bookData: KnapBookData = {
+                id: page.source.id,
+                title: page.source.title,
+                author: page.source.author,
+                format: page.source.format,
+                filePath: page.source.filePath,
+                highlights: page.annotations.map((a) => ({
+                    id: a.id,
+                    text: toMultilineText(a.selectedText).split("\n").map((l) => l.trim()).filter(Boolean).join(" "),
+                    note: toMultilineText(a.noteContent) || null,
+                    color: a.color,
+                    createdAt: a.createdAt ? new Date(a.createdAt).toISOString() : undefined,
+                    updatedAt: a.updatedAt ? new Date(a.updatedAt).toISOString() : undefined,
+                })),
+                totalHighlights: page.annotations.length,
+                syncDate: generatedAt,
+                tags: ["reading/highlights", "theorem"],
+            };
+            const rendered = await renderKnapBookPage(template, bookData);
+            if (rendered.output) {
+                customPages[page.source.id] = rendered.output;
+            }
+        }
+    }
+
     try {
         if (isTauri()) {
             try {
@@ -604,6 +641,7 @@ export async function syncVaultMarkdownSnapshot({
                         highlightsFolder,
                         vocabularyFileName,
                         exportPreset: settings.exportPreset || "obsidian",
+                        customPages,
                         books: books.map((b) => ({
                             id: b.id,
                             title: b.title,
@@ -660,17 +698,15 @@ export async function syncVaultMarkdownSnapshot({
         const legacyHighlightsIndexPath = joinPath(vaultPath, "theorem-highlights.md");
         try { await fs.remove(legacyHighlightsIndexPath); } catch {}
 
-        const pages = buildBookPages(books, rssArticles, annotations, pagesDirectoryPath);
-
         const BATCH_SIZE = 16;
         for (let i = 0; i < pages.length; i += BATCH_SIZE) {
             const batch = pages.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map((page) =>
-                fs.writeTextFile(
-                    page.absolutePath,
-                    buildBookPageMarkdown(page.source, page.annotations, generatedAt, settings.exportPreset || "obsidian"),
-                ),
-            ));
+            await Promise.all(batch.map((page) => {
+                const content = (settings.exportPreset === "custom" && customPages?.[page.source.id])
+                    ? customPages[page.source.id]
+                    : buildBookPageMarkdown(page.source, page.annotations, generatedAt, settings.exportPreset || "obsidian");
+                return fs.writeTextFile(page.absolutePath, content);
+            }));
         }
 
         await fs.writeTextFile(

@@ -1,4 +1,5 @@
 import { localDateKey } from "../lib/date-keys";
+import { DEFAULT_KNAP_TEMPLATE } from "../lib/knap-templates";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { applyAppTheme, applyReaderStyles, initReaderStyles } from "../lib/design-tokens";
@@ -50,6 +51,7 @@ const defaultVaultSettings: AppSettings["vault"] = {
     highlightsFileName: "Books",
     vocabularyFileName: "Vocabulary.md",
     exportPreset: "obsidian",
+    customTemplate: DEFAULT_KNAP_TEMPLATE,
 };
 
 const defaultDeviceSyncSettings: AppSettings["deviceSync"] = {
@@ -401,6 +403,9 @@ export const useSettingsStore = create<SettingsStore>()(
                     }
                     if (!state.settings.vault.exportPreset) {
                         state.settings.vault.exportPreset = "obsidian";
+                    }
+                    if (!state.settings.vault.customTemplate) {
+                        state.settings.vault.customTemplate = DEFAULT_KNAP_TEMPLATE;
                     }
                 }
 

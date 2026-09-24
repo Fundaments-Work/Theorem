@@ -70,6 +70,7 @@ pub enum VaultExportPreset {
     Obsidian,
     Logseq,
     Minimalist,
+    Custom,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,6 +80,7 @@ pub struct VaultExportPayload {
     pub highlights_folder: Option<String>,
     pub vocabulary_file_name: Option<String>,
     pub export_preset: Option<String>,
+    pub custom_pages: Option<HashMap<String, String>>,
     pub books: Vec<VaultBook>,
     pub annotations: Vec<VaultAnnotation>,
     pub vocabulary_terms: Vec<VaultVocabularyTerm>,
@@ -554,14 +556,31 @@ pub fn export_vault_snapshot_impl(
     let preset = match payload.export_preset.as_deref() {
         Some("logseq") => VaultExportPreset::Logseq,
         Some("minimalist") => VaultExportPreset::Minimalist,
+        Some("custom") => VaultExportPreset::Custom,
         _ => VaultExportPreset::Obsidian,
     };
+
+    let custom_pages = payload.custom_pages.as_ref();
 
     for (book_id, annos) in &grouped_annotations {
         let source = build_export_source(book_id, &books_by_id, &rss_by_id);
         let file_name = build_unique_file_name(&source, &mut used_names);
         let abs_path = pages_dir.join(file_name);
-        let content = build_book_page_markdown(&source, annos, &generated_at, preset);
+        let content = if preset == VaultExportPreset::Custom {
+            custom_pages
+                .and_then(|pages| pages.get(book_id))
+                .cloned()
+                .unwrap_or_else(|| {
+                    build_book_page_markdown(
+                        &source,
+                        annos,
+                        &generated_at,
+                        VaultExportPreset::Obsidian,
+                    )
+                })
+        } else {
+            build_book_page_markdown(&source, annos, &generated_at, preset)
+        };
         files_to_write.push((abs_path, content));
     }
 
@@ -717,6 +736,7 @@ mod tests {
                 highlights_folder: None,
                 vocabulary_file_name: None,
                 export_preset: None,
+                custom_pages: None,
                 books: books
                     .into_iter()
                     .map(|(id, title)| VaultBook {
@@ -1134,5 +1154,28 @@ mod tests {
                 "{rel}"
             );
         }
+    }
+
+    #[test]
+    fn test_custom_preset_writes_custom_pages() {
+        let vault = TempVault::new("custom-preset");
+        let mut custom = HashMap::new();
+        custom.insert(
+            "b1".to_string(),
+            "# Custom Note for B1\n\n> Custom content".to_string(),
+        );
+
+        let mut payload = vault.payload(vec![("b1", "Book One")], vec![("b1", "Text 1")]);
+        payload.export_preset = Some("custom".to_string());
+        payload.custom_pages = Some(custom);
+
+        let res = export_vault_snapshot_impl(&payload).unwrap();
+        assert_eq!(res.status, "synced");
+
+        let pages = vault.pages();
+        assert_eq!(pages.len(), 1);
+        let exported =
+            fs::read_to_string(vault.0.join("Theorem").join("Books").join(&pages[0])).unwrap();
+        assert_eq!(exported, "# Custom Note for B1\n\n> Custom content");
     }
 }

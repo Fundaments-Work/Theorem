@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reading speed** — Measured over the whole time on a page instead of counting each page twice.
 - **Vocabulary sync** — Merges write only changed terms and propagate deletions.
 - **RSS** — Favorites are never aged out; other articles are kept for 30 days, newest 500. Feeds refresh four at a time. All Markdown is rendered by `pulldown-cmark` in Rust, with raw HTML and `javascript:` links neutralised.
-- **Vault export** — Only changed notes are rewritten; notes for removed books are deleted unless you edited them. Obsidian, Logseq and Minimalist presets; the native and fallback exporters now write byte-identical notes and file names (shared golden tests).
+- **Vault export** — Only changed notes are rewritten; notes for removed books are deleted unless you edited them. Obsidian, Logseq, Minimalist, and Custom (Knap) presets with an integrated live template editor, syntax validation, and wikilink/callout filters; the native and fallback exporters write byte-identical notes and file names (shared golden tests).
 - **Covers** — Stored as raw image bytes (a third smaller than base64; converted on first start) and served from SQLite via `theorem-cover://` without decoding, instead of loading every cover into memory at startup; synced as their own entries.
 - **RSS sync** — Each article syncs as its own entry, so changing one article no longer re-sends every article.
 - **Audiobook encoder** — libopus is now linked statically; release builds had been loading the system `libopus.so.0`.

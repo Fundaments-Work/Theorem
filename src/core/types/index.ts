@@ -307,7 +307,7 @@ export interface TtsSettings {
     speed: number;
 }
 
-export type VaultExportPreset = "obsidian" | "logseq" | "minimalist";
+export type VaultExportPreset = "obsidian" | "logseq" | "minimalist" | "custom";
 
 export interface VaultIntegrationSettings {
     enabled: boolean;
@@ -317,6 +317,7 @@ export interface VaultIntegrationSettings {
     highlightsFileName: string;
     vocabularyFileName: string;
     exportPreset?: VaultExportPreset;
+    customTemplate?: string;
 }
 
 export interface VocabularyMeaning {
