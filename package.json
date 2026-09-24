@@ -45,7 +45,7 @@
         "dev:android": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android dev --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
         "dev:android:connect": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android dev --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
         "build": "pnpm run typecheck && vite build && node scripts/verify-pdfjs-assets.mjs",
-        "build:wasm": "cargo build -p theorem-core --target wasm32-unknown-unknown --release",
+        "build:wasm": "cargo build --manifest-path src-tauri/Cargo.toml -p theorem-core --target wasm32-unknown-unknown --release",
         "foliate:check": "bash scripts/sync-foliate-js.sh --check",
         "typecheck": "tsc --noEmit -p tsconfig.json",
         "package:linux": "bash ./scripts/makepackage-linux.sh",

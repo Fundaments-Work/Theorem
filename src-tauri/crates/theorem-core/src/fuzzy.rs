@@ -162,7 +162,7 @@ pub fn rank_candidates(candidates: &[FuzzyCandidate], query: &str) -> Vec<FuzzyM
         }
     }
 
-    results.sort_by(|a, b| b.score.cmp(&a.score));
+    results.sort_by_key(|b| std::cmp::Reverse(b.score));
     results
 }
 

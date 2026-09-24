@@ -11,9 +11,9 @@ pub fn markdown_to_html(markdown: &str) -> String {
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(markdown, options);
-    let safe_parser = parser.filter_map(|event| match event {
+    let safe_parser = parser.map(|event| match event {
         // Convert raw HTML events into plain text events so push_html escapes them safely
-        Event::Html(raw) | Event::InlineHtml(raw) => Some(Event::Text(raw)),
+        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
         Event::Start(Tag::Link {
             link_type,
             dest_url,
@@ -21,18 +21,18 @@ pub fn markdown_to_html(markdown: &str) -> String {
             id,
         }) => {
             if is_safe_url(&dest_url) {
-                Some(Event::Start(Tag::Link {
+                Event::Start(Tag::Link {
                     link_type,
                     dest_url,
                     title,
                     id,
-                }))
+                })
             } else {
-                Some(Event::Text("[blocked link]".into()))
+                Event::Text("[blocked link]".into())
             }
         }
-        Event::End(TagEnd::Link) => Some(Event::End(TagEnd::Link)),
-        other => Some(other),
+        Event::End(TagEnd::Link) => Event::End(TagEnd::Link),
+        other => other,
     });
 
     let mut output = String::new();
