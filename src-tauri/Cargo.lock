@@ -7970,6 +7970,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
  "tempfile",
+ "theorem-core",
  "theorem-sync-core",
  "tokio",
  "unicode-normalization",
@@ -7978,6 +7979,17 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "theorem-core"
+version = "1.5.8"
+dependencies = [
+ "nucleo-matcher",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

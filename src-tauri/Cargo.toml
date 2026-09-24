@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/theorem-sync-core"]
+members = ["crates/theorem-sync-core", "crates/theorem-core"]
 resolver = "2"
 
 [package]
@@ -53,6 +53,7 @@ r2d2_sqlite = "0.25"
 
 # ── LAN Device Sync ──
 theorem-sync-core = { path = "crates/theorem-sync-core" }
+theorem-core = { path = "crates/theorem-core" }
 # "process" is only needed for desktop TTS shells (spd-say / say / powershell);
 # excluded on Android to keep the native lib lean.
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }

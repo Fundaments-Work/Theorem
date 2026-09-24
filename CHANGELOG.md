@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EPUB** — Selections highlight glyphs only, like PDF, instead of flooding margins. Only the visible chapter's highlights are drawn (one call instead of about 1,000 on open). Books are read by byte range, and every chapter and image is decompressed in Rust (`epub_read_entry`) instead of zip.js on the UI thread.
 - **Fast scrolling** — A fling or scrollbar drag renders entering pages at low resolution first (instead of leaving them white), then sharp when scrolling stops.
 - **No UI-thread blocking from native calls** — 64 Tauri commands (SQLite, PDF/EPUB reads, file reads, RSS and article fetches, metadata parsing) used to run on the window's main thread; they now run on a background pool. SQLite calls keep their order through a FIFO queue.
+- **theorem-core WASM & Native Crate (R9)** — Extracted pure computational algorithms (pulldown-cmark Markdown rendering, nucleo-matcher SIMD fuzzy matching, deterministic speech text normalization, and PKM note vault formatting) into an independent workspace crate `theorem-core` supporting both native compilation and wasm32.
 
 ### Fixed
 
