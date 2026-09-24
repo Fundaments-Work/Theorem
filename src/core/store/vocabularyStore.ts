@@ -331,9 +331,9 @@ export const useVocabularyStore = create<VocabularyStore>()(
         }),
         {
             name: "theorem-vocabulary",
-            version: 5,
+            version: 6,
             storage: deferredJsonStorage,
-            migrate: (persistedState, _version) => {
+            migrate: (persistedState, version) => {
                 const persisted = isRecord(persistedState) ? persistedState : {};
                 const {
                     preferredTab: _preferredTab,
@@ -362,18 +362,30 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     : [];
                 const lookupCache = normalizeVocabularyLookupCache(persisted.lookupCache);
 
+                // When upgrading from < 6 on native platforms, migrate existing vocabulary into SQLite
+                if (version < 6 && isTauri() && vocabularyTerms.length > 0) {
+                    for (const term of vocabularyTerms) {
+                        if (term && typeof term === "object" && "id" in term) {
+                            try {
+                                const norm = normalizeVocabularyTerm(term as VocabularyTerm);
+                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(norm)).catch(() => {});
+                            } catch {}
+                        }
+                    }
+                }
+
                 return {
                     ...persistedWithoutLegacyReviewFields,
-                    vocabularyTerms,
+                    vocabularyTerms: isTauri() ? [] : vocabularyTerms,
                     installedDictionaries,
                     lookupCache,
                     activeDownload: null,
                 } as VocabularyStore;
             },
             partialize: memoizePartialize(
-                (state) => [state.vocabularyTerms, state.installedDictionaries],
+                (state) => [isTauri() ? [] : state.vocabularyTerms, state.installedDictionaries],
                 (state) => ({
-                    vocabularyTerms: state.vocabularyTerms,
+                    vocabularyTerms: isTauri() ? [] : state.vocabularyTerms,
                     installedDictionaries: state.installedDictionaries,
                 }),
             ),
@@ -381,10 +393,6 @@ export const useVocabularyStore = create<VocabularyStore>()(
                 if (!state) {
                     return;
                 }
-
-                state.vocabularyTerms = (state.vocabularyTerms || []).map((term) => (
-                    normalizeVocabularyTerm(term)
-                ));
 
                 state.installedDictionaries = (state.installedDictionaries || []).map((dictionary) => ({
                     ...dictionary,
@@ -396,26 +404,16 @@ export const useVocabularyStore = create<VocabularyStore>()(
 
                 if (isTauri()) {
                     void sqliteGetVocabularyTerms().then((sqliteTerms) => {
-                        if (sqliteTerms && sqliteTerms.length > 0) {
-                            const current = useVocabularyStore.getState().vocabularyTerms;
-                            const termMap = new Map<string, VocabularyTerm>();
-                            for (const t of current) {
-                                termMap.set(t.id, t);
-                            }
-                            let changed = false;
-                            for (const st of sqliteTerms) {
-                                if (!termMap.has(st.id)) {
-                                    termMap.set(st.id, fromSqliteVocabularyTerm(st));
-                                    changed = true;
-                                }
-                            }
-                            if (changed) {
-                                useVocabularyStore.setState({
-                                    vocabularyTerms: Array.from(termMap.values()),
-                                });
-                            }
+                        if (sqliteTerms) {
+                            useVocabularyStore.setState({
+                                vocabularyTerms: sqliteTerms.map(fromSqliteVocabularyTerm),
+                            });
                         }
                     }).catch(() => {});
+                } else {
+                    state.vocabularyTerms = (state.vocabularyTerms || []).map((term) => (
+                        normalizeVocabularyTerm(term)
+                    ));
                 }
             },
         },

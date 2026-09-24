@@ -291,6 +291,27 @@ pub async fn sqlite_get_book_annotations(
 }
 
 #[tauri::command]
+pub async fn sqlite_get_all_annotations(app: AppHandle) -> Result<Vec<String>, String> {
+    offload(move || crate::database::sqlite_get_all_annotations(app)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_upsert_annotation(
+    app: AppHandle,
+    id: String,
+    book_id: String,
+    annotation_json: String,
+) -> Result<(), String> {
+    offload(move || crate::database::sqlite_upsert_annotation(app, id, book_id, annotation_json))
+        .await
+}
+
+#[tauri::command]
+pub async fn sqlite_delete_annotation(app: AppHandle, id: String) -> Result<(), String> {
+    offload(move || crate::database::sqlite_delete_annotation(app, id)).await
+}
+
+#[tauri::command]
 pub async fn sqlite_merge_sync_entries(
     app: AppHandle,
     entries: HashMap<String, String>,

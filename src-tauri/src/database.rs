@@ -1359,6 +1359,53 @@ pub fn sqlite_get_book_annotations(app: AppHandle, book_id: String) -> Result<Ve
     })
 }
 
+pub fn sqlite_get_all_annotations_inner(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt =
+        connection.prepare("SELECT annotation_json FROM book_annotations ORDER BY updated_at")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+}
+
+pub fn sqlite_get_all_annotations(app: AppHandle) -> Result<Vec<String>, String> {
+    with_connection(&app, sqlite_get_all_annotations_inner)
+}
+
+pub fn sqlite_upsert_annotation_inner(
+    connection: &Connection,
+    id: &str,
+    book_id: &str,
+    annotation_json: &str,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) \
+         ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
+        params![id, book_id, annotation_json],
+    )?;
+    Ok(())
+}
+
+pub fn sqlite_upsert_annotation(
+    app: AppHandle,
+    id: String,
+    book_id: String,
+    annotation_json: String,
+) -> Result<(), String> {
+    with_connection(&app, |connection| {
+        sqlite_upsert_annotation_inner(connection, &id, &book_id, &annotation_json)
+    })
+}
+
+pub fn sqlite_delete_annotation_inner(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    connection.execute("DELETE FROM book_annotations WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn sqlite_delete_annotation(app: AppHandle, id: String) -> Result<(), String> {
+    with_connection(&app, |connection| {
+        sqlite_delete_annotation_inner(connection, &id)
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncMergeResult {
@@ -3106,6 +3153,29 @@ mod tests {
         let result = sqlite_get_book_annotations_inner(&conn, "book1").unwrap();
         assert_eq!(result.len(), 1);
         assert!(result[0].contains("ann2"));
+    }
+
+    #[test]
+    fn test_book_annotations_upsert_delete_get_all() {
+        let conn = setup_db();
+        sqlite_upsert_annotation_inner(&conn, "a1", "b1", r#"{"id":"a1","text":"one"}"#).unwrap();
+        sqlite_upsert_annotation_inner(&conn, "a2", "b2", r#"{"id":"a2","text":"two"}"#).unwrap();
+
+        let all = sqlite_get_all_annotations_inner(&conn).unwrap();
+        assert_eq!(all.len(), 2);
+
+        // Upsert update
+        sqlite_upsert_annotation_inner(&conn, "a1", "b1", r#"{"id":"a1","text":"updated"}"#)
+            .unwrap();
+        let b1_anns = sqlite_get_book_annotations_inner(&conn, "b1").unwrap();
+        assert_eq!(b1_anns.len(), 1);
+        assert!(b1_anns[0].contains("updated"));
+
+        // Delete
+        sqlite_delete_annotation_inner(&conn, "a1").unwrap();
+        let remaining = sqlite_get_all_annotations_inner(&conn).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0], r#"{"id":"a2","text":"two"}"#);
     }
 
     #[test]

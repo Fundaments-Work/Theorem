@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sync after page turns** — Reading progress syncs at most every 30 s instead of starting a full sync round two seconds after each page turn (a source of periodic stutters).
 - **Statistics in local time** — Reading days, streaks, goals and the daily reminder used UTC dates.
 - **Reading speed** — Measured over the whole time on a page instead of counting each page twice.
+- **Vocabulary and annotation storage** — Replaced the dual-write to JSON blobs with SQLite as the single source of truth on native platforms. State serialization drops full arrays from `kv_store`, eliminating JSON stringification overhead and preventing resurrected items during rehydration.
 - **Vocabulary sync** — Merges write only changed terms and propagate deletions.
 - **RSS** — Favorites are never aged out; other articles are kept for 30 days, newest 500. Feeds refresh four at a time. All Markdown is rendered by `pulldown-cmark` in Rust, with raw HTML and `javascript:` links neutralised.
 - **Vault export** — Only changed notes are rewritten; notes for removed books are deleted unless you edited them. Obsidian, Logseq, Minimalist, and Custom (Knap) presets with an integrated live template editor, syntax validation, and wikilink/callout filters; the native and fallback exporters write byte-identical notes and file names (shared golden tests).

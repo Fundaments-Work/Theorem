@@ -227,6 +227,21 @@ export async function sqliteGetBookAnnotations(bookId: string): Promise<string[]
     return invoke('sqlite_get_book_annotations', { bookId }) as Promise<string[]>;
 }
 
+export async function sqliteGetAllAnnotations(): Promise<string[]> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_get_all_annotations') as Promise<string[]>;
+}
+
+export async function sqliteUpsertAnnotation(id: string, bookId: string, annotationJson: string): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('sqlite_upsert_annotation', { id, bookId, annotationJson });
+}
+
+export async function sqliteDeleteAnnotation(id: string): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('sqlite_delete_annotation', { id });
+}
+
 let lastShrinkMemoryAt = 0;
 const SHRINK_MEMORY_THROTTLE_MS = 5000;
 

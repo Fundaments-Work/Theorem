@@ -9,6 +9,9 @@ import { persistBookLocations } from "../lib/book-locations";
 import {
     sqliteSaveBookMetadata,
     sqliteSaveBookAnnotations,
+    sqliteGetAllAnnotations,
+    sqliteUpsertAnnotation,
+    sqliteDeleteAnnotation,
     sqliteListCoverVersions,
     sqliteIndexBooksFtsBatch,
     sqliteIndexBookFts,
@@ -722,6 +725,11 @@ export const useLibraryStore = create<LibraryStore>()(
                     })),
                     deletionTombstones: [...prev.deletionTombstones, ...newTombstones],
                 }));
+                if (isTauri()) {
+                    for (const id of bookIds) {
+                        void sqliteSaveBookAnnotations(id, []).catch((e) => console.error("[catch]", e));
+                    }
+                }
                 queueVaultSync();
                 scheduleMutationSync();
             },
@@ -1216,20 +1224,21 @@ export const useLibraryStore = create<LibraryStore>()(
                 queueVaultSync();
                 scheduleMutationSync();
                 if (isTauri()) {
-                    sqliteSaveBookAnnotations(
+                    void sqliteUpsertAnnotation(
+                        annotation.id,
                         annotation.bookId,
-                        get().annotations.filter(a => a.bookId === annotation.bookId).map(a => JSON.stringify(a))
-                    ).catch(e => console.error("[catch]", e));
+                        JSON.stringify(annotation),
+                    ).catch((e) => console.error("[catch]", e));
                 }
             },
 
             addHighlightWithNote: (cfi, text, color, note) => {
-                const currentBookId = get().currentBookId || '';
+                const currentBookId = get().currentBookId || "";
                 const annotation: Annotation = {
                     id: crypto.randomUUID(),
                     bookId: currentBookId,
                     referenceId: currentBookId || undefined,
-                    type: note ? 'note' : 'highlight',
+                    type: note ? "note" : "highlight",
                     location: cfi,
                     selectedText: text,
                     color,
@@ -1239,22 +1248,39 @@ export const useLibraryStore = create<LibraryStore>()(
                 set((state) => ({ annotations: [...state.annotations, annotation] }));
                 queueVaultSync();
                 scheduleMutationSync();
+                if (isTauri()) {
+                    void sqliteUpsertAnnotation(
+                        annotation.id,
+                        annotation.bookId,
+                        JSON.stringify(annotation),
+                    ).catch((e) => console.error("[catch]", e));
+                }
                 return annotation;
             },
 
             setCurrentBookId: (bookId) => set({ currentBookId: bookId }),
 
             updateAnnotation: (annotationId, updates) => {
+                let updatedAnnotation: Annotation | undefined;
                 set((state) => ({
-                    annotations: state.annotations.map((a) => (
-                        a.id === annotationId
-                            ? { ...a, ...updates, updatedAt: new Date() }
-                            : a
-                    )),
+                    annotations: state.annotations.map((a) => {
+                        if (a.id === annotationId) {
+                            updatedAnnotation = { ...a, ...updates, updatedAt: new Date() };
+                            return updatedAnnotation;
+                        }
+                        return a;
+                    }),
                 }));
 
                 queueVaultSync();
                 scheduleMutationSync();
+                if (isTauri() && updatedAnnotation) {
+                    void sqliteUpsertAnnotation(
+                        updatedAnnotation.id,
+                        updatedAnnotation.bookId,
+                        JSON.stringify(updatedAnnotation),
+                    ).catch((e) => console.error("[catch]", e));
+                }
             },
 
             removeAnnotation: (annotationId) => {
@@ -1267,6 +1293,9 @@ export const useLibraryStore = create<LibraryStore>()(
                 }));
                 queueVaultSync();
                 scheduleMutationSync();
+                if (isTauri()) {
+                    void sqliteDeleteAnnotation(annotationId).catch((e) => console.error("[catch]", e));
+                }
             },
 
             getBookAnnotations: (bookId) =>
@@ -1413,9 +1442,9 @@ export const useLibraryStore = create<LibraryStore>()(
         }),
         {
             name: "theorem-library",
-            version: 6,
+            version: 7,
             storage: deferredJsonStorage,
-            migrate: (persistedState, _version) => {
+            migrate: (persistedState, version) => {
                 const persisted = (
                     typeof persistedState === "object" && persistedState !== null
                         ? persistedState
@@ -1448,21 +1477,34 @@ export const useLibraryStore = create<LibraryStore>()(
                     ? persisted.recentBooksCache as CachedBookMetadata[]
                     : [];
 
+                // When upgrading from < 7 on native platforms, migrate existing annotations into SQLite
+                if (version < 7 && isTauri() && annotations.length > 0) {
+                    for (const ann of annotations) {
+                        if (ann && ann.id && ann.bookId) {
+                            void sqliteUpsertAnnotation(
+                                ann.id,
+                                ann.bookId,
+                                JSON.stringify(ann),
+                            ).catch((e) => console.error("[migration-catch]", e));
+                        }
+                    }
+                }
+
                 return {
                     books,
                     collections,
-                    annotations,
+                    annotations: isTauri() ? [] : annotations,
                     deletionTombstones,
                     lastScannedAt,
                     recentBooksCache,
                 } as PersistedLibraryState;
             },
             partialize: memoizePartialize(
-                (state) => [state.books, state.collections, state.annotations, state.deletionTombstones, state.lastScannedAt, state.recentBooksCache],
+                (state) => [state.books, state.collections, isTauri() ? [] : state.annotations, state.deletionTombstones, state.lastScannedAt, state.recentBooksCache],
                 (state): PersistedLibraryState => ({
                     books: state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[],
                     collections: state.collections,
-                    annotations: state.annotations,
+                    annotations: isTauri() ? [] : state.annotations,
                     deletionTombstones: state.deletionTombstones,
                     lastScannedAt: state.lastScannedAt,
                     recentBooksCache: state.recentBooksCache.map(({ coverPath: _, ...book }) => book) as CachedBookMetadata[],
@@ -1477,12 +1519,33 @@ export const useLibraryStore = create<LibraryStore>()(
                 state.collections = state.collections
                     .map((collection) => normalizeCollectionKind(collection as LegacyCollection))
                     .filter((collection): collection is Collection => Boolean(collection));
-                state.annotations = state.annotations.map((annotation) => ({
-                    ...annotation,
-                    referenceId: typeof annotation.referenceId === "string"
-                        ? annotation.referenceId
-                        : undefined,
-                }));
+
+                if (isTauri()) {
+                    void sqliteGetAllAnnotations().then((annStrings) => {
+                        if (annStrings && annStrings.length > 0) {
+                            const parsed = annStrings.map((s) => {
+                                try {
+                                    const obj = JSON.parse(s);
+                                    return {
+                                        ...obj,
+                                        createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
+                                        updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
+                                    };
+                                } catch {
+                                    return null;
+                                }
+                            }).filter(Boolean) as Annotation[];
+                            useLibraryStore.setState({ annotations: parsed });
+                        }
+                    }).catch((e) => console.error("[catch]", e));
+                } else {
+                    state.annotations = state.annotations.map((annotation) => ({
+                        ...annotation,
+                        referenceId: typeof annotation.referenceId === "string"
+                            ? annotation.referenceId
+                            : undefined,
+                    }));
+                }
 
                 const bookIdsMissingCoverPath = collectBookIdsMissingCoverPath(
                     state.books,
