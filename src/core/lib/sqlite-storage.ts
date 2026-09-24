@@ -217,6 +217,36 @@ export async function sqliteGetBookMetadata(bookId: string): Promise<string | nu
     return invoke('sqlite_get_book_metadata', { bookId }) as Promise<string | null>;
 }
 
+export async function sqliteDeleteBookMetadata(bookId: string): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('sqlite_delete_book_metadata', { bookId });
+}
+
+export async function sqliteLoadAllBooks(): Promise<string[]> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_load_all_books') as Promise<string[]>;
+}
+
+export interface BookProgressUpdate {
+    progress: number;
+    currentLocation?: string;
+    lastReadAt: string;
+    lastClickFraction?: number;
+    pageProgressJson?: string;
+    pdfViewStateJson?: string;
+}
+
+export async function sqliteUpdateBookProgress(
+    bookId: string,
+    update: BookProgressUpdate,
+): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('sqlite_update_book_progress', {
+        bookId,
+        update,
+    });
+}
+
 export async function sqliteSaveBookAnnotations(bookId: string, annotationsJson: string[]): Promise<void> {
     const invoke = await getInvoke();
     await invoke('sqlite_save_book_annotations', { bookId, annotationsJson });

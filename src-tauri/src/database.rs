@@ -1270,10 +1270,23 @@ pub fn sqlite_save_book_metadata_inner(
     metadata_json: &str,
 ) -> rusqlite::Result<()> {
     connection.execute(
+        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+        params![book_id],
+    )?;
+    connection.execute(
         "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch())
          ON CONFLICT(book_id) DO UPDATE SET metadata_json = ?2, updated_at = unixepoch()",
         params![book_id, metadata_json],
     )?;
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(metadata_json) {
+        let title = val.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        let author = val.get("author").and_then(|v| v.as_str());
+        let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
+        let _ = connection.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+            params![book_id, title, author],
+        );
+    }
     Ok(())
 }
 
@@ -1284,6 +1297,92 @@ pub fn sqlite_save_book_metadata(
 ) -> Result<(), String> {
     with_connection(&app, |connection| {
         sqlite_save_book_metadata_inner(connection, &book_id, &metadata_json)
+    })
+}
+
+pub fn sqlite_delete_book_metadata_inner(
+    connection: &Connection,
+    book_id: &str,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "DELETE FROM book_metadata WHERE book_id = ?1",
+        params![book_id],
+    )?;
+    connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id])?;
+    Ok(())
+}
+
+pub fn sqlite_delete_book_metadata(app: AppHandle, book_id: String) -> Result<(), String> {
+    with_connection(&app, |connection| {
+        sqlite_delete_book_metadata_inner(connection, &book_id)
+    })
+}
+
+pub fn sqlite_load_all_books_inner(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt =
+        connection.prepare("SELECT metadata_json FROM book_metadata ORDER BY updated_at DESC")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+}
+
+pub fn sqlite_load_all_books(app: AppHandle) -> Result<Vec<String>, String> {
+    with_connection(&app, sqlite_load_all_books_inner)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookProgressUpdate {
+    pub progress: f64,
+    pub current_location: Option<String>,
+    pub last_read_at: String,
+    pub last_click_fraction: Option<f64>,
+    pub page_progress_json: Option<String>,
+    pub pdf_view_state_json: Option<String>,
+}
+
+pub fn sqlite_update_book_progress_inner(
+    connection: &Connection,
+    book_id: &str,
+    update: &BookProgressUpdate,
+) -> rusqlite::Result<()> {
+    if let Some(existing_json) = sqlite_get_book_metadata_inner(connection, book_id)? {
+        if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&existing_json) {
+            val["progress"] = serde_json::json!(update.progress);
+            if let Some(ref loc) = update.current_location {
+                val["currentLocation"] = serde_json::json!(loc);
+            }
+            val["lastReadAt"] = serde_json::json!(update.last_read_at);
+            if let Some(lcf) = update.last_click_fraction {
+                val["lastClickFraction"] = serde_json::json!(lcf);
+            }
+            if let Some(ref pp) = update.page_progress_json {
+                if let Ok(pp_val) = serde_json::from_str::<serde_json::Value>(pp) {
+                    val["pageProgress"] = pp_val;
+                }
+            }
+            if let Some(ref pdf) = update.pdf_view_state_json {
+                if let Ok(pdf_val) = serde_json::from_str::<serde_json::Value>(pdf) {
+                    val["pdfViewState"] = pdf_val;
+                }
+            }
+            let updated_json = serde_json::to_string(&val).unwrap_or(existing_json);
+            connection.execute(
+                "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch())
+                 ON CONFLICT(book_id) DO UPDATE SET metadata_json = ?2, updated_at = unixepoch()",
+                params![book_id, updated_json],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+pub fn sqlite_update_book_progress(
+    app: AppHandle,
+    book_id: String,
+    update: BookProgressUpdate,
+) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_update_book_progress_inner(conn, &book_id, &update)
     })
 }
 
@@ -3439,6 +3538,43 @@ mod tests {
         let conn = setup_db();
         let result = sqlite_get_book_metadata_inner(&conn, "nonexistent").unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_load_all_books_and_update_progress() {
+        let conn = setup_db();
+        let b1 = r#"{"id":"b1","title":"Book One","author":"Author 1","progress":0.1}"#;
+        let b2 = r#"{"id":"b2","title":"Book Two","author":"Author 2","progress":0.0}"#;
+        sqlite_save_book_metadata_inner(&conn, "b1", b1).unwrap();
+        sqlite_save_book_metadata_inner(&conn, "b2", b2).unwrap();
+
+        let all = sqlite_load_all_books_inner(&conn).unwrap();
+        assert_eq!(all.len(), 2);
+
+        let update = BookProgressUpdate {
+            progress: 0.75,
+            current_location: Some("cfi-123".to_string()),
+            last_read_at: "2026-09-24T12:00:00Z".to_string(),
+            last_click_fraction: Some(0.42),
+            page_progress_json: Some(
+                r#"{"currentPage":5,"totalPages":10,"range":"5"}"#.to_string(),
+            ),
+            pdf_view_state_json: None,
+        };
+        sqlite_update_book_progress_inner(&conn, "b1", &update).unwrap();
+        let updated = sqlite_get_book_metadata_inner(&conn, "b1")
+            .unwrap()
+            .unwrap();
+        assert!(updated.contains("\"progress\":0.75"));
+        assert!(updated.contains("\"currentLocation\":\"cfi-123\""));
+        assert!(updated.contains("\"lastReadAt\":\"2026-09-24T12:00:00Z\""));
+        assert!(updated.contains("\"lastClickFraction\":0.42"));
+        assert!(updated.contains("\"currentPage\":5"));
+
+        sqlite_delete_book_metadata_inner(&conn, "b2").unwrap();
+        let after_del = sqlite_load_all_books_inner(&conn).unwrap();
+        assert_eq!(after_del.len(), 1);
+        assert_eq!(sqlite_get_book_metadata_inner(&conn, "b2").unwrap(), None);
     }
 
     #[test]

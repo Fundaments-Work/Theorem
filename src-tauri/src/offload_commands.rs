@@ -273,6 +273,25 @@ pub async fn sqlite_get_book_metadata(
 }
 
 #[tauri::command]
+pub async fn sqlite_delete_book_metadata(app: AppHandle, book_id: String) -> Result<(), String> {
+    offload(move || crate::database::sqlite_delete_book_metadata(app, book_id)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_load_all_books(app: AppHandle) -> Result<Vec<String>, String> {
+    offload(move || crate::database::sqlite_load_all_books(app)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_update_book_progress(
+    app: AppHandle,
+    book_id: String,
+    update: crate::database::BookProgressUpdate,
+) -> Result<(), String> {
+    offload(move || crate::database::sqlite_update_book_progress(app, book_id, update)).await
+}
+
+#[tauri::command]
 pub async fn sqlite_save_book_annotations(
     app: AppHandle,
     book_id: String,

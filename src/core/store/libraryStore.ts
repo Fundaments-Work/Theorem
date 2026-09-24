@@ -8,6 +8,9 @@ import { coverDisplayUrl, getCoverImage, INLINE_COVER_MAX_CHARS } from "../lib/s
 import { persistBookLocations } from "../lib/book-locations";
 import {
     sqliteSaveBookMetadata,
+    sqliteDeleteBookMetadata,
+    sqliteLoadAllBooks,
+    sqliteUpdateBookProgress,
     sqliteSaveBookAnnotations,
     sqliteGetAllAnnotations,
     sqliteUpsertAnnotation,
@@ -19,6 +22,11 @@ import {
     sqliteSetKv,
 } from "../lib/sqlite-storage";
 import { isTauri } from "../lib/env";
+
+function persistBookToSqlite(book: Book): void {
+    if (!isTauri()) return;
+    sqliteSaveBookMetadata(book.id, JSON.stringify(book)).catch((e) => console.error("[catch]", e));
+}
 import type {
     Annotation,
     Book,
@@ -546,6 +554,7 @@ export const useLibraryStore = create<LibraryStore>()(
 
                 if (duplicateIndex === -1) {
                     set({ books: [...state.books, book] });
+                    persistBookToSqlite(book);
                     if (isTauri()) {
                         sqliteIndexBookFts(book.id, book.title, book.author).catch(e => console.error("[catch]", e));
                     }
@@ -578,6 +587,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         : { books, recentBooksCache },
                 );
                 scheduleMutationSync();
+                persistBookToSqlite(mergedBook);
                 if (isTauri()) {
                     sqliteIndexBookFts(book.id, book.title, book.author).catch(e => console.error("[catch]", e));
                 }
@@ -669,8 +679,8 @@ export const useLibraryStore = create<LibraryStore>()(
                 );
                 scheduleMutationSync();
                 if (isTauri()) {
-                    for (const book of nextBooks) {
-                        sqliteSaveBookMetadata(book.id, JSON.stringify(book)).catch(e => console.error("[catch]", e));
+                    for (const book of incomingBooks) {
+                        persistBookToSqlite(book);
                     }
                 }
                 if (isTauri() && incomingBooks.length > 0) {
@@ -728,6 +738,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 if (isTauri()) {
                     for (const id of bookIds) {
                         void sqliteSaveBookAnnotations(id, []).catch((e) => console.error("[catch]", e));
+                        void sqliteDeleteBookMetadata(id).catch((e) => console.error("[catch]", e));
                     }
                 }
                 queueVaultSync();
@@ -743,6 +754,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (!updatedBook) {
                         return { books };
                     }
+                    persistBookToSqlite(updatedBook);
 
                     const recentBooksCache = syncRecentBooksCacheWithBook(
                         state.recentBooksCache,
@@ -769,6 +781,15 @@ export const useLibraryStore = create<LibraryStore>()(
                     );
 
                     if (updatedBook) {
+                        if (isTauri()) {
+                            sqliteUpdateBookProgress(bookId, {
+                                progress,
+                                currentLocation: location,
+                                lastReadAt: updatedBook.lastReadAt ? updatedBook.lastReadAt.toISOString() : new Date().toISOString(),
+                                lastClickFraction,
+                                pageProgressJson: pageProgress ? JSON.stringify(pageProgress) : undefined,
+                            }).catch((e) => console.error("[catch]", e));
+                        }
                         const existingCache = state.recentBooksCache.filter((book) => book.id !== bookId);
                         const newCache = [createCacheEntry(updatedBook), ...existingCache].slice(0, 20);
                         scheduleMutationSync("reading");
@@ -837,6 +858,15 @@ export const useLibraryStore = create<LibraryStore>()(
                     scheduleMutationSync("reading");
 
                     if (updatedBook) {
+                        if (isTauri()) {
+                            sqliteUpdateBookProgress(bookId, {
+                                progress: updatedBook.progress ?? 0,
+                                currentLocation: updatedBook.currentLocation,
+                                lastReadAt: updatedBook.lastReadAt ? updatedBook.lastReadAt.toISOString() : new Date().toISOString(),
+                                pageProgressJson: updatedBook.pageProgress ? JSON.stringify(updatedBook.pageProgress) : undefined,
+                                pdfViewStateJson: updatedBook.pdfViewState ? JSON.stringify(updatedBook.pdfViewState) : undefined,
+                            }).catch((e) => console.error("[catch]", e));
+                        }
                         const existingCache = state.recentBooksCache.filter((book) => book.id !== bookId);
                         const newCache = [createCacheEntry(updatedBook), ...existingCache].slice(0, 20);
                         return { books: updatedBooks, recentBooksCache: newCache };
@@ -855,6 +885,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (books !== state.books) set({ books });
                     return;
                 }
+                persistBookToSqlite(updatedBook);
                 const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
                 set({ books, recentBooksCache: newCache });
                 scheduleMutationSync();
@@ -870,6 +901,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (books !== state.books) set({ books });
                     return;
                 }
+                persistBookToSqlite(updatedBook);
 
                 if (isTauri() && (metadata.title !== undefined || metadata.author !== undefined)) {
                     sqliteIndexBookFts(bookId, updatedBook.title, updatedBook.author).catch(e => console.error("[catch]", e));
@@ -890,6 +922,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (books !== state.books) set({ books });
                     return;
                 }
+                persistBookToSqlite(updatedBook);
                 const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
                 set({ books, recentBooksCache: newCache });
                 scheduleMutationSync();
@@ -906,6 +939,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (books !== state.books) set({ books });
                     return;
                 }
+                persistBookToSqlite(updatedBook);
                 const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
                 set({ books, recentBooksCache: newCache });
                 scheduleMutationSync();
@@ -921,6 +955,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (books !== state.books) set({ books });
                     return;
                 }
+                persistBookToSqlite(updatedBook);
                 const newCache = syncRecentBooksCacheWithBook(state.recentBooksCache, updatedBook);
                 set({ books, recentBooksCache: newCache });
                 scheduleMutationSync();
@@ -934,6 +969,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         locations,
                     }));
                     if (!updatedBook) return { books };
+                    persistBookToSqlite(updatedBook);
                     const recentBooksCache = syncRecentBooksCacheWithBook(
                         state.recentBooksCache,
                         updatedBook,
@@ -953,6 +989,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (!updatedBook) {
                         return { books };
                     }
+                    persistBookToSqlite(updatedBook);
                     scheduleMutationSync();
                     const recentBooksCache = syncRecentBooksCacheWithBook(
                         state.recentBooksCache,
@@ -987,6 +1024,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 const shouldSetCompletedAt = !wasAlreadyCompleted;
 
                 if (shouldSetManualRead || shouldSetCompletedAt) {
+                    let savedBook: Book | null = null;
                     set((state) => {
                         const { books: updatedBooks, updatedBook } = updateBookById(
                             state.books,
@@ -1007,6 +1045,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         if (!updatedBook) {
                             return { books: updatedBooks };
                         }
+                        savedBook = updatedBook;
 
                         const existingCache = state.recentBooksCache.filter((entry) => entry.id !== bookId);
                         const newCache = [createCacheEntry(updatedBook), ...existingCache].slice(0, 20);
@@ -1016,6 +1055,7 @@ export const useLibraryStore = create<LibraryStore>()(
                             recentBooksCache: newCache,
                         };
                     });
+                    if (savedBook) persistBookToSqlite(savedBook);
                     scheduleMutationSync();
                 }
 
@@ -1032,6 +1072,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     return false;
                 }
 
+                let savedBook: Book | null = null;
                 set((state) => {
                     const { books: updatedBooks, updatedBook } = updateBookById(
                         state.books,
@@ -1048,6 +1089,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     if (!updatedBook) {
                         return { books: updatedBooks };
                     }
+                    savedBook = updatedBook;
 
                     const existingCache = state.recentBooksCache.filter((entry) => entry.id !== bookId);
                     const newCache = [createCacheEntry(updatedBook), ...existingCache].slice(0, 20);
@@ -1057,6 +1099,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         recentBooksCache: newCache,
                     };
                 });
+                if (savedBook) persistBookToSqlite(savedBook);
                 scheduleMutationSync();
 
                 return true;
@@ -1069,6 +1112,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 const idSet = new Set(bookIds);
                 const now = new Date();
                 let changed = false;
+                let touchedBooks: Book[] = [];
                 set((state) => {
                     const books = state.books.map((book) => {
                         if (!idSet.has(book.id)) return book;
@@ -1086,6 +1130,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     });
                     if (!changed) return state;
                     const touched = books.filter((b) => idSet.has(b.id));
+                    touchedBooks = touched;
                     const touchedIds = new Set(touched.map((b) => b.id));
                     const existingCache = state.recentBooksCache.filter((entry) => !touchedIds.has(entry.id));
                     const newCache = [
@@ -1094,13 +1139,17 @@ export const useLibraryStore = create<LibraryStore>()(
                     ].slice(0, 20);
                     return { books, recentBooksCache: newCache };
                 });
-                if (changed) scheduleMutationSync();
+                if (changed) {
+                    for (const b of touchedBooks) persistBookToSqlite(b);
+                    scheduleMutationSync();
+                }
             },
 
             markBooksUnread: (bookIds) => {
                 if (bookIds.length === 0) return;
                 const idSet = new Set(bookIds);
                 let changed = false;
+                let touchedBooks: Book[] = [];
                 set((state) => {
                     const books = state.books.map((book) => {
                         if (!idSet.has(book.id)) return book;
@@ -1116,6 +1165,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     });
                     if (!changed) return state;
                     const touched = books.filter((b) => idSet.has(b.id));
+                    touchedBooks = touched;
                     const touchedIds = new Set(touched.map((b) => b.id));
                     const existingCache = state.recentBooksCache.filter((entry) => !touchedIds.has(entry.id));
                     const newCache = [
@@ -1124,7 +1174,10 @@ export const useLibraryStore = create<LibraryStore>()(
                     ].slice(0, 20);
                     return { books, recentBooksCache: newCache };
                 });
-                if (changed) scheduleMutationSync();
+                if (changed) {
+                    for (const b of touchedBooks) persistBookToSqlite(b);
+                    scheduleMutationSync();
+                }
             },
 
             addCollection: (collection) => {
@@ -1442,7 +1495,7 @@ export const useLibraryStore = create<LibraryStore>()(
         }),
         {
             name: "theorem-library",
-            version: 7,
+            version: 8,
             storage: deferredJsonStorage,
             migrate: (persistedState, version) => {
                 const persisted = (
@@ -1490,8 +1543,20 @@ export const useLibraryStore = create<LibraryStore>()(
                     }
                 }
 
+                // When upgrading from < 8 on native platforms, migrate existing books into SQLite
+                if (version < 8 && isTauri() && books.length > 0) {
+                    for (const book of books) {
+                        if (book && book.id) {
+                            void sqliteSaveBookMetadata(
+                                book.id,
+                                JSON.stringify(book),
+                            ).catch((e) => console.error("[migration-catch]", e));
+                        }
+                    }
+                }
+
                 return {
-                    books,
+                    books: isTauri() ? [] : books,
                     collections,
                     annotations: isTauri() ? [] : annotations,
                     deletionTombstones,
@@ -1500,9 +1565,9 @@ export const useLibraryStore = create<LibraryStore>()(
                 } as PersistedLibraryState;
             },
             partialize: memoizePartialize(
-                (state) => [state.books, state.collections, isTauri() ? [] : state.annotations, state.deletionTombstones, state.lastScannedAt, state.recentBooksCache],
+                (state) => [isTauri() ? [] : state.books, state.collections, isTauri() ? [] : state.annotations, state.deletionTombstones, state.lastScannedAt, state.recentBooksCache],
                 (state): PersistedLibraryState => ({
-                    books: state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[],
+                    books: isTauri() ? [] : (state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[]),
                     collections: state.collections,
                     annotations: isTauri() ? [] : state.annotations,
                     deletionTombstones: state.deletionTombstones,
@@ -1547,78 +1612,6 @@ export const useLibraryStore = create<LibraryStore>()(
                     }));
                 }
 
-                const bookIdsMissingCoverPath = collectBookIdsMissingCoverPath(
-                    state.books,
-                    state.recentBooksCache,
-                );
-
-                useLibraryStore.setState({ coversHydrated: true });
-
-                if (bookIdsMissingCoverPath.length === 0) {
-                    return;
-                }
-
-                void (async () => {
-                    try {
-                        const allCovers = new Map<string, string>();
-                        if (isTauri()) {
-                            // One call for every cover's version; the webview then loads only
-                            // the covers it shows via theorem-cover:// (was: every cover's
-                            // base64 bytes over IPC into the JS heap, one call per book).
-                            const wanted = new Set(bookIdsMissingCoverPath);
-                            const versions = await sqliteListCoverVersions();
-                            for (const row of versions) {
-                                if (!wanted.has(row.bookId)) continue;
-                                if (row.dataUrlLen < INLINE_COVER_MAX_CHARS) {
-                                    const inline = await getCoverImage(row.bookId);
-                                    if (inline) allCovers.set(row.bookId, inline);
-                                } else {
-                                    allCovers.set(row.bookId, coverDisplayUrl(row.bookId, row.updatedAt, row.isSvg));
-                                }
-                            }
-                        }
-                        for (let i = 0; !isTauri() && i < bookIdsMissingCoverPath.length; i += COVER_RESTORE_BATCH_SIZE) {
-                            const batchIds = bookIdsMissingCoverPath.slice(i, i + COVER_RESTORE_BATCH_SIZE);
-                            const batchEntries = await Promise.all(
-                                batchIds.map(async (bookId) => {
-                                    const coverPath = await getCoverImage(bookId);
-                                    return [bookId, coverPath] as const;
-                                }),
-                            );
-
-                            for (const [bookId, coverPath] of batchEntries) {
-                                if (coverPath) {
-                                    allCovers.set(bookId, coverPath);
-                                }
-                            }
-                        }
-
-                        if (allCovers.size === 0) return;
-
-                        useLibraryStore.setState((currentState) => {
-                            const books = applyCoverLookupToBooks(currentState.books, allCovers);
-                            const recentBooksCache = applyCoverLookupToRecentCache(
-                                currentState.recentBooksCache,
-                                allCovers,
-                            );
-
-                            if (
-                                books === currentState.books
-                                && recentBooksCache === currentState.recentBooksCache
-                            ) {
-                                return currentState;
-                            }
-
-                            return {
-                                books,
-                                recentBooksCache,
-                            };
-                        });
-                    } catch {
-                        
-                    }
-                })();
-
                 if (state.deletionTombstones?.length > 0) {
                     const cutoff = new Date();
                     cutoff.setDate(cutoff.getDate() - 90);
@@ -1628,22 +1621,110 @@ export const useLibraryStore = create<LibraryStore>()(
                     );
                 }
 
-                if (state.books?.length > 0 && isTauri()) {
-                    const ftsBatch = state.books.map((b: { id: string; title: string; author: string }) => [
-                        b.id,
-                        b.title,
-                        b.author,
-                    ] as [string, string, string]);
-                    void (async () => {
-                        const books = state.books as Array<{ id: string; title: string; author: string }>;
-                        const newHash = computeFtsHash(books);
-                        const prevHash = await sqliteGetKv(FTS_HASH_KV_KEY).catch(() => null);
-                        if (prevHash === newHash) {
-                            return;
+                const hydrateCoversAndFts = (books: Book[], recentCache: CachedBookMetadata[]) => {
+                    const bookIdsMissingCoverPath = collectBookIdsMissingCoverPath(
+                        books,
+                        recentCache,
+                    );
+
+                    useLibraryStore.setState({ coversHydrated: true });
+
+                    if (bookIdsMissingCoverPath.length > 0) {
+                        void (async () => {
+                            try {
+                                const allCovers = new Map<string, string>();
+                                if (isTauri()) {
+                                    const wanted = new Set(bookIdsMissingCoverPath);
+                                    const versions = await sqliteListCoverVersions();
+                                    for (const row of versions) {
+                                        if (!wanted.has(row.bookId)) continue;
+                                        if (row.dataUrlLen < INLINE_COVER_MAX_CHARS) {
+                                            const inline = await getCoverImage(row.bookId);
+                                            if (inline) allCovers.set(row.bookId, inline);
+                                        } else {
+                                            allCovers.set(row.bookId, coverDisplayUrl(row.bookId, row.updatedAt, row.isSvg));
+                                        }
+                                    }
+                                }
+                                for (let i = 0; !isTauri() && i < bookIdsMissingCoverPath.length; i += COVER_RESTORE_BATCH_SIZE) {
+                                    const batchIds = bookIdsMissingCoverPath.slice(i, i + COVER_RESTORE_BATCH_SIZE);
+                                    const batchEntries = await Promise.all(
+                                        batchIds.map(async (bookId) => {
+                                            const coverPath = await getCoverImage(bookId);
+                                            return [bookId, coverPath] as const;
+                                        }),
+                                    );
+
+                                    for (const [bookId, coverPath] of batchEntries) {
+                                        if (coverPath) {
+                                            allCovers.set(bookId, coverPath);
+                                        }
+                                    }
+                                }
+
+                                if (allCovers.size === 0) return;
+
+                                useLibraryStore.setState((currentState) => {
+                                    const nextBooks = applyCoverLookupToBooks(currentState.books, allCovers);
+                                    const recentBooksCache = applyCoverLookupToRecentCache(
+                                        currentState.recentBooksCache,
+                                        allCovers,
+                                    );
+
+                                    if (
+                                        nextBooks === currentState.books
+                                        && recentBooksCache === currentState.recentBooksCache
+                                    ) {
+                                        return currentState;
+                                    }
+
+                                    return {
+                                        books: nextBooks,
+                                        recentBooksCache,
+                                    };
+                                });
+                            } catch {
+
+                            }
+                        })();
+                    }
+
+                    if (books.length > 0 && isTauri()) {
+                        const ftsBatch = books.map((b: { id: string; title: string; author: string }) => [
+                            b.id,
+                            b.title,
+                            b.author,
+                        ] as [string, string, string]);
+                        void (async () => {
+                            const newHash = computeFtsHash(books);
+                            const prevHash = await sqliteGetKv(FTS_HASH_KV_KEY).catch(() => null);
+                            if (prevHash === newHash) {
+                                return;
+                            }
+                            await sqliteIndexBooksFtsBatch(ftsBatch).catch(e => console.error("[catch]", e));
+                            await sqliteSetKv(FTS_HASH_KV_KEY, newHash).catch(e => console.error("[catch]", e));
+                        })();
+                    }
+                };
+
+                if (isTauri()) {
+                    void sqliteLoadAllBooks().then((bookStrings) => {
+                        let loadedBooks: Book[] = [];
+                        if (bookStrings && bookStrings.length > 0) {
+                            loadedBooks = bookStrings.map((s) => {
+                                try {
+                                    const obj = JSON.parse(s);
+                                    return normalizePersistedBook(obj);
+                                } catch {
+                                    return null;
+                                }
+                            }).filter(Boolean) as Book[];
+                            useLibraryStore.setState({ books: loadedBooks });
                         }
-                        await sqliteIndexBooksFtsBatch(ftsBatch).catch(e => console.error("[catch]", e));
-                        await sqliteSetKv(FTS_HASH_KV_KEY, newHash).catch(e => console.error("[catch]", e));
-                    })();
+                        hydrateCoversAndFts(loadedBooks, useLibraryStore.getState().recentBooksCache);
+                    }).catch((e) => console.error("[catch]", e));
+                } else {
+                    hydrateCoversAndFts(state.books, state.recentBooksCache);
                 }
             },
         }
