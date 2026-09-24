@@ -10,8 +10,9 @@ import {
     useUIStore,
     useSettingsStore,
     toSqliteVocabularyTerm,
+    fromSqliteVocabularyTerm,
 } from "../store";
-import type { DeviceSyncStatus, SyncConflict } from "../types";
+import type { Annotation, Book, DeviceSyncStatus, RssArticle, SyncConflict } from "../types";
 import {
     mergeBooks,
     mergeAnnotations,
@@ -24,7 +25,15 @@ import {
     mergeReadingStats,
 } from "./sync-import";
 import { isTauri } from "./env";
-import { invokeSqliteInOrder, sqliteDeleteVocabularyTerm, sqliteRegisterMaterializedBook, sqliteSaveVocabularyTerm } from "./sqlite-storage";
+import {
+    sqliteDeleteVocabularyTerm,
+    sqliteGetAllAnnotations,
+    sqliteGetVocabularyTerms,
+    sqliteMergeSyncEntries,
+    sqliteRegisterMaterializedBook,
+    sqliteSaveVocabularyTerm,
+    type SyncMergeResult,
+} from "./sqlite-storage";
 import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
 import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, coverPathForBookEntry, needsCoverEntry, parseCoverEntry } from "./sync-covers";
 
@@ -132,6 +141,20 @@ async function mergeIncomingData(
         if (cover) incomingCovers.push(cover);
     }
 
+    let nativeReport: SyncMergeResult | null = null;
+    if (isTauri()) {
+        try {
+            nativeReport = await sqliteMergeSyncEntries(incomingMap);
+            for (const d of nativeReport.domainsUpdated) {
+                markUpdated(d);
+            }
+        } catch (err) {
+            if (import.meta.env.DEV) {
+                console.warn("[sync] Native sqlite_merge_sync_entries failed, falling back to JS merge:", err);
+            }
+        }
+    }
+
     let allTombstones = useLibraryStore.getState().deletionTombstones;
 
     const libraryPatch: Partial<ReturnType<typeof useLibraryStore.getState>> = {};
@@ -153,33 +176,74 @@ async function mergeIncomingData(
 
     if (safeMap["deletion_tombstones"]) {
         const libraryState = useLibraryStore.getState();
-        const prunedBooks = mergeBooks([], libraryState.books, allTombstones);
-        const prunedAnnotations = mergeAnnotations([], libraryState.annotations, allTombstones);
-        const prunedCollections = mergeCollections([], libraryState.collections, allTombstones);
+        if (nativeReport) {
+            if (nativeReport.deletedBooks.length > 0) {
+                const delSet = new Set(nativeReport.deletedBooks);
+                const prunedBooks = libraryState.books.filter((b) => !delSet.has(b.id));
+                applyLibraryPatch({ books: prunedBooks });
+                markUpdated("books");
+            }
+            if (nativeReport.deletedAnnotations.length > 0) {
+                const delSet = new Set(nativeReport.deletedAnnotations);
+                const prunedAnns = libraryState.annotations.filter((a) => !delSet.has(a.id));
+                applyLibraryPatch({ annotations: prunedAnns });
+                markUpdated("annotations");
+            }
+            const prunedCollections = mergeCollections([], libraryState.collections, allTombstones);
+            applyLibraryPatch({ collections: prunedCollections });
+            if (prunedCollections.length !== libraryState.collections.length) markUpdated("collections");
 
-        applyLibraryPatch({
-            books: prunedBooks,
-            annotations: prunedAnnotations,
-            collections: prunedCollections,
-        });
+            if (nativeReport.deletedVocabulary.length > 0) {
+                const delSet = new Set(nativeReport.deletedVocabulary);
+                const vocabState = useVocabularyStore.getState();
+                useVocabularyStore.setState({
+                    vocabularyTerms: vocabState.vocabularyTerms.filter((t) => !delSet.has(t.id)),
+                });
+                markUpdated("vocabulary");
+            }
 
-        if (prunedBooks.length !== libraryState.books.length) markUpdated("books");
-        if (prunedAnnotations.length !== libraryState.annotations.length) markUpdated("annotations");
-        if (prunedCollections.length !== libraryState.collections.length) markUpdated("collections");
+            const rssState = useRssStore.getState();
+            const prunedFeeds = mergeRssFeeds([], rssState.feeds, allTombstones);
+            if (prunedFeeds.feeds.length !== rssState.feeds.length) {
+                useRssStore.setState({ feeds: prunedFeeds.feeds });
+                markUpdated("rss_feeds");
+            }
+            if (nativeReport.deletedRssArticles.length > 0) {
+                const delSet = new Set(nativeReport.deletedRssArticles);
+                useRssStore.setState({
+                    articles: rssState.articles.filter((a) => !delSet.has(a.id)),
+                });
+                markUpdated("rss_articles");
+            }
+        } else {
+            const prunedBooks = mergeBooks([], libraryState.books, allTombstones);
+            const prunedAnnotations = mergeAnnotations([], libraryState.annotations, allTombstones);
+            const prunedCollections = mergeCollections([], libraryState.collections, allTombstones);
 
-        const rssState = useRssStore.getState();
-        const prunedFeeds = mergeRssFeeds([], rssState.feeds, allTombstones);
-        const prunedArticles = mergeRssArticles([], rssState.articles, undefined, allTombstones);
+            applyLibraryPatch({
+                books: prunedBooks,
+                annotations: prunedAnnotations,
+                collections: prunedCollections,
+            });
 
-        useRssStore.setState({ feeds: prunedFeeds.feeds, articles: prunedArticles });
+            if (prunedBooks.length !== libraryState.books.length) markUpdated("books");
+            if (prunedAnnotations.length !== libraryState.annotations.length) markUpdated("annotations");
+            if (prunedCollections.length !== libraryState.collections.length) markUpdated("collections");
 
-        if (prunedFeeds.feeds.length !== rssState.feeds.length) markUpdated("rss_feeds");
-        if (prunedArticles.length !== rssState.articles.length) markUpdated("rss_articles");
+            const rssState = useRssStore.getState();
+            const prunedFeeds = mergeRssFeeds([], rssState.feeds, allTombstones);
+            const prunedArticles = mergeRssArticles([], rssState.articles, undefined, allTombstones);
 
-        const vocabState = useVocabularyStore.getState();
-        const prunedVocab = mergeVocabulary([], vocabState.vocabularyTerms, allTombstones);
-        useVocabularyStore.setState({ vocabularyTerms: prunedVocab });
-        if (prunedVocab.length !== vocabState.vocabularyTerms.length) markUpdated("vocabulary");
+            useRssStore.setState({ feeds: prunedFeeds.feeds, articles: prunedArticles });
+
+            if (prunedFeeds.feeds.length !== rssState.feeds.length) markUpdated("rss_feeds");
+            if (prunedArticles.length !== rssState.articles.length) markUpdated("rss_articles");
+
+            const vocabState = useVocabularyStore.getState();
+            const prunedVocab = mergeVocabulary([], vocabState.vocabularyTerms, allTombstones);
+            useVocabularyStore.setState({ vocabularyTerms: prunedVocab });
+            if (prunedVocab.length !== vocabState.vocabularyTerms.length) markUpdated("vocabulary");
+        }
     }
 
     let currentLibState = useLibraryStore.getState();
@@ -193,7 +257,11 @@ async function mergeIncomingData(
             const domainBooks = safeMap["books"]
                 ? (() => { const p = JSON.parse(safeMap["books"]); return Array.isArray(p) ? p : []; })()
                 : [];
-            const incoming = [...domainBooks, ...perEntityBooks];
+            let incoming = [...domainBooks, ...perEntityBooks] as Book[];
+            if (nativeReport) {
+                const updatedIds = new Set(nativeReport.updatedBooks);
+                incoming = incoming.filter((b) => updatedIds.has(b.id));
+            }
             if (incoming.length > 0) {
                 debug(`[sync-merge] books: ${incoming.length} incoming (${domainBooks.length} domain + ${perEntityBooks.length} per-entity), ${currentLibState.books.length} existing`);
                 const beforeBookMap = new Map(currentLibState.books.map(b => [b.id, b]));
@@ -252,31 +320,54 @@ async function mergeIncomingData(
 
     if (safeMap["annotations"] || perEntityAnnotations.length > 0) {
         try {
-            const domainAnns = safeMap["annotations"]
-                ? (() => { const p = JSON.parse(safeMap["annotations"]); return Array.isArray(p) ? p : []; })()
-                : [];
-            const incoming = [...domainAnns, ...perEntityAnnotations];
-            if (incoming.length > 0) {
-                const beforeIds = new Set(currentLibState.annotations.map(a => a.id));
-                const beforeMap = new Map(currentLibState.annotations.map(a => [a.id, a]));
-                const incomingMap = new Map(incoming.map(a => [a.id, a]));
-                const incomingIds = new Set(incomingMap.keys());
-                const merged = mergeAnnotations(incoming, currentLibState.annotations, allTombstones);
-                if (merged !== currentLibState.annotations) {
-                    applyLibraryPatch({ annotations: merged });
-                    markUpdated("annotations");
-                    for (const ann of merged) {
-                        if (beforeIds.has(ann.id) && incomingIds.has(ann.id)) {
-                            const before = beforeMap.get(ann.id);
-                            if (before && JSON.stringify(before) !== JSON.stringify(ann)) {
-                                const inc = incomingMap.get(ann.id);
-                                const remoteWon = inc !== undefined && JSON.stringify(inc) === JSON.stringify(ann);
-                                recordConflict("annotation", ann.id, remoteWon ? "remote" : "local", ann.selectedText?.slice(0, 40));
+            if (nativeReport) {
+                if (nativeReport.updatedAnnotations.length > 0 || nativeReport.deletedAnnotations.length > 0) {
+                    const annStrings = await sqliteGetAllAnnotations();
+                    if (annStrings) {
+                        const parsed = annStrings.map((s) => {
+                            try {
+                                const obj = JSON.parse(s);
+                                return {
+                                    ...obj,
+                                    createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
+                                    updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
+                                };
+                            } catch {
+                                return null;
+                            }
+                        }).filter(Boolean) as Annotation[];
+                        applyLibraryPatch({ annotations: parsed });
+                        currentLibState = { ...currentLibState, annotations: parsed };
+                        markUpdated("annotations");
+                    }
+                }
+            } else {
+                const domainAnns = safeMap["annotations"]
+                    ? (() => { const p = JSON.parse(safeMap["annotations"]); return Array.isArray(p) ? p : []; })()
+                    : [];
+                const incoming = [...domainAnns, ...perEntityAnnotations];
+                if (incoming.length > 0) {
+                    const beforeIds = new Set(currentLibState.annotations.map(a => a.id));
+                    const beforeMap = new Map(currentLibState.annotations.map(a => [a.id, a]));
+                    const incomingMap = new Map(incoming.map(a => [a.id, a]));
+                    const incomingIds = new Set(incomingMap.keys());
+                    const merged = mergeAnnotations(incoming, currentLibState.annotations, allTombstones);
+                    if (merged !== currentLibState.annotations) {
+                        applyLibraryPatch({ annotations: merged });
+                        markUpdated("annotations");
+                        for (const ann of merged) {
+                            if (beforeIds.has(ann.id) && incomingIds.has(ann.id)) {
+                                const before = beforeMap.get(ann.id);
+                                if (before && JSON.stringify(before) !== JSON.stringify(ann)) {
+                                    const inc = incomingMap.get(ann.id);
+                                    const remoteWon = inc !== undefined && JSON.stringify(inc) === JSON.stringify(ann);
+                                    recordConflict("annotation", ann.id, remoteWon ? "remote" : "local", ann.selectedText?.slice(0, 40));
+                                }
                             }
                         }
                     }
+                    currentLibState = { ...currentLibState, annotations: merged };
                 }
-                currentLibState = { ...currentLibState, annotations: merged };
             }
         } catch (e) {
         }
@@ -328,26 +419,38 @@ async function mergeIncomingData(
         }
     }
 
-    if (safeMap["vocabulary"]) {
+    if (safeMap["vocabulary"] || (nativeReport && (nativeReport.updatedVocabulary.length > 0 || nativeReport.deletedVocabulary.length > 0))) {
         try {
-            const incoming = JSON.parse(safeMap["vocabulary"]);
-            if (Array.isArray(incoming)) {
-                const current = useVocabularyStore.getState().vocabularyTerms;
-                const merged = mergeVocabulary(incoming, current, allTombstones);
-                const { upserts, deletes } = diffVocabularyForSqlite(current, merged);
-                if (upserts.length > 0 || deletes.length > 0 || merged.length !== current.length) {
-                    useVocabularyStore.setState({ vocabularyTerms: merged });
-                    if (isTauri()) {
-                        // Only what changed (was: every term, one IPC each, on every merge),
-                        // and removals too, so deleted terms cannot resurrect on next launch.
-                        for (const term of upserts) {
-                            void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term));
-                        }
-                        for (const id of deletes) {
-                            void sqliteDeleteVocabularyTerm(id);
-                        }
+            if (nativeReport) {
+                if (nativeReport.updatedVocabulary.length > 0 || nativeReport.deletedVocabulary.length > 0) {
+                    const sqliteTerms = await sqliteGetVocabularyTerms();
+                    if (sqliteTerms) {
+                        useVocabularyStore.setState({
+                            vocabularyTerms: sqliteTerms.map(fromSqliteVocabularyTerm),
+                        });
+                        markUpdated("vocabulary");
                     }
-                    markUpdated("vocabulary");
+                }
+            } else if (safeMap["vocabulary"]) {
+                const incoming = JSON.parse(safeMap["vocabulary"]);
+                if (Array.isArray(incoming)) {
+                    const current = useVocabularyStore.getState().vocabularyTerms;
+                    const merged = mergeVocabulary(incoming, current, allTombstones);
+                    const { upserts, deletes } = diffVocabularyForSqlite(current, merged);
+                    if (upserts.length > 0 || deletes.length > 0 || merged.length !== current.length) {
+                        useVocabularyStore.setState({ vocabularyTerms: merged });
+                        if (isTauri()) {
+                            // Only what changed (was: every term, one IPC each, on every merge),
+                            // and removals too, so deleted terms cannot resurrect on next launch.
+                            for (const term of upserts) {
+                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term));
+                            }
+                            for (const id of deletes) {
+                                void sqliteDeleteVocabularyTerm(id);
+                            }
+                        }
+                        markUpdated("vocabulary");
+                    }
                 }
             }
         } catch (e) {
@@ -420,7 +523,11 @@ async function mergeIncomingData(
             // Per-article entries plus the legacy whole-list entry (older peers,
             // and deletions, still write it).
             const blob = safeMap["rss_articles"] ? JSON.parse(safeMap["rss_articles"]) : [];
-            const incoming = [...(Array.isArray(blob) ? blob : []), ...perEntityArticles];
+            let incoming = [...(Array.isArray(blob) ? blob : []), ...perEntityArticles] as RssArticle[];
+            if (nativeReport) {
+                const updatedArtIds = new Set(nativeReport.updatedRssArticles);
+                incoming = incoming.filter((a) => updatedArtIds.has(a.id));
+            }
             if (incoming.length > 0) {
                 const currentArticles = useRssStore.getState().articles;
                 debug(`[sync-merge] rss_articles: ${incoming.length} incoming, ${currentArticles.length} existing`);
@@ -1519,16 +1626,6 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
     try {
         const entries = await docsGetAllEntries();
         if (!entries || Object.keys(entries).length === 0) return domainsUpdated;
-
-        if (isTauri()) {
-            try {
-                await invokeSqliteInOrder("sqlite_merge_sync_entries", { entries });
-            } catch (err) {
-                if (import.meta.env.DEV) {
-                    console.warn("[sync] Native sqlite_merge_sync_entries failed, falling back to JS merge:", err);
-                }
-            }
-        }
 
         const localSettingsUpdatedAt = useSettingsStore.getState().settingsLastModifiedAt || new Date().toISOString();
         const { domainsUpdated: merged } = await mergeIncomingData(

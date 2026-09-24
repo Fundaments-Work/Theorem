@@ -242,6 +242,27 @@ export async function sqliteDeleteAnnotation(id: string): Promise<void> {
     await invoke('sqlite_delete_annotation', { id });
 }
 
+export interface SyncMergeResult {
+    domainsUpdated: string[];
+    booksCount: number;
+    annotationsCount: number;
+    updatedBooks: string[];
+    deletedBooks: string[];
+    updatedAnnotations: string[];
+    deletedAnnotations: string[];
+    updatedVocabulary: string[];
+    deletedVocabulary: string[];
+    updatedRssArticles: string[];
+    deletedRssArticles: string[];
+}
+
+export async function sqliteMergeSyncEntries(
+    entries: Record<string, string>,
+): Promise<SyncMergeResult> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_merge_sync_entries', { entries }) as Promise<SyncMergeResult>;
+}
+
 let lastShrinkMemoryAt = 0;
 const SHRINK_MEMORY_THROTTLE_MS = 5000;
 

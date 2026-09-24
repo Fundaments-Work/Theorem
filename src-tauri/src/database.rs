@@ -1406,12 +1406,225 @@ pub fn sqlite_delete_annotation(app: AppHandle, id: String) -> Result<(), String
     })
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncMergeResult {
     pub domains_updated: Vec<String>,
     pub books_count: usize,
     pub annotations_count: usize,
+    pub updated_books: Vec<String>,
+    pub deleted_books: Vec<String>,
+    pub updated_annotations: Vec<String>,
+    pub deleted_annotations: Vec<String>,
+    pub updated_vocabulary: Vec<String>,
+    pub deleted_vocabulary: Vec<String>,
+    pub updated_rss_articles: Vec<String>,
+    pub deleted_rss_articles: Vec<String>,
+}
+
+fn parse_sync_date(val: Option<&serde_json::Value>) -> Option<i64> {
+    match val {
+        Some(serde_json::Value::Number(n)) => n.as_i64(),
+        Some(serde_json::Value::String(s)) => {
+            if let Ok(num) = s.parse::<i64>() {
+                Some(num)
+            } else if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                Some(dt.timestamp_millis())
+            } else if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+            {
+                Some(naive.and_utc().timestamp_millis())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn upsert_sync_vocabulary_term(
+    connection: &Connection,
+    term: &serde_json::Value,
+) -> rusqlite::Result<Option<String>> {
+    let id = term.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let word = term.get("term").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() || word.is_empty() {
+        return Ok(None);
+    }
+    let normalized_term = term
+        .get("normalizedTerm")
+        .and_then(|v| v.as_str())
+        .unwrap_or(word);
+    let language = term
+        .get("language")
+        .and_then(|v| v.as_str())
+        .unwrap_or("en");
+    let phonetic = term.get("phonetic").and_then(|v| v.as_str());
+    let audio_url = term.get("audioUrl").and_then(|v| v.as_str());
+    let meanings_json = term
+        .get("meanings")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "[]".to_string());
+    let provider_history_json = term
+        .get("providerHistory")
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "[]".to_string());
+    let source_book_id = term.get("sourceBookId").and_then(|v| v.as_str());
+    let context_sentence = term.get("contextSentence").and_then(|v| v.as_str());
+    let created_at = parse_sync_date(term.get("createdAt")).unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64
+    });
+    let updated_at = parse_sync_date(term.get("updatedAt"));
+
+    connection.execute(
+        r#"
+        INSERT INTO vocabulary (
+            id, term, normalized_term, language, phonetic, audio_url,
+            meanings_json, provider_history_json, source_book_id,
+            context_sentence, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        ON CONFLICT(id) DO UPDATE SET
+            term = excluded.term,
+            normalized_term = excluded.normalized_term,
+            language = excluded.language,
+            phonetic = excluded.phonetic,
+            audio_url = excluded.audio_url,
+            meanings_json = excluded.meanings_json,
+            provider_history_json = excluded.provider_history_json,
+            source_book_id = excluded.source_book_id,
+            context_sentence = excluded.context_sentence,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at
+        "#,
+        params![
+            id,
+            word,
+            normalized_term,
+            language,
+            phonetic,
+            audio_url,
+            meanings_json,
+            provider_history_json,
+            source_book_id,
+            context_sentence,
+            created_at,
+            updated_at,
+        ],
+    )?;
+    Ok(Some(id.to_string()))
+}
+
+fn upsert_sync_rss_article(
+    connection: &Connection,
+    article: &serde_json::Value,
+) -> rusqlite::Result<Option<String>> {
+    let id = article.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let feed_id = article
+        .get("feedId")
+        .or_else(|| article.get("feed_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let title = article.get("title").and_then(|v| v.as_str()).unwrap_or("");
+    if id.is_empty() || feed_id.is_empty() {
+        return Ok(None);
+    }
+    let author = article.get("author").and_then(|v| v.as_str());
+    let url = article.get("url").and_then(|v| v.as_str()).unwrap_or("");
+    let summary = article.get("summary").and_then(|v| v.as_str());
+    let content_source = article
+        .get("contentSource")
+        .or_else(|| article.get("content_source"))
+        .and_then(|v| v.as_str());
+    let image_url = article
+        .get("imageUrl")
+        .or_else(|| article.get("image_url"))
+        .and_then(|v| v.as_str());
+    let published_at = parse_sync_date(
+        article
+            .get("publishedAt")
+            .or_else(|| article.get("published_at")),
+    )
+    .unwrap_or(0);
+    let fetched_at = parse_sync_date(
+        article
+            .get("fetchedAt")
+            .or_else(|| article.get("fetched_at")),
+    );
+    let is_read = article
+        .get("isRead")
+        .or_else(|| article.get("is_read"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_favorite = article
+        .get("isFavorite")
+        .or_else(|| article.get("is_favorite"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let progress = article
+        .get("progress")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    connection.execute(
+        r#"
+        INSERT INTO rss_articles (
+            id, feed_id, title, author, url, summary,
+            content_source, image_url, published_at, fetched_at,
+            is_read, is_favorite, progress, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, unixepoch())
+        ON CONFLICT(id) DO UPDATE SET
+            feed_id = excluded.feed_id,
+            title = excluded.title,
+            author = excluded.author,
+            url = excluded.url,
+            summary = excluded.summary,
+            content_source = excluded.content_source,
+            image_url = excluded.image_url,
+            published_at = excluded.published_at,
+            fetched_at = excluded.fetched_at,
+            is_read = excluded.is_read,
+            is_favorite = excluded.is_favorite,
+            progress = excluded.progress,
+            updated_at = unixepoch()
+        "#,
+        params![
+            id,
+            feed_id,
+            title,
+            author,
+            url,
+            summary,
+            content_source,
+            image_url,
+            published_at,
+            fetched_at,
+            if is_read { 1 } else { 0 },
+            if is_favorite { 1 } else { 0 },
+            progress,
+        ],
+    )?;
+
+    if let Some(content) = article.get("content").and_then(|v| v.as_str()) {
+        let full_content = article
+            .get("fullContent")
+            .or_else(|| article.get("full_content"))
+            .and_then(|v| v.as_str());
+        connection.execute(
+            r#"
+            INSERT INTO rss_article_content (article_id, content, full_content, updated_at)
+            VALUES (?1, ?2, ?3, unixepoch())
+            ON CONFLICT(article_id) DO UPDATE SET
+                content = excluded.content,
+                full_content = excluded.full_content,
+                updated_at = unixepoch()
+            "#,
+            params![id, content, full_content],
+        )?;
+    }
+
+    Ok(Some(id.to_string()))
 }
 
 pub fn sqlite_merge_sync_entries_inner(
@@ -1421,12 +1634,24 @@ pub fn sqlite_merge_sync_entries_inner(
     let mut domains_updated: Vec<String> = Vec::new();
     let mut books_count = 0usize;
     let mut annotations_count = 0usize;
+    let mut updated_books: Vec<String> = Vec::new();
+    let mut deleted_books: Vec<String> = Vec::new();
+    let mut updated_annotations: Vec<String> = Vec::new();
+    let mut deleted_annotations: Vec<String> = Vec::new();
+    let mut updated_vocabulary: Vec<String> = Vec::new();
+    let mut deleted_vocabulary: Vec<String> = Vec::new();
+    let mut updated_rss_articles: Vec<String> = Vec::new();
+    let mut deleted_rss_articles: Vec<String> = Vec::new();
 
     // 1. Process tombstones first if present
     if let Some(tombstones_json) = entries.get("deletion_tombstones") {
         if let Ok(tombstones) = serde_json::from_str::<Vec<serde_json::Value>>(tombstones_json) {
             for ts in &tombstones {
-                let id = ts.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let id = ts
+                    .get("entityId")
+                    .or_else(|| ts.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let entity_type = ts.get("entityType").and_then(|v| v.as_str()).unwrap_or("");
                 if id.is_empty() {
                     continue;
@@ -1442,10 +1667,26 @@ pub fn sqlite_merge_sync_entries_inner(
                             "DELETE FROM book_annotations WHERE book_id = ?1",
                             params![id],
                         );
+                        deleted_books.push(id.to_string());
                     }
                     "annotation" => {
                         let _ = connection
                             .execute("DELETE FROM book_annotations WHERE id = ?1", params![id]);
+                        deleted_annotations.push(id.to_string());
+                    }
+                    "vocabulary" => {
+                        let _ =
+                            connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id]);
+                        deleted_vocabulary.push(id.to_string());
+                    }
+                    "rss_article" => {
+                        let _ = connection.execute(
+                            "DELETE FROM rss_article_content WHERE article_id = ?1",
+                            params![id],
+                        );
+                        let _ = connection
+                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id]);
+                        deleted_rss_articles.push(id.to_string());
                     }
                     _ => {}
                 }
@@ -1489,6 +1730,7 @@ pub fn sqlite_merge_sync_entries_inner(
                 );
 
                 books_count += 1;
+                updated_books.push(book_id.to_string());
                 record_domain("books");
             }
         } else if key == "books" {
@@ -1516,6 +1758,7 @@ pub fn sqlite_merge_sync_entries_inner(
                             params![book_id, title, author],
                         );
                         books_count += 1;
+                        updated_books.push(book_id.to_string());
                     }
                 }
                 if !books_vec.is_empty() {
@@ -1546,6 +1789,7 @@ pub fn sqlite_merge_sync_entries_inner(
                         params![id, book_id, value],
                     )?;
                     annotations_count += 1;
+                    updated_annotations.push(id);
                     record_domain("annotations");
                 }
             }
@@ -1569,11 +1813,57 @@ pub fn sqlite_merge_sync_entries_inner(
                                 params![id, book_id, ann_json],
                             )?;
                             annotations_count += 1;
+                            updated_annotations.push(id.to_string());
                         }
                     }
                 }
                 if !anns_vec.is_empty() {
                     record_domain("annotations");
+                }
+            }
+        } else if key.starts_with("vocab:") || key.starts_with("vocabulary:") {
+            if let Ok(term_val) = serde_json::from_str::<serde_json::Value>(value) {
+                if let Ok(Some(id)) = upsert_sync_vocabulary_term(connection, &term_val) {
+                    updated_vocabulary.push(id);
+                    record_domain("vocabulary");
+                }
+            }
+        } else if key == "vocabulary" {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
+                if let Some(terms_vec) = parsed.as_array() {
+                    for t in terms_vec {
+                        if let Ok(Some(id)) = upsert_sync_vocabulary_term(connection, t) {
+                            updated_vocabulary.push(id);
+                        }
+                    }
+                    if !terms_vec.is_empty() {
+                        record_domain("vocabulary");
+                    }
+                } else if let Ok(Some(id)) = upsert_sync_vocabulary_term(connection, &parsed) {
+                    updated_vocabulary.push(id);
+                    record_domain("vocabulary");
+                }
+            }
+        } else if let Some(article_id) = key.strip_prefix("rss_article:") {
+            if let Ok(art_val) = serde_json::from_str::<serde_json::Value>(value) {
+                if let Ok(Some(id)) = upsert_sync_rss_article(connection, &art_val) {
+                    updated_rss_articles.push(id);
+                    record_domain("rss_articles");
+                } else {
+                    updated_rss_articles.push(article_id.to_string());
+                }
+            }
+        } else if key == "rss_articles" {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
+                if let Some(arts_vec) = parsed.as_array() {
+                    for a in arts_vec {
+                        if let Ok(Some(id)) = upsert_sync_rss_article(connection, a) {
+                            updated_rss_articles.push(id);
+                        }
+                    }
+                    if !arts_vec.is_empty() {
+                        record_domain("rss_articles");
+                    }
                 }
             }
         } else {
@@ -1585,10 +1875,31 @@ pub fn sqlite_merge_sync_entries_inner(
         }
     }
 
+    fn dedup(v: &mut Vec<String>) {
+        let mut seen = std::collections::HashSet::new();
+        v.retain(|item| seen.insert(item.clone()));
+    }
+    dedup(&mut updated_books);
+    dedup(&mut deleted_books);
+    dedup(&mut updated_annotations);
+    dedup(&mut deleted_annotations);
+    dedup(&mut updated_vocabulary);
+    dedup(&mut deleted_vocabulary);
+    dedup(&mut updated_rss_articles);
+    dedup(&mut deleted_rss_articles);
+
     Ok(SyncMergeResult {
         domains_updated,
         books_count,
         annotations_count,
+        updated_books,
+        deleted_books,
+        updated_annotations,
+        deleted_annotations,
+        updated_vocabulary,
+        deleted_vocabulary,
+        updated_rss_articles,
+        deleted_rss_articles,
     })
 }
 
@@ -3488,12 +3799,27 @@ mod tests {
             r#"{"fontSize":18,"theme":"sepia"}"#.to_string(),
         );
 
+        entries.insert(
+            "vocabulary".to_string(),
+            r#"[{"id":"v1","term":"ephemeral","language":"en","meanings":[{"partOfSpeech":"adjective","definitions":[{"definition":"lasting a short time"}]}]}]"#.to_string(),
+        );
+        entries.insert(
+            "rss_article:art1".to_string(),
+            r#"{"id":"art1","feedId":"f1","title":"Test Article","url":"https://example.com/1","content":"Hello world"}"#.to_string(),
+        );
+
         let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
         assert!(res.domains_updated.contains(&"books".to_string()));
         assert!(res.domains_updated.contains(&"annotations".to_string()));
         assert!(res.domains_updated.contains(&"settings".to_string()));
+        assert!(res.domains_updated.contains(&"vocabulary".to_string()));
+        assert!(res.domains_updated.contains(&"rss_articles".to_string()));
         assert_eq!(res.books_count, 1);
         assert_eq!(res.annotations_count, 1);
+        assert_eq!(res.updated_books, vec!["b1".to_string()]);
+        assert_eq!(res.updated_annotations, vec!["a1".to_string()]);
+        assert_eq!(res.updated_vocabulary, vec!["v1".to_string()]);
+        assert_eq!(res.updated_rss_articles, vec!["art1".to_string()]);
 
         // Verify book metadata and FTS
         let meta = sqlite_get_book_metadata_inner(&conn, "b1").unwrap();
@@ -3509,6 +3835,16 @@ mod tests {
         assert_eq!(anns.len(), 1);
         assert!(anns[0].contains("mind-killer"));
 
+        // Verify vocabulary
+        let vocab = sqlite_get_vocabulary_terms_inner(&conn).unwrap();
+        assert_eq!(vocab.len(), 1);
+        assert_eq!(&*vocab[0].term, "ephemeral");
+
+        // Verify RSS article
+        let arts = sqlite_get_rss_articles_inner(&conn, None, None, None).unwrap();
+        assert_eq!(arts.len(), 1);
+        assert_eq!(&*arts[0].title, "Test Article");
+
         // Verify settings in kv_store
         let settings = sqlite_get_kv_inner(&conn, "settings").unwrap();
         assert_eq!(
@@ -3520,12 +3856,22 @@ mod tests {
         let mut tombstone_entries = std::collections::HashMap::new();
         tombstone_entries.insert(
             "deletion_tombstones".to_string(),
-            r#"[{"id":"b1","entityType":"book","deletedAt":1000}]"#.to_string(),
+            r#"[
+                {"id":"b1","entityType":"book","deletedAt":1000},
+                {"id":"a1","entityType":"annotation","deletedAt":1001},
+                {"id":"v1","entityType":"vocabulary","deletedAt":1002},
+                {"id":"art1","entityType":"rss_article","deletedAt":1003}
+            ]"#
+            .to_string(),
         );
         let del_res = sqlite_merge_sync_entries_inner(&conn, tombstone_entries).unwrap();
         assert!(del_res
             .domains_updated
             .contains(&"deletion_tombstones".to_string()));
+        assert_eq!(del_res.deleted_books, vec!["b1".to_string()]);
+        assert_eq!(del_res.deleted_annotations, vec!["a1".to_string()]);
+        assert_eq!(del_res.deleted_vocabulary, vec!["v1".to_string()]);
+        assert_eq!(del_res.deleted_rss_articles, vec!["art1".to_string()]);
 
         assert_eq!(sqlite_get_book_metadata_inner(&conn, "b1").unwrap(), None);
         assert_eq!(
@@ -3536,6 +3882,13 @@ mod tests {
         );
         assert_eq!(
             sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            0
+        );
+        assert_eq!(sqlite_get_vocabulary_terms_inner(&conn).unwrap().len(), 0);
+        assert_eq!(
+            sqlite_get_rss_articles_inner(&conn, None, None, None)
+                .unwrap()
+                .len(),
             0
         );
     }
