@@ -2056,10 +2056,16 @@ const BookReaderPage = memo(function BookReaderPage() {
                 }
                 if (text && text.length > 3 && a.selectedText &&
                     a.type !== 'bookmark' &&
-                    a.selectedText.trim() === text.trim()) {
+                    (a.selectedText.trim() === text.trim() ||
+                     a.selectedText.includes(text.trim()) ||
+                     text.trim().includes(a.selectedText.trim()))) {
                     return true;
                 }
-                return a.location === cfi;
+                if (cfi && a.location && (a.type === 'highlight' || a.type === 'note') &&
+                    (cfi.startsWith(a.location) || a.location.startsWith(cfi))) {
+                    return true;
+                }
+                return false;
             });
         }
 
@@ -2108,7 +2114,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             setDictionaryLookupSaved(false);
             setShowColorPicker(true);
         }
-    }, [activeDocId, getBookAnnotations]); 
+    }, [activeDocId, getBookAnnotations, annotationsByLocation, annotationsBySelectedText]); 
 
     const handleLookupWord = useCallback(async (word: string) => {
         const term = word.trim();
@@ -2956,6 +2962,10 @@ const BookReaderPage = memo(function BookReaderPage() {
                         return;
                     }
                     readerRef.current?.removeHighlight?.(id);
+                    removeAnnotation(id);
+                    setAnnotations((previousAnnotations) =>
+                        previousAnnotations.filter((annotation) => annotation.id !== id)
+                    );
                 }}
             />
 

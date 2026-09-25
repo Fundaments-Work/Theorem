@@ -118,7 +118,7 @@ const AnnotationCard = memo(function AnnotationCard({
 
     return (
         <div
-            className="group bg-[var(--color-surface)] p-5 transition-colors hover:border-[var(--color-accent)]"
+            className="group border border-[var(--color-border)] bg-[var(--color-surface)] p-5 transition-colors hover:border-[var(--color-accent)]"
             style={{ borderLeft: `3px solid ${borderColor}` }}
         >
             
@@ -295,7 +295,7 @@ export function AnnotationsPage() {
 
 
     const filteredAnnotations = useMemo(() => {
-        let filtered = annotations.filter((a) => a.type !== "bookmark");
+        let filtered = annotations.filter((a) => a.type !== "bookmark" && bookTitleLookup.has(a.bookId));
 
         if (currentBookId) {
             filtered = filtered.filter((annotation) => annotation.bookId === currentBookId);
@@ -444,10 +444,24 @@ export function AnnotationsPage() {
         }
     }, [cardIndex, groupIndex, annotationGroups]);
 
+    const estimateAnnotationSize = useCallback((index: number) => {
+        const ann = filteredAnnotations[index];
+        if (!ann) return 160;
+        const textLen = (ann.selectedText || "").length;
+        const noteLen = (ann.noteContent || "").length;
+        const textLines = textLen > 0 ? Math.max(1, Math.ceil(textLen / 70)) : 0;
+        const noteLines = noteLen > 0 ? Math.max(1, Math.ceil(noteLen / 65)) : 0;
+        let size = 124;
+        if (textLines > 0) size += (textLines * 28) + 12;
+        if (noteLines > 0) size += (noteLines * 26) + 12;
+        return size;
+    }, [filteredAnnotations]);
+
     const annotationsVirtualizer = useVirtualizer({
         count: filteredAnnotations.length,
         getScrollElement: useCallback(() => document.getElementById('app-main'), []),
-        estimateSize: useCallback(() => 160, []),
+        estimateSize: estimateAnnotationSize,
+        getItemKey: useCallback((index: number) => filteredAnnotations[index]?.id ?? String(index), [filteredAnnotations]),
         overscan: 5,
     });
 
@@ -857,31 +871,35 @@ export function AnnotationsPage() {
                 </div>
             ) : (
                 <div style={{ height: `${annotationsVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                        {annotationsVirtualizer.getVirtualItems().map((virtualRow) => (
-                            <div
-                                key={virtualRow.key}
-                                data-index={virtualRow.index}
-                                className="pb-4"
-                                style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    width: "100%",
-                                    transform: `translateY(${virtualRow.start}px)`,
-                                }}
-                            >
-                                <AnnotationCard
-                                    annotation={filteredAnnotations[virtualRow.index]}
-                                    book={getBookInfo(filteredAnnotations[virtualRow.index].bookId)}
-                                    shareId={sharingId}
-                                    searchQuery={searchQuery}
-                                    onDelete={handleDelete}
-                                    onEdit={handleEdit}
-                                    onGoToBook={handleGoToBook}
-                                    onShare={handleShare}
-                                />
-                            </div>
-                        ))}
+                        {annotationsVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const annotation = filteredAnnotations[virtualRow.index];
+                            if (!annotation) return null;
+                            return (
+                                <div
+                                    key={virtualRow.key}
+                                    data-index={virtualRow.index}
+                                    className="pb-4"
+                                    style={{
+                                        position: "absolute",
+                                        top: 0,
+                                        left: 0,
+                                        width: "100%",
+                                        transform: `translateY(${virtualRow.start}px)`,
+                                    }}
+                                >
+                                    <AnnotationCard
+                                        annotation={annotation}
+                                        book={getBookInfo(annotation.bookId)}
+                                        shareId={sharingId}
+                                        searchQuery={searchQuery}
+                                        onDelete={handleDelete}
+                                        onEdit={handleEdit}
+                                        onGoToBook={handleGoToBook}
+                                        onShare={handleShare}
+                                    />
+                                </div>
+                            );
+                        })}
                 </div>
             )}
 

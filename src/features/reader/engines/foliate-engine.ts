@@ -1373,6 +1373,10 @@ export class FoliateEngine {
         try {
             if (this.view?.deleteAnnotation) {
                 await this.view.deleteAnnotation({ value: annotation.location });
+                const contents = this.view?.renderer?.getContents?.() || [];
+                for (const content of contents) {
+                    content.overlayer?.redraw();
+                }
             } else {
                 
                 await this.view.goTo({ index: 0, fraction: 0 });

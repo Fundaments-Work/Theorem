@@ -740,6 +740,9 @@ export const useLibraryStore = create<LibraryStore>()(
                         void sqliteSaveBookAnnotations(id, []).catch((e) => console.error("[catch]", e));
                         void sqliteDeleteBookMetadata(id).catch((e) => console.error("[catch]", e));
                     }
+                    for (const annId of annotationIds) {
+                        void sqliteDeleteAnnotation(annId).catch((e) => console.error("[catch]", e));
+                    }
                 }
                 queueVaultSync();
                 scheduleMutationSync();
@@ -1588,28 +1591,43 @@ export const useLibraryStore = create<LibraryStore>()(
                 if (isTauri()) {
                     void sqliteGetAllAnnotations().then((annStrings) => {
                         if (annStrings && annStrings.length > 0) {
-                            const parsed = annStrings.map((s) => {
+                            const validBookIds = new Set(useLibraryStore.getState().books.map((b) => b.id));
+                            const orphanAnnotationIds: string[] = [];
+                            const parsed: Annotation[] = [];
+                            for (const s of annStrings) {
                                 try {
                                     const obj = JSON.parse(s);
-                                    return {
-                                        ...obj,
-                                        createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
-                                        updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
-                                    };
+                                    if (obj && obj.id) {
+                                        if (obj.bookId && !validBookIds.has(obj.bookId) && !obj.bookId.startsWith("rss:")) {
+                                            orphanAnnotationIds.push(obj.id);
+                                            continue;
+                                        }
+                                        parsed.push({
+                                            ...obj,
+                                            createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
+                                            updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
+                                        });
+                                    }
                                 } catch {
-                                    return null;
+                                    // Ignore parse errors
                                 }
-                            }).filter(Boolean) as Annotation[];
+                            }
                             useLibraryStore.setState({ annotations: parsed });
+                            for (const orphanId of orphanAnnotationIds) {
+                                void sqliteDeleteAnnotation(orphanId).catch((e) => console.error("[catch]", e));
+                            }
                         }
                     }).catch((e) => console.error("[catch]", e));
                 } else {
-                    state.annotations = state.annotations.map((annotation) => ({
-                        ...annotation,
-                        referenceId: typeof annotation.referenceId === "string"
-                            ? annotation.referenceId
-                            : undefined,
-                    }));
+                    const validBookIds = new Set(state.books.map((b) => b.id));
+                    state.annotations = state.annotations
+                        .filter((a) => !a.bookId || validBookIds.has(a.bookId) || a.bookId.startsWith("rss:"))
+                        .map((annotation) => ({
+                            ...annotation,
+                            referenceId: typeof annotation.referenceId === "string"
+                                ? annotation.referenceId
+                                : undefined,
+                        }));
                 }
 
                 if (state.deletionTombstones?.length > 0) {

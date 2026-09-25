@@ -133,7 +133,7 @@ export function BookmarksPage() {
 
 
     const filteredBookmarks = useMemo(() => {
-        let filtered = [...bookmarks];
+        let filtered = bookmarks.filter((b) => Boolean(bookLookup.get(b.bookId)));
 
         if (searchQuery.trim()) {
             const rankedBookmarks = rankByFuzzyQuery(
@@ -182,10 +182,20 @@ export function BookmarksPage() {
         return filtered;
     }, [bookmarks, searchQuery, sortBy, bookLookup]);
 
+    const estimateBookmarkSize = useCallback((index: number) => {
+        const bm = filteredBookmarks[index];
+        if (!bm) return 110;
+        const textLen = (bm.selectedText || "").length;
+        if (!textLen) return 110;
+        const textLines = Math.max(1, Math.ceil(textLen / 70));
+        return 126 + (textLines * 24);
+    }, [filteredBookmarks]);
+
     const bookmarksVirtualizer = useVirtualizer({
         count: filteredBookmarks.length,
         getScrollElement: useCallback(() => document.getElementById('app-main'), []),
-        estimateSize: useCallback(() => 100, []),
+        estimateSize: estimateBookmarkSize,
+        getItemKey: useCallback((index: number) => filteredBookmarks[index]?.id ?? String(index), [filteredBookmarks]),
         overscan: 5,
     });
 
@@ -265,28 +275,32 @@ export function BookmarksPage() {
                 </div>
             ) : (
                 <div style={{ height: `${bookmarksVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                        {bookmarksVirtualizer.getVirtualItems().map((virtualRow) => (
-                            <div
-                                key={virtualRow.key}
-                                data-index={virtualRow.index}
-                                className="pb-4"
-                                style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    left: 0,
-                                    width: "100%",
-                                    transform: `translateY(${virtualRow.start}px)`,
-                                }}
-                            >
-                                <BookmarkCard
-                                    bookmark={filteredBookmarks[virtualRow.index]}
-                                    book={getBookInfo(filteredBookmarks[virtualRow.index].bookId)}
-                                    searchQuery={searchQuery}
-                                    onDelete={handleDelete}
-                                    onGoToBookmark={handleGoToBookmark}
-                                />
-                            </div>
-                        ))}
+                        {bookmarksVirtualizer.getVirtualItems().map((virtualRow) => {
+                            const bookmark = filteredBookmarks[virtualRow.index];
+                            if (!bookmark) return null;
+                            return (
+                                <div
+                                    key={virtualRow.key}
+                                    data-index={virtualRow.index}
+                                    className="pb-4"
+                                    style={{
+                                        position: "absolute",
+                                        top: 0,
+                                        left: 0,
+                                        width: "100%",
+                                        transform: `translateY(${virtualRow.start}px)`,
+                                    }}
+                                >
+                                    <BookmarkCard
+                                        bookmark={bookmark}
+                                        book={getBookInfo(bookmark.bookId)}
+                                        searchQuery={searchQuery}
+                                        onDelete={handleDelete}
+                                        onGoToBookmark={handleGoToBookmark}
+                                    />
+                                </div>
+                            );
+                        })}
                 </div>
             )}
         </div>

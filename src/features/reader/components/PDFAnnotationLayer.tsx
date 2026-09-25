@@ -358,12 +358,12 @@ export function PDFAnnotationLayer({
     ]);
 
     const eraseAnnotationAtPoint = useCallback((point: Point) => {
-        const padding = 3 / Math.max(scale, 0.01);
+        const padding = 4 / Math.max(scale, 0.01);
 
         for (let index = pageAnnotations.length - 1; index >= 0; index -= 1) {
             const annotation = pageAnnotations[index];
 
-            if (annotation.pdfAnnotationType === "highlight") {
+            if (annotation.pdfAnnotationType === "highlight" || annotation.type === "highlight") {
                 const rects = getAnnotationRects(annotation);
                 const hasHit = rects.some((rect) => pointInRect(point, rect, padding));
                 if (hasHit) {
@@ -376,13 +376,29 @@ export function PDFAnnotationLayer({
                 try {
                     const points = JSON.parse(annotation.drawingData) as Point[];
                     const strokeWidth = annotation.strokeWidth ?? 2;
-                    const tolerance = strokeWidth + (4 / Math.max(scale, 0.01));
+                    const tolerance = Math.max(strokeWidth + 4, 8 / Math.max(scale, 0.01));
                     if (isPointNearPolyline(point, points, tolerance)) {
                         onAnnotationRemove(annotation.id);
                         return;
                     }
                 } catch {
                     continue;
+                }
+            }
+
+            if (annotation.pdfAnnotationType === "textNote" || annotation.type === "note") {
+                if (annotation.rect) {
+                    const iconSize = Math.max(14, 18 * Math.min(1.3, Math.max(0.8, scale))) / Math.max(scale, 0.01);
+                    const noteRect = {
+                        x: annotation.rect.x,
+                        y: annotation.rect.y,
+                        width: Math.max(annotation.rect.width, iconSize),
+                        height: Math.max(annotation.rect.height, iconSize),
+                    };
+                    if (pointInRect(point, noteRect, padding + 2)) {
+                        onAnnotationRemove(annotation.id);
+                        return;
+                    }
                 }
             }
         }
