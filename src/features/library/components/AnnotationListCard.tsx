@@ -1,9 +1,15 @@
 import { memo, useEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { MoreVertical } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import { HighlightMatch } from "../../../ui";
-import { annotationCardHeight, type AnnotationCardBlocks } from "./annotation-card-layout";
+import {
+    annotationCardHeight,
+    NOTE_LINE_PX,
+    QUOTE_LINE_PX,
+    type AnnotationCardBlocks,
+    type CardLayout,
+} from "./annotation-card-layout";
 
 export interface AnnotationListCardMenuItem {
     label: string;
@@ -19,6 +25,9 @@ interface AnnotationListCardProps extends AnnotationCardBlocks {
     sourceAuthor: string;
     accentColor?: string;
     searchQuery?: string;
+    /** From `computeCardLayout`; the same value sizes the virtual row. */
+    layout: CardLayout;
+    onToggleExpanded: (id: string) => void;
     menuItems: AnnotationListCardMenuItem[];
     menuOpen: boolean;
     onMenuOpenChange: (id: string | null) => void;
@@ -31,11 +40,20 @@ interface AnnotationListCardProps extends AnnotationCardBlocks {
 
 /**
  * The card shared by the Workbench and Bookmarks lists. Renders at exactly
- * `annotationCardHeight()`; long quotes and notes are clamped (full text in the
- * tooltip). The row hosting it must raise its z-index while `menuOpen` or the
+ * `annotationCardHeight(layout)`: text is clamped to the computed line counts,
+ * and text past the collapsed cap is behind "Show more". The row hosting it must raise its z-index while `menuOpen` or the
  * popover is shown: virtual rows are transformed, so each is its own stacking
  * context and later rows would otherwise paint over the menu.
  */
+function clampStyle(lines: number, lineHeightPx: number): CSSProperties {
+    return {
+        height: lines * lineHeightPx,
+        display: "-webkit-box",
+        WebkitBoxOrient: "vertical",
+        WebkitLineClamp: lines,
+    };
+}
+
 export const AnnotationListCard = memo(function AnnotationListCard({
     id,
     typeLabel,
@@ -47,6 +65,8 @@ export const AnnotationListCard = memo(function AnnotationListCard({
     note,
     meta,
     searchQuery,
+    layout,
+    onToggleExpanded,
     menuItems,
     menuOpen,
     onMenuOpenChange,
@@ -91,7 +111,7 @@ export const AnnotationListCard = memo(function AnnotationListCard({
             className="group border border-[var(--color-border)] bg-[var(--color-surface)] p-5 transition-colors hover:border-[var(--color-accent)]"
             style={{
                 borderLeft: `3px solid ${accentColor ?? "var(--color-border)"}`,
-                height: annotationCardHeight({ quote, note, meta }),
+                height: annotationCardHeight(layout),
             }}
         >
             <div className="flex h-[44px] items-start justify-between mb-4">
@@ -158,18 +178,18 @@ export const AnnotationListCard = memo(function AnnotationListCard({
                 onClick={onOpen}
                 title={openTitle}
             >
-                {quote && (
+                {quote && layout.quoteLines > 0 && (
                     <blockquote
-                        className="h-[84px] overflow-hidden line-clamp-3 pl-3 font-serif text-[17px] leading-[28px] text-[color:var(--color-text-primary)] hover:opacity-85 transition-opacity"
-                        title={quote}
+                        className="overflow-hidden break-words pl-3 font-serif text-[17px] leading-[28px] text-[color:var(--color-text-primary)] hover:opacity-85 transition-opacity"
+                        style={clampStyle(layout.quoteLines, QUOTE_LINE_PX)}
                     >
                         <HighlightMatch text={quote} query={searchQuery} />
                     </blockquote>
                 )}
-                {note && (
+                {note && layout.noteLines > 0 && (
                     <p
-                        className="h-[52px] overflow-hidden line-clamp-2 font-serif text-[16px] leading-[26px] text-[color:var(--color-text-primary)] whitespace-pre-wrap hover:opacity-85 transition-opacity"
-                        title={note}
+                        className="overflow-hidden break-words font-serif text-[16px] leading-[26px] text-[color:var(--color-text-primary)] whitespace-pre-wrap hover:opacity-85 transition-opacity"
+                        style={clampStyle(layout.noteLines, NOTE_LINE_PX)}
                     >
                         <HighlightMatch text={note} query={searchQuery} />
                     </p>
@@ -180,6 +200,15 @@ export const AnnotationListCard = memo(function AnnotationListCard({
                     </p>
                 )}
             </div>
+            {layout.expandable && (
+                <button
+                    onClick={() => onToggleExpanded(id)}
+                    aria-expanded={layout.expanded}
+                    className="mt-3 h-[20px] font-sans text-[11px] font-medium leading-[20px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:underline"
+                >
+                    {layout.expanded ? "Show less" : "Show more"}
+                </button>
+            )}
         </div>
     );
 });

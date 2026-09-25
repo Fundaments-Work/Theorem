@@ -5,39 +5,130 @@ import { act, useState } from "react";
 import { AnnotationListCard } from "../src/features/library/components/AnnotationListCard";
 import {
     ANNOTATION_ROW_GAP_PX,
-    NOTE_BLOCK_PX,
-    QUOTE_BLOCK_PX,
+    BLOCK_GAP_PX,
+    CARD_HORIZONTAL_CHROME_PX,
     META_BLOCK_PX,
+    NOTE_LINE_PX,
+    NOTE_MAX_LINES,
+    QUOTE_INDENT_PX,
+    QUOTE_LINE_PX,
+    QUOTE_MAX_LINES,
+    TOGGLE_BLOCK_PX,
     annotationCardHeight,
     annotationRowSize,
+    computeCardLayout,
+    countWrappedLines,
+    type CardTextMeasurer,
 } from "../src/features/library/components/annotation-card-layout";
 import { bookmarkPositionLabel } from "../src/features/library/components/bookmark-position";
 
 // @ts-expect-error React act environment flag
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-describe("annotation card layout", () => {
-    it("depends only on which blocks are present, not on text length", () => {
-        const short = annotationCardHeight({ quote: "a" });
-        const long = annotationCardHeight({ quote: "word ".repeat(2000) });
-        expect(short).toBe(long);
+// Monospace stand-in: every character is 10px wide.
+const mono = (text: string) => text.length * 10;
+
+function measurerFor(textWidth: number): CardTextMeasurer {
+    // listWidth such that quote lines hold exactly `textWidth / 10` chars
+    // (computeCardLayout applies a 2% safety slack).
+    return {
+        listWidth: textWidth / 0.98 + CARD_HORIZONTAL_CHROME_PX + QUOTE_INDENT_PX,
+        measureQuote: mono,
+        measureNote: mono,
+    };
+}
+
+describe("countWrappedLines", () => {
+    it("returns 0 for missing/empty text and 1 for a non-positive width", () => {
+        expect(countWrappedLines(undefined, 100, mono, false)).toBe(0);
+        expect(countWrappedLines("", 100, mono, false)).toBe(0);
+        expect(countWrappedLines("abc", 0, mono, false)).toBe(1);
+        expect(countWrappedLines("abc", Number.NaN, mono, false)).toBe(1);
     });
 
-    it("adds each block plus one gap between blocks", () => {
-        const chrome = annotationCardHeight({});
-        expect(annotationCardHeight({ quote: "q" })).toBe(chrome + QUOTE_BLOCK_PX);
-        expect(annotationCardHeight({ quote: "q", note: "n" })).toBe(chrome + QUOTE_BLOCK_PX + NOTE_BLOCK_PX + 12);
-        expect(annotationCardHeight({ quote: "q", note: "n", meta: "m" }))
-            .toBe(chrome + QUOTE_BLOCK_PX + NOTE_BLOCK_PX + META_BLOCK_PX + 24);
+    it("wraps greedily at spaces", () => {
+        // 10 chars per line
+        expect(countWrappedLines("aaaa bbbb", 100, mono, false)).toBe(1);
+        expect(countWrappedLines("aaaa bbbbb", 100, mono, false)).toBe(1); // exactly fills the line
+        expect(countWrappedLines("aaaa bbbbbb", 100, mono, false)).toBe(2);
+        expect(countWrappedLines("aaaa bbbb cccc dddd", 100, mono, false)).toBe(2);
     });
 
-    it("treats empty strings as absent blocks", () => {
-        expect(annotationCardHeight({ quote: "", note: "", meta: "" })).toBe(annotationCardHeight({}));
+    it("collapses whitespace in normal flow", () => {
+        expect(countWrappedLines("  aaaa \n\n  bbbb  ", 100, mono, false)).toBe(1);
+        expect(countWrappedLines("   ", 100, mono, false)).toBe(1);
+    });
+
+    it("keeps newlines and blank lines in pre-wrap", () => {
+        expect(countWrappedLines("a\nb\n\nc", 100, mono, true)).toBe(4);
+        expect(countWrappedLines("a\r\nb", 100, mono, true)).toBe(2);
+    });
+
+    it("breaks words longer than the line between characters", () => {
+        expect(countWrappedLines("x".repeat(25), 100, mono, false)).toBe(3);
+        expect(countWrappedLines("ab " + "x".repeat(25), 100, mono, false)).toBe(4);
+    });
+
+    it("counts a huge highlight without blowing up", () => {
+        const text = "word ".repeat(20_000);
+        expect(countWrappedLines(text, 100, mono, false)).toBe(10_000);
+    });
+});
+
+describe("computeCardLayout / annotationCardHeight", () => {
+    const m = measurerFor(100); // 10 chars per quote line
+
+    it("fits short content: one line, no toggle", () => {
+        const layout = computeCardLayout({ quote: "short" }, m, false);
+        expect(layout).toMatchObject({ quoteLines: 1, noteLines: 0, expandable: false });
+        expect(annotationCardHeight(layout)).toBe(annotationCardHeight({ ...layout, quoteLines: 0 }) + QUOTE_LINE_PX);
+    });
+
+    it("grows with content up to the collapsed cap", () => {
+        const three = computeCardLayout({ quote: "aaaa bbbb cccc dddd eeee ffff" }, m, false);
+        expect(three.quoteLines).toBe(3);
+        const small = annotationCardHeight(computeCardLayout({ quote: "a" }, m, false));
+        expect(annotationCardHeight(three)).toBe(small + 2 * QUOTE_LINE_PX);
+    });
+
+    it("caps very long content and offers a toggle; expanding shows everything", () => {
+        const long = "aaaa bbbb ".repeat(40); // 40 lines
+        const collapsed = computeCardLayout({ quote: long }, m, false);
+        expect(collapsed).toMatchObject({ quoteLines: QUOTE_MAX_LINES, expandable: true, expanded: false });
+        const expanded = computeCardLayout({ quote: long }, m, true);
+        expect(expanded).toMatchObject({ quoteLines: 40, expandable: true, expanded: true });
+        expect(annotationCardHeight(expanded) - annotationCardHeight(collapsed)).toBe((40 - QUOTE_MAX_LINES) * QUOTE_LINE_PX);
+    });
+
+    it("expanded flag is ignored when nothing is clipped", () => {
+        expect(computeCardLayout({ quote: "a" }, m, true)).toMatchObject({ expandable: false, expanded: false });
+    });
+
+    it("caps notes separately", () => {
+        const note = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+        const layout = computeCardLayout({ note }, m, false);
+        expect(layout).toMatchObject({ noteLines: NOTE_MAX_LINES, expandable: true });
+    });
+
+    it("adds block gaps, meta line and toggle row", () => {
+        const base = annotationCardHeight({ quoteLines: 0, noteLines: 0, hasMeta: false, expandable: false, expanded: false });
+        expect(annotationCardHeight({ quoteLines: 2, noteLines: 1, hasMeta: true, expandable: true, expanded: false }))
+            .toBe(base + 2 * QUOTE_LINE_PX + NOTE_LINE_PX + META_BLOCK_PX + 2 * BLOCK_GAP_PX + BLOCK_GAP_PX + TOGGLE_BLOCK_PX);
     });
 
     it("row size is card height plus the uniform gap, and tolerates a missing row", () => {
-        expect(annotationRowSize({ quote: "q" })).toBe(annotationCardHeight({ quote: "q" }) + ANNOTATION_ROW_GAP_PX);
-        expect(annotationRowSize(undefined)).toBe(annotationCardHeight({}) + ANNOTATION_ROW_GAP_PX);
+        const layout = computeCardLayout({ quote: "q" }, m, false);
+        expect(annotationRowSize(layout)).toBe(annotationCardHeight(layout) + ANNOTATION_ROW_GAP_PX);
+        expect(annotationRowSize(undefined)).toBe(
+            annotationCardHeight({ quoteLines: 0, noteLines: 0, hasMeta: false, expandable: false, expanded: false }) + ANNOTATION_ROW_GAP_PX,
+        );
+    });
+
+    it("narrower lists produce taller cards", () => {
+        const text = "aaaa bbbb cccc dddd";
+        const wide = annotationCardHeight(computeCardLayout({ quote: text }, measurerFor(400), false));
+        const narrow = annotationCardHeight(computeCardLayout({ quote: text }, measurerFor(50), false));
+        expect(narrow).toBeGreaterThan(wide);
     });
 });
 
@@ -78,12 +169,17 @@ describe("AnnotationListCard menu", () => {
         };
     });
 
-    function Harness({ onDelete, onPopoverClose, withPortal = false }: {
+    const LONG = "aaaa bbbb ".repeat(40);
+
+    function Harness({ onDelete, onPopoverClose, withPortal = false, quote = "Fear is the mind-killer." }: {
         onDelete: () => void;
         onPopoverClose?: () => void;
         withPortal?: boolean;
+        quote?: string;
     }) {
         const [open, setOpen] = useState<string | null>(null);
+        const [expanded, setExpanded] = useState(false);
+        const layout = computeCardLayout({ quote }, measurerFor(100), expanded);
         return (
             <>
                 <button id="outside">outside</button>
@@ -93,7 +189,9 @@ describe("AnnotationListCard menu", () => {
                     dateLabel="2026-09-26"
                     sourceTitle="Dune"
                     sourceAuthor="Frank Herbert"
-                    quote="Fear is the mind-killer."
+                    quote={quote}
+                    layout={layout}
+                    onToggleExpanded={() => setExpanded((v) => !v)}
                     menuItems={[{ label: "Delete", onSelect: onDelete, danger: true }]}
                     menuOpen={open === "a1"}
                     onMenuOpenChange={setOpen}
@@ -111,10 +209,26 @@ describe("AnnotationListCard menu", () => {
     const menuButton = () => container.querySelector('button[aria-label="Actions"]') as HTMLButtonElement;
     const menu = () => container.querySelector('[role="menu"]');
 
-    it("renders at its fixed height regardless of text length", () => {
+    const cardHeight = () => (container.querySelector(".group") as HTMLElement).style.height;
+    const toggle = () => [...container.querySelectorAll("button")].find((b) => /Show (more|less)/.test(b.textContent ?? ""));
+
+    it("renders at exactly its computed height", () => {
         act(() => root.render(<Harness onDelete={() => {}} />));
-        const card = container.querySelector(".group") as HTMLElement;
-        expect(card.style.height).toBe(`${annotationCardHeight({ quote: "x" })}px`);
+        expect(cardHeight()).toBe(`${annotationCardHeight(computeCardLayout({ quote: "Fear is the mind-killer." }, measurerFor(100), false))}px`);
+        expect(toggle()).toBeUndefined();
+    });
+
+    it("long content collapses with Show more and expands to full height", () => {
+        act(() => root.render(<Harness onDelete={() => {}} quote={LONG} />));
+        const collapsed = cardHeight();
+        const quote = container.querySelector("blockquote") as HTMLElement;
+        expect(quote.style.height).toBe(`${QUOTE_MAX_LINES * QUOTE_LINE_PX}px`);
+        expect(toggle()!.textContent).toBe("Show more");
+        act(() => toggle()!.click());
+        expect(toggle()!.textContent).toBe("Show less");
+        expect(parseFloat(cardHeight())).toBe(parseFloat(collapsed) + (40 - QUOTE_MAX_LINES) * QUOTE_LINE_PX);
+        act(() => toggle()!.click());
+        expect(cardHeight()).toBe(collapsed);
     });
 
     it("opens, runs an item and closes", () => {

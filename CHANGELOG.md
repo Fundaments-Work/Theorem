@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deleted highlights came back** — The native sync merge re-inserted annotations (and books) from stale `anno:*` / `book:*` doc entries right after applying their tombstones; it now skips tombstoned entities, and local tombstones are sent with every merge.
 - **Highlights vanished after reload** — Startup treated every annotation as orphaned (and deleted it from SQLite) when annotations loaded before books. Only tombstoned rows are dropped now. Live-synced annotations and deletions are written through to SQLite.
-- **Workbench list** — Uniform gaps between cards (fixed, content-derived heights), the card menu no longer hides under the next card, menus close on outside press / Escape, article highlights are listed again, and highlights no longer stay hidden until books finish loading.
+- **Workbench list** — Cards fit their content with uniform gaps (heights computed from the text, long passages collapse behind "Show more"), the card menu no longer hides under the next card, menus close on outside press / Escape, article highlights are listed again, and highlights no longer stay hidden until books finish loading.
 
 ### Changed
 

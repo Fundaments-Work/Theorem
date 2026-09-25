@@ -23,7 +23,7 @@ Startup hydration (`reconcileHydratedAnnotations` in `libraryStore.ts`) only dro
 
 ## Workbench & Bookmarks lists
 
-Both pages render `components/AnnotationListCard.tsx`. Cards have a fixed height derived from the blocks they show (`annotation-card-layout.ts`: quote clamped to 3 lines, note to 2, one meta line), so the virtualizer gets exact row sizes without per-row measurement and gaps stay uniform; full text is in the tooltip and the Workbench Cards view. The row with an open menu raises its `z-index` (each transformed virtual row is its own stacking context); menus close on outside press or Escape. Bookmarks show a position line from `bookmarkPositionLabel` (PDF page, article percentage) and can be filtered by book.
+Both pages render `components/AnnotationListCard.tsx`. Cards fit their content, but their height is **computed from the text**, never measured per row (`annotation-card-layout.ts`): `useCardTextMeasurer` reads the list width (one `ResizeObserver` on the container) and the serif font, `countWrappedLines` word-wraps with canvas text widths, and `computeCardLayout` gives the line counts. The same layout sizes the virtual row and the card, which renders at exactly that height with text line-clamped to it, so gaps stay uniform even if a count is off by a line. Quotes longer than 8 lines (notes 6) collapse behind **Show more**. The row with an open menu raises its `z-index` (each transformed virtual row is its own stacking context); menus close on outside press or Escape. Bookmarks show a position line from `bookmarkPositionLabel` (PDF page, article percentage) and can be filtered by book.
 
 ## Reader Annotation Flow
 

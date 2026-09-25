@@ -1,5 +1,5 @@
 import { localDateKey } from "../../core/lib/date-keys";
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 import { useLibraryStore, useUIStore } from "../../core/store";
@@ -7,7 +7,8 @@ import type { Annotation } from "../../core/types";
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
 import { Bookmark } from "lucide-react";
 import { AnnotationListCard } from "./components/AnnotationListCard";
-import { ANNOTATION_ROW_GAP_PX, annotationRowSize } from "./components/annotation-card-layout";
+import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
+import { useCardTextMeasurer } from "./components/useCardTextMeasurer";
 import { bookmarkPositionLabel } from "./components/bookmark-position";
 
 const ALL_BOOKS = "__all__";
@@ -32,6 +33,8 @@ interface BookmarkCardProps {
     bookmark: Annotation;
     book: { title: string; author: string } | undefined;
     menuOpen: boolean;
+    layout: CardLayout;
+    onToggleExpanded: (id: string) => void;
     searchQuery?: string;
     onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
@@ -42,6 +45,8 @@ const BookmarkCard = memo(function BookmarkCard({
     bookmark,
     book,
     menuOpen,
+    layout,
+    onToggleExpanded,
     searchQuery,
     onMenuOpenChange,
     onDelete,
@@ -61,6 +66,8 @@ const BookmarkCard = memo(function BookmarkCard({
             searchQuery={searchQuery}
             menuOpen={menuOpen}
             onMenuOpenChange={onMenuOpenChange}
+            layout={layout}
+            onToggleExpanded={onToggleExpanded}
             menuItems={[
                 { label: "Go to bookmark", onSelect: goTo },
                 { label: "Delete", onSelect: () => onDelete(bookmark.id), danger: true },
@@ -90,6 +97,15 @@ export function BookmarksPage() {
     const [bookFilter, setBookFilter] = useState<string>(ALL_BOOKS);
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const [deleteBookmarkId, setDeleteBookmarkId] = useState<string | null>(null);
+    const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+    const { listRef, measurer } = useCardTextMeasurer();
+    const toggleExpanded = useCallback((id: string) => {
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (!next.delete(id)) next.add(id);
+            return next;
+        });
+    }, []);
 
     // Derive lookup from bookmark bookIds only — avoids subscribing to the
     // entire books array which re-renders on every progress tick. The book
@@ -179,11 +195,12 @@ export function BookmarksPage() {
         return filtered;
     }, [visibleBookmarks, activeBookFilter, searchQuery, sortBy, bookLookup]);
 
-    // Exact, not an estimate: cards render at a fixed, content-derived height.
-    const estimateBookmarkSize = useCallback((index: number) => {
-        const bm = filteredBookmarks[index];
-        return annotationRowSize(bm && bookmarkBlocks(bm));
-    }, [filteredBookmarks]);
+    // Exact, not an estimate: each card renders at its computed layout height.
+    const cardLayouts = useMemo(
+        () => filteredBookmarks.map((bm) => computeCardLayout(bookmarkBlocks(bm), measurer, expandedIds.has(bm.id))),
+        [filteredBookmarks, measurer, expandedIds],
+    );
+    const estimateBookmarkSize = useCallback((index: number) => annotationRowSize(cardLayouts[index]), [cardLayouts]);
 
     const bookmarksVirtualizer = useVirtualizer({
         count: filteredBookmarks.length,
@@ -192,6 +209,11 @@ export function BookmarksPage() {
         getItemKey: useCallback((index: number) => filteredBookmarks[index]?.id ?? String(index), [filteredBookmarks]),
         overscan: 5,
     });
+
+    // Sizes come from estimateSize only; recompute offsets when they change.
+    useLayoutEffect(() => {
+        bookmarksVirtualizer.measure();
+    }, [bookmarksVirtualizer, cardLayouts]);
 
     const handleDelete = useCallback((id: string) => {
         setDeleteBookmarkId(id);
@@ -262,7 +284,7 @@ export function BookmarksPage() {
                     </p>
                 </div>
             ) : (
-                <div style={{ height: `${bookmarksVirtualizer.getTotalSize()}px`, position: "relative" }}>
+                <div ref={listRef} style={{ height: `${bookmarksVirtualizer.getTotalSize()}px`, position: "relative" }}>
                     {bookmarksVirtualizer.getVirtualItems().map((virtualRow) => {
                         const bookmark = filteredBookmarks[virtualRow.index];
                         if (!bookmark) return null;
@@ -287,6 +309,8 @@ export function BookmarksPage() {
                                     bookmark={bookmark}
                                     book={bookLookup.get(bookmark.bookId)}
                                     menuOpen={menuOpenId === bookmark.id}
+                                    layout={cardLayouts[virtualRow.index]}
+                                    onToggleExpanded={toggleExpanded}
                                     searchQuery={searchQuery}
                                     onMenuOpenChange={setMenuOpenId}
                                     onDelete={handleDelete}

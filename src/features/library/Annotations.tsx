@@ -1,5 +1,5 @@
 
-import { useState, useMemo, useCallback, useRef, useEffect, memo } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../../core/lib/utils";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
@@ -23,7 +23,8 @@ import {
 } from "lucide-react";
 import { ShareMenu } from "./components/ShareMenu";
 import { AnnotationListCard } from "./components/AnnotationListCard";
-import { ANNOTATION_ROW_GAP_PX, annotationRowSize } from "./components/annotation-card-layout";
+import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
+import { useCardTextMeasurer } from "./components/useCardTextMeasurer";
 import {
     WORKBENCH_VIEW_STATE_KEY,
     decodeWorkbenchViewState,
@@ -103,6 +104,8 @@ interface AnnotationCardProps {
     } | undefined;
     shareId: string | null;
     menuOpen: boolean;
+    layout: CardLayout;
+    onToggleExpanded: (id: string) => void;
     searchQuery?: string;
     onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
@@ -116,6 +119,8 @@ const AnnotationCard = memo(function AnnotationCard({
     book,
     shareId,
     menuOpen,
+    layout,
+    onToggleExpanded,
     searchQuery,
     onMenuOpenChange,
     onDelete,
@@ -137,6 +142,8 @@ const AnnotationCard = memo(function AnnotationCard({
             searchQuery={searchQuery}
             menuOpen={menuOpen}
             onMenuOpenChange={onMenuOpenChange}
+            layout={layout}
+            onToggleExpanded={onToggleExpanded}
             menuItems={[
                 { label: "Open in book", onSelect: openInBook },
                 { label: "Edit note", onSelect: () => onEdit(annotation.id) },
@@ -187,6 +194,15 @@ export function AnnotationsPage() {
     const [editContent, setEditContent] = useState("");
     const [sharingId, setSharingId] = useState<string | null>(null);
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+    const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+    const { listRef, measurer } = useCardTextMeasurer();
+    const toggleExpanded = useCallback((id: string) => {
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (!next.delete(id)) next.add(id);
+            return next;
+        });
+    }, []);
     const [viewMode, setViewMode] = useState<"list" | "cards">(workbenchSavedState.viewMode ?? "list");
     const [cardIndex, setCardIndex] = useState(0);
     const [groupIndex, setGroupIndex] = useState(0);
@@ -365,11 +381,13 @@ export function AnnotationsPage() {
         }
     }, [cardIndex, groupIndex, annotationGroups]);
 
-    // Exact, not an estimate: cards render at a fixed, content-derived height.
-    const estimateAnnotationSize = useCallback((index: number) => {
-        const ann = filteredAnnotations[index];
-        return annotationRowSize(ann && { quote: ann.selectedText, note: ann.noteContent });
-    }, [filteredAnnotations]);
+    // Exact, not an estimate: each card renders at its computed layout height.
+    const cardLayouts = useMemo(
+        () => filteredAnnotations.map((ann) =>
+            computeCardLayout({ quote: ann.selectedText, note: ann.noteContent }, measurer, expandedIds.has(ann.id))),
+        [filteredAnnotations, measurer, expandedIds],
+    );
+    const estimateAnnotationSize = useCallback((index: number) => annotationRowSize(cardLayouts[index]), [cardLayouts]);
 
     const annotationsVirtualizer = useVirtualizer({
         count: filteredAnnotations.length,
@@ -378,6 +396,11 @@ export function AnnotationsPage() {
         getItemKey: useCallback((index: number) => filteredAnnotations[index]?.id ?? String(index), [filteredAnnotations]),
         overscan: 5,
     });
+
+    // Sizes come from estimateSize only; recompute offsets when they change.
+    useLayoutEffect(() => {
+        annotationsVirtualizer.measure();
+    }, [annotationsVirtualizer, cardLayouts]);
 
     const [deleteAnnotationId, setDeleteAnnotationId] = useState<string | null>(null);
 
@@ -784,7 +807,7 @@ export function AnnotationsPage() {
                     </div>
                 </div>
             ) : (
-                <div style={{ height: `${annotationsVirtualizer.getTotalSize()}px`, position: "relative" }}>
+                <div ref={listRef} style={{ height: `${annotationsVirtualizer.getTotalSize()}px`, position: "relative" }}>
                         {annotationsVirtualizer.getVirtualItems().map((virtualRow) => {
                             const annotation = filteredAnnotations[virtualRow.index];
                             if (!annotation) return null;
@@ -811,6 +834,8 @@ export function AnnotationsPage() {
                                         shareId={sharingId}
                                         menuOpen={menuOpenId === annotation.id}
                                         onMenuOpenChange={setMenuOpenId}
+                                        layout={cardLayouts[virtualRow.index]}
+                                        onToggleExpanded={toggleExpanded}
                                         searchQuery={searchQuery}
                                         onDelete={handleDelete}
                                         onEdit={handleEdit}
