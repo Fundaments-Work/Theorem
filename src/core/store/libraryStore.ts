@@ -175,6 +175,52 @@ function getBookAnnotationSlice(annotations: Annotation[], bookId: string): Anno
     return getAnnotationsByBookLookup(annotations).get(bookId) ?? [];
 }
 
+function annotationTimestamp(annotation: Annotation): number {
+    const value = annotation.updatedAt ?? annotation.createdAt;
+    const ms = value ? new Date(value).getTime() : 0;
+    return Number.isNaN(ms) ? 0 : ms;
+}
+
+/**
+ * Combine annotations loaded from storage with those already in memory
+ * (added or synced while storage was still loading), dropping anything a
+ * tombstone says was deleted. `purgedIds` are persisted rows that must be
+ * removed from storage. Annotations are never dropped just because their
+ * book is not loaded (yet).
+ */
+export function reconcileHydratedAnnotations(
+    persisted: Annotation[],
+    inMemory: Annotation[],
+    tombstones: DeletionTombstone[],
+): { kept: Annotation[]; purgedIds: string[] } {
+    const deletedAnnotationIds = new Set<string>();
+    const deletedBookIds = new Set<string>();
+    for (const t of tombstones) {
+        if (t.entityType === "annotation") deletedAnnotationIds.add(t.entityId);
+        else if (t.entityType === "book") deletedBookIds.add(t.entityId);
+    }
+    const isDeleted = (a: Annotation) =>
+        deletedAnnotationIds.has(a.id) || (!!a.bookId && deletedBookIds.has(a.bookId));
+
+    const byId = new Map<string, Annotation>();
+    const purgedIds: string[] = [];
+    for (const annotation of persisted) {
+        if (isDeleted(annotation)) {
+            purgedIds.push(annotation.id);
+            continue;
+        }
+        byId.set(annotation.id, annotation);
+    }
+    for (const annotation of inMemory) {
+        if (isDeleted(annotation)) continue;
+        const stored = byId.get(annotation.id);
+        if (!stored || annotationTimestamp(annotation) >= annotationTimestamp(stored)) {
+            byId.set(annotation.id, annotation);
+        }
+    }
+    return { kept: [...byId.values()], purgedIds };
+}
+
 function mergeBookIntoCachedEntry(entry: CachedBookMetadata, book: Book): CachedBookMetadata {
     return {
         ...entry,
@@ -1590,38 +1636,38 @@ export const useLibraryStore = create<LibraryStore>()(
 
                 if (isTauri()) {
                     void sqliteGetAllAnnotations().then((annStrings) => {
-                        if (annStrings && annStrings.length > 0) {
-                            const validBookIds = new Set(useLibraryStore.getState().books.map((b) => b.id));
-                            const orphanAnnotationIds: string[] = [];
-                            const parsed: Annotation[] = [];
-                            for (const s of annStrings) {
-                                try {
-                                    const obj = JSON.parse(s);
-                                    if (obj && obj.id) {
-                                        if (obj.bookId && !validBookIds.has(obj.bookId) && !obj.bookId.startsWith("rss:")) {
-                                            orphanAnnotationIds.push(obj.id);
-                                            continue;
-                                        }
-                                        parsed.push({
-                                            ...obj,
-                                            createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
-                                            updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
-                                        });
-                                    }
-                                } catch {
-                                    // Ignore parse errors
+                        if (!annStrings || annStrings.length === 0) return;
+                        const parsed: Annotation[] = [];
+                        for (const s of annStrings) {
+                            try {
+                                const obj = JSON.parse(s);
+                                if (obj && obj.id) {
+                                    parsed.push({
+                                        ...obj,
+                                        createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
+                                        updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
+                                    });
                                 }
+                            } catch {
+                                // Ignore parse errors
                             }
-                            useLibraryStore.setState({ annotations: parsed });
-                            for (const orphanId of orphanAnnotationIds) {
-                                void sqliteDeleteAnnotation(orphanId).catch((e) => console.error("[catch]", e));
-                            }
+                        }
+                        // Books hydrate concurrently, so "book not loaded yet" must never
+                        // count as orphaned. Only explicit tombstones remove rows here.
+                        const current = useLibraryStore.getState();
+                        const { kept, purgedIds } = reconcileHydratedAnnotations(
+                            parsed,
+                            current.annotations,
+                            current.deletionTombstones,
+                        );
+                        useLibraryStore.setState({ annotations: kept });
+                        for (const id of purgedIds) {
+                            void sqliteDeleteAnnotation(id).catch((e) => console.error("[catch]", e));
                         }
                     }).catch((e) => console.error("[catch]", e));
                 } else {
-                    const validBookIds = new Set(state.books.map((b) => b.id));
-                    state.annotations = state.annotations
-                        .filter((a) => !a.bookId || validBookIds.has(a.bookId) || a.bookId.startsWith("rss:"))
+                    const { kept } = reconcileHydratedAnnotations(state.annotations, [], state.deletionTombstones ?? []);
+                    state.annotations = kept
                         .map((annotation) => ({
                             ...annotation,
                             referenceId: typeof annotation.referenceId === "string"

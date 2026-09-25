@@ -1742,6 +1742,13 @@ pub fn sqlite_merge_sync_entries_inner(
     let mut updated_rss_articles: Vec<String> = Vec::new();
     let mut deleted_rss_articles: Vec<String> = Vec::new();
 
+    // Tombstoned ids: entries for these must never be (re-)inserted below.
+    // Per-entity doc keys (`anno:*`, `book:*`) outlive the deletion, so the
+    // same batch routinely carries both the tombstone and the stale entry.
+    let mut tombstoned_books: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut tombstoned_annotations: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
     // 1. Process tombstones first if present
     if let Some(tombstones_json) = entries.get("deletion_tombstones") {
         if let Ok(tombstones) = serde_json::from_str::<Vec<serde_json::Value>>(tombstones_json) {
@@ -1757,6 +1764,7 @@ pub fn sqlite_merge_sync_entries_inner(
                 }
                 match entity_type {
                     "book" => {
+                        tombstoned_books.insert(id.to_string());
                         let _ = connection.execute("DELETE FROM books WHERE id = ?1", params![id]);
                         let _ = connection
                             .execute("DELETE FROM book_metadata WHERE book_id = ?1", params![id]);
@@ -1769,6 +1777,7 @@ pub fn sqlite_merge_sync_entries_inner(
                         deleted_books.push(id.to_string());
                     }
                     "annotation" => {
+                        tombstoned_annotations.insert(id.to_string());
                         let _ = connection
                             .execute("DELETE FROM book_annotations WHERE id = ?1", params![id]);
                         deleted_annotations.push(id.to_string());
@@ -1808,6 +1817,9 @@ pub fn sqlite_merge_sync_entries_inner(
             )?;
             record_domain("deletion_tombstones");
         } else if let Some(book_id) = key.strip_prefix("book:") {
+            if tombstoned_books.contains(book_id) {
+                continue;
+            }
             if let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) {
                 let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
                 let author = book_val.get("author").and_then(|v| v.as_str());
@@ -1836,6 +1848,9 @@ pub fn sqlite_merge_sync_entries_inner(
             if let Ok(books_vec) = serde_json::from_str::<Vec<serde_json::Value>>(value) {
                 for b in &books_vec {
                     if let Some(book_id) = b.get("id").and_then(|v| v.as_str()) {
+                        if tombstoned_books.contains(book_id) {
+                            continue;
+                        }
                         let title = b.get("title").and_then(|v| v.as_str()).unwrap_or("");
                         let author = b.get("author").and_then(|v| v.as_str());
                         let meta_json = serde_json::to_string(b).unwrap_or_default();
@@ -1877,7 +1892,10 @@ pub fn sqlite_merge_sync_entries_inner(
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
 
-                if !book_id.is_empty() {
+                if !book_id.is_empty()
+                    && !tombstoned_annotations.contains(&id)
+                    && !tombstoned_books.contains(book_id)
+                {
                     connection.execute(
                         "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
                         params![book_id],
@@ -1901,7 +1919,10 @@ pub fn sqlite_merge_sync_entries_inner(
                             .or_else(|| a.get("book_id"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
-                        if !book_id.is_empty() {
+                        if !book_id.is_empty()
+                            && !tombstoned_annotations.contains(id)
+                            && !tombstoned_books.contains(book_id)
+                        {
                             let ann_json = serde_json::to_string(a).unwrap_or_default();
                             connection.execute(
                                 "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
@@ -4027,6 +4048,61 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn merge_sync_entries_never_resurrects_tombstoned_entities() {
+        let conn = setup_db();
+        sqlite_upsert_annotation_inner(&conn, "keep", "b1", r#"{"id":"keep","bookId":"b1"}"#)
+            .unwrap();
+        sqlite_upsert_annotation_inner(&conn, "a1", "b1", r#"{"id":"a1","bookId":"b1"}"#).unwrap();
+
+        // The doc still carries the deleted annotation's per-entity key, the
+        // full-list key and a book whose tombstone arrives in the same batch.
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "deletion_tombstones".to_string(),
+            r#"[{"entityId":"a1","entityType":"annotation","deletedAt":"2026-09-26T00:00:00Z"},
+                {"entityId":"b2","entityType":"book","deletedAt":"2026-09-26T00:00:00Z"}]"#
+                .to_string(),
+        );
+        entries.insert(
+            "anno:b1:a1".to_string(),
+            r#"{"id":"a1","bookId":"b1"}"#.to_string(),
+        );
+        entries.insert(
+            "annotations".to_string(),
+            r#"[{"id":"a1","bookId":"b1"},{"id":"a2","bookId":"b2"},{"id":"keep","bookId":"b1"}]"#
+                .to_string(),
+        );
+        entries.insert(
+            "anno:b2:a3".to_string(),
+            r#"{"id":"a3","bookId":"b2"}"#.to_string(),
+        );
+        entries.insert(
+            "book:b2".to_string(),
+            r#"{"id":"b2","title":"Gone"}"#.to_string(),
+        );
+        entries.insert(
+            "books".to_string(),
+            r#"[{"id":"b2","title":"Gone"}]"#.to_string(),
+        );
+
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert_eq!(res.deleted_annotations, vec!["a1".to_string()]);
+        assert_eq!(res.updated_annotations, vec!["keep".to_string()]);
+        assert!(res.updated_books.is_empty());
+
+        let all = sqlite_get_all_annotations_inner(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].contains("keep"));
+        assert!(sqlite_get_book_annotations_inner(&conn, "b2")
+            .unwrap()
+            .is_empty());
+        assert_eq!(sqlite_get_book_metadata_inner(&conn, "b2").unwrap(), None);
+        assert!(sqlite_search_books_inner(&conn, "Gone", 10)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
