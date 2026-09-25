@@ -3,11 +3,14 @@ import { useState, useMemo, useCallback, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 import { useLibraryStore, useUIStore } from "../../core/store";
-import { Dropdown, ConfirmDialog, HighlightMatch } from "../../ui";
-import {
-    Bookmark,
-    MoreVertical,
-} from "lucide-react";
+import type { Annotation } from "../../core/types";
+import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
+import { Bookmark } from "lucide-react";
+import { AnnotationListCard } from "./components/AnnotationListCard";
+import { ANNOTATION_ROW_GAP_PX, annotationRowSize } from "./components/annotation-card-layout";
+import { bookmarkPositionLabel } from "./components/bookmark-position";
+
+const ALL_BOOKS = "__all__";
 
 function EmptyBookmarks() {
     return (
@@ -26,87 +29,55 @@ function EmptyBookmarks() {
 }
 
 interface BookmarkCardProps {
-    bookmark: {
-        id: string;
-        bookId: string;
-        location: string;
-        selectedText?: string;
-        noteContent?: string;
-        createdAt: Date;
-    };
-    book: {
-        title: string;
-        author: string;
-        coverPath?: string;
-    } | undefined;
+    bookmark: Annotation;
+    book: { title: string; author: string } | undefined;
+    menuOpen: boolean;
     searchQuery?: string;
+    onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
     onGoToBookmark: (bookId: string, location: string) => void;
 }
 
-const BookmarkCard = memo(function BookmarkCard({ bookmark, book, searchQuery, onDelete, onGoToBookmark }: BookmarkCardProps) {
-    const [showMenu, setShowMenu] = useState(false);
-
+const BookmarkCard = memo(function BookmarkCard({
+    bookmark,
+    book,
+    menuOpen,
+    searchQuery,
+    onMenuOpenChange,
+    onDelete,
+    onGoToBookmark,
+}: BookmarkCardProps) {
+    const goTo = () => onGoToBookmark(bookmark.bookId, bookmark.location);
     return (
-        <div className="group border border-[var(--color-border)] bg-[var(--color-surface)] p-5 transition-colors hover:border-[var(--color-accent)]">
-            <div className="flex items-start justify-between mb-4">
-                <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                        <span className="font-sans text-[11px] font-semibold text-[color:var(--color-text-secondary)]">
-                            BOOKMARK
-                        </span>
-                        <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            {localDateKey(new Date(bookmark.createdAt))}
-                        </span>
-                    </div>
-                    <div className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                        <HighlightMatch text={book?.title || "Unknown source"} query={searchQuery} /> | <HighlightMatch text={book?.author || "Unknown author"} query={searchQuery} />
-                    </div>
-                </div>
-                <div className="relative">
-                    <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="border border-[var(--color-border)] p-1.5 text-[color:var(--color-text-muted)] transition-opacity hover:text-[color:var(--color-text-primary)]"
-                    >
-                        <MoreVertical className="w-4 h-4" />
-                    </button>
-                    {showMenu && (
-                        <>
-                            <div className="fixed inset-0 z-10" role="button" tabIndex={-1} aria-label="Close menu" onClick={() => setShowMenu(false)} />
-                            <div className="absolute right-0 top-full z-20 mt-1 w-40 border border-[var(--color-border)] bg-[var(--color-surface)] py-1">
-                                <button
-                                    onClick={() => { book && onGoToBookmark(bookmark.bookId, bookmark.location); setShowMenu(false); }}
-                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
-                                >
-                                    Go to bookmark
-                                </button>
-                                <button
-                                    onClick={async () => { await onDelete(bookmark.id); setShowMenu(false); }}
-                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-error)] hover:bg-[var(--color-surface-muted)]"
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </div>
-            </div>
-
-            <div className="space-y-3">
-                {bookmark.selectedText && (
-                    <blockquote className="pl-3 font-serif text-[17px] leading-relaxed text-[color:var(--color-text-primary)]">
-                        <HighlightMatch text={bookmark.selectedText} query={searchQuery} />
-                    </blockquote>
-                )}
-                {bookmark.noteContent && (
-                    <p className="font-serif text-[16px] leading-relaxed text-[color:var(--color-text-primary)] whitespace-pre-wrap">
-                        <HighlightMatch text={bookmark.noteContent} query={searchQuery} />
-                    </p>
-                )}
-            </div>
-        </div>
+        <AnnotationListCard
+            id={bookmark.id}
+            typeLabel="bookmark"
+            dateLabel={localDateKey(new Date(bookmark.createdAt))}
+            sourceTitle={book?.title || "Unknown source"}
+            sourceAuthor={book?.author || "Unknown author"}
+            quote={bookmark.selectedText}
+            note={bookmark.noteContent}
+            meta={bookmarkPositionLabel(bookmark)}
+            searchQuery={searchQuery}
+            menuOpen={menuOpen}
+            onMenuOpenChange={onMenuOpenChange}
+            menuItems={[
+                { label: "Go to bookmark", onSelect: goTo },
+                { label: "Delete", onSelect: () => onDelete(bookmark.id), danger: true },
+            ]}
+            onOpen={goTo}
+            openTitle="Click to open at this bookmark"
+        />
     );
 });
+
+function bookmarkBlocks(bookmark: Annotation) {
+    return {
+        quote: bookmark.selectedText,
+        note: bookmark.noteContent,
+        meta: bookmarkPositionLabel(bookmark),
+    };
+}
 
 export function BookmarksPage() {
     const annotations = useLibraryStore((state) => state.annotations);
@@ -116,24 +87,54 @@ export function BookmarksPage() {
     const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
+    const [bookFilter, setBookFilter] = useState<string>(ALL_BOOKS);
+    const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+    const [deleteBookmarkId, setDeleteBookmarkId] = useState<string | null>(null);
 
     // Derive lookup from bookmark bookIds only — avoids subscribing to the
-    // entire books array which re-renders on every progress tick.
+    // entire books array which re-renders on every progress tick. The book
+    // count still invalidates it: books hydrate after annotations, and a lookup
+    // built before that would hide every bookmark until annotations change.
+    const bookCount = useLibraryStore((state) => state.books.length);
     const bookmarks = useMemo(() => annotations.filter((a) => a.type === "bookmark"), [annotations]);
     const bookLookup = useMemo(
         () => {
-            const lookup = new Map<string, ReturnType<typeof getBook>>();
+            const lookup = new Map<string, NonNullable<ReturnType<typeof getBook>>>();
             for (const bm of bookmarks) {
-                if (!lookup.has(bm.bookId)) lookup.set(bm.bookId, getBook(bm.bookId));
+                if (lookup.has(bm.bookId)) continue;
+                const book = getBook(bm.bookId);
+                if (book) lookup.set(bm.bookId, book);
             }
             return lookup;
         },
-        [bookmarks, getBook],
+        // getBook is stable (store action ref); bookCount re-derives once books load
+        [bookmarks, getBook, bookCount],
     );
 
+    const visibleBookmarks = useMemo(
+        () => bookmarks.filter((b) => bookLookup.has(b.bookId)),
+        [bookmarks, bookLookup],
+    );
+
+    const bookOptions = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const bm of visibleBookmarks) counts.set(bm.bookId, (counts.get(bm.bookId) ?? 0) + 1);
+        const options = [...counts.entries()]
+            .map(([bookId, count]) => ({ value: bookId, label: `${bookLookup.get(bookId)?.title ?? "Unknown source"} (${count})` }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+        return [{ value: ALL_BOOKS, label: "All books" }, ...options];
+    }, [visibleBookmarks, bookLookup]);
+
+    // A filtered book whose last bookmark was deleted falls back to all books.
+    const activeBookFilter = bookFilter !== ALL_BOOKS && bookLookup.has(bookFilter)
+        && visibleBookmarks.some((b) => b.bookId === bookFilter)
+        ? bookFilter
+        : ALL_BOOKS;
 
     const filteredBookmarks = useMemo(() => {
-        let filtered = bookmarks.filter((b) => Boolean(bookLookup.get(b.bookId)));
+        const filtered = activeBookFilter === ALL_BOOKS
+            ? [...visibleBookmarks]
+            : visibleBookmarks.filter((b) => b.bookId === activeBookFilter);
 
         if (searchQuery.trim()) {
             const rankedBookmarks = rankByFuzzyQuery(
@@ -158,37 +159,30 @@ export function BookmarksPage() {
             return rankedBookmarks.map(({ item }) => item.bookmark);
         }
 
+        const time = (d: Date | string) => (d instanceof Date ? d : new Date(d)).getTime();
         filtered.sort((a, b) => {
             switch (sortBy) {
-                case "newest": {
-                    const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
-                    const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
-                    return dateB.getTime() - dateA.getTime();
-                }
-                case "oldest": {
-                    const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
-                    const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
-                    return dateA.getTime() - dateB.getTime();
-                }
-                case "book":
+                case "newest":
+                    return time(b.createdAt) - time(a.createdAt);
+                case "oldest":
+                    return time(a.createdAt) - time(b.createdAt);
+                case "book": {
                     const bookA = bookLookup.get(a.bookId)?.title || "";
                     const bookB = bookLookup.get(b.bookId)?.title || "";
-                    return bookA.localeCompare(bookB);
+                    return bookA.localeCompare(bookB) || time(b.createdAt) - time(a.createdAt);
+                }
                 default:
                     return 0;
             }
         });
 
         return filtered;
-    }, [bookmarks, searchQuery, sortBy, bookLookup]);
+    }, [visibleBookmarks, activeBookFilter, searchQuery, sortBy, bookLookup]);
 
+    // Exact, not an estimate: cards render at a fixed, content-derived height.
     const estimateBookmarkSize = useCallback((index: number) => {
         const bm = filteredBookmarks[index];
-        if (!bm) return 110;
-        const textLen = (bm.selectedText || "").length;
-        if (!textLen) return 110;
-        const textLines = Math.max(1, Math.ceil(textLen / 70));
-        return 126 + (textLines * 24);
+        return annotationRowSize(bm && bookmarkBlocks(bm));
     }, [filteredBookmarks]);
 
     const bookmarksVirtualizer = useVirtualizer({
@@ -199,11 +193,9 @@ export function BookmarksPage() {
         overscan: 5,
     });
 
-    const [deleteBookmarkId, setDeleteBookmarkId] = useState<string | null>(null);
-
-    const handleDelete = (id: string) => {
+    const handleDelete = useCallback((id: string) => {
         setDeleteBookmarkId(id);
-    };
+    }, []);
 
     const handleDeleteConfirm = () => {
         if (deleteBookmarkId) {
@@ -212,39 +204,35 @@ export function BookmarksPage() {
         }
     };
 
-    const handleGoToBookmark = (bookId: string, location: string) => {
+    const handleGoToBookmark = useCallback((bookId: string, location: string) => {
         setPendingReaderLocation(location);
         setRoute("reader", bookId);
-    };
+    }, [setPendingReaderLocation, setRoute]);
 
-    const getBookInfo = (bookId: string) => {
-        return bookLookup.get(bookId);
-    };
-
-    if (bookmarks.length === 0) {
+    if (visibleBookmarks.length === 0) {
         return (
-            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-0 sm:px-6 lg:px-8 lg:py-8">
+            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
                 <EmptyBookmarks />
             </div>
         );
     }
 
-    return (
-        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
-            
-            <div className="flex items-start justify-between mb-10">
-                <div>
-                    <h1 className="m-0 font-sans text-[1.45rem] font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-[1.6rem]">
-                        Bookmarks
-                    </h1>
-                    <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
-                        {filteredBookmarks.length} {filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across{" "}
-                        {new Set(filteredBookmarks.map((b) => b.bookId)).size} books
-                    </p>
-                </div>
-            </div>
+    const bookTotal = new Set(filteredBookmarks.map((b) => b.bookId)).size;
 
-            <div className="flex items-center justify-between gap-4 mb-8">
+    return (
+        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
+            <PageHeader
+                title="Bookmarks"
+                description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "book" : "books"}`}
+            />
+
+            <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+                <Dropdown
+                    value={activeBookFilter}
+                    onChange={(value) => setBookFilter(value)}
+                    options={bookOptions}
+                    className="w-full max-w-full sm:w-auto sm:max-w-[20rem]"
+                />
                 <Dropdown
                     value={sortBy}
                     onChange={(value) => setSortBy(value as typeof sortBy)}
@@ -275,32 +263,38 @@ export function BookmarksPage() {
                 </div>
             ) : (
                 <div style={{ height: `${bookmarksVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                        {bookmarksVirtualizer.getVirtualItems().map((virtualRow) => {
-                            const bookmark = filteredBookmarks[virtualRow.index];
-                            if (!bookmark) return null;
-                            return (
-                                <div
-                                    key={virtualRow.key}
-                                    data-index={virtualRow.index}
-                                    className="pb-4"
-                                    style={{
-                                        position: "absolute",
-                                        top: 0,
-                                        left: 0,
-                                        width: "100%",
-                                        transform: `translateY(${virtualRow.start}px)`,
-                                    }}
-                                >
-                                    <BookmarkCard
-                                        bookmark={bookmark}
-                                        book={getBookInfo(bookmark.bookId)}
-                                        searchQuery={searchQuery}
-                                        onDelete={handleDelete}
-                                        onGoToBookmark={handleGoToBookmark}
-                                    />
-                                </div>
-                            );
-                        })}
+                    {bookmarksVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const bookmark = filteredBookmarks[virtualRow.index];
+                        if (!bookmark) return null;
+                        return (
+                            <div
+                                key={virtualRow.key}
+                                data-index={virtualRow.index}
+                                style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    width: "100%",
+                                    height: virtualRow.size,
+                                    paddingBottom: ANNOTATION_ROW_GAP_PX,
+                                    transform: `translateY(${virtualRow.start}px)`,
+                                    // Each transformed row is its own stacking context;
+                                    // lift the one with an open menu above later rows.
+                                    zIndex: menuOpenId === bookmark.id ? 30 : undefined,
+                                }}
+                            >
+                                <BookmarkCard
+                                    bookmark={bookmark}
+                                    book={bookLookup.get(bookmark.bookId)}
+                                    menuOpen={menuOpenId === bookmark.id}
+                                    searchQuery={searchQuery}
+                                    onMenuOpenChange={setMenuOpenId}
+                                    onDelete={handleDelete}
+                                    onGoToBookmark={handleGoToBookmark}
+                                />
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
