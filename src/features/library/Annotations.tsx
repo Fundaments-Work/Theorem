@@ -8,11 +8,10 @@ import { useLibraryStore, useUIStore, useVocabularyStore } from "../../core/stor
 import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
 import type { HighlightColor, VocabularyTerm } from "../../core/types";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
-import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody, HighlightMatch } from "../../ui";
+import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
 import {
     Highlighter,
     StickyNote,
-    MoreVertical,
     Pencil,
     BookOpen,
     BookOpenText,
@@ -23,6 +22,8 @@ import {
     ChevronsRight,
 } from "lucide-react";
 import { ShareMenu } from "./components/ShareMenu";
+import { AnnotationListCard } from "./components/AnnotationListCard";
+import { ANNOTATION_ROW_GAP_PX, annotationRowSize } from "./components/annotation-card-layout";
 import {
     WORKBENCH_VIEW_STATE_KEY,
     decodeWorkbenchViewState,
@@ -42,6 +43,11 @@ function getTermPrimaryDefinition(term: VocabularyTerm): string {
 
 function isHtml(text: string): boolean {
     return text.includes("<") && text.includes(">");
+}
+
+/** Annotations whose book is unknown are hidden; article highlights have no book. */
+function isVisibleSource(bookId: string, bookTitleLookup: Map<string, string>): boolean {
+    return bookTitleLookup.has(bookId) || bookId.startsWith("rss:");
 }
 
 function EmptyAnnotations({ type }: { type: "all" | "highlights" | "notes" }) {
@@ -96,7 +102,9 @@ interface AnnotationCardProps {
         coverPath?: string;
     } | undefined;
     shareId: string | null;
+    menuOpen: boolean;
     searchQuery?: string;
+    onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
     onEdit: (id: string) => void;
     onGoToBook: (bookId: string, location?: string) => void;
@@ -107,132 +115,41 @@ const AnnotationCard = memo(function AnnotationCard({
     annotation,
     book,
     shareId,
+    menuOpen,
     searchQuery,
+    onMenuOpenChange,
     onDelete,
     onEdit,
     onShare,
     onGoToBook,
 }: AnnotationCardProps) {
-    const [showMenu, setShowMenu] = useState(false);
-    const borderColor = annotation.color ? HIGHLIGHT_SOLID_COLORS[annotation.color] : "var(--color-border)";
-
+    const openInBook = () => onGoToBook(annotation.bookId, annotation.location);
     return (
-        <div
-            className="group border border-[var(--color-border)] bg-[var(--color-surface)] p-5 transition-colors hover:border-[var(--color-accent)]"
-            style={{ borderLeft: `3px solid ${borderColor}` }}
-        >
-            
-            <div className="flex items-start justify-between mb-4">
-                <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                        <span className="font-sans text-[11px] font-semibold text-[color:var(--color-text-secondary)]">
-                            {annotation.type}
-                        </span>
-                        <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            {localDateKey(new Date(annotation.createdAt))}
-                        </span>
-
-                    </div>
-                    <div
-                        onClick={() => onGoToBook(annotation.bookId, annotation.location)}
-                        className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)] truncate cursor-pointer hover:underline"
-                        title="Open in book"
-                    >
-                        <HighlightMatch text={book?.title || "Unknown source"} query={searchQuery} /> <span className="text-[color:var(--color-text-muted)]">|</span> <HighlightMatch text={book?.author || "Unknown author"} query={searchQuery} />
-                    </div>
-                </div>
-                <div className="relative">
-                    <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="border border-[var(--color-border)] p-1.5 text-[color:var(--color-text-muted)] transition-opacity hover:text-[color:var(--color-text-primary)]"
-                    >
-                        <MoreVertical className="w-4 h-4" />
-                    </button>
-                    {showMenu && (
-                        <>
-                            <div
-                                className="fixed inset-0 z-10"
-                                role="button"
-                                tabIndex={-1}
-                                aria-label="Close menu"
-                                onClick={() => setShowMenu(false)}
-                            />
-                            <div className="absolute right-0 top-full z-20 mt-1 w-40 border border-[var(--color-border)] bg-[var(--color-surface)] py-1">
-                                <button
-                                    onClick={() => {
-                                        onGoToBook(annotation.bookId, annotation.location);
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
-                                >
-                                    Open in book
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        onEdit(annotation.id);
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
-                                >
-                                    Edit note
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        onShare(annotation.id);
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
-                                >
-                                    Share
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        onDelete(annotation.id);
-                                        setShowMenu(false);
-                                    }}
-                                    className="w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-error)] hover:bg-[var(--color-surface-muted)]"
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        </>
-                    )}
-                    {shareId === annotation.id && (
-                        <>
-                            <div
-                                className="fixed inset-0 z-10"
-                                role="button"
-                                tabIndex={-1}
-                                aria-label="Close menu"
-                                onClick={() => onShare(null)}
-                            />
-                            <ShareMenu
-                                annotation={annotation}
-                                book={book}
-                                onClose={() => onShare(null)}
-                            />
-                        </>
-                    )}
-                </div>
-            </div>
-
-            <div
-                className="space-y-3 cursor-pointer"
-                onClick={() => onGoToBook(annotation.bookId, annotation.location)}
-                title="Click to open at this highlighted location"
-            >
-                {annotation.selectedText && (
-                    <blockquote className="pl-3 font-serif text-[17px] leading-relaxed text-[color:var(--color-text-primary)] hover:opacity-85 transition-opacity">
-                        <HighlightMatch text={annotation.selectedText} query={searchQuery} />
-                    </blockquote>
-                )}
-                {annotation.noteContent && (
-                    <p className="font-serif text-[16px] leading-relaxed text-[color:var(--color-text-primary)] whitespace-pre-wrap hover:opacity-85 transition-opacity">
-                        <HighlightMatch text={annotation.noteContent} query={searchQuery} />
-                    </p>
-                )}
-            </div>
-        </div>
+        <AnnotationListCard
+            id={annotation.id}
+            typeLabel={annotation.type}
+            dateLabel={localDateKey(new Date(annotation.createdAt))}
+            sourceTitle={book?.title || "Unknown source"}
+            sourceAuthor={book?.author || "Unknown author"}
+            accentColor={annotation.color ? HIGHLIGHT_SOLID_COLORS[annotation.color] : undefined}
+            quote={annotation.selectedText}
+            note={annotation.noteContent}
+            searchQuery={searchQuery}
+            menuOpen={menuOpen}
+            onMenuOpenChange={onMenuOpenChange}
+            menuItems={[
+                { label: "Open in book", onSelect: openInBook },
+                { label: "Edit note", onSelect: () => onEdit(annotation.id) },
+                { label: "Share", onSelect: () => onShare(annotation.id) },
+                { label: "Delete", onSelect: () => onDelete(annotation.id), danger: true },
+            ]}
+            popover={shareId === annotation.id ? (
+                <ShareMenu annotation={annotation} book={book} onClose={() => onShare(null)} />
+            ) : undefined}
+            onPopoverClose={() => onShare(null)}
+            onOpen={openInBook}
+            openTitle="Click to open at this highlighted location"
+        />
     );
 });
 
@@ -269,6 +186,7 @@ export function AnnotationsPage() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
     const [sharingId, setSharingId] = useState<string | null>(null);
+    const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<"list" | "cards">(workbenchSavedState.viewMode ?? "list");
     const [cardIndex, setCardIndex] = useState(0);
     const [groupIndex, setGroupIndex] = useState(0);
@@ -278,7 +196,10 @@ export function AnnotationsPage() {
     const cardTouchStartY = useRef(0);
 
     // Derive title lookup from annotation bookIds only — avoids subscribing to
-    // the entire books array (which re-renders on every progress tick).
+    // the entire books array (which re-renders on every progress tick). The
+    // book count still invalidates it: books hydrate after annotations, and a
+    // lookup built before that would hide every annotation until they change.
+    const bookCount = useLibraryStore((state) => state.books.length);
     const bookTitleLookup = useMemo(
         () => {
             const bookIds = new Set(annotations.map((a) => a.bookId));
@@ -289,13 +210,13 @@ export function AnnotationsPage() {
             }
             return lookup;
         },
-        // getBook is stable (store action ref), annotations changes drive re-derive
-        [annotations, getBook],
+        // getBook is stable (store action ref); bookCount re-derives once books load
+        [annotations, getBook, bookCount],
     );
 
 
     const filteredAnnotations = useMemo(() => {
-        let filtered = annotations.filter((a) => a.type !== "bookmark" && bookTitleLookup.has(a.bookId));
+        let filtered = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, bookTitleLookup));
 
         if (currentBookId) {
             filtered = filtered.filter((annotation) => annotation.bookId === currentBookId);
@@ -444,17 +365,10 @@ export function AnnotationsPage() {
         }
     }, [cardIndex, groupIndex, annotationGroups]);
 
+    // Exact, not an estimate: cards render at a fixed, content-derived height.
     const estimateAnnotationSize = useCallback((index: number) => {
         const ann = filteredAnnotations[index];
-        if (!ann) return 160;
-        const textLen = (ann.selectedText || "").length;
-        const noteLen = (ann.noteContent || "").length;
-        const textLines = textLen > 0 ? Math.max(1, Math.ceil(textLen / 70)) : 0;
-        const noteLines = noteLen > 0 ? Math.max(1, Math.ceil(noteLen / 65)) : 0;
-        let size = 124;
-        if (textLines > 0) size += (textLines * 28) + 12;
-        if (noteLines > 0) size += (noteLines * 26) + 12;
-        return size;
+        return annotationRowSize(ann && { quote: ann.selectedText, note: ann.noteContent });
     }, [filteredAnnotations]);
 
     const annotationsVirtualizer = useVirtualizer({
@@ -521,7 +435,7 @@ export function AnnotationsPage() {
         setSharingId(id);
     };
 
-    const annotationCount = annotations.filter((a) => a.type !== "bookmark").length;
+    const annotationCount = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, bookTitleLookup)).length;
     const hasAnyContent = annotationCount > 0 || vocabularyTerms.length > 0;
     const selectedBookTitle = currentBookId
         ? (bookTitleLookup.get(currentBookId) || "Selected reference")
@@ -878,19 +792,25 @@ export function AnnotationsPage() {
                                 <div
                                     key={virtualRow.key}
                                     data-index={virtualRow.index}
-                                    className="pb-4"
                                     style={{
                                         position: "absolute",
                                         top: 0,
                                         left: 0,
                                         width: "100%",
+                                        height: virtualRow.size,
+                                        paddingBottom: ANNOTATION_ROW_GAP_PX,
                                         transform: `translateY(${virtualRow.start}px)`,
+                                        // Each transformed row is its own stacking context;
+                                        // lift the one with an open popover above later rows.
+                                        zIndex: menuOpenId === annotation.id || sharingId === annotation.id ? 30 : undefined,
                                     }}
                                 >
                                     <AnnotationCard
                                         annotation={annotation}
                                         book={getBookInfo(annotation.bookId)}
                                         shareId={sharingId}
+                                        menuOpen={menuOpenId === annotation.id}
+                                        onMenuOpenChange={setMenuOpenId}
                                         searchQuery={searchQuery}
                                         onDelete={handleDelete}
                                         onEdit={handleEdit}
