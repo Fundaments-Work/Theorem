@@ -216,6 +216,12 @@ jobs:
       - name: Install frontend dependencies (bundled pdf.js resources)
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
