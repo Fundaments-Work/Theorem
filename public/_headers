@@ -1,0 +1,23 @@
+# Cloudflare Pages Edge Headers
+# Immutable caching for static hashed assets and WebAssembly binaries
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.wasm
+  Cache-Control: public, max-age=31536000, immutable
+
+/wasm/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/pdfjs/wasm/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Root and HTML pages require revalidation for instant deployment pickup
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/
+  Cache-Control: public, max-age=0, must-revalidate

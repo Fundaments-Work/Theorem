@@ -18,10 +18,8 @@ Theorem’s architectural doctrine ([`AGENTS.md`](../../AGENTS.md)) strictly dic
 2. **Lingering JavaScript Fallback**: Because the native implementation was rudimentary, `@mozilla/readability` and `dompurify` were retained in `src/core/services/ArticleExtractorService.ts` as a browser fallback. This violated Theorem's Rust-first principle and bloated frontend bundles.
 3. **Rejection of Defuddle for Core Engine**: While Obsidian's `defuddle` library is promising, it is currently in early development (`v0.19.x`), written purely in TypeScript for browser DOM/Node environments, and undergoes frequent breaking changes. Introducing it into Theorem's core reader would re-introduce heavy DOM processing onto the UI thread.
 
-### 1.3 The Role of Knap vs. Obsidian Web Clipper
+### 1.3 The Role of Knap Templating
 - **Knap (`obsidianmd/knap`)**: A lightweight, sandboxed, AST-based template language built specifically by the Obsidian team (`kepano` / Steph Ango) for personal knowledge management (PKM). It has zero `eval` execution, compiles safely, and includes 40+ built-in filters (`callout`, `wikilink`, `yaml`, `date`, `footnote`, `table`, `trim`). Knap is the ideal engine for Theorem's **Vault Sync & Note Exporting**.
-- **Branded Theorem Web Clipper (Deferred)**: Obsidian's Web Clipper is MIT-licensed, presenting an opportunity for a custom-branded Theorem Web Clipper browser extension in the future. In accordance with core stabilization priorities, **this initiative is deferred** alongside the WebAssembly plugin architecture.
-- **Web Article & RSS Vault Export (Deferred)**: Direct clipping/exporting of web articles and RSS feeds to Obsidian vaults is deferred until the native extraction engine and core book/vocabulary vault sync are fully hardened.
 
 ---
 
@@ -176,17 +174,7 @@ In **Settings $\to$ Obsidian Vault**:
   2. **Minimalist** (Blockquotes + plain text).
   3. **Custom** (Live syntax-highlighted Knap template editor).
 
----
 
-## 4. Deferred Milestones (Future Roadmap)
-
-1. **Theorem Branded Web Clipper (Post-v1.6.0 / v2.0.0)**:
-   - Fork and rebrand `obsidianmd/obsidian-clipper` (MIT License) into an official Theorem Companion Extension.
-   - Directly connects to Theorem's local P2P sync and native reading queue.
-   - Deferred until core reader, PDF parity, and native sync stabilization are 100% complete.
-2. **Web Articles & RSS Note Vault Sync (Post-v1.6.0)**:
-   - Exporting clipped web articles and RSS feeds directly into vault note files.
-   - Deferred until native Rust article extraction and book highlight vault sync are verified in production.
 
 ---
 

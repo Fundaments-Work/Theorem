@@ -1,0 +1,12 @@
+name: Trigger Landing Page Rebuild
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  rebuild-landing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Cloudflare Pages Deploy Hook
+        run: curl -X POST ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}

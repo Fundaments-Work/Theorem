@@ -34,6 +34,27 @@ const makeZipLoader = async (file, prefetchPromise) => {
     const toc = prefetch?.toc
 
     if (!textCache && !sizes) {
+        if (typeof window !== 'undefined' && window.__THEOREM_CORE_WORKER__ && typeof file?.arrayBuffer === 'function') {
+            try {
+                const buffer = await file.arrayBuffer();
+                const worker = window.__THEOREM_CORE_WORKER__;
+                const { entries } = await worker.initEpub(buffer);
+                const sizeMap = new Map(entries.map(e => [e.filename, e.uncompressedSize]));
+                const resolve = name => typeof name !== 'string' ? null
+                    : sizeMap.has(name) ? name : name.replace(/^\//, '');
+                const loadText = name => worker.readEpubText(resolve(name) || name);
+                const loadBlob = (name, type) =>
+                    worker.readEpubEntry(resolve(name) || name).then(buf => buf ? new Blob([buf], type ? { type } : undefined) : null);
+                const getSize = name => {
+                    const key = resolve(name);
+                    return (key != null ? sizeMap.get(key) : undefined) ?? 0;
+                };
+                return { entries, loadText, loadBlob, getSize };
+            } catch {
+                // fall back to vendor zip.js
+            }
+        }
+
         const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
             await import('./vendor/zip.js')
         configure({ useWebWorkers: false })

@@ -106,6 +106,25 @@ function resolveSqliteBookId(id: string, filePath?: string): string | null {
     return null;
 }
 
+export function isOpfsSupported(): boolean {
+    return (
+        typeof navigator !== 'undefined' &&
+        !!navigator.storage &&
+        typeof navigator.storage.getDirectory === 'function'
+    );
+}
+
+function resolveOpfsBookId(id: string, filePath?: string): string | null {
+    if (filePath?.startsWith('opfs://')) {
+        const parsed = filePath.slice('opfs://'.length);
+        return parsed || null;
+    }
+    if (id.trim()) {
+        return id;
+    }
+    return null;
+}
+
 function resolveIndexedDbBookId(id: string, filePath?: string): string | null {
     if (filePath?.startsWith('idb://')) {
         const parsed = filePath.slice('idb://'.length);
@@ -124,6 +143,7 @@ function isExternalFilePath(filePath?: string): boolean {
 
     return !filePath.startsWith('sqlite://')
         && !filePath.startsWith('idb://')
+        && !filePath.startsWith('opfs://')
         && !filePath.startsWith('browser://')
         && !filePath.startsWith('content://');
 }
@@ -154,6 +174,7 @@ function cacheBlob(cacheKey: string, blob: Blob): void {
 function clearBlobCacheForBook(id: string, filePath?: string): void {
     blobCache.delete(getStorageKey(id, filePath));
     blobCache.delete(`idb://${id}`);
+    blobCache.delete(`opfs://${id}`);
     blobCache.delete(`sqlite://${id}`);
     materializedPathCache.delete(id);
 }
@@ -258,6 +279,22 @@ export async function saveBookData(id: string, data: ArrayBuffer): Promise<strin
         }
     }
 
+    // Origin Private File System (OPFS): Stream large book binaries directly,
+    // avoiding IndexedDB structured clone overhead in browser environments.
+    if (isOpfsSupported()) {
+        try {
+            const root = await navigator.storage.getDirectory();
+            const booksDir = await root.getDirectoryHandle(STORE_NAME, { create: true });
+            const fileHandle = await booksDir.getFileHandle(`${id}.bin`, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(data);
+            await writable.close();
+            return `opfs://${id}`;
+        } catch (error) {
+            // Gracefully fall back to IndexedDB if OPFS fails (e.g. quota/permissions)
+        }
+    }
+
     try {
         await set(`${STORE_NAME}-${id}`, data);
         return `idb://${id}`;
@@ -309,6 +346,22 @@ export async function getBookData(id: string, filePath?: string): Promise<ArrayB
             }
         }
 
+        // Browser mode: Check OPFS first if supported
+        if (isOpfsSupported()) {
+            const opfsId = resolveOpfsBookId(id, normalizedPath);
+            if (opfsId) {
+                try {
+                    const root = await navigator.storage.getDirectory();
+                    const booksDir = await root.getDirectoryHandle(STORE_NAME, { create: false });
+                    const fileHandle = await booksDir.getFileHandle(`${opfsId}.bin`, { create: false });
+                    const file = await fileHandle.getFile();
+                    return await file.arrayBuffer();
+                } catch {
+                    // Fall through to IndexedDB check
+                }
+            }
+        }
+
         const indexedDbId = resolveIndexedDbBookId(id, normalizedPath);
         if (!indexedDbId) {
             return null;
@@ -348,6 +401,25 @@ export async function getBookBlob(id: string, filePath?: string): Promise<Blob |
     }
 
     const readPromise = (async () => {
+        const normalizedPath = filePath ? normalizeFilePath(filePath) : undefined;
+
+        // Zero-copy direct Blob retrieval from OPFS in browser mode
+        if (!isTauri() && isOpfsSupported()) {
+            const opfsId = resolveOpfsBookId(id, normalizedPath);
+            if (opfsId) {
+                try {
+                    const root = await navigator.storage.getDirectory();
+                    const booksDir = await root.getDirectoryHandle(STORE_NAME, { create: false });
+                    const fileHandle = await booksDir.getFileHandle(`${opfsId}.bin`, { create: false });
+                    const file = await fileHandle.getFile();
+                    const mimeType = getMimeTypeFromPath(filePath);
+                    return new Blob([file], { type: mimeType });
+                } catch {
+                    // Fall through to getBookData
+                }
+            }
+        }
+
         const data = await withTimeout(
             getBookData(id, filePath),
             STORAGE_READ_TIMEOUT_MS,
@@ -383,6 +455,18 @@ export async function deleteBookData(id: string, filePath?: string): Promise<voi
         try {
             await sqliteDeleteBookData(sqliteBookId);
         } catch (error) {
+        }
+    }
+
+    if (isOpfsSupported()) {
+        const opfsId = resolveOpfsBookId(id, normalizedPath);
+        if (opfsId) {
+            try {
+                const root = await navigator.storage.getDirectory();
+                const booksDir = await root.getDirectoryHandle(STORE_NAME, { create: false });
+                await booksDir.removeEntry(`${opfsId}.bin`);
+            } catch {
+            }
         }
     }
 

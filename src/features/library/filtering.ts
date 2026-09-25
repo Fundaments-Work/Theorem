@@ -1,6 +1,7 @@
 import { normalizeAuthor } from "../../core/lib/utils";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
+import { isWasmCoreReady, wasmFuzzyRank } from "../../core/lib/theorem-core";
 
 import type { Book, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 
@@ -52,6 +53,18 @@ export function getFilteredAndSortedBooks({
             const bookMap = new Map(books.map((b) => [b.id, b]));
             searchResults = ftsSearchIds
                 .map((id) => bookMap.get(id))
+                .filter((b): b is Book => b !== undefined);
+        } else if (isWasmCoreReady()) {
+            // W2: Active WASM Client Hookup — SIMD nucleo-matcher ranking in browser mode
+            const candidates = books.map((book) => ({
+                id: book.id,
+                title: book.title || "",
+                author: book.author || undefined,
+            }));
+            const ranked = wasmFuzzyRank(candidates, trimmedQuery);
+            const bookMap = new Map(books.map((b) => [b.id, b]));
+            searchResults = ranked
+                .map((r) => bookMap.get(r.id))
                 .filter((b): b is Book => b !== undefined);
         } else {
             const searchableItems = books.map((book) => ({

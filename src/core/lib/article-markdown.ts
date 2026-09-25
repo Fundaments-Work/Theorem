@@ -7,6 +7,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "./env";
+import { isWasmCoreReady, wasmMarkdownToHtml } from "./theorem-core";
 
 export function looksLikeMarkdown(text: string): boolean {
     if (!text || text.length < 3) return false;
@@ -44,7 +45,7 @@ export function plainTextToHtml(text: string): string {
         .join("\n");
 }
 
-/** Render Markdown through Rust; plain paragraphs where Rust is unavailable. */
+/** Render Markdown through Rust (Tauri) or theorem-core WASM (browser); fallback to plain paragraphs. */
 export async function renderMarkdownBatch(items: string[]): Promise<string[]> {
     if (items.length === 0) return [];
     if (isTauri()) {
@@ -53,6 +54,9 @@ export async function renderMarkdownBatch(items: string[]): Promise<string[]> {
         } catch {
             // fall through
         }
+    }
+    if (isWasmCoreReady()) {
+        return items.map((item) => wasmMarkdownToHtml(item));
     }
     return items.map(plainTextToHtml);
 }

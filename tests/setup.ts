@@ -65,3 +65,15 @@ if (typeof window !== "undefined" && !window.cancelAnimationFrame) {
         window.clearTimeout(handle);
     };
 }
+
+try {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const wasmPath = path.resolve(__dirname, "../src/core/wasm/theorem_core_bg.wasm");
+    if (fs.existsSync(wasmPath)) {
+        (globalThis as any).__THEOREM_WASM_BYTES__ = fs.readFileSync(wasmPath);
+    }
+} catch {
+    // Ignore in non-node test runners
+}
+

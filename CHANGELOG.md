@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.8] - 2026-09-23 (Beta)
+## [1.5.8] - 2026-09-25 (Beta)
+
+### Web & Performance Parity
+
+- **Edge Immutable Caching (W1)** — Configured `public/_headers` specifying `max-age=31536000, immutable` for `/assets/*`, `*.wasm`, `/wasm/*`, `/pdfjs/wasm/*`, and `/fonts/*`, with `max-age=0, must-revalidate` for `/index.html` (0ms repeat load from browser disk/memory cache).
+- **Active Client WASM Hookup (W2)** — Connected `theorem-core.wasm` into the web client so browser-mode searches use SIMD `wasm_fuzzy_rank` (`nucleo-matcher`) and `wasm_markdown_to_html` (`pulldown-cmark`) instead of JS regex fallbacks.
+- **Web Worker Task Offloading (W3)** — Offloaded WASM fuzzy ranking, Markdown rendering, and background EPUB unzipping to a dedicated Web Worker (`core-worker.ts`) using transferable `ArrayBuffer`s, keeping the main UI thread at 120fps during inflation and search.
+- **Origin Private File System (OPFS) (W4)** — Streamed large book binaries directly into OPFS (`navigator.storage.getDirectory()`), avoiding IndexedDB clone overhead with zero-copy reads and transparent IDB fallback.
 
 ### Reading System
 

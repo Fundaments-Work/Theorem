@@ -1,6 +1,6 @@
 --- view.js
 +++ view.js
-@@ -27,19 +27,95 @@
+@@ -27,19 +27,116 @@
      type === 'application/x-zip-compressed-fb2'
      || name.endsWith('.fb2.zip') || name.endsWith('.fbz')
  
@@ -24,6 +24,27 @@
 +    const toc = prefetch?.toc
 +
 +    if (!textCache && !sizes) {
++        if (typeof window !== 'undefined' && window.__THEOREM_CORE_WORKER__ && typeof file?.arrayBuffer === 'function') {
++            try {
++                const buffer = await file.arrayBuffer();
++                const worker = window.__THEOREM_CORE_WORKER__;
++                const { entries } = await worker.initEpub(buffer);
++                const sizeMap = new Map(entries.map(e => [e.filename, e.uncompressedSize]));
++                const resolve = name => typeof name !== 'string' ? null
++                    : sizeMap.has(name) ? name : name.replace(/^\//, '');
++                const loadText = name => worker.readEpubText(resolve(name) || name);
++                const loadBlob = (name, type) =>
++                    worker.readEpubEntry(resolve(name) || name).then(buf => buf ? new Blob([buf], type ? { type } : undefined) : null);
++                const getSize = name => {
++                    const key = resolve(name);
++                    return (key != null ? sizeMap.get(key) : undefined) ?? 0;
++                };
++                return { entries, loadText, loadBlob, getSize };
++            } catch {
++                // fall back to vendor zip.js
++            }
++        }
++
 +        const { configure, ZipReader, BlobReader, TextWriter, BlobWriter } =
 +            await import('./vendor/zip.js')
 +        configure({ useWebWorkers: false })
@@ -109,7 +130,7 @@
  }
  
  const getFileEntries = async entry => entry.isFile ? entry
-@@ -76,7 +152,7 @@
+@@ -76,7 +173,7 @@
      return new File([await res.blob()], new URL(res.url).pathname)
  }
  
@@ -118,7 +139,7 @@
      if (typeof file === 'string') file = await fetchFile(file)
      let book
      if (file.isDirectory) {
-@@ -86,14 +162,14 @@
+@@ -86,14 +183,14 @@
      }
      else if (!file.size) throw new NotFoundError('File not found')
      else if (await isZip(file)) {
@@ -136,7 +157,7 @@
              const entry = entries.find(entry => entry.filename.endsWith('.fb2'))
              const blob = await loader.loadBlob((entry ?? entries[0]).filename)
              book = await makeFB2(blob)
-@@ -101,6 +177,9 @@
+@@ -101,6 +198,9 @@
          else {
              const { EPUB } = await import('./epub.js')
              book = await new EPUB(loader).init()
@@ -146,7 +167,7 @@
          }
      }
      else if (await isPDF(file)) {
-@@ -110,7 +189,7 @@
+@@ -110,7 +210,7 @@
      else {
          const { isMOBI, MOBI } = await import('./mobi.js')
          if (await isMOBI(file)) {
@@ -155,7 +176,7 @@
              book = await new MOBI({ unzlib: fflate.unzlibSync }).open(file)
          }
          else if (isFB2(file)) {
-@@ -133,7 +212,7 @@
+@@ -133,7 +233,7 @@
          this.#state = state
          if (this.#state.hidden) this.hide()
          this.#el.addEventListener('mousemove', ({ screenX, screenY }) => {
@@ -164,7 +185,7 @@
              if (screenX === this.#state.x && screenY === this.#state.y) return
              this.#state.x = screenX, this.#state.y = screenY
              this.show()
-@@ -210,6 +289,56 @@
+@@ -210,6 +310,56 @@
      }
  }
  
@@ -221,7 +242,7 @@
  export class View extends HTMLElement {
      #root = this.attachShadow({ mode: 'closed' })
      #sectionProgress
-@@ -276,7 +405,7 @@
+@@ -276,7 +426,7 @@
                  this.renderer.goTo(resolved)
                      .then(() => {
                          const { doc } = this.renderer.getContents()
@@ -230,7 +251,7 @@
                          const el = resolved.anchor(doc)
                          el.classList.add(activeClass)
                          if (playbackActiveClass) el.ownerDocument
-@@ -337,7 +466,7 @@
+@@ -337,7 +487,7 @@
          this.#emit('relocate', this.lastLocation)
      }
      #onLoad({ doc, index }) {
@@ -239,7 +260,7 @@
          doc.documentElement.lang ||= this.language.canonical ?? ''
          if (!this.language.isCJK)
              doc.documentElement.dir ||= this.language.direction ?? ''
-@@ -350,17 +479,74 @@
+@@ -350,17 +500,74 @@
      #handleLinks(doc, index) {
          const { book } = this
          const section = book.sections[index]
@@ -317,7 +338,7 @@
                  .then(x => x ? this.goTo(href) : null)
                  .catch(e => console.error(e))
          })
-@@ -388,9 +574,25 @@
+@@ -388,9 +595,25 @@
              const { overlayer, doc } = obj
              overlayer.remove(value)
              if (!remove) {
@@ -346,7 +367,7 @@
              }
          }
          const label = this.#tocProgress.getProgress(index)?.label ?? ''
-@@ -405,7 +607,40 @@
+@@ -405,7 +628,40 @@
      }
      #createOverlayer({ doc, index }) {
          const overlayer = new Overlayer()
@@ -387,7 +408,7 @@
              const [value, range] = overlayer.hitTest(e)
              if (value && !value.startsWith(SEARCH_PREFIX)) {
                  this.#emit('show-annotation', { value, index, range })
-@@ -423,9 +658,17 @@
+@@ -423,9 +679,17 @@
          const resolved = await this.goTo(value)
          if (resolved) {
              const { index, anchor } = resolved
