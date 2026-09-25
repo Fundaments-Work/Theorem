@@ -152,27 +152,40 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 
 ### Before tagging a release
 
-1. **Bump version** in all 4 files:
+1. **Merge branches into `main` first**:
+   Always merge feature/fix branches into `main` before tagging. Releases and documentation builds depend on commits being present on the `main` branch.
+
+2. **Run full local quality gates**:
+   - TypeScript: `pnpm typecheck` — zero errors
+   - Vitest: `pnpm test` — all 72 suites must pass
+   - Production bundle: `pnpm build` — verifies bundle, WebAssembly modules, and PDF.js assets
+   - Rust: `cd src-tauri && cargo fmt --check && cargo clippy && cargo check` — zero warnings/errors
+   - Foliate runtime: `pnpm foliate:check` — clean pass
+
+3. **Bump version in all 5 files**:
    - `package.json` — `version` field
    - `src-tauri/Cargo.toml` — `version` field
    - `src-tauri/tauri.conf.json` — `version` field
    - `src-tauri/crates/theorem-sync-core/Cargo.toml` — `version` field
+   - `src-tauri/crates/theorem-core/Cargo.toml` — `version` field
 
-2. **Update `CHANGELOG.md`** with the new version and date.
+4. **Update `CHANGELOG.md`** with the new version, release date, and detailed change entries.
 
-3. **Regenerate icons** from `public/favicon.svg` (the source used by CI):
+5. **Regenerate icons** from `public/favicon.svg` (the source used by CI):
    ```bash
    pnpm tauri icon public/favicon.svg
-   watch -n10 'ls -la src-tauri/gen/android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml'
    ```
 
-4. **Tag and push**:
+6. **Landing page automated rebuild hook**:
+   - Theorem landing page (`theorem-landing`) auto-rebuilds via `.github/workflows/notify-landing.yml` upon release publication using repository secret `CLOUDFLARE_DEPLOY_HOOK_URL`.
+   - The Hugo build parses `CHANGELOG.md` directly from `main` and updates `https://theorem.fundaments.work/changelog/`.
+
+7. **Tag and push**:
    ```bash
    git tag v<version>
    git push origin v<version>
    ```
-   CI (`release.yml`) triggers on tags matching `v[0-9]+.*`, builds all
-   targets, signs artifacts, and publishes to GitHub Releases.
+   CI (`release.yml`) triggers on tags matching `v[0-9]+.*`, builds all targets (Linux, macOS Intel & Apple Silicon, Windows, Android), signs artifacts, and publishes to GitHub Releases.
    If the release is a minor/patch version (`X.Y.Z` where `Z > 0`), mark it as a pre-release in GitHub:
    ```bash
    gh release edit v<version> --prerelease
