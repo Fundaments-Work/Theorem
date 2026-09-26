@@ -1,4 +1,5 @@
 import { isTauri } from "../lib/env";
+import { browserCatalogUrl } from "../lib/catalog-fetch-url";
 import { saveBookData, saveCoverImage } from "../lib/storage";
 import { useLibraryStore } from "../store";
 import type { Book, BookFormat, OpdsEntry, OpdsFeed } from "../types";
@@ -96,7 +97,7 @@ async function fetchBinary(url: string): Promise<ArrayBuffer> {
         new Uint8Array(buf).set(arr);
         return buf;
     }
-    const res = await fetch(url);
+    const res = await fetch(browserCatalogUrl(url));
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     return await res.arrayBuffer();
 }
