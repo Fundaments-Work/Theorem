@@ -1,4 +1,5 @@
 import { isTauri } from "../lib/env";
+import { browserCatalogUrl } from "../lib/catalog-fetch-url";
 import { saveBookData, saveCoverImage } from "../lib/storage";
 import { useLibraryStore } from "../store";
 import type { Book, BookFormat, OpdsCatalog, OpdsEntry, OpdsFeed, OpdsLink } from "../types";
@@ -35,7 +36,7 @@ async function fetchFeedXml(url: string): Promise<string> {
         const { invoke } = await import("@tauri-apps/api/core");
         rawText = await invoke<string>("fetch_rss_feed", { url });
     } else {
-        const response = await fetch(url);
+        const response = await fetch(browserCatalogUrl(url));
         if (!response.ok) {
             throw new Error(`Could not load catalog (${response.status})`);
         }
@@ -72,7 +73,7 @@ async function fetchBinary(url: string): Promise<ArrayBuffer> {
         new Uint8Array(buf).set(arr);
         return buf;
     }
-    const response = await fetch(url);
+    const response = await fetch(browserCatalogUrl(url));
     if (!response.ok) {
         throw new Error(`Failed to download book: ${response.status}`);
     }

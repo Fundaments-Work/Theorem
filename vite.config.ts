@@ -1,8 +1,9 @@
-import { defineConfig } from "vite";
+import { defineConfig, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { readFileSync } from "node:fs";
+import { onRequestGet as proxyGutenberg } from "./functions/api/gutenberg.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf-8"));
 const host = process.env.TAURI_DEV_HOST;
@@ -12,6 +13,25 @@ export default defineConfig(async () => ({
     plugins: [
         react(),
         tailwindcss(),
+        // Match the Pages Function during local web development.
+        {
+            name: "gutenberg-dev-proxy",
+            configureServer(server: ViteDevServer) {
+                server.middlewares.use(async (req, res, next) => {
+                    if (!req.url?.startsWith("/api/gutenberg?")) return next();
+                    try {
+                        const request = new Request(new URL(req.url, "http://localhost:1420"));
+                        const response = await proxyGutenberg({ request });
+                        res.statusCode = response.status;
+                        response.headers.forEach((value, name) => res.setHeader(name, value));
+                        res.end(Buffer.from(await response.arrayBuffer()));
+                    } catch {
+                        res.statusCode = 502;
+                        res.end("Gutenberg proxy failed");
+                    }
+                });
+            },
+        },
         // Copy PDF.js assets (cmaps and fonts) from node_modules to build output.
         // Only Adobe-* and Uni* cmaps are shipped: standard Unicode/Adobe tables
         // cover real-world PDFs, the ~100 legacy CJK tables (2.5 MB) are skipped.
@@ -96,7 +116,6 @@ export default defineConfig(async () => ({
         port: 1420,
         strictPort: true,
         host: host || false,
-        proxy: {},
         hmr: host
             ? {
                 protocol: "ws",
