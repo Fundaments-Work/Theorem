@@ -4,7 +4,6 @@
         "skipLibCheck": true,
         "module": "ESNext",
         "moduleResolution": "bundler",
-        "allowImportingTsExtensions": true,
         "allowSyntheticDefaultImports": true
     },
     "include": [

@@ -10,8 +10,34 @@ describe("Gutenberg browser proxy", () => {
     it("routes Gutenberg requests through the app while leaving other catalogs alone", () => {
         expect(browserCatalogUrl("https://www.gutenberg.org/ebooks/1342.epub.noimages"))
             .toBe("/api/gutenberg?url=https%3A%2F%2Fwww.gutenberg.org%2Febooks%2F1342.epub.noimages");
+        expect(browserCatalogUrl("https://www.gutenberg.org/ebooks.opds/"))
+            .toBe("/api/gutenberg?url=https%3A%2F%2Fwww.gutenberg.org%2Febooks.opds%2F");
         expect(browserCatalogUrl("https://standardebooks.org/feeds/atom/new-releases"))
             .toBe("https://standardebooks.org/feeds/atom/new-releases");
+    });
+
+    it("does not proxy Gutenberg URLs in Tauri environment", () => {
+        (window as any).__TAURI_INTERNALS__ = {};
+        expect(browserCatalogUrl("https://www.gutenberg.org/ebooks.opds/"))
+            .toBe("https://www.gutenberg.org/ebooks.opds/");
+        delete (window as any).__TAURI_INTERNALS__;
+    });
+
+    it("allows Gutenberg OPDS root catalog requests and forwards cache-control", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response("<feed></feed>", {
+            status: 200,
+            headers: {
+                "content-type": "application/atom+xml",
+                "cache-control": "no-cache, must-revalidate",
+            },
+        }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const response = await onRequestGet({ request: requestFor("https://www.gutenberg.org/ebooks.opds/") });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe("application/atom+xml");
+        expect(response.headers.get("cache-control")).toBe("no-cache, must-revalidate");
+        expect(await response.text()).toBe("<feed></feed>");
     });
 
     it("follows Gutenberg redirects and streams the EPUB", async () => {
