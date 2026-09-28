@@ -768,7 +768,7 @@ export class FoliateEngine {
     }
 
     private applySettingsSync(): void {
-        if (!this.view?.renderer) return;
+        if (!this.view?.renderer || typeof this.view.renderer.setAttribute !== 'function') return;
 
         const renderer = this.view.renderer;
         const currentSettings = getCurrentReaderSettings();

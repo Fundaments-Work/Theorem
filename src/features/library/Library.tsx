@@ -1,5 +1,5 @@
 
-import { useState, useCallback, useEffect, useRef, useMemo, memo } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
@@ -1407,12 +1407,22 @@ export function LibraryPage() {
         return Math.round(cardW * 1.5 + textH + gap);
     }, [isListView, isCompactView, effectiveCols]);
 
+    const getItemKey = useCallback(
+        (index: number) => `${settings.libraryViewMode}-${index}`,
+        [settings.libraryViewMode],
+    );
+
     const rowVirtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: useCallback(() => scrollRef.current, []),
         estimateSize: getEstimateSize,
+        getItemKey,
         overscan: 3,
     });
+
+    useLayoutEffect(() => {
+        rowVirtualizer.measure();
+    }, [rowVirtualizer, settings.libraryViewMode, effectiveCols, isCompactView, isListView]);
 
     useEffect(() => {
         if (!coversHydrated || isExtractingCovers || books.length === 0) {

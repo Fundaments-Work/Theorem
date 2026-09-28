@@ -1,5 +1,5 @@
 
-import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../../core/lib/utils";
 import { getShelfColor, getShelfInitials } from "../../core/lib/design-tokens";
@@ -449,12 +449,22 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         return Math.round(cardW * 1.5 + textH + gap);
     }, [isListView, isCompactView, effectiveCols]);
 
+    const getItemKey = useCallback(
+        (index: number) => `${viewMode}-${index}`,
+        [viewMode],
+    );
+
     const rowVirtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: useCallback(() => scrollRef.current, []),
         estimateSize: getEstimateSize,
+        getItemKey,
         overscan: 3,
     });
+
+    useLayoutEffect(() => {
+        rowVirtualizer.measure();
+    }, [rowVirtualizer, viewMode, effectiveCols, isCompactView, isListView]);
 
     const handleOpenBook = (book: Book) => {
         import("../../features/reader"); 
@@ -605,10 +615,14 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                             />
                                         </div>
                                     ) : (
-                                        <div className={isCompactView
-                                            ? "grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 pb-2"
-                                            : "grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8 pb-5"
-                                        }>
+                                        <div
+                                            style={{
+                                                display: "grid",
+                                                gridTemplateColumns: `repeat(${effectiveCols}, minmax(0, 1fr))`,
+                                                gap: isCompactView ? "8px" : "20px",
+                                                paddingBottom: isCompactView ? "8px" : "20px",
+                                            }}
+                                        >
                                             {rowItems.map((book) => (
                                                 <MemoizedBookCard
                                                     key={book.id} book={book} viewMode={viewMode}
