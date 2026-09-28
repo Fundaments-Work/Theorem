@@ -25,6 +25,7 @@ import {
 } from '../../../core/lib/design-tokens';
 import { normalizeAuthor } from '../../../core/lib/utils';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
+import { useLibraryStore } from '../../../core/store';
 
 const READER_SEARCH_EXACT_LIMIT = 120;
 const MIN_READER_ZOOM_LEVEL = 0.2;
@@ -1470,14 +1471,33 @@ export class FoliateEngine {
             return;
         }
         const contents = this.view.renderer?.getContents?.() || [];
-        const overlayer = contents.find((content: any) => content.index === sectionIndex)?.overlayer;
+        const content = contents.find((c: any) => c.index === sectionIndex);
+        const overlayer = content?.overlayer;
         if (!overlayer) return;
         if (!force && this.populatedOverlayers.has(overlayer)) return;
         this.populatedOverlayers.add(overlayer);
 
+        const docText = content?.doc?.body?.textContent || '';
+
         for (const annotation of this.annotations.values()) {
             if ((annotation.type !== 'highlight' && annotation.type !== 'note') || !annotation.location) continue;
-            const index = this.annotationSectionIndex(annotation.location);
+            let index = this.annotationSectionIndex(annotation.location);
+
+            // Resilient text check: if the CFI index didn't point here, check if text belongs to this section
+            if (index !== sectionIndex && annotation.selectedText && docText && content?.doc) {
+                const snippet = annotation.selectedText.trim().slice(0, 30);
+                if (snippet && docText.includes(snippet)) {
+                    const range = this.findRangeByText(content.doc, annotation.selectedText);
+                    if (range) {
+                        const newCfi = this.view.getCFI?.(sectionIndex, range);
+                        if (newCfi) {
+                            this.selfHealAnnotation(annotation, newCfi);
+                            index = sectionIndex;
+                        }
+                    }
+                }
+            }
+
             // Unresolvable CFIs keep the old behaviour: foliate decides per section.
             if (index !== null && index !== sectionIndex) continue;
             try {
@@ -1488,6 +1508,28 @@ export class FoliateEngine {
                 });
             } catch (e) {
             }
+        }
+    }
+
+    private selfHealAnnotation(annotation: Annotation, newCfi: string): void {
+        if (!annotation || !newCfi || annotation.location === newCfi) return;
+        const oldLocation = annotation.location;
+        annotation.location = newCfi;
+        this.annotations.set(annotation.id, annotation);
+        if (oldLocation) {
+            this.annotationLocations.delete(oldLocation);
+            this.annotationSectionCache.delete(oldLocation);
+        }
+        this.annotationLocations.set(newCfi, annotation);
+        const newSecIndex = this.annotationSectionIndex(newCfi);
+        if (typeof newSecIndex === 'number') {
+            this.annotationSectionCache.set(newCfi, newSecIndex);
+        }
+
+        try {
+            useLibraryStore.getState().updateAnnotation(annotation.id, { location: newCfi });
+        } catch (e) {
+            console.warn('[foliate] store updateAnnotation failed during self-heal', e);
         }
     }
 
@@ -1567,22 +1609,83 @@ export class FoliateEngine {
     }
 
     async goToAnnotation(annotation: Annotation): Promise<void> {
-        if (!annotation.location || !this.view) return;
+        if (!this.view) return;
         this.annotations.set(annotation.id, annotation);
         if (annotation.location) {
             this.annotationLocations.set(annotation.location, annotation);
         }
 
-        await this.goTo(annotation.location);
+        let navSucceeded = false;
 
+        // 1. Try native navigation first if location is present
+        if (annotation.location) {
+            try {
+                const resolved = this.view.resolveNavigation?.(annotation.location);
+                if (resolved && typeof resolved.index === 'number') {
+                    await this.goTo(annotation.location);
+                    const contents = this.view.renderer?.getContents?.() || [];
+                    const currentContent = contents.find((c: any) => c.index === resolved.index);
+                    if (annotation.selectedText && currentContent?.doc) {
+                        const range = this.findRangeByText(currentContent.doc, annotation.selectedText);
+                        if (range) {
+                            navSucceeded = true;
+                            const el = range.startContainer.parentElement;
+                            if (el && typeof el.scrollIntoView === 'function') {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                            const cleanCfi = this.view.getCFI?.(resolved.index, range);
+                            if (cleanCfi && cleanCfi !== annotation.location) {
+                                this.selfHealAnnotation(annotation, cleanCfi);
+                            }
+                        }
+                    } else if (!annotation.selectedText) {
+                        navSucceeded = true;
+                    }
+                }
+            } catch {
+                navSucceeded = false;
+            }
+        }
+
+        // 2. If direct navigation didn't locate the text, fallback to text search across the book
+        if (!navSucceeded && annotation.selectedText && typeof this.view.search === 'function') {
+            const raw = annotation.selectedText.trim();
+            const query = raw.length > 50 ? raw.slice(0, 50).trim() : raw;
+            if (query) {
+                try {
+                    const searchIter = this.view.search({
+                        query,
+                        matchCase: false,
+                        matchDiacritics: false,
+                        matchWholeWords: false,
+                    });
+                    for await (const res of searchIter) {
+                        if (res && typeof res === 'object' && 'cfi' in res && typeof res.cfi === 'string') {
+                            const newCfi = res.cfi;
+                            await this.goTo(newCfi);
+                            this.selfHealAnnotation(annotation, newCfi);
+                            navSucceeded = true;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[foliate] fallback search for highlight failed', e);
+                }
+            }
+        }
+
+        // 3. Re-render and redraw the overlayer for the target section
         try {
-            const resolved = this.view.resolveNavigation?.(annotation.location);
-            const sectionIndex = resolved?.index;
-            if (typeof sectionIndex === "number") {
-                await this.renderAnnotationsForSection(sectionIndex, true);
-                const contents = this.view.renderer?.getContents?.() || [];
-                const targetContent = contents.find((c: any) => c.index === sectionIndex);
-                targetContent?.overlayer?.redraw();
+            const currentCfi = annotation.location;
+            if (currentCfi) {
+                const resolved = this.view.resolveNavigation?.(currentCfi);
+                const sectionIndex = resolved?.index;
+                if (typeof sectionIndex === 'number') {
+                    await this.renderAnnotationsForSection(sectionIndex, true);
+                    const contents = this.view.renderer?.getContents?.() || [];
+                    const targetContent = contents.find((c: any) => c.index === sectionIndex);
+                    targetContent?.overlayer?.redraw();
+                }
             }
         } catch {
             // Ignore resolution errors during redraw

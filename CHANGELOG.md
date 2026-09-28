@@ -5,19 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.8] - 2026-09-28 (Beta)
 
-### Fixed
+### Reading System & Highlights
 
-- **Deleted highlights came back** — The native sync merge re-inserted annotations (and books) from stale `anno:*` / `book:*` doc entries right after applying their tombstones; it now skips tombstoned entities, and local tombstones are sent with every merge.
-- **Highlights vanished after reload** — Startup treated every annotation as orphaned (and deleted it from SQLite) when annotations loaded before books. Only tombstoned rows are dropped now. Live-synced annotations and deletions are written through to SQLite.
-- **Workbench list** — Cards fit their content with uniform gaps (heights computed from the text, long passages collapse behind "Show more"), the card menu no longer hides under the next card, menus close on outside press / Escape, article highlights are listed again, and highlights no longer stay hidden until books finish loading.
+- **Resilient highlight re-anchoring & self-healing** — Highlights pointing to stale, modified, or migrated EPUB locations (such as outdated word-level `[w_...]` assertions or shifted spine chapters) now automatically fall back to microsecond DOM text search across the document, smoothly scroll to the exact passage, draw the highlight, and self-heal by writing the clean, valid CFI back to the library store and SQLite database.
+- **In-reader annotation navigation** — Unified annotation clicks directly with native location routing and forced overlayer redraws, eliminating stale text-range selection jump failures.
+- **Deleted highlights persistence** — Fixed native sync merge re-inserting annotations and books from stale doc entries after applying tombstones; local tombstones are now transmitted and respected across all merge operations.
+- **Highlights hydration race condition** — Prevented startup from treating annotations as orphaned when annotations loaded before book records, ensuring zero highlight loss on startup.
 
-### Changed
+### Library & UI/UX
 
-- **Bookmarks page** — Redesigned to match the Workbench: shared page header, book filter and sort toolbar, the same card component, and a page/percentage position line for PDF and article bookmarks.
-
-## [1.5.8] - 2026-09-25 (Beta)
+- **Library & Shelves view mode switching** — Fixed virtualizer row height cache invalidation when toggling between Grid, List, and Compact views, eliminating card overlaps, clipped titles, and broken spacing. Aligned Shelves grid column layout with the virtualizer column detection to prevent accidental row item wrapping.
+- **Workbench & Bookmarks card redesign** — Cards adaptively fit content with uniform gaps and text-measured heights; long passages collapse with "Show more", menus close on outside click or Escape, article highlights are listed properly, and Bookmarks shares the redesigned toolbar and layout.
+- **Desktop dev watcher** — Scoped Tauri window close prevention strictly to release builds, ensuring `pnpm dev:tauri` closes and restarts cleanly without hanging background processes.
 
 ### Web & Performance Parity
 

@@ -126,4 +126,61 @@ describe("FoliateEngine section-scoped annotation rendering", () => {
         expect(overlayers.get(3)?.redraw).toHaveBeenCalled();
         expect(view.addAnnotation).toHaveBeenCalledWith(expect.objectContaining({ value: targetAnn.location }));
     });
+
+    it("goToAnnotation falls back to text search and self-heals when direct CFI resolution fails", async () => {
+        const { engine, view, overlayers } = makeEngine([4]);
+        const staleAnn: Annotation = {
+            id: "stale-1",
+            bookId: "b",
+            type: "highlight",
+            location: "epubcfi(/6/99!/4[stale]/2,/1:0,/1:5)",
+            selectedText: "Important snippet from the book",
+            color: "green",
+            createdAt: new Date(0),
+        };
+
+        // When navigating to stale CFI, resolveNavigation returns section 99
+        view.resolveNavigation.mockReturnValueOnce({ index: 99 });
+        view.search = vi.fn().mockReturnValue((async function* () {
+            yield { cfi: "epubcfi(/6/10!/4/2/2,/1:0,/1:31)" };
+        })());
+
+        await engine.goToAnnotation(staleAnn);
+
+        // Fallback search should have been invoked with the snippet
+        expect(view.search).toHaveBeenCalledWith(expect.objectContaining({ query: expect.stringContaining("Important snippet") }));
+        // Navigates to the healed CFI
+        expect(view.goTo).toHaveBeenCalledWith("epubcfi(/6/10!/4/2/2,/1:0,/1:31)");
+        expect(staleAnn.location).toBe("epubcfi(/6/10!/4/2/2,/1:0,/1:31)");
+        expect(overlayers.get(4)?.redraw).toHaveBeenCalled();
+    });
+
+    it("renderAnnotationsForSection re-anchors and self-heals when section document contains snippet", async () => {
+        const { engine, view } = makeEngine([2]);
+        const dummyDoc = document.implementation.createHTMLDocument();
+        dummyDoc.body.innerHTML = "<p>If you want fans, you have to be a fan first.</p>";
+        const overlayerMock = { redraw: vi.fn() };
+
+        view.renderer.getContents = () => [
+            { index: 2, doc: dummyDoc, overlayer: overlayerMock },
+        ];
+        view.getCFI = vi.fn().mockReturnValue("epubcfi(/6/6!/4/2,/1:0,/1:43)");
+
+        const shiftedAnn: Annotation = {
+            id: "shifted-1",
+            bookId: "b",
+            type: "highlight",
+            location: "epubcfi(/6/26!/4/2,/1:0,/1:10)", // Points to chapter 12 (/6/26!), not 2 (/6/6!)
+            selectedText: "If you want fans, you have to be a fan first.",
+            color: "green",
+            createdAt: new Date(0),
+        };
+
+        await engine.loadAnnotations([shiftedAnn]);
+        expect(view.getCFI).toHaveBeenCalled();
+        expect(shiftedAnn.location).toBe("epubcfi(/6/6!/4/2,/1:0,/1:43)");
+        expect(view.addAnnotation).toHaveBeenCalledWith(expect.objectContaining({
+            value: "epubcfi(/6/6!/4/2,/1:0,/1:43)",
+        }));
+    });
 });
