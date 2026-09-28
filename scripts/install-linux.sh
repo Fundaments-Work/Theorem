@@ -150,6 +150,7 @@ install_appimage() {
     local -r icons_dir="$HOME/.local/share/icons/hicolor/128x128/apps"
 
     mkdir -p "$APP_DIR" "$BIN_DIR" "$HOME/.local/share/applications" "$icons_dir"
+    rm -rf "$APP_DIR/usr"
 
     install -Dm755 "$artifact" "$APP_DIR/Theorem.AppImage"
     ln -sf "$APP_DIR/Theorem.AppImage" "$BIN_DIR/theorem"

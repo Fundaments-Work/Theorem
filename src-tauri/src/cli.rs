@@ -755,7 +755,19 @@ impl LibraryKv {
                 "version": LIBRARY_KV_VERSION,
             }),
         };
-        Ok(Self { envelope })
+        let mut inst = Self { envelope };
+        if inst.books().is_empty() {
+            if let Ok(book_strings) = crate::database::sqlite_load_all_books(app.clone()) {
+                let parsed: Vec<serde_json::Value> = book_strings
+                    .into_iter()
+                    .filter_map(|s| serde_json::from_str(&s).ok())
+                    .collect();
+                if !parsed.is_empty() {
+                    *inst.books() = parsed;
+                }
+            }
+        }
+        Ok(inst)
     }
 
     fn save(&self, app: &tauri::AppHandle) -> Result<(), String> {

@@ -691,6 +691,25 @@ const BookReaderPage = memo(function BookReaderPage() {
             }
 
             if (book.syncedWithoutFile && currentBookId) {
+                if (isTauri()) {
+                    const localPath = await getBookMaterializedPath(book.id, book.storagePath);
+                    if (localPath) {
+                        updateBook(book.id, {
+                            syncedWithoutFile: false,
+                            filePath: localPath,
+                            storagePath: localPath,
+                        });
+                        book = {
+                            ...book,
+                            syncedWithoutFile: false,
+                            filePath: localPath,
+                            storagePath: localPath,
+                        };
+                    }
+                }
+            }
+
+            if (book.syncedWithoutFile && currentBookId) {
                 const state = useUIStore.getState();
                 const downloadId = book.id;
                 if (state.downloadingBookId !== downloadId) {

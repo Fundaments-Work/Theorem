@@ -140,6 +140,15 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
         eprintln!("[database] Reclaimed legacy StarDict BLOBs ({reclaimed_dicts} entries)");
     }
 
+    // Auto-heal books erroneously marked `syncedWithoutFile: true` whose .book files
+    // are already present on disk in `book-cache/{id}.book`.
+    let healed_books = reconcile_synced_without_file_metadata(&conn, &app_data_dir)?;
+    if healed_books > 0 {
+        eprintln!(
+            "[database] Auto-healed {healed_books} books marked syncedWithoutFile with local files"
+        );
+    }
+
     if reclaimed_books > 0 || reclaimed_dicts > 0 {
         if let Err(e) = conn.execute_batch("VACUUM") {
             eprintln!("[database] VACUUM after blob reclaim failed: {e}");
@@ -308,6 +317,57 @@ fn reclaim_legacy_book_blobs(
     }
 
     Ok(reclaimed)
+}
+
+fn reconcile_synced_without_file_metadata(
+    connection: &Connection,
+    app_data_dir: &Path,
+) -> Result<usize, String> {
+    let table_exists: bool = connection
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'book_metadata'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !table_exists {
+        return Ok(0);
+    }
+
+    let mut statement = connection
+        .prepare("SELECT book_id, metadata_json FROM book_metadata WHERE metadata_json LIKE '%\"syncedWithoutFile\":true%'")
+        .map_err(|e| format!("Failed to prepare syncedWithoutFile query: {e}"))?;
+
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("Failed to query book metadata: {e}"))?;
+
+    let mut updates = Vec::new();
+    for row in rows {
+        let (book_id, json_str) = row.map_err(|e| e.to_string())?;
+        let book_path = materialized_book_path_in_dir(app_data_dir, &book_id);
+        if book_path.is_file() {
+            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if val.get("syncedWithoutFile") == Some(&serde_json::Value::Bool(true)) {
+                    val["syncedWithoutFile"] = serde_json::Value::Bool(false);
+                    if let Ok(updated_json) = serde_json::to_string(&val) {
+                        updates.push((book_id, updated_json));
+                    }
+                }
+            }
+        }
+    }
+
+    let count = updates.len();
+    for (book_id, updated_json) in updates {
+        let _ = connection.execute(
+            "UPDATE book_metadata SET metadata_json = ?1 WHERE book_id = ?2",
+            params![updated_json, book_id],
+        );
+    }
+    Ok(count)
 }
 
 #[cfg(target_os = "android")]
