@@ -116,7 +116,7 @@ rodio = { version = "0.22", default-features = false, features = ["playback", "w
 # uses) plus LIBOPUS_NO_PKG in .cargo/config.toml, since pkg-config would
 # otherwise link the distro's shared libopus.so.0 on Linux.
 audiopus = "0.2"
-audiopus_sys = { version = "0.1", features = ["static"] }
+audiopus_sys = { version = "0.2", features = ["static"] }
 rand = "0.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
