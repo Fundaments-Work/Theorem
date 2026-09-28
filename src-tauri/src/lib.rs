@@ -1617,8 +1617,11 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    let _ = window.hide();
-                    api.prevent_close();
+                    #[cfg(not(debug_assertions))]
+                    {
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
                 }
             }
         })

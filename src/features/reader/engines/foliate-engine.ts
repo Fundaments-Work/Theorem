@@ -1568,59 +1568,24 @@ export class FoliateEngine {
 
     async goToAnnotation(annotation: Annotation): Promise<void> {
         if (!annotation.location || !this.view) return;
-        this._navigationInProgress = true;
+        this.annotations.set(annotation.id, annotation);
+        if (annotation.location) {
+            this.annotationLocations.set(annotation.location, annotation);
+        }
+
+        await this.goTo(annotation.location);
+
         try {
-            this.annotations.set(annotation.id, annotation);
-            if (annotation.location) {
-                this.annotationLocations.set(annotation.location, annotation);
+            const resolved = this.view.resolveNavigation?.(annotation.location);
+            const sectionIndex = resolved?.index;
+            if (typeof sectionIndex === "number") {
+                await this.renderAnnotationsForSection(sectionIndex, true);
+                const contents = this.view.renderer?.getContents?.() || [];
+                const targetContent = contents.find((c: any) => c.index === sectionIndex);
+                targetContent?.overlayer?.redraw();
             }
-
-            await this.view.goTo(annotation.location);
-            this.applyZoomSync();
-            this.scheduleSettingsUpdate();
-
-            const contents = this.view.renderer?.getContents?.() || [];
-            for (const content of contents) {
-                const doc = content?.doc;
-                if (!doc) continue;
-
-                let exactRange: Range | null = null;
-
-                try {
-                    const resolved = this.view.resolveNavigation(annotation.location);
-                    if (resolved?.anchor) {
-                        const candidate = resolved.anchor(doc);
-                        if (candidate instanceof Range) {
-                            if (!annotation.selectedText || candidate.toString().trim() === annotation.selectedText.trim()) {
-                                exactRange = candidate;
-                            }
-                        }
-                    }
-                } catch {}
-
-                if (!exactRange && annotation.selectedText) {
-                    exactRange = this.findRangeByText(doc, annotation.selectedText);
-                }
-
-                if (exactRange) {
-                    await this.view.renderer?.scrollToAnchor?.(exactRange, 'selection');
-                    this._lastAnnotationActivatedAt = Date.now();
-
-                    await this.view.addAnnotation?.({
-                        value: annotation.location,
-                        color: annotation.color,
-                        selectedText: annotation.selectedText,
-                        range: exactRange,
-                    });
-                    content.overlayer?.redraw();
-                    requestAnimationFrame(() => {
-                        content.overlayer?.redraw();
-                    });
-                    break;
-                }
-            }
-        } finally {
-            this._navigationInProgress = false;
+        } catch {
+            // Ignore resolution errors during redraw
         }
     }
 

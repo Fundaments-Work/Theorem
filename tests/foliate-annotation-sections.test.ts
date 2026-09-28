@@ -31,6 +31,7 @@ function makeEngine(loadedSections: number[]) {
             const match = /^epubcfi\(\/6\/(\d+)/.exec(cfi);
             return match ? { index: Number(match[1]) / 2 - 1 } : undefined;
         }),
+        goTo: vi.fn(async () => undefined),
         addAnnotation: vi.fn(async () => undefined),
         renderer: {
             getContents: () => [...overlayers].map(([index, overlayer]) => ({ index, overlayer })),
@@ -107,5 +108,22 @@ describe("FoliateEngine section-scoped annotation rendering", () => {
         view.resolveNavigation.mockImplementationOnce(() => { throw new Error("bad cfi"); });
         await engine.loadAnnotations(annotations);
         expect(view.addAnnotation.mock.calls.length).toBeGreaterThanOrEqual(PER_SECTION);
+    });
+
+    it("goToAnnotation navigates to the exact CFI and forces overlayer redraw for the target section", async () => {
+        const { engine, view, overlayers } = makeEngine([3]);
+        const targetAnn: Annotation = {
+            id: "a-3-1",
+            bookId: "b",
+            type: "highlight",
+            location: "epubcfi(/6/8!/4/2/4,/1:0,/1:5)",
+            selectedText: "exact text",
+            color: "yellow",
+            createdAt: new Date(0),
+        };
+        await engine.goToAnnotation(targetAnn);
+        expect(view.goTo).toHaveBeenCalledWith(targetAnn.location);
+        expect(overlayers.get(3)?.redraw).toHaveBeenCalled();
+        expect(view.addAnnotation).toHaveBeenCalledWith(expect.objectContaining({ value: targetAnn.location }));
     });
 });
