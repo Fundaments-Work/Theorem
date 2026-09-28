@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.8] - 2026-09-28 (Beta)
 
+### ⚠️ Breaking Changes & Migration Notice
+
+> [!IMPORTANT]
+> **Database, Highlight Migration & Breaking Changes**:
+> - **Self-Healing Highlights & CFI Re-Anchoring**: Older annotations created on prior builds or shifted EPUB spine formats (such as outdated DOM `[w_...]` assertions) will now automatically be re-anchored on access via high-speed in-document text scanning, smoothly navigating to the target passage and writing healed canonical CFIs back to local SQLite storage.
+> - **Hydration & Tombstone Integrity**: Fixed an asynchronous startup race condition that previously caused book annotations to be quarantined as orphaned before book metadata finished hydrating. Sync merge now strictly enforces local and remote deletion tombstones, preventing purged books and annotations from resurrecting.
+> - **Virtualizer Layout Cache Invalidation**: Grid, List, and Compact view mode caches are now decoupled; previous display issues with overlapping book cards or clipped titles on view switch are automatically cleared.
+> - **Desktop Dev Process**: Development window closing has been separated from release behavior; `pnpm dev:tauri` now terminates cleanly on window close without hanging background watch processes.
+
 ### Reading System & Highlights
 
 - **Resilient highlight re-anchoring & self-healing** — Highlights pointing to stale, modified, or migrated EPUB locations (such as outdated word-level `[w_...]` assertions or shifted spine chapters) now automatically fall back to microsecond DOM text search across the document, smoothly scroll to the exact passage, draw the highlight, and self-heal by writing the clean, valid CFI back to the library store and SQLite database.
