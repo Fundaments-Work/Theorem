@@ -19,6 +19,12 @@ Annotations are stored in two places simultaneously:
 
 The global index is the single source of truth for the UI. On app start, it's populated by loading all annotations from SQLite. On mutation, both stores are updated together.
 
+Startup hydration (`reconcileHydratedAnnotations` in `libraryStore.ts`) only drops rows covered by a deletion tombstone (the annotation's or its book's). Books load concurrently, so an annotation whose book is not in memory yet is **never** treated as orphaned. Deleting an annotation removes it from state and SQLite and records a tombstone, which keeps sync from re-inserting it.
+
+## Workbench & Bookmarks lists
+
+Both pages render `components/AnnotationListCard.tsx`. Cards fit their content, but their height is **computed from the text**, never measured per row (`annotation-card-layout.ts`): `useCardTextMeasurer` reads the list width (one `ResizeObserver` on the container) and the serif font, `countWrappedLines` word-wraps with canvas text widths, and `computeCardLayout` gives the line counts. The same layout sizes the virtual row and the card, which renders at exactly that height with text line-clamped to it, so gaps stay uniform even if a count is off by a line. Quotes longer than 8 lines (notes 6) collapse behind **Show more**. The row with an open menu raises its `z-index` (each transformed virtual row is its own stacking context); menus close on outside press or Escape. Bookmarks show a position line from `bookmarkPositionLabel` (PDF page, article percentage) and can be filtered by book.
+
 ## Reader Annotation Flow
 
 ### Creating a Highlight (Non-PDF)

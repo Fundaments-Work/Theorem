@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Deleted highlights came back** — The native sync merge re-inserted annotations (and books) from stale `anno:*` / `book:*` doc entries right after applying their tombstones; it now skips tombstoned entities, and local tombstones are sent with every merge.
+- **Highlights vanished after reload** — Startup treated every annotation as orphaned (and deleted it from SQLite) when annotations loaded before books. Only tombstoned rows are dropped now. Live-synced annotations and deletions are written through to SQLite.
+- **Workbench list** — Cards fit their content with uniform gaps (heights computed from the text, long passages collapse behind "Show more"), the card menu no longer hides under the next card, menus close on outside press / Escape, article highlights are listed again, and highlights no longer stay hidden until books finish loading.
+
+### Changed
+
+- **Bookmarks page** — Redesigned to match the Workbench: shared page header, book filter and sort toolbar, the same card component, and a page/percentage position line for PDF and article bookmarks.
+
 ## [1.5.8] - 2026-09-25 (Beta)
 
 ### Web & Performance Parity

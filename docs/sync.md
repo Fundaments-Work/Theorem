@@ -99,7 +99,7 @@ Incoming sync reconciliation processes all entries:
 | Domain | Strategy |
 |--------|----------|
 | Books | By contentHash/blobHash dedup. Newer `lastReadAt` wins progress (with `Math.max(progress)` fallback). Union of tags, favorites, ratings. |
-| Annotations | Fine-grained `anno:{bookId}:{annotationId}` keys. Newer `updatedAt` wins. Union of non-conflicting IDs (zero data loss). Filtered by tombstones. |
+| Annotations | Fine-grained `anno:{bookId}:{annotationId}` keys. Newer `updatedAt` wins. Union of non-conflicting IDs (zero data loss). Filtered by tombstones — including in the native `sqlite_merge_sync_entries`, which skips tombstoned annotations/books even when the same batch still carries their stale `anno:*` / `book:*` entries (per-entity keys are never removed from the doc). The frontend merges local tombstones into every batch (`withLocalTombstones`) before the native call. Live `anno:*` entries and live tombstones are written through to SQLite. |
 | Collections | Union of bookIds. Newer name/description wins. |
 | Vocabulary | Merged by normalized term+language. Deduped meanings. Synchronized with normalized SQLite `vocabulary` table. |
 | Settings | Newer `_settingsUpdatedAt` timestamp wins. Preserves local `deviceSync` config. |

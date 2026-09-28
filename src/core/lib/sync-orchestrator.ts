@@ -12,7 +12,7 @@ import {
     toSqliteVocabularyTerm,
     fromSqliteVocabularyTerm,
 } from "../store";
-import type { Annotation, Book, DeviceSyncStatus, RssArticle, SyncConflict } from "../types";
+import type { Annotation, Book, DeletionTombstone, DeviceSyncStatus, RssArticle, SyncConflict } from "../types";
 import {
     mergeBooks,
     mergeAnnotations,
@@ -26,12 +26,14 @@ import {
 } from "./sync-import";
 import { isTauri } from "./env";
 import {
+    sqliteDeleteAnnotation,
     sqliteDeleteVocabularyTerm,
     sqliteGetAllAnnotations,
     sqliteGetVocabularyTerms,
     sqliteMergeSyncEntries,
     sqliteRegisterMaterializedBook,
     sqliteSaveVocabularyTerm,
+    sqliteUpsertAnnotation,
     type SyncMergeResult,
 } from "./sqlite-storage";
 import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
@@ -58,6 +60,32 @@ function setStatus(status: DeviceSyncStatus, msg?: string) {
 }
 
 let _docsLiveUnlisten: (() => void) | null = null;
+
+/**
+ * Returns `entries` with its `deletion_tombstones` replaced by the union of the
+ * incoming and local tombstones. Unparseable incoming tombstones are treated
+ * as empty so a corrupt entry cannot hide local deletions.
+ */
+export function withLocalTombstones(
+    entries: Record<string, string>,
+    localTombstones: DeletionTombstone[],
+): Record<string, string> {
+    if (localTombstones.length === 0) return entries;
+    let incoming: DeletionTombstone[] = [];
+    const raw = entries["deletion_tombstones"];
+    if (raw) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) incoming = parsed;
+        } catch {
+            // fall through with no incoming tombstones
+        }
+    }
+    return {
+        ...entries,
+        deletion_tombstones: JSON.stringify(mergeTombstones(incoming, localTombstones)),
+    };
+}
 
 async function mergeIncomingData(
     incomingMap: Record<string, string>,
@@ -144,7 +172,14 @@ async function mergeIncomingData(
     let nativeReport: SyncMergeResult | null = null;
     if (isTauri()) {
         try {
-            nativeReport = await sqliteMergeSyncEntries(incomingMap);
+            // The native merge only knows the tombstones it is handed. Give it
+            // the local ones too, or a stale `anno:*` / `book:*` doc entry
+            // re-inserts an entity this device already deleted.
+            const nativeEntries = withLocalTombstones(
+                incomingMap,
+                useLibraryStore.getState().deletionTombstones,
+            );
+            nativeReport = await sqliteMergeSyncEntries(nativeEntries);
             for (const d of nativeReport.domainsUpdated) {
                 markUpdated(d);
             }
@@ -324,18 +359,22 @@ async function mergeIncomingData(
                 if (nativeReport.updatedAnnotations.length > 0 || nativeReport.deletedAnnotations.length > 0) {
                     const annStrings = await sqliteGetAllAnnotations();
                     if (annStrings) {
-                        const parsed = annStrings.map((s) => {
-                            try {
-                                const obj = JSON.parse(s);
-                                return {
-                                    ...obj,
-                                    createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
-                                    updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
-                                };
-                            } catch {
-                                return null;
-                            }
-                        }).filter(Boolean) as Annotation[];
+                        const parsed = mergeAnnotations(
+                            [],
+                            annStrings.map((s) => {
+                                try {
+                                    const obj = JSON.parse(s);
+                                    return {
+                                        ...obj,
+                                        createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
+                                        updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
+                                    };
+                                } catch {
+                                    return null;
+                                }
+                            }).filter(Boolean) as Annotation[],
+                            allTombstones,
+                        );
                         applyLibraryPatch({ annotations: parsed });
                         currentLibState = { ...currentLibState, annotations: parsed };
                         markUpdated("annotations");
@@ -1084,6 +1123,14 @@ function _flushProgressiveAnnos() {
     const merged = mergeAnnotations(batch, beforeAnns, state.deletionTombstones);
     if (isSameOrderedList(merged, beforeAnns)) return;
     useLibraryStore.setState({ annotations: merged });
+    // Persist what the live batch changed, or it is gone after a reload.
+    if (isTauri()) {
+        const before = new Set(beforeAnns);
+        for (const ann of merged) {
+            if (before.has(ann) || !ann.bookId) continue;
+            void sqliteUpsertAnnotation(ann.id, ann.bookId, JSON.stringify(ann)).catch((e) => console.error("[catch]", e));
+        }
+    }
 }
 
 function _flushProgressiveCollections() {
@@ -1114,6 +1161,13 @@ function _flushPendingTombstones() {
                 annotations: prunedAnns,
                 collections: prunedCols,
             });
+            if (isTauri() && prunedAnns.length !== state.annotations.length) {
+                const keptIds = new Set(prunedAnns.map((a) => a.id));
+                for (const ann of state.annotations) {
+                    if (keptIds.has(ann.id)) continue;
+                    void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
+                }
+            }
         }
     } catch {}
 }
