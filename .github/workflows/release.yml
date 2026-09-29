@@ -78,7 +78,9 @@ jobs:
 
       - name: Get version display
         id: version-display
-        run: echo "VERSION=${{ steps.resolve-tag.outputs.tag }}" | sed 's/^v//' >> $GITHUB_OUTPUT
+        run: |
+          TAG="${{ steps.resolve-tag.outputs.tag }}"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Extract Release Notes
         id: release-notes
@@ -123,7 +125,10 @@ jobs:
           | macOS (Intel) | [\`Theorem_${VERSION}_x64.dmg\`](${BASE}/Theorem_${VERSION}_x64.dmg) |
           | Linux (Debian/Ubuntu) | [\`Theorem_${VERSION}_amd64.deb\`](${BASE}/Theorem_${VERSION}_amd64.deb) |
           | Linux (any) | [\`Theorem_${VERSION}_amd64.AppImage\`](${BASE}/Theorem_${VERSION}_amd64.AppImage) |
-          | Android (arm64) | [\`app-arm64-release.apk\`](${BASE}/app-arm64-release.apk) |
+          | Android (arm64, most phones) | [\`app-arm64-release.apk\`](${BASE}/app-arm64-release.apk) |
+          | Android (32-bit arm) | [\`app-arm-release.apk\`](${BASE}/app-arm-release.apk) |
+          | Android (x86_64 emulator) | [\`app-x86_64-release.apk\`](${BASE}/app-x86_64-release.apk) |
+          | Android (x86 emulator) | [\`app-x86-release.apk\`](${BASE}/app-x86-release.apk) |
 
           **Linux one-liner:** \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install-linux.sh | bash\`
 
