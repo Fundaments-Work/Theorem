@@ -240,7 +240,13 @@ impl MdxDictionary {
     fn lookup_exact(&self, word: &str) -> Result<Option<MdxEntryResult>, String> {
         let norm_query = word.to_lowercase();
 
-        // 1. Binary Search over Key Block Metas to find candidate block
+        // 1. Binary search over Key Block Metas to find candidate block.
+        // NOTE: key blocks are byte-ordered (uppercase ranges precede lowercase
+        // ones), so their *lowercased* ranges overlap. The search below may land
+        // on a block whose lowered range contains the query without holding the
+        // key (e.g. "attribute" matches block [Arshakians..Azbill] in lowercase
+        // space but lives in a lowercase block). The fallback scan in step 3
+        // covers those misses.
         let block_idx = match self.key_blocks.binary_search_by(|kb| {
             let first = kb.first_word.to_lowercase();
             let last = kb.last_word.to_lowercase();
@@ -265,19 +271,48 @@ impl MdxDictionary {
             }
         };
 
-        // 2. Decompress Key Block and search for exact term
+        // 2. Check the candidate block.
+        if let Some(res) = self.lookup_in_block(block_idx, word)? {
+            return Ok(Some(res));
+        }
+
+        // 3. Fallback: scan the other blocks whose lowercased range also
+        // contains the query. Only runs on a miss; typically 0-2 extra blocks.
+        for (i, kb) in self.key_blocks.iter().enumerate() {
+            if i == block_idx {
+                continue;
+            }
+            if norm_query < kb.first_word.to_lowercase() || norm_query > kb.last_word.to_lowercase()
+            {
+                continue;
+            }
+            if let Some(res) = self.lookup_in_block(i, word)? {
+                return Ok(Some(res));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Decompress key block `block_idx` and case-insensitively find `word` in
+    /// its keys, returning the definition (following `@@@LINK=` redirects).
+    /// Linear scan: key order within a block is not guaranteed to match every
+    /// query casing, so an exact binary search is unsafe here.
+    fn lookup_in_block(
+        &self,
+        block_idx: usize,
+        word: &str,
+    ) -> Result<Option<MdxEntryResult>, String> {
         let kb = &self.key_blocks[block_idx];
         let comp_bytes = &self.mmap[kb.file_offset..kb.file_offset + kb.comp_size];
         let decomp_bytes = decompress_zlib_chunk(comp_bytes, kb.decomp_size)?;
 
         let entries = parse_decompressed_key_block(&decomp_bytes, self.utf16)?;
 
-        // Binary search within block entries
-        let target_entry = entries
+        let (_matched_word, record_offset) = match entries
             .iter()
-            .find(|(entry_word, _)| entry_word.eq_ignore_ascii_case(word));
-
-        let (_matched_word, record_offset) = match target_entry {
+            .find(|(entry_word, _)| entry_word.eq_ignore_ascii_case(word))
+        {
             Some((w, off)) => (w, *off),
             None => return Ok(None),
         };
@@ -824,6 +859,137 @@ mod tests {
         // Unknown word
         let res_none = dict.lookup("nonexistentwordxyz").unwrap();
         assert!(res_none.is_none());
+    }
+
+    #[test]
+    fn test_mdx_case_overlapping_blocks_fallback() {
+        // Regression: key blocks are byte-ordered (uppercase ranges precede
+        // lowercase), so lowercased block ranges overlap. A lowercase query can
+        // binary-search into an uppercase block whose lowered range contains it
+        // (e.g. "attribute" in [Arshakians..Azbill]) while the key lives in a
+        // lowercase block. Lookup must fall back to the overlapping blocks.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mdx_path = temp_dir.path().join("overlap.mdx");
+
+        // (block keys in file order; each key gets its own record)
+        let blocks: Vec<Vec<(&str, &str)>> = vec![
+            vec![
+                ("apple", "<div>apple def\0"),
+                ("attribute", "<div>attribute def\0"),
+                ("azalea", "<div>azalea def\0"),
+            ],
+            vec![
+                ("Arshakians", "<div>arshakians def\0"),
+                ("Azbill", "<div>azbill def\0"),
+            ],
+            vec![("band", "<div>band def\0"), ("bzzz", "<div>bzzz def\0")],
+        ];
+
+        let mut file_bytes = Vec::new();
+        let header_xml = "<Dictionary GeneratedByEngineVersion=\"2.0\" Format=\"Html\" Title=\"Overlap\" Encoding=\"UTF-8\"/>\0";
+        let header_raw = header_xml.as_bytes();
+        file_bytes.extend_from_slice(&(header_raw.len() as u32).to_be_bytes());
+        file_bytes.extend_from_slice(header_raw);
+        file_bytes.extend_from_slice(&[0u8; 4]);
+
+        // Records first (single record block) to learn offsets.
+        let mut record_raw = Vec::new();
+        let mut key_entries: Vec<Vec<(String, usize)>> = Vec::new();
+        for block in &blocks {
+            let mut entries = Vec::new();
+            for (word, def) in block {
+                let off = record_raw.len();
+                record_raw.extend_from_slice(def.as_bytes());
+                entries.push((word.to_string(), off));
+            }
+            key_entries.push(entries);
+        }
+        let comp_record_block = zlib_compress_with_header(&record_raw);
+
+        // Keyword blocks + info.
+        let mut key_info_raw = Vec::new();
+        let mut comp_key_blocks = Vec::new();
+        let mut total_entries = 0u64;
+        for entries in &key_entries {
+            let mut raw = Vec::new();
+            for (word, off) in entries {
+                raw.extend_from_slice(&(*off as u64).to_be_bytes());
+                raw.extend_from_slice(word.as_bytes());
+                raw.push(0u8);
+            }
+            total_entries += entries.len() as u64;
+            let comp = zlib_compress_with_header(&raw);
+            key_info_raw.extend_from_slice(&(entries.len() as u64).to_be_bytes());
+            let first = &entries.first().unwrap().0;
+            key_info_raw.extend_from_slice(&(first.len() as u16).to_be_bytes());
+            key_info_raw.extend_from_slice(first.as_bytes());
+            key_info_raw.push(0u8);
+            let last = &entries.last().unwrap().0;
+            key_info_raw.extend_from_slice(&(last.len() as u16).to_be_bytes());
+            key_info_raw.extend_from_slice(last.as_bytes());
+            key_info_raw.push(0u8);
+            key_info_raw.extend_from_slice(&(comp.len() as u64).to_be_bytes());
+            key_info_raw.extend_from_slice(&(raw.len() as u64).to_be_bytes());
+            comp_key_blocks.push(comp);
+        }
+        let comp_key_info = zlib_compress_with_header(&key_info_raw);
+        let key_blocks_total: usize = comp_key_blocks.iter().map(|b| b.len()).sum();
+
+        file_bytes.extend_from_slice(&(blocks.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&total_entries.to_be_bytes());
+        file_bytes.extend_from_slice(&(key_info_raw.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&(comp_key_info.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&(key_blocks_total as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&[0u8; 4]);
+        file_bytes.extend_from_slice(&comp_key_info);
+        for comp in &comp_key_blocks {
+            file_bytes.extend_from_slice(comp);
+        }
+
+        let mut rec_info_raw = Vec::new();
+        rec_info_raw.extend_from_slice(&(comp_record_block.len() as u64).to_be_bytes());
+        rec_info_raw.extend_from_slice(&(record_raw.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&1u64.to_be_bytes());
+        file_bytes.extend_from_slice(&total_entries.to_be_bytes());
+        file_bytes.extend_from_slice(&(rec_info_raw.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&(comp_record_block.len() as u64).to_be_bytes());
+        file_bytes.extend_from_slice(&rec_info_raw);
+        file_bytes.extend_from_slice(&comp_record_block);
+
+        std::fs::write(&mdx_path, file_bytes).unwrap();
+
+        let dict = MdxDictionary::open(&mdx_path).unwrap();
+        assert_eq!(dict.key_blocks.len(), 3);
+
+        // Binary search lands on the uppercase block first; fallback must
+        // still find the lowercase key.
+        let res = dict.lookup("attribute").unwrap().unwrap();
+        assert!(res.html.contains("attribute def"));
+        let res_cap = dict.lookup("Attribute").unwrap().unwrap();
+        assert!(res_cap.html.contains("attribute def"));
+
+        // Neighbors in every block keep working.
+        assert!(dict
+            .lookup("Arshakians")
+            .unwrap()
+            .unwrap()
+            .html
+            .contains("arshakians"));
+        assert!(dict
+            .lookup("band")
+            .unwrap()
+            .unwrap()
+            .html
+            .contains("band def"));
+        assert!(dict
+            .lookup("azalea")
+            .unwrap()
+            .unwrap()
+            .html
+            .contains("azalea def"));
+
+        // True miss stays a miss.
+        assert!(dict.lookup("nonexistentwordxyz").unwrap().is_none());
     }
 
     #[test]
