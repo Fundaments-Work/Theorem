@@ -481,6 +481,29 @@ foliate-view * {
     }
 }
 
+/* Touch / narrow screens: the reserved gutter + solid rail reads as a fixed
+   anchor stuck to the edge and eats horizontal space on phones. Fall back to
+   overlay scrolling (no gutter, hidden thumb) — desktop keeps the solid rail. */
+@media (pointer: coarse), (max-width: 767px) {
+    .scrollbar-solid {
+        scrollbar-gutter: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    .scrollbar-solid::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+    }
+}
+@supports not (scrollbar-gutter: stable) {
+    @media (pointer: coarse), (max-width: 767px) {
+        .scrollbar-solid {
+            border-right: none;
+        }
+    }
+}
+
 [data-reading-mode] .reader-toolbar-scroll {
     scrollbar-width: none;
     -ms-overflow-style: none;

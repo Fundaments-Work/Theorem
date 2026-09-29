@@ -16,15 +16,21 @@ describe("scrollbar-solid shared by all list scrollers", () => {
         expect(css).toContain("@supports not (scrollbar-gutter: stable)");
     });
 
+    it("hides the solid rail on touch / narrow screens (no stuck anchor on phones)", () => {
+        const css = readFileSync(resolve("src/index.css"), "utf-8");
+        expect(css).toContain("(pointer: coarse)");
+        expect(css).toContain("scrollbar-gutter: auto");
+    });
+
     const surfaces: Array<[string, string[]]> = [
         ["src/App.tsx", ["scrollbar-solid"]],
         [
             "src/features/library/Library.tsx",
-            ["overflow-y-auto overscroll-contain scroll-smooth scrollbar-solid"],
+            ["overflow-y-auto overscroll-contain scrollbar-solid"],
         ],
         [
             "src/features/library/Shelves.tsx",
-            ["overflow-y-auto overscroll-contain scroll-smooth scrollbar-solid"],
+            ["overflow-y-auto overscroll-contain scrollbar-solid"],
         ],
         [
             "src/features/feeds/FeedsPage.tsx",

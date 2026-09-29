@@ -1364,7 +1364,26 @@ export function LibraryPage() {
     const isListView = settings.libraryViewMode === "list";
     const isCompactView = settings.libraryViewMode === "compact";
 
-    const [observedCols, setObservedCols] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280 ? 7 : 4);
+    // First paint must already match the viewport: the ResizeObserver only
+    // corrects after mount, which flashes 4 tiny columns on phones (real
+    // width → 2). Same breakpoints as the observer below.
+    const [observedCols, setObservedCols] = useState(() => {
+        if (typeof window === "undefined") return 4;
+        const w = window.innerWidth;
+        if (settings.libraryViewMode === "list") return 1;
+        if (settings.libraryViewMode === "compact") {
+            if (w >= 1280) return 6;
+            if (w >= 1024) return 5;
+            if (w >= 640) return 4;
+            return 3;
+        }
+        if (w >= 1536) return 8;
+        if (w >= 1280) return 7;
+        if (w >= 1024) return 5;
+        if (w >= 768) return 4;
+        if (w >= 640) return 3;
+        return 2;
+    });
 
     useEffect(() => {
         const el = scrollRef.current;
@@ -2069,7 +2088,7 @@ export function LibraryPage() {
                         </div>
                     </div>
 
-                    <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth scrollbar-solid">
+                    <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
                         <DailyHighlightBanner
                             showDailyHighlight={!!settings.showDailyHighlight}
                             selectedShelf={selectedShelf}
@@ -2270,7 +2289,7 @@ export function LibraryPage() {
             </div>
 
             {isSelecting && selectedBooks.length > 0 && (
-                <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
+                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
                     <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>

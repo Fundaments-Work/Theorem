@@ -406,7 +406,25 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const isListView = viewMode === "list";
     const isCompactView = viewMode === "compact";
 
-    const [cols, setCols] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280 ? 7 : 4);
+    // First paint must already match the viewport (see Library.tsx): the
+    // observer only corrects after mount, flashing 4 tiny columns on phones.
+    const [cols, setCols] = useState(() => {
+        if (typeof window === "undefined") return 4;
+        const w = window.innerWidth;
+        if (viewMode === "list") return 1;
+        if (viewMode === "compact") {
+            if (w >= 1280) return 6;
+            if (w >= 1024) return 5;
+            if (w >= 640) return 4;
+            return 3;
+        }
+        if (w >= 1536) return 8;
+        if (w >= 1280) return 7;
+        if (w >= 1024) return 5;
+        if (w >= 768) return 4;
+        if (w >= 640) return 3;
+        return 2;
+    });
 
     useEffect(() => {
         const el = scrollRef.current;
@@ -557,7 +575,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 </div>
             </div>
 
-            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scroll-smooth scrollbar-solid">
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                         <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">No documents match criteria</p>
@@ -639,7 +657,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 )}
             </div>
             {isSelecting && selectedBooks.length > 0 && (
-                <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
+                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
                     <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>
@@ -872,7 +890,7 @@ export function ShelvesPage() {
     }
 
     return (
-        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
+        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
             
             <div className="flex items-center justify-between mb-10">
                 <div>
