@@ -119,4 +119,9 @@ In **v1.6.0**, Theorem will add a native **Bionic / Speed-Reading Mode**:
 - **Engine-Native Rendering**: Injected via the reader overlayer and CSS styling pipelines across EPUB, MOBI, and PDF.js text layers with zero runtime JS allocation overhead.
 - **Configurable Controls**: Accessible from Reader Settings with adjustable fixation intensity, saccade frequency, and per-book toggles.
 
+## Future Exploration: Native PDF Engine (PDFium RFC)
+
+Theorem's current PDF.js engine is heavily tuned with worker destruction and GPU canvas dimension zeroing, but high-DPI scans and complex vector documents can still incur V8 garbage collection overhead. An architectural RFC for evaluating a native Google PDFium engine in Rust (`src-tauri/` via `pdfium-render`) is documented in [`docs/plans/2026-09-29-native-pdfium-rendering-engine-rfc.md`](./plans/2026-09-29-native-pdfium-rendering-engine-rfc.md) for consideration in future major milestones.
+
+
 
