@@ -2057,13 +2057,42 @@ const BookReaderPage = memo(function BookReaderPage() {
         if (activeDocId && isBookReady) {
             const bookAnnotations = getBookAnnotations(activeDocId);
             setAnnotations(bookAnnotations);
+
+            // Backfill chapter metadata for legacy annotations that lack chapterTitle
+            const legacyAnnotations = bookAnnotations.filter((a) => !a.chapterTitle);
+            if (legacyAnnotations.length > 0) {
+                for (const anno of legacyAnnotations) {
+                    if (isPdfFormat) {
+                        const pageNum = anno.pageNumber ?? (anno.location ? parseInt(anno.location, 10) : undefined);
+                        if (pageNum && !isNaN(pageNum) && pageNum > 0) {
+                            updateAnnotation(anno.id, {
+                                chapterTitle: `Page ${pageNum}`,
+                                chapterIndex: pageNum - 1,
+                            });
+                        }
+                    } else if (anno.location && flatToc.length > 0) {
+                        const idMatch = anno.location.match(/\[([^\]]+)\]/);
+                        if (idMatch && idMatch[1]) {
+                            const anchor = idMatch[1];
+                            const matchedIdx = flatToc.findIndex((item) => item.href && item.href.includes(anchor));
+                            if (matchedIdx >= 0) {
+                                updateAnnotation(anno.id, {
+                                    chapterTitle: flatToc[matchedIdx].label,
+                                    chapterIndex: matchedIdx,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
             if (isPdfFormat) {
                 return;
             }
-            
+
             readerRef.current?.loadAnnotations?.(bookAnnotations).catch(e => console.error("[catch]", e));
         }
-    }, [activeDocId, getBookAnnotations, isBookReady, isPdfFormat]);
+    }, [activeDocId, getBookAnnotations, isBookReady, isPdfFormat, flatToc, updateAnnotation]);
 
     useEffect(() => {
         if (!isBookReady || !readerRef.current || hasAppliedInitialLocationRef.current) return;
