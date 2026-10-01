@@ -105,12 +105,16 @@ export async function convertStoredMarkdownArticles(
     return patches;
 }
 
-export function selectPersistedRssArticles(articles: RssArticle[], now: number): RssArticle[] {
+export function selectPersistedRssArticles(
+    articles: RssArticle[],
+    now: number,
+    annotatedArticleIds?: ReadonlySet<string>,
+): RssArticle[] {
     const cutoff = now - PERSISTED_RSS_ARTICLE_MAX_AGE_MS;
     const candidates: Array<{ index: number; time: number }> = [];
     for (let index = 0; index < articles.length; index++) {
         const article = articles[index];
-        if (article.isFavorite || article.isSaved) continue;
+        if (article.isFavorite || article.isSaved || (annotatedArticleIds && annotatedArticleIds.has(article.id))) continue;
         const time = rssArticleTimestamp(article);
         if (Number.isFinite(time) && time < cutoff) continue;
         candidates.push({ index, time: Number.isFinite(time) ? time : Number.POSITIVE_INFINITY });
@@ -120,7 +124,9 @@ export function selectPersistedRssArticles(articles: RssArticle[], now: number):
     for (let i = 0; i < candidates.length && i < PERSISTED_RSS_ARTICLE_LIMIT; i++) {
         keep.add(candidates[i].index);
     }
-    return articles.filter((article, index) => article.isFavorite || article.isSaved || keep.has(index));
+    return articles.filter((article, index) =>
+        article.isFavorite || article.isSaved || (annotatedArticleIds && annotatedArticleIds.has(article.id)) || keep.has(index)
+    );
 }
 
 function sortRssArticlesByDateDesc(articles: RssArticle[]): RssArticle[] {
@@ -192,6 +198,7 @@ interface RssStore {
     getArticlesForFeed: (feedId: string) => RssArticle[];
     getAllArticles: () => RssArticle[];
     getArticle: (articleId: string) => RssArticle | undefined;
+    loadArticle: (articleId: string) => Promise<RssArticle | undefined>;
     openArticleInReader: (article: RssArticle) => void;
     closeArticleViewer: () => void;
     setCurrentArticle: (article: RssArticle | null) => void;
@@ -592,6 +599,46 @@ export const useRssStore = create<RssStore>()(
                 return getRssArticleById(get().articles, articleId);
             },
 
+            loadArticle: async (articleId: string) => {
+                const existing = get().articles.find((a) => a.id === articleId);
+                if (existing) return existing;
+
+                if (isTauri()) {
+                    try {
+                        const { sqliteGetRssArticle, sqliteGetRssArticleContent } = await import("../lib/sqlite-storage");
+                        const row = await sqliteGetRssArticle(articleId);
+                        if (row) {
+                            const contentRow = await sqliteGetRssArticleContent(articleId);
+                            const article: RssArticle = {
+                                id: row.id,
+                                feedId: row.feedId,
+                                title: row.title,
+                                author: row.author,
+                                url: row.url,
+                                summary: row.summary,
+                                contentSource: row.contentSource as 'feed' | 'extracted' | undefined,
+                                imageUrl: row.imageUrl,
+                                publishedAt: row.publishedAt ? new Date(row.publishedAt) : undefined,
+                                fetchedAt: row.fetchedAt ? new Date(row.fetchedAt) : new Date(),
+                                isRead: row.isRead,
+                                isFavorite: row.isFavorite,
+                                isSaved: row.isSaved,
+                                progress: row.progress,
+                                content: contentRow?.content || row.summary || "",
+                                fullContent: contentRow?.fullContent,
+                            };
+                            set((state) => ({
+                                articles: state.articles.some((a) => a.id === article.id)
+                                    ? state.articles
+                                    : [article, ...state.articles],
+                            }));
+                            return article;
+                        }
+                    } catch {}
+                }
+                return undefined;
+            },
+
             openArticleInReader: (article: RssArticle) => {
                 let fresh = get().articles.find(a => a.id === article.id) || article;
                 if (isTauri()) {
@@ -845,10 +892,27 @@ export const useRssStore = create<RssStore>()(
                 }).catch(() => {});
             },
             partialize: memoizePartialize((state) => [state.feeds, state.articles], (state) => {
+                const annotations = useLibraryStore.getState?.()?.annotations;
+                const annotatedArticleIds = new Set<string>();
+                if (annotations) {
+                    for (const ann of annotations) {
+                        if (ann.bookId.startsWith("rss:")) {
+                            annotatedArticleIds.add(ann.bookId.slice(4));
+                        } else {
+                            annotatedArticleIds.add(ann.bookId);
+                        }
+                    }
+                }
+
                 if (isTauri()) {
                     // On Tauri, full content resides in SQLite (rss_articles + rss_article_content).
                     // We only serialize feeds and lightweight metadata so theorem-rss KV store is under 15KB.
-                    const metadataOnlyArticles = state.articles.slice(0, 300).map(article => ({
+                    const priorityArticles = state.articles.filter(
+                        (a) => a.isFavorite || a.isSaved || annotatedArticleIds.has(a.id),
+                    );
+                    const recentArticles = state.articles.slice(0, 300);
+                    const combined = Array.from(new Set([...priorityArticles, ...recentArticles]));
+                    const metadataOnlyArticles = combined.map(article => ({
                         id: article.id,
                         feedId: article.feedId,
                         title: article.title,
@@ -871,7 +935,7 @@ export const useRssStore = create<RssStore>()(
                     };
                 }
 
-                const filteredArticles = selectPersistedRssArticles(state.articles, Date.now());
+                const filteredArticles = selectPersistedRssArticles(state.articles, Date.now(), annotatedArticleIds);
 
                 // Decouple full HTML to keep theorem-rss KV store under 50KB instead of 25MB+
                 const truncatedArticles = filteredArticles.map(article => ({

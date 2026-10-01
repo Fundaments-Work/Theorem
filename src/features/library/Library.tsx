@@ -8,7 +8,8 @@ import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncrementa
 import { pickLibraryFolderMobile, scanLibraryFolderMobile } from "../../core/lib/mobile-folder-scan";
 import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
-import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
+import { useLibraryStore, useUIStore, useSettingsStore, useRssStore } from "../../core/store";
+import { resolveAnnotationSource, navigateToAnnotationSource } from "../../core/lib/annotation-source";
 import type { Book, BookAudioTrackFormat, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
@@ -1028,19 +1029,38 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
     const daySeed = localDateKey().split("-").reduce((a, b) => a + parseInt(b), 0);
     const hl = nonBookmarks[daySeed % nonBookmarks.length];
     if (!hl) return null;
-    const hlBook = useLibraryStore.getState().getBook(hl.bookId);
+
+    const getBook = useLibraryStore.getState().getBook;
+    const rssArticles = useRssStore.getState().articles;
+    const rssFeeds = useRssStore.getState().feeds;
+    const source = resolveAnnotationSource(hl.bookId, getBook, rssArticles, rssFeeds, hl.chapterTitle);
+    const hlBook = getBook(hl.bookId);
+    const title = source?.title || hlBook?.title || hl.chapterTitle || "Unknown source";
+    const author = source?.author || hlBook?.author;
+
+    const handleNavigate = () => {
+        navigateToAnnotationSource(hl.bookId, hl.location, {
+            setPendingReaderLocation: useUIStore.getState().setPendingReaderLocation,
+            setRoute: useUIStore.getState().setRoute,
+            openArticleInReader: useRssStore.getState().openArticleInReader,
+            getArticle: useRssStore.getState().getArticle,
+            loadArticle: useRssStore.getState().loadArticle,
+            hasBook: (id) => !!getBook(id),
+            fallbackTitle: hl.chapterTitle,
+        });
+    };
 
     return (
         <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={handleNavigate} title="Click to view highlight in reader">
                 <div className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider mb-1.5">
                     From your highlights
                 </div>
-                <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5">
+                <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5 hover:underline">
                     &ldquo;{hl.selectedText}&rdquo;
                 </p>
                 <div className="text-[11px] text-[color:var(--color-text-secondary)]">
-                    — {hlBook?.title || "Unknown source"}
+                    — {title}{author && author !== "Unknown author" ? ` (${author})` : ""}
                 </div>
             </div>
             <button

@@ -1,12 +1,13 @@
 import { localDateKey } from "../../core/lib/date-keys";
-import { useState, useMemo, useCallback, useLayoutEffect, memo } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
-import { useLibraryStore, useUIStore, useRssStore } from "../../core/store";
+import { useLibraryStore, useUIStore, useRssStore, getRssArticleById } from "../../core/store";
 import type { Annotation } from "../../core/types";
 import {
     resolveAnnotationSource,
     navigateToAnnotationSource,
+    parseAnnotationSourceId,
     type ResolvedAnnotationSource,
 } from "../../core/lib/annotation-source";
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
@@ -103,6 +104,7 @@ export function BookmarksPage() {
     const rssFeeds = useRssStore((state) => state.feeds);
     const openArticleInReader = useRssStore((state) => state.openArticleInReader);
     const getArticle = useRssStore((state) => state.getArticle);
+    const loadArticle = useRssStore((state) => state.loadArticle);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
     const [bookFilter, setBookFilter] = useState<string>(ALL_BOOKS);
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -128,7 +130,7 @@ export function BookmarksPage() {
             const lookup = new Map<string, ResolvedAnnotationSource>();
             for (const bm of bookmarks) {
                 if (lookup.has(bm.bookId)) continue;
-                const source = resolveAnnotationSource(bm.bookId, getBook, rssArticles, rssFeeds);
+                const source = resolveAnnotationSource(bm.bookId, getBook, rssArticles, rssFeeds, bm.chapterTitle);
                 if (source) lookup.set(bm.bookId, source);
             }
             return lookup;
@@ -136,6 +138,19 @@ export function BookmarksPage() {
         // getBook is stable (store action ref); bookCount re-derives once books load
         [bookmarks, getBook, bookCount, rssArticles, rssFeeds],
     );
+
+    // If any bookmarks originate from RSS articles not yet loaded into memory,
+    // load them from SQLite in the background so full metadata becomes available.
+    useEffect(() => {
+        for (const bm of bookmarks) {
+            const { isArticle, cleanId } = parseAnnotationSourceId(bm.bookId);
+            if (isArticle || (!getBook(bm.bookId) && bm.bookId)) {
+                if (!getRssArticleById(rssArticles, cleanId)) {
+                    loadArticle(cleanId);
+                }
+            }
+        }
+    }, [bookmarks, rssArticles, getBook, loadArticle]);
 
     const visibleBookmarks = useMemo(
         () => bookmarks.filter((b) => sourceLookup.has(b.bookId)),
@@ -239,14 +254,17 @@ export function BookmarksPage() {
     const hasBook = useCallback((id: string) => !!useLibraryStore.getState().getBook(id), []);
 
     const handleGoToBookmark = useCallback((sourceId: string, location: string) => {
+        const bm = bookmarks.find((b) => b.bookId === sourceId && b.location === location);
         navigateToAnnotationSource(sourceId, location, {
             setPendingReaderLocation,
             setRoute,
             openArticleInReader,
             getArticle,
+            loadArticle,
             hasBook,
+            fallbackTitle: bm?.chapterTitle,
         });
-    }, [setPendingReaderLocation, setRoute, openArticleInReader, getArticle, hasBook]);
+    }, [bookmarks, setPendingReaderLocation, setRoute, openArticleInReader, getArticle, loadArticle, hasBook]);
 
     if (visibleBookmarks.length === 0) {
         return (

@@ -465,6 +465,20 @@ export async function sqliteGetRssArticles(
     }
 }
 
+export async function sqliteGetRssArticle(
+    articleId: string,
+): Promise<SqliteRssArticle | null> {
+    if (!isTauri()) return null;
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_get_rss_article', {
+            articleId,
+        })) as SqliteRssArticle | null;
+    } catch {
+        return null;
+    }
+}
+
 export async function sqliteGetRssArticleContent(
     articleId: string,
 ): Promise<SqliteRssArticleContent | null> {

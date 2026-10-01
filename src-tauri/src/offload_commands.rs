@@ -383,6 +383,14 @@ pub async fn sqlite_get_rss_articles(
 }
 
 #[tauri::command]
+pub async fn sqlite_get_rss_article(
+    app: AppHandle,
+    article_id: String,
+) -> Result<Option<crate::database::RssArticleDto>, String> {
+    offload(move || crate::database::sqlite_get_rss_article(app, article_id)).await
+}
+
+#[tauri::command]
 pub async fn sqlite_get_rss_article_content(
     app: AppHandle,
     article_id: String,

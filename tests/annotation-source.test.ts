@@ -109,7 +109,15 @@ describe("annotation-source (Issue #124)", () => {
             expect(resolved?.isArticle).toBe(true);
         });
 
-        it("gracefully falls back for pruned/missing RSS articles", () => {
+        it("gracefully falls back for pruned/missing RSS articles using fallbackTitle", () => {
+            const resolved = resolveAnnotationSource("rss:deleted-article", getBook, mockArticles, mockFeeds, "Saved Chapter Header");
+            expect(resolved).toBeDefined();
+            expect(resolved?.title).toBe("Saved Chapter Header");
+            expect(resolved?.author).toBe("RSS Feed");
+            expect(resolved?.isArticle).toBe(true);
+        });
+
+        it("gracefully falls back for pruned/missing RSS articles without fallbackTitle", () => {
             const resolved = resolveAnnotationSource("rss:deleted-article", getBook, mockArticles, mockFeeds);
             expect(resolved).toBeDefined();
             expect(resolved?.title).toBe("RSS Article");
@@ -134,21 +142,29 @@ describe("annotation-source (Issue #124)", () => {
             expect(resolved?.isArticle).toBe(true);
         });
 
-        it("returns undefined when source ID does not match any book or article", () => {
+        it("resolves as article when source ID is not a book but fallbackTitle is provided", () => {
+            const resolved = resolveAnnotationSource("unprefixed-rss-id", getBook, mockArticles, mockFeeds, "Archived Web Note");
+            expect(resolved).toBeDefined();
+            expect(resolved?.title).toBe("Archived Web Note");
+            expect(resolved?.author).toBe("RSS Feed");
+            expect(resolved?.isArticle).toBe(true);
+        });
+
+        it("returns undefined when source ID does not match any book or article and no fallbackTitle", () => {
             const resolved = resolveAnnotationSource("non-existent-id", getBook, mockArticles, mockFeeds);
             expect(resolved).toBeUndefined();
         });
     });
 
     describe("navigateToAnnotationSource", () => {
-        it("sets pendingReaderLocation and opens article in reader for RSS source", () => {
+        it("sets pendingReaderLocation and opens article in reader for RSS source", async () => {
             const setPendingReaderLocation = vi.fn();
             const setRoute = vi.fn();
             const openArticleInReader = vi.fn();
             const getArticle = vi.fn((id: string) => mockArticles.find((a) => a.id === id));
             const hasBook = vi.fn(() => false);
 
-            navigateToAnnotationSource("rss:article-1", "epubcfi(/6/2[chap1]!/4/2)", {
+            await navigateToAnnotationSource("rss:article-1", "epubcfi(/6/2[chap1]!/4/2)", {
                 setPendingReaderLocation,
                 setRoute,
                 openArticleInReader,
@@ -161,14 +177,75 @@ describe("annotation-source (Issue #124)", () => {
             expect(setRoute).not.toHaveBeenCalled();
         });
 
-        it("sets pendingReaderLocation and sets route for standard book", () => {
+        it("loads article asynchronously if missing from memory lookup", async () => {
+            const setPendingReaderLocation = vi.fn();
+            const setRoute = vi.fn();
+            const openArticleInReader = vi.fn();
+            const getArticle = vi.fn(() => undefined);
+            const loadArticle = vi.fn(async (id: string) => ({
+                id,
+                feedId: "feed-1",
+                title: "Asynchronously Loaded Article",
+                url: "https://example.com/async",
+                content: "<p>Loaded from SQLite</p>",
+                fetchedAt: new Date(),
+                isRead: true,
+                isFavorite: false,
+                isSaved: true,
+            }));
+            const hasBook = vi.fn(() => false);
+
+            await navigateToAnnotationSource("rss:article-sqlite", undefined, {
+                setPendingReaderLocation,
+                setRoute,
+                openArticleInReader,
+                getArticle,
+                loadArticle,
+                hasBook,
+            });
+
+            expect(loadArticle).toHaveBeenCalledWith("article-sqlite");
+            expect(openArticleInReader).toHaveBeenCalledWith(expect.objectContaining({
+                id: "article-sqlite",
+                title: "Asynchronously Loaded Article",
+            }));
+            expect(setRoute).not.toHaveBeenCalled();
+        });
+
+        it("synthesizes a stub article for missing RSS article to prevent 'Book not found' crash", async () => {
+            const setPendingReaderLocation = vi.fn();
+            const setRoute = vi.fn();
+            const openArticleInReader = vi.fn();
+            const getArticle = vi.fn(() => undefined);
+            const loadArticle = vi.fn(async () => undefined);
+            const hasBook = vi.fn(() => false);
+
+            await navigateToAnnotationSource("rss:missing-article-404", "chapter-1", {
+                setPendingReaderLocation,
+                setRoute,
+                openArticleInReader,
+                getArticle,
+                loadArticle,
+                hasBook,
+                fallbackTitle: "Important Highlighted Passage",
+            });
+
+            expect(setPendingReaderLocation).toHaveBeenCalledWith("chapter-1");
+            expect(openArticleInReader).toHaveBeenCalledWith(expect.objectContaining({
+                id: "missing-article-404",
+                title: "Important Highlighted Passage",
+            }));
+            expect(setRoute).not.toHaveBeenCalled();
+        });
+
+        it("sets pendingReaderLocation and sets route for standard book", async () => {
             const setPendingReaderLocation = vi.fn();
             const setRoute = vi.fn();
             const openArticleInReader = vi.fn();
             const getArticle = vi.fn(() => undefined);
             const hasBook = vi.fn((id: string) => id === "book-1");
 
-            navigateToAnnotationSource("book-1", "epubcfi(/6/4!/4/10)", {
+            await navigateToAnnotationSource("book-1", "epubcfi(/6/4!/4/10)", {
                 setPendingReaderLocation,
                 setRoute,
                 openArticleInReader,
@@ -181,14 +258,14 @@ describe("annotation-source (Issue #124)", () => {
             expect(openArticleInReader).not.toHaveBeenCalled();
         });
 
-        it("does not call setPendingReaderLocation if location is undefined", () => {
+        it("does not call setPendingReaderLocation if location is undefined", async () => {
             const setPendingReaderLocation = vi.fn();
             const setRoute = vi.fn();
             const openArticleInReader = vi.fn();
             const getArticle = vi.fn(() => undefined);
             const hasBook = vi.fn(() => true);
 
-            navigateToAnnotationSource("book-1", undefined, {
+            await navigateToAnnotationSource("book-1", undefined, {
                 setPendingReaderLocation,
                 setRoute,
                 openArticleInReader,

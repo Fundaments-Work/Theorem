@@ -1850,6 +1850,7 @@ pub fn run() {
             offload_commands::sqlite_save_rss_feed,
             offload_commands::sqlite_delete_rss_feed,
             offload_commands::sqlite_get_rss_articles,
+            offload_commands::sqlite_get_rss_article,
             offload_commands::sqlite_get_rss_article_content,
             offload_commands::sqlite_save_rss_article,
             offload_commands::sqlite_mark_article_read,

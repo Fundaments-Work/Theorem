@@ -2521,6 +2521,30 @@ pub fn sqlite_get_rss_articles(
     })
 }
 
+pub fn sqlite_get_rss_article_inner(
+    connection: &Connection,
+    article_id: &str,
+) -> rusqlite::Result<Option<RssArticleDto>> {
+    let sql = "SELECT id, feed_id, title, author, url, summary, content_source, image_url,
+                      published_at, fetched_at, is_read, is_favorite, is_saved, progress
+               FROM rss_articles
+               WHERE id = ?1";
+    let mut stmt = connection.prepare(sql)?;
+    let mut rows = stmt.query_map(params![article_id], map_rss_article_row)?;
+    match rows.next() {
+        Some(Ok(dto)) => Ok(Some(dto)),
+        Some(Err(e)) => Err(e),
+        None => Ok(None),
+    }
+}
+
+pub fn sqlite_get_rss_article(
+    app: AppHandle,
+    article_id: String,
+) -> Result<Option<RssArticleDto>, String> {
+    with_connection(&app, |conn| sqlite_get_rss_article_inner(conn, &article_id))
+}
+
 pub fn sqlite_get_rss_article_content_inner(
     connection: &Connection,
     article_id: &str,
@@ -2732,6 +2756,7 @@ pub fn sqlite_cleanup_old_rss_articles(
                   AND is_favorite = 0
                   AND is_read = 1
                   AND (unixepoch() - fetched_at) > ?1
+                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
             )
             "#,
             params![cutoff_secs],
@@ -2744,6 +2769,7 @@ pub fn sqlite_cleanup_old_rss_articles(
               AND is_favorite = 0
               AND is_read = 1
               AND (unixepoch() - fetched_at) > ?1
+              AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
             "#,
             params![cutoff_secs],
         )?;
@@ -2756,6 +2782,7 @@ pub fn sqlite_cleanup_old_rss_articles(
                   AND is_favorite = 0
                   AND is_read = 0
                   AND (unixepoch() - fetched_at) > ?1
+                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
                 "#,
                 params![cutoff_secs],
             )?

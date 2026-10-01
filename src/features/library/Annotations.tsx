@@ -4,12 +4,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../../core/lib/utils";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 import { sanitizeHtmlForDisplay } from "../../core/lib/sanitize";
-import { useLibraryStore, useUIStore, useVocabularyStore, useRssStore } from "../../core/store";
+import { useLibraryStore, useUIStore, useVocabularyStore, useRssStore, getRssArticleById } from "../../core/store";
 import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
 import type { HighlightColor, VocabularyTerm } from "../../core/types";
 import {
     resolveAnnotationSource,
     navigateToAnnotationSource,
+    parseAnnotationSourceId,
     type ResolvedAnnotationSource,
 } from "../../core/lib/annotation-source";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
@@ -188,6 +189,7 @@ export function AnnotationsPage() {
     const rssFeeds = useRssStore((state) => state.feeds);
     const openArticleInReader = useRssStore((state) => state.openArticleInReader);
     const getArticle = useRssStore((state) => state.getArticle);
+    const loadArticle = useRssStore((state) => state.loadArticle);
     const savedViewState = useRef<ReturnType<typeof decodeWorkbenchViewState> | null>(null);
     if (savedViewState.current === null) {
         savedViewState.current = decodeWorkbenchViewState(
@@ -231,7 +233,8 @@ export function AnnotationsPage() {
             const sourceIds = new Set(annotations.map((a) => a.bookId));
             const lookup = new Map<string, ResolvedAnnotationSource>();
             for (const id of sourceIds) {
-                const resolved = resolveAnnotationSource(id, getBook, rssArticles, rssFeeds);
+                const ann = annotations.find((a) => a.bookId === id);
+                const resolved = resolveAnnotationSource(id, getBook, rssArticles, rssFeeds, ann?.chapterTitle);
                 if (resolved) lookup.set(id, resolved);
             }
             return lookup;
@@ -239,6 +242,19 @@ export function AnnotationsPage() {
         // getBook is stable (store action ref); bookCount re-derives once books load
         [annotations, getBook, bookCount, rssArticles, rssFeeds],
     );
+
+    // If any annotations originate from RSS articles not yet loaded into memory,
+    // load them from SQLite in the background so full metadata becomes available.
+    useEffect(() => {
+        for (const ann of annotations) {
+            const { isArticle, cleanId } = parseAnnotationSourceId(ann.bookId);
+            if (isArticle || (!getBook(ann.bookId) && ann.bookId)) {
+                if (!getRssArticleById(rssArticles, cleanId)) {
+                    loadArticle(cleanId);
+                }
+            }
+        }
+    }, [annotations, rssArticles, getBook, loadArticle]);
 
     const filteredAnnotations = useMemo(() => {
         let filtered = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, sourceLookup));
@@ -461,14 +477,19 @@ export function AnnotationsPage() {
     const hasBook = useCallback((id: string) => !!useLibraryStore.getState().getBook(id), []);
 
     const handleGoToSource = useCallback((sourceId: string, location?: string) => {
+        const ann = annotations.find(
+            (a) => a.bookId === sourceId && (location ? a.location === location : true),
+        );
         navigateToAnnotationSource(sourceId, location, {
             setPendingReaderLocation,
             setRoute,
             openArticleInReader,
             getArticle,
+            loadArticle,
             hasBook,
+            fallbackTitle: ann?.chapterTitle,
         });
-    }, [setPendingReaderLocation, setRoute, openArticleInReader, getArticle, hasBook]);
+    }, [annotations, setPendingReaderLocation, setRoute, openArticleInReader, getArticle, loadArticle, hasBook]);
 
     const handleShare = (id: string | null) => {
         setSharingId(id);
