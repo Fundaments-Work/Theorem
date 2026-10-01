@@ -1,11 +1,12 @@
 
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "../../core/lib/utils";
+import { cn, isBookMarkedRead } from "../../core/lib/utils";
 import { getShelfColor, getShelfInitials } from "../../core/lib/design-tokens";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
 import { ShelfModal } from "./components/modals/ShelfModal";
+import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { ConfirmDialog } from "../../ui";
 import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
@@ -29,6 +30,7 @@ import {
     BookMarked,
     RotateCcw,
     Layers,
+    Play,
 } from "lucide-react";
 import type { Book, Collection, LibraryViewMode } from "../../core/types";
 
@@ -404,6 +406,29 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         setIsSelecting(false);
     }, [markBooksUnread, selectedBooks, clearSelection]);
 
+    const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
+    const [seriesModalBookIds, setSeriesModalBookIds] = useState<string[]>([]);
+    const [seriesModalInitialName, setSeriesModalInitialName] = useState<string | undefined>(undefined);
+
+    const handleOpenSeriesModalForSelection = useCallback(() => {
+        setSeriesModalBookIds([...selectedBooks]);
+        const firstWithSeries = shelfBooks.find((b) => selectedBooks.includes(b.id) && b.series?.trim());
+        setSeriesModalInitialName(firstWithSeries?.series?.trim() || shelf.name);
+        setIsSeriesModalOpen(true);
+    }, [selectedBooks, shelfBooks, shelf.name]);
+
+    const handleOpenSeriesModalForShelf = useCallback(() => {
+        setSeriesModalBookIds(shelf.bookIds);
+        setSeriesModalInitialName(shelf.name);
+        setIsSeriesModalOpen(true);
+    }, [shelf.bookIds, shelf.name]);
+
+    const handleEditSpecificSeries = useCallback((seriesName: string, bookIds: string[]) => {
+        setSeriesModalBookIds(bookIds);
+        setSeriesModalInitialName(seriesName);
+        setIsSeriesModalOpen(true);
+    }, []);
+
     const scrollRef = useRef<HTMLDivElement>(null);
     const isListView = viewMode === "list";
     const isCompactView = viewMode === "compact";
@@ -562,6 +587,13 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                         <Layers className="w-4 h-4" />
                     </button>
                     <button
+                        onClick={handleOpenSeriesModalForShelf}
+                        className="flex items-center justify-center w-10 h-10 border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        title="Create / Manage Series from Shelf"
+                    >
+                        <BookOpen className="w-4 h-4 text-[color:var(--color-accent)]" />
+                    </button>
+                    <button
                         data-action="toggle-select-mode"
                         onClick={handleToggleSelectMode}
                         className={cn(
@@ -639,35 +671,71 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
 
                         return (
                             <div className="space-y-8">
-                                {sortedSeries.map(([seriesName, group]) => (
-                                    <div key={seriesName}>
-                                        <div className="flex items-center gap-3 mb-4">
-                                            <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
-                                            <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-primary)] truncate">
-                                                {seriesName}
-                                            </h2>
-                                            <span className="text-xs text-[color:var(--color-text-muted)] shrink-0">
-                                                {group.length} {group.length === 1 ? "vol." : "vols."}
-                                            </span>
-                                            <div className="flex-1 border-t border-[var(--color-border)]" />
+                                {sortedSeries.map(([seriesName, group]) => {
+                                    const completedCount = group.filter(isBookMarkedRead).length;
+                                    const isAllCompleted = group.length > 0 && completedCount === group.length;
+                                    const nextUnreadBook = group.find((b) => !isBookMarkedRead(b));
+                                    const completionPercent = Math.round((completedCount / group.length) * 100);
+
+                                    return (
+                                        <div key={seriesName} className="space-y-4">
+                                            <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-3 flex-wrap">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
+                                                    <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-primary)] truncate">
+                                                        {seriesName}
+                                                    </h2>
+                                                    <span className="text-xs text-[color:var(--color-text-muted)] shrink-0">
+                                                        ({group.length} {group.length === 1 ? "vol." : "vols."})
+                                                    </span>
+                                                    {isAllCompleted ? (
+                                                        <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]">
+                                                            Completed
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[11px] font-mono text-[color:var(--color-text-muted)] shrink-0">
+                                                            {completedCount}/{group.length} read ({completionPercent}%)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    {nextUnreadBook && (
+                                                        <button
+                                                            onClick={() => handleOpenBook(nextUnreadBook)}
+                                                            className="ui-btn px-2.5 py-1 text-xs font-bold border flex items-center gap-1.5 hover:bg-[var(--color-surface-muted)]"
+                                                            title={`Continue reading ${nextUnreadBook.title}`}
+                                                        >
+                                                            <Play className="w-3 h-3 fill-current text-[color:var(--color-accent)]" />
+                                                            <span>Continue {nextUnreadBook.seriesIndex != null ? `(Vol. ${nextUnreadBook.seriesIndex})` : ""}</span>
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleEditSpecificSeries(seriesName, group.map((b) => b.id))}
+                                                        className="p-1.5 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                                                        title="Edit Series"
+                                                    >
+                                                        <Edit3 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div
+                                                style={{
+                                                    display: "grid",
+                                                    gridTemplateColumns: isListView ? "1fr" : `repeat(${effectiveCols}, minmax(0, 1fr))`,
+                                                    gap: isCompactView ? "8px" : "20px",
+                                                }}
+                                            >
+                                                {group.map((book) => (
+                                                    <MemoizedBookCard
+                                                        key={book.id} book={book} viewMode={viewMode}
+                                                        isSelecting={isSelecting} isSelected={selectedBookIds.has(book.id)} onToggleSelect={handleToggleSelect}
+                                                        {...cardProps}
+                                                    />
+                                                ))}
+                                            </div>
                                         </div>
-                                        <div
-                                            style={{
-                                                display: "grid",
-                                                gridTemplateColumns: isListView ? "1fr" : `repeat(${effectiveCols}, minmax(0, 1fr))`,
-                                                gap: isCompactView ? "8px" : "20px",
-                                            }}
-                                        >
-                                            {group.map((book) => (
-                                                <MemoizedBookCard
-                                                    key={book.id} book={book} viewMode={viewMode}
-                                                    isSelecting={isSelecting} isSelected={selectedBookIds.has(book.id)} onToggleSelect={handleToggleSelect}
-                                                    {...cardProps}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                                 {standalone.length > 0 && (
                                     <div>
                                         <div className="flex items-center gap-3 mb-4">
@@ -808,6 +876,13 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                         <RotateCcw className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Mark Unread</span>
                     </button>
+                    <button
+                        onClick={handleOpenSeriesModalForSelection}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Set Series</span>
+                    </button>
                     <div className="h-5 w-px bg-[var(--color-border)]" />
                     <button
                         onClick={() => setBatchDeleteIds([...selectedBooks])}
@@ -838,6 +913,19 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     }
                 }}
                 onCreateShelf={handleCreateShelf}
+            />
+            <AssignSeriesModal
+                isOpen={isSeriesModalOpen}
+                onClose={() => {
+                    setIsSeriesModalOpen(false);
+                    if (isSelecting) {
+                        clearSelection();
+                        setIsSelecting(false);
+                    }
+                }}
+                bookIds={seriesModalBookIds}
+                initialSeriesName={seriesModalInitialName}
+                shelfId={shelf.id}
             />
 
             <RenameBookModal

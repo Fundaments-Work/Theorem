@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense, memo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { cn } from "../../core/lib/utils";
+import { cn, isBookMarkedRead } from "../../core/lib/utils";
 import {
     getBookMaterializedPath,
     getBookBlob,
@@ -1121,6 +1121,32 @@ const BookReaderPage = memo(function BookReaderPage() {
                 ? currentStats.booksReadThisYear + 1
                 : currentStats.booksReadThisYear,
         });
+
+        // Prompt next volume if book belongs to a series
+        const completedBook = useLibraryStore.getState().getBook(bookId);
+        if (completedBook?.series?.trim()) {
+            const seriesName = completedBook.series.trim().toLowerCase();
+            const seriesBooks = useLibraryStore.getState().books
+                .filter((b) => b.series?.trim().toLowerCase() === seriesName && b.id !== bookId)
+                .sort((a, b) => (a.seriesIndex ?? Infinity) - (b.seriesIndex ?? Infinity));
+
+            const currentIdx = completedBook.seriesIndex ?? -1;
+            const nextBook = seriesBooks.find((b) => (b.seriesIndex != null && b.seriesIndex > currentIdx && !isBookMarkedRead(b)))
+                || seriesBooks.find((b) => !isBookMarkedRead(b));
+
+            if (nextBook) {
+                toast(`Finished ${completedBook.title}!`, {
+                    description: `Next up in ${completedBook.series}: ${nextBook.title}${nextBook.seriesIndex != null ? ` (Vol. ${nextBook.seriesIndex})` : ""}`,
+                    action: {
+                        label: "Read Next",
+                        onClick: () => {
+                            useUIStore.getState().setRoute("reader", nextBook.id);
+                        },
+                    },
+                    duration: 10000,
+                });
+            }
+        }
     }, [markBookCompleted, updateStats]);
 
     const flushPendingProgressUpdate = useCallback(() => {

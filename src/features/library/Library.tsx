@@ -15,7 +15,8 @@ import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
-    ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones
+    ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones,
+    Layers
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -25,6 +26,7 @@ import { useDebounce } from "../../core/lib/useDebounce";
 import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
 import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
+import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { toast } from "sonner";
 import { localDateKey } from "../../core/lib/date-keys";
 
@@ -1118,6 +1120,7 @@ export function LibraryPage() {
     const [isAddToShelfModalOpen, setIsAddToShelfModalOpen] = useState(false);
     const [editBook, setEditBook] = useState<Book | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ bookId?: string; title: string; batch?: boolean } | null>(null);
 
@@ -2354,6 +2357,13 @@ export function LibraryPage() {
                         <span className="hidden sm:inline">Add to Shelf</span>
                     </button>
                     <button
+                        onClick={() => setIsSeriesModalOpen(true)}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Series</span>
+                    </button>
+                    <button
                         onClick={handleBatchExport}
                         className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
                     >
@@ -2391,6 +2401,16 @@ export function LibraryPage() {
                 collections={collections}
                 onAddToShelf={handleAddBookToShelf}
                 onCreateShelf={handleCreateShelf}
+            />
+
+            <AssignSeriesModal
+                isOpen={isSeriesModalOpen}
+                onClose={() => {
+                    setIsSeriesModalOpen(false);
+                    clearSelection();
+                    setIsSelecting(false);
+                }}
+                bookIds={selectedBooks}
             />
 
             <EditBookModal
