@@ -846,4 +846,45 @@ mod tests {
         assert_eq!(meta2.series, Some("The Lord of the Rings".to_string()));
         assert_eq!(meta2.series_index, Some(2.0));
     }
+
+    #[test]
+    fn test_cbz_comic_info_and_cover_parsing() {
+        use std::io::Write;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cbz_path = temp_dir.path().join("Saga 001.cbz");
+
+        let comic_info = r#"<?xml version="1.0"?>
+<ComicInfo>
+    <Title>Chapter One</Title>
+    <Series>Saga</Series>
+    <Number>1</Number>
+</ComicInfo>"#;
+
+        let img = image::RgbImage::new(10, 10);
+        let mut png_bytes = Vec::new();
+        img.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+            .unwrap();
+
+        {
+            let file = std::fs::File::create(&cbz_path).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+
+            zip.start_file("ComicInfo.xml", options).unwrap();
+            zip.write_all(comic_info.as_bytes()).unwrap();
+
+            zip.start_file("001_cover.png", options).unwrap();
+            zip.write_all(&png_bytes).unwrap();
+
+            zip.finish().unwrap();
+        }
+
+        let parsed = parse_cbz_native(&cbz_path).unwrap();
+        assert_eq!(parsed.title, "Chapter One");
+        assert_eq!(parsed.series, Some("Saga".to_string()));
+        assert_eq!(parsed.series_index, Some(1.0));
+        assert!(parsed.cover_data_url.is_some());
+    }
 }
