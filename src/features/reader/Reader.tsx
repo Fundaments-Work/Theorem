@@ -633,11 +633,16 @@ const BookReaderPage = memo(function BookReaderPage() {
                 setToc([]);
                 setLocation(null);
                 setIsBookReady(false);
-                setInitialLocation(undefined);
+                const pendingLocation = useUIStore.getState().pendingReaderLocation;
+                if (pendingLocation) {
+                    useUIStore.getState().setPendingReaderLocation(undefined);
+                }
+                const nextLocation = normalizeInitialReaderLocation(pendingLocation);
+                setInitialLocation(nextLocation);
                 setInitialFraction(undefined);
-                suppressProgressRef.current = false;
-                resumeTargetRef.current = null;
-                hasAppliedInitialLocationRef.current = true;
+                suppressProgressRef.current = !!nextLocation;
+                resumeTargetRef.current = nextLocation || null;
+                hasAppliedInitialLocationRef.current = !nextLocation;
                 setLoadError(null);
 
                 try {

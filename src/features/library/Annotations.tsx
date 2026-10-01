@@ -4,9 +4,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../../core/lib/utils";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
 import { sanitizeHtmlForDisplay } from "../../core/lib/sanitize";
-import { useLibraryStore, useUIStore, useVocabularyStore } from "../../core/store";
+import { useLibraryStore, useUIStore, useVocabularyStore, useRssStore } from "../../core/store";
 import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
 import type { HighlightColor, VocabularyTerm } from "../../core/types";
+import {
+    resolveAnnotationSource,
+    navigateToAnnotationSource,
+    type ResolvedAnnotationSource,
+} from "../../core/lib/annotation-source";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
 import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
 import {
@@ -46,9 +51,9 @@ function isHtml(text: string): boolean {
     return text.includes("<") && text.includes(">");
 }
 
-/** Annotations whose book is unknown are hidden; article highlights have no book. */
-function isVisibleSource(bookId: string, bookTitleLookup: Map<string, string>): boolean {
-    return bookTitleLookup.has(bookId) || bookId.startsWith("rss:");
+/** Annotations whose source is unknown are hidden. */
+function isVisibleSource(sourceId: string, sourceLookup: Map<string, ResolvedAnnotationSource>): boolean {
+    return sourceLookup.has(sourceId);
 }
 
 function EmptyAnnotations({ type }: { type: "all" | "highlights" | "notes" }) {
@@ -97,11 +102,7 @@ interface AnnotationCardProps {
         createdAt: Date;
         updatedAt?: Date;
     };
-    book: {
-        title: string;
-        author: string;
-        coverPath?: string;
-    } | undefined;
+    source: ResolvedAnnotationSource | undefined;
     shareId: string | null;
     menuOpen: boolean;
     layout: CardLayout;
@@ -110,13 +111,13 @@ interface AnnotationCardProps {
     onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
     onEdit: (id: string) => void;
-    onGoToBook: (bookId: string, location?: string) => void;
+    onGoToSource: (sourceId: string, location?: string) => void;
     onShare: (id: string | null) => void;
 }
 
 const AnnotationCard = memo(function AnnotationCard({
     annotation,
-    book,
+    source,
     shareId,
     menuOpen,
     layout,
@@ -126,16 +127,17 @@ const AnnotationCard = memo(function AnnotationCard({
     onDelete,
     onEdit,
     onShare,
-    onGoToBook,
+    onGoToSource,
 }: AnnotationCardProps) {
-    const openInBook = () => onGoToBook(annotation.bookId, annotation.location);
+    const isArticle = source?.isArticle ?? annotation.bookId.startsWith("rss:");
+    const openInSource = () => onGoToSource(annotation.bookId, annotation.location);
     return (
         <AnnotationListCard
             id={annotation.id}
             typeLabel={annotation.type}
             dateLabel={localDateKey(new Date(annotation.createdAt))}
-            sourceTitle={book?.title || "Unknown source"}
-            sourceAuthor={book?.author || "Unknown author"}
+            sourceTitle={source?.title || "Unknown source"}
+            sourceAuthor={source?.author || "Unknown author"}
             accentColor={annotation.color ? HIGHLIGHT_SOLID_COLORS[annotation.color] : undefined}
             quote={annotation.selectedText}
             note={annotation.noteContent}
@@ -145,17 +147,21 @@ const AnnotationCard = memo(function AnnotationCard({
             layout={layout}
             onToggleExpanded={onToggleExpanded}
             menuItems={[
-                { label: "Open in book", onSelect: openInBook },
+                { label: isArticle ? "Open in article" : "Open in book", onSelect: openInSource },
                 { label: "Edit note", onSelect: () => onEdit(annotation.id) },
                 { label: "Share", onSelect: () => onShare(annotation.id) },
                 { label: "Delete", onSelect: () => onDelete(annotation.id), danger: true },
             ]}
             popover={shareId === annotation.id ? (
-                <ShareMenu annotation={annotation} book={book} onClose={() => onShare(null)} />
+                <ShareMenu
+                    annotation={annotation}
+                    book={source ? { title: source.title, author: source.author } : undefined}
+                    onClose={() => onShare(null)}
+                />
             ) : undefined}
             onPopoverClose={() => onShare(null)}
-            onOpen={openInBook}
-            openTitle="Click to open at this highlighted location"
+            onOpen={openInSource}
+            openTitle={isArticle ? "Click to open article at this highlighted location" : "Click to open at this highlighted location"}
         />
     );
 });
@@ -178,6 +184,10 @@ export function AnnotationsPage() {
     const searchQuery = useUIStore((state) => state.searchQuery);
     const vocabularyTerms = useVocabularyStore((state) => state.vocabularyTerms);
     const deleteVocabularyTerm = useVocabularyStore((state) => state.deleteVocabularyTerm);
+    const rssArticles = useRssStore((state) => state.articles);
+    const rssFeeds = useRssStore((state) => state.feeds);
+    const openArticleInReader = useRssStore((state) => state.openArticleInReader);
+    const getArticle = useRssStore((state) => state.getArticle);
     const savedViewState = useRef<ReturnType<typeof decodeWorkbenchViewState> | null>(null);
     if (savedViewState.current === null) {
         savedViewState.current = decodeWorkbenchViewState(
@@ -211,28 +221,27 @@ export function AnnotationsPage() {
     const cardTouchStartX = useRef(0);
     const cardTouchStartY = useRef(0);
 
-    // Derive title lookup from annotation bookIds only — avoids subscribing to
+    // Derive source lookup from annotation bookIds only — avoids subscribing to
     // the entire books array (which re-renders on every progress tick). The
     // book count still invalidates it: books hydrate after annotations, and a
     // lookup built before that would hide every annotation until they change.
     const bookCount = useLibraryStore((state) => state.books.length);
-    const bookTitleLookup = useMemo(
+    const sourceLookup = useMemo(
         () => {
-            const bookIds = new Set(annotations.map((a) => a.bookId));
-            const lookup = new Map<string, string>();
-            for (const id of bookIds) {
-                const title = getBook(id)?.title;
-                if (title) lookup.set(id, title);
+            const sourceIds = new Set(annotations.map((a) => a.bookId));
+            const lookup = new Map<string, ResolvedAnnotationSource>();
+            for (const id of sourceIds) {
+                const resolved = resolveAnnotationSource(id, getBook, rssArticles, rssFeeds);
+                if (resolved) lookup.set(id, resolved);
             }
             return lookup;
         },
         // getBook is stable (store action ref); bookCount re-derives once books load
-        [annotations, getBook, bookCount],
+        [annotations, getBook, bookCount, rssArticles, rssFeeds],
     );
 
-
     const filteredAnnotations = useMemo(() => {
-        let filtered = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, bookTitleLookup));
+        let filtered = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, sourceLookup));
 
         if (currentBookId) {
             filtered = filtered.filter((annotation) => annotation.bookId === currentBookId);
@@ -252,7 +261,7 @@ export function AnnotationsPage() {
                     annotation,
                     selectedText: annotation.selectedText || "",
                     noteContent: annotation.noteContent || "",
-                    bookTitle: bookTitleLookup.get(annotation.bookId) || "",
+                    bookTitle: sourceLookup.get(annotation.bookId)?.title || "",
                 })),
                 searchQuery,
                 {
@@ -279,8 +288,8 @@ export function AnnotationsPage() {
                     return dateA.getTime() - dateB.getTime();
                 }
                 case "book":
-                    const bookA = bookTitleLookup.get(a.bookId) || "";
-                    const bookB = bookTitleLookup.get(b.bookId) || "";
+                    const bookA = sourceLookup.get(a.bookId)?.title || "";
+                    const bookB = sourceLookup.get(b.bookId)?.title || "";
                     return bookA.localeCompare(bookB);
                 default:
                     return 0;
@@ -288,7 +297,7 @@ export function AnnotationsPage() {
         });
 
         return filtered;
-    }, [annotations, activeFilter, currentBookId, searchQuery, sortBy, bookTitleLookup]);
+    }, [annotations, activeFilter, currentBookId, searchQuery, sortBy, sourceLookup]);
 
     const filteredVocabularyTerms = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -309,10 +318,6 @@ export function AnnotationsPage() {
             });
     }, [vocabularyTerms, activeFilter, searchQuery]);
 
-    const getBookInfo = (bookId: string) => {
-        return useLibraryStore.getState().getBook(bookId);
-    };
-
     const prevLenRef = useRef(filteredAnnotations.length);
     if (filteredAnnotations.length !== prevLenRef.current) {
         prevLenRef.current = filteredAnnotations.length;
@@ -327,13 +332,17 @@ export function AnnotationsPage() {
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key)!.push(ann);
         }
-        return Array.from(groups.entries()).map(([bookId, annotations]) => ({
-            bookId,
-            annotations,
-            book: getBookInfo(bookId),
-            title: bookTitleLookup.get(bookId) || "Unknown source",
-        }));
-    }, [filteredAnnotations, bookTitleLookup]);
+        return Array.from(groups.entries()).map(([bookId, annotations]) => {
+            const source = sourceLookup.get(bookId);
+            return {
+                bookId,
+                annotations,
+                source,
+                title: source?.title || "Unknown source",
+                isArticle: source?.isArticle ?? bookId.startsWith("rss:"),
+            };
+        });
+    }, [filteredAnnotations, sourceLookup]);
 
     const workbenchRestoredRef = useRef(false);
     useEffect(() => {
@@ -449,19 +458,26 @@ export function AnnotationsPage() {
         }
     };
 
-    const handleGoToBook = (bookId: string, location?: string) => {
-        if (location) setPendingReaderLocation(location);
-        setRoute("reader", bookId);
-    };
+    const hasBook = useCallback((id: string) => !!useLibraryStore.getState().getBook(id), []);
+
+    const handleGoToSource = useCallback((sourceId: string, location?: string) => {
+        navigateToAnnotationSource(sourceId, location, {
+            setPendingReaderLocation,
+            setRoute,
+            openArticleInReader,
+            getArticle,
+            hasBook,
+        });
+    }, [setPendingReaderLocation, setRoute, openArticleInReader, getArticle, hasBook]);
 
     const handleShare = (id: string | null) => {
         setSharingId(id);
     };
 
-    const annotationCount = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, bookTitleLookup)).length;
+    const annotationCount = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, sourceLookup)).length;
     const hasAnyContent = annotationCount > 0 || vocabularyTerms.length > 0;
     const selectedBookTitle = currentBookId
-        ? (bookTitleLookup.get(currentBookId) || "Selected reference")
+        ? (sourceLookup.get(currentBookId)?.title || "Selected reference")
         : null;
 
     if (!hasAnyContent) {
@@ -481,7 +497,7 @@ export function AnnotationsPage() {
                     ? `${filteredAnnotations.length} annotation${filteredAnnotations.length === 1 ? "" : "s"} • ${vocabularyTerms.length} term${vocabularyTerms.length === 1 ? "" : "s"}`
                     : activeFilter === "vocabulary"
                         ? `${filteredVocabularyTerms.length} ${filteredVocabularyTerms.length === 1 ? "term" : "terms"}`
-                        : `${filteredAnnotations.length} ${filteredAnnotations.length === 1 ? "annotation" : "annotations"} across ${new Set(filteredAnnotations.map((a) => a.bookId)).size} books`}
+                        : `${filteredAnnotations.length} ${filteredAnnotations.length === 1 ? "annotation" : "annotations"} across ${new Set(filteredAnnotations.map((a) => a.bookId)).size} sources`}
             />
 
             {currentBookId && (
@@ -650,10 +666,10 @@ export function AnnotationsPage() {
                                             }}
                                             disabled={groupIndex === 0}
                                             className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider disabled:opacity-30 transition-colors touch-manipulation"
-                                            aria-label="Previous book"
+                                            aria-label={annotationGroups[groupIndex].isArticle ? "Previous article" : "Previous book"}
                                         >
                                             <ChevronsLeft className="w-3.5 h-3.5 sm:hidden" />
-                                            <span className="hidden sm:inline">← Prev Book</span>
+                                            <span className="hidden sm:inline">← Prev {annotationGroups[groupIndex].isArticle ? "Article" : "Book"}</span>
                                         </button>
                                         <button
                                             onClick={() => {
@@ -664,9 +680,9 @@ export function AnnotationsPage() {
                                             }}
                                             disabled={groupIndex >= annotationGroups.length - 1}
                                             className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider disabled:opacity-30 transition-colors touch-manipulation"
-                                            aria-label="Next book"
+                                            aria-label={annotationGroups[groupIndex].isArticle ? "Next article" : "Next book"}
                                         >
-                                            <span className="hidden sm:inline">Next Book →</span>
+                                            <span className="hidden sm:inline">Next {annotationGroups[groupIndex].isArticle ? "Article" : "Book"} →</span>
                                             <ChevronsRight className="w-3.5 h-3.5 sm:hidden" />
                                         </button>
                                     </div>
@@ -675,7 +691,8 @@ export function AnnotationsPage() {
                                 {(() => {
                                     const group = annotationGroups[groupIndex];
                                     const ann = group.annotations[cardIndex];
-                                    const book = group.book;
+                                    const source = group.source;
+                                    const isArticle = group.isArticle;
 
                                     return (
                                         <div
@@ -688,8 +705,8 @@ export function AnnotationsPage() {
                                                     {ann.color && (
                                                         <span className="w-2.5 h-2.5 shrink-0 border border-[var(--color-border)]" style={{ backgroundColor: HIGHLIGHT_SOLID_COLORS[ann.color] }} />
                                                     )}
-                                                    <span className="truncate">{book?.title || "Unknown source"}</span>
-                                                    {book?.author && <><span className="text-[color:var(--color-text-muted)] shrink-0">·</span><span className="truncate hidden sm:inline">{book.author}</span></>}
+                                                    <span className="truncate">{source?.title || "Unknown source"}</span>
+                                                    {source?.author && <><span className="text-[color:var(--color-text-muted)] shrink-0">·</span><span className="truncate hidden sm:inline">{source.author}</span></>}
                                                 </div>
                                             </div>
 
@@ -772,7 +789,7 @@ export function AnnotationsPage() {
                                             <div className="px-4 sm:px-8 py-2 border-t border-[var(--color-border-subtle)] flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
                                                 <span className="text-[10px] font-medium text-[color:var(--color-text-muted)] tracking-wider uppercase whitespace-nowrap">
                                                     {cardIndex + 1}/{group.annotations.length}
-                                                    <span className="hidden sm:inline"> in this book</span>
+                                                    <span className="hidden sm:inline"> in this {isArticle ? "article" : "book"}</span>
                                                 </span>
                                                 <button
                                                     onClick={() => { handleEdit(ann.id); }}
@@ -783,12 +800,12 @@ export function AnnotationsPage() {
                                                     <span className="hidden sm:inline">Edit</span>
                                                 </button>
                                                 <button
-                                                    onClick={() => handleGoToBook(ann.bookId, ann.location)}
+                                                    onClick={() => handleGoToSource(ann.bookId, ann.location)}
                                                     className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider transition-colors touch-manipulation"
-                                                    aria-label="Open book"
+                                                    aria-label={isArticle ? "Open article" : "Open book"}
                                                 >
-                                                    <BookOpen className="w-3 h-3 sm:hidden" />
-                                                    <span className="hidden sm:inline">Open Book</span>
+                                                    {isArticle ? <BookOpenText className="w-3 h-3 sm:hidden" /> : <BookOpen className="w-3 h-3 sm:hidden" />}
+                                                    <span className="hidden sm:inline">{isArticle ? "Open Article" : "Open Book"}</span>
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(ann.id)}
@@ -830,7 +847,7 @@ export function AnnotationsPage() {
                                 >
                                     <AnnotationCard
                                         annotation={annotation}
-                                        book={getBookInfo(annotation.bookId)}
+                                        source={sourceLookup.get(annotation.bookId)}
                                         shareId={sharingId}
                                         menuOpen={menuOpenId === annotation.id}
                                         onMenuOpenChange={setMenuOpenId}
@@ -839,7 +856,7 @@ export function AnnotationsPage() {
                                         searchQuery={searchQuery}
                                         onDelete={handleDelete}
                                         onEdit={handleEdit}
-                                        onGoToBook={handleGoToBook}
+                                        onGoToSource={handleGoToSource}
                                         onShare={handleShare}
                                     />
                                 </div>

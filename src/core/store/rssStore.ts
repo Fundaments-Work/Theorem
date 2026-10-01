@@ -21,6 +21,34 @@ const rssArticleSortCache = new WeakMap<RssArticle[], {
     feedSorted: Map<string, RssArticle[]>;
 }>();
 
+const rssArticleIdMapCache = new WeakMap<RssArticle[], Map<string, RssArticle>>();
+
+export function getRssArticleById(articles: RssArticle[], articleId: string): RssArticle | undefined {
+    let map = rssArticleIdMapCache.get(articles);
+    if (!map) {
+        map = new Map();
+        for (let i = 0; i < articles.length; i++) {
+            map.set(articles[i].id, articles[i]);
+        }
+        rssArticleIdMapCache.set(articles, map);
+    }
+    return map.get(articleId);
+}
+
+const rssFeedIdMapCache = new WeakMap<RssFeed[], Map<string, RssFeed>>();
+
+export function getRssFeedById(feeds: RssFeed[], feedId: string): RssFeed | undefined {
+    let map = rssFeedIdMapCache.get(feeds);
+    if (!map) {
+        map = new Map();
+        for (let i = 0; i < feeds.length; i++) {
+            map.set(feeds[i].id, feeds[i]);
+        }
+        rssFeedIdMapCache.set(feeds, map);
+    }
+    return map.get(feedId);
+}
+
 function getRssArticleTimestamp(article: RssArticle): number {
     const dateValue = article.publishedAt ?? article.fetchedAt;
     const timestamp = new Date(dateValue).getTime();
@@ -159,6 +187,7 @@ interface RssStore {
     toggleArticleFavorite: (articleId: string) => void;
     getArticlesForFeed: (feedId: string) => RssArticle[];
     getAllArticles: () => RssArticle[];
+    getArticle: (articleId: string) => RssArticle | undefined;
     openArticleInReader: (article: RssArticle) => void;
     closeArticleViewer: () => void;
     setCurrentArticle: (article: RssArticle | null) => void;
@@ -465,6 +494,10 @@ export const useRssStore = create<RssStore>()(
 
             getAllArticles: () => {
                 return getSortedRssArticleLookup(get().articles).allSorted;
+            },
+
+            getArticle: (articleId: string) => {
+                return getRssArticleById(get().articles, articleId);
             },
 
             openArticleInReader: (article: RssArticle) => {
