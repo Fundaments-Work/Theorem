@@ -144,6 +144,8 @@ export interface Annotation {
     rect?: { x: number; y: number; width: number; height: number };
     rects?: Array<{ x: number; y: number; width: number; height: number }>;
     strokeWidth?: number;
+    chapterTitle?: string;
+    chapterIndex?: number;
 }
 
 export interface Collection {
@@ -308,6 +310,7 @@ export interface TtsSettings {
 }
 
 export type VaultExportPreset = "obsidian" | "logseq" | "minimalist" | "custom";
+export type VaultHighlightGrouping = "by_chapter" | "flat";
 
 export interface VaultIntegrationSettings {
     enabled: boolean;
@@ -318,6 +321,7 @@ export interface VaultIntegrationSettings {
     vocabularyFileName: string;
     exportPreset?: VaultExportPreset;
     customTemplate?: string;
+    highlightGrouping?: VaultHighlightGrouping;
 }
 
 export interface VocabularyMeaning {

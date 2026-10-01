@@ -93,6 +93,8 @@ export const AnnotationSchema = z.object({
         )
         .optional(),
     strokeWidth: z.number().optional(),
+    chapterTitle: z.string().optional(),
+    chapterIndex: z.number().int().nonnegative().optional(),
 }).passthrough();
 
 export const AnnotationsArraySchema = z.array(AnnotationSchema);
@@ -227,6 +229,9 @@ const VaultSettingsSchema = z.object({
     autoExportHighlights: z.boolean(),
     highlightsFileName: z.string(),
     vocabularyFileName: z.string(),
+    exportPreset: z.enum(["obsidian", "logseq", "minimalist", "custom"]).optional(),
+    customTemplate: z.string().optional(),
+    highlightGrouping: z.enum(["by_chapter", "flat"]).optional(),
 });
 
 const DeviceSyncSettingsSchema = z.object({

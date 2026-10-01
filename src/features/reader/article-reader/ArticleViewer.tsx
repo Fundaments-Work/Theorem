@@ -993,13 +993,15 @@ export const ArticleViewer = memo(function ArticleViewer({
             return;
         }
 
+        const heading = getCurrentHeadingLabel();
         addAnnotation({
             id: crypto.randomUUID(),
             bookId: articleAnnotationBookId,
             referenceId: articleAnnotationBookId,
             type: "bookmark",
             location: `${ARTICLE_BOOKMARK_LOCATION_PREFIX}${progress.toFixed(6)}`,
-            selectedText: getCurrentHeadingLabel(),
+            selectedText: heading,
+            chapterTitle: heading,
             createdAt: new Date(),
         });
     }, [
@@ -1173,6 +1175,7 @@ export const ArticleViewer = memo(function ArticleViewer({
         }
 
         const locationSnapshot = selectionSnapshotRef.current ?? (selectedRangeRef.current ? createSelectionSnapshot(selectedRangeRef.current, contentRoot) : null);
+        const heading = getCurrentHeadingLabel();
 
         addAnnotation({
             id: highlightId,
@@ -1182,6 +1185,7 @@ export const ArticleViewer = memo(function ArticleViewer({
             location: buildArticleHighlightLocation(highlightId, locationSnapshot),
             selectedText: selectionText,
             color,
+            chapterTitle: heading,
             createdAt: new Date(),
         });
 
@@ -1189,7 +1193,7 @@ export const ArticleViewer = memo(function ArticleViewer({
         selectionSnapshotRef.current = null;
         clearBrowserSelection();
         return highlightId;
-    }, [addAnnotation, articleAnnotationBookId, clearBrowserSelection, selectedText]);
+    }, [addAnnotation, articleAnnotationBookId, clearBrowserSelection, getCurrentHeadingLabel, selectedText]);
 
     const handleSelectHighlightColor = useCallback((color: HighlightColor) => {
         setPendingHighlightColor(color);

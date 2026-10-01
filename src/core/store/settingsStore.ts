@@ -52,6 +52,7 @@ const defaultVaultSettings: AppSettings["vault"] = {
     vocabularyFileName: "Vocabulary.md",
     exportPreset: "obsidian",
     customTemplate: DEFAULT_KNAP_TEMPLATE,
+    highlightGrouping: "by_chapter",
 };
 
 const defaultDeviceSyncSettings: AppSettings["deviceSync"] = {

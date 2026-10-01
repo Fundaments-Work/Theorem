@@ -13,7 +13,7 @@ import {
 import { ConfirmDialog, AlertDialog } from "../../ui";
 import { syncVaultMarkdownSnapshot, triggerVaultAutoSync } from "../../core/lib/vault-sync";
 import { exportUnifiedSyncBundle, estimateSyncBundleSizeBytes } from "../../core/lib/sync-bundle";
-import type { VaultExportPreset } from "../../core/types";
+import type { VaultExportPreset, VaultHighlightGrouping } from "../../core/types";
 
 import {
     useVocabularyStore,
@@ -1207,6 +1207,20 @@ export const SettingsPage = memo(function SettingsPage() {
                                     ]}
                                     value={settings.vault.exportPreset || "obsidian"}
                                     onChange={(v) => updateVaultSettings({ exportPreset: v })}
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Highlight Grouping"
+                                description="Organize highlights under chapter sections or as a flat chronological list"
+                            >
+                                <ButtonSelect<VaultHighlightGrouping>
+                                    options={[
+                                        { value: "by_chapter", label: "By Chapter (Hierarchical)" },
+                                        { value: "flat", label: "Flat (Chronological)" },
+                                    ]}
+                                    value={settings.vault.highlightGrouping || "by_chapter"}
+                                    onChange={(v) => updateVaultSettings({ highlightGrouping: v })}
                                 />
                             </SettingRow>
 
