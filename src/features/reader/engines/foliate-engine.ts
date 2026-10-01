@@ -23,6 +23,7 @@ import {
     getThemeColors,
     getHighlightSolidColor,
 } from '../../../core/lib/design-tokens';
+import { isTauri } from '../../../core/lib/env';
 import { normalizeAuthor } from '../../../core/lib/utils';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 import { useLibraryStore } from '../../../core/store';
@@ -323,6 +324,21 @@ export class FoliateEngine {
             } else {
                 const buffer = typeof source === 'string' ? new TextEncoder().encode(source) : source;
                 file = new File([buffer], _filename, { type: 'application/epub+zip' });
+            }
+
+            if (format === 'cbr' && isTauri()) {
+                try {
+                    const { invoke } = await import('@tauri-apps/api/core');
+                    const targetPath = nativeFilePath || (source as { path?: string })?.path;
+                    if (targetPath) {
+                        const cbzBytes = await invoke<Uint8Array>('read_cbr_as_cbz', { path: targetPath });
+                        file = new File([cbzBytes.buffer as ArrayBuffer], _filename.replace(/\.cbr$/i, '.cbz'), {
+                            type: 'application/vnd.comicbook+zip',
+                        });
+                    }
+                } catch (e) {
+                    console.warn('[FoliateEngine] Failed to convert CBR to CBZ:', e);
+                }
             }
 
             const bookCacheKey = nativeFilePath ?? `${_filename}:${file.size}`;

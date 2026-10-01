@@ -114,7 +114,7 @@ function resolvePdfTargetPage(target: string): number | null {
 }
 
 /** Formats read through zip.js, which only needs byte ranges. */
-const RANGE_READ_FORMATS: ReadonlySet<BookFormat> = new Set<BookFormat>(["epub", "cbz"]);
+const RANGE_READ_FORMATS: ReadonlySet<BookFormat> = new Set<BookFormat>(["epub", "cbz", "cbr"]);
 
 function getMimeTypeForBookFormat(format: BookFormat): string {
     switch (format) {
@@ -128,9 +128,10 @@ function getMimeTypeForBookFormat(format: BookFormat): string {
             return "application/x-fictionbook+xml";
         case "cbz":
             return "application/vnd.comicbook+zip";
+        case "cbr":
+            return "application/vnd.comicbook-rar";
         case "pdf":
             return "application/pdf";
-        case "cbr":
         default:
             return "application/octet-stream";
     }

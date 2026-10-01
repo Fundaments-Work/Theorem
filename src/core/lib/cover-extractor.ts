@@ -3,7 +3,7 @@ import type { BookFormat } from '../types';
 import { saveCoverImage, downsampleCoverImage } from './storage';
 import { getConfiguredPdfJs, PDFJS_ASSET_OPTIONS } from './pdfjs-runtime';
 import { normalizeAuthor } from './utils';
-import { isMobile } from './env';
+import { isMobile, isTauri } from './env';
 
 const DEFAULT_METADATA_TIMEOUT_MS = isMobile() ? 15000 : 10000;
 const DEFAULT_COVER_TIMEOUT_MS = isMobile() ? 12000 : 5000;
@@ -497,6 +497,17 @@ export async function extractMetadata(
     }
 
     try {
+        if (format === 'cbr' && isTauri()) {
+            try {
+                const { invoke } = await import('@tauri-apps/api/core');
+                const cbzData = await invoke<Uint8Array>('read_cbr_as_cbz', { path: filename });
+                data = cbzData.buffer as ArrayBuffer;
+                filename = filename.replace(/\.cbr$/i, '.cbz');
+            } catch {
+                // Ignore fallback
+            }
+        }
+
         const { makeBook } = await import('../../features/reader/foliate-js-runtime/view.js');
         const mimeType = getMimeType(format);
 

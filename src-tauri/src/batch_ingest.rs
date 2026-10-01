@@ -98,6 +98,7 @@ pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
     let mut jpeg_buf = Vec::new();
     let mut cursor = Cursor::new(&mut jpeg_buf);
     resized
+        .to_rgb8()
         .write_to(&mut cursor, image::ImageFormat::Jpeg)
         .ok()?;
 
@@ -110,17 +111,17 @@ pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
 // PARSERS FOR INDIVIDUAL FORMATS
 // ─────────────────────────────────────────────────────────────────────────────
 
-struct ParsedMetadata {
-    title: String,
-    author: String,
-    description: Option<String>,
-    publisher: Option<String>,
-    published_date: Option<String>,
-    language: Option<String>,
-    isbn: Option<String>,
-    cover_data_url: Option<String>,
-    series: Option<String>,
-    series_index: Option<f64>,
+pub(crate) struct ParsedMetadata {
+    pub(crate) title: String,
+    pub(crate) author: String,
+    pub(crate) description: Option<String>,
+    pub(crate) publisher: Option<String>,
+    pub(crate) published_date: Option<String>,
+    pub(crate) language: Option<String>,
+    pub(crate) isbn: Option<String>,
+    pub(crate) cover_data_url: Option<String>,
+    pub(crate) series: Option<String>,
+    pub(crate) series_index: Option<f64>,
 }
 
 /// Extract metadata & cover from an EPUB file using streaming XML
@@ -571,7 +572,7 @@ fn parse_opf_xml(xml: &str) -> RawOpfMetadata {
     meta
 }
 
-fn extract_xml_tag_text(xml: &str, tag: &str) -> Option<String> {
+pub(crate) fn extract_xml_tag_text(xml: &str, tag: &str) -> Option<String> {
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
     let start = xml.find(&open)? + open.len();
@@ -653,6 +654,7 @@ pub async fn ingest_books_native(
                 let metadata_res = match ext.as_str() {
                     "epub" => parse_epub_native(path),
                     "cbz" => parse_cbz_native(path),
+                    "cbr" => crate::cbr::parse_cbr_native(path),
                     _ => parse_generic_native(path),
                 };
 
@@ -670,12 +672,30 @@ pub async fn ingest_books_native(
 
                 // Materialize the book binary directly to canonical book-cache/{id}.book
                 let dest_path = cache_dir.join(format!("{id}.book"));
-                let storage_path = match std::fs::copy(path, &dest_path) {
-                    Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
-                    Err(e) => {
-                        eprintln!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {e}");
-                        None
+                let (storage_path, final_format) = if ext == "cbr" {
+                    match crate::cbr::convert_cbr_to_cbz_file(path, &dest_path) {
+                        Ok(()) => (Some(dest_path.to_string_lossy().into_owned()), "cbz".to_string()),
+                        Err(e) => {
+                            eprintln!("[batch_ingest] Failed to convert CBR '{raw_path}' to CBZ: {e}");
+                            let fallback = match std::fs::copy(path, &dest_path) {
+                                Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
+                                Err(copy_err) => {
+                                    eprintln!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {copy_err}");
+                                    None
+                                }
+                            };
+                            (fallback, ext)
+                        }
                     }
+                } else {
+                    let sp = match std::fs::copy(path, &dest_path) {
+                        Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
+                        Err(e) => {
+                            eprintln!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {e}");
+                            None
+                        }
+                    };
+                    (sp, ext)
                 };
 
                 let book = NativeBookRecord {
@@ -684,7 +704,7 @@ pub async fn ingest_books_native(
                     author: metadata.author,
                     file_path: raw_path.clone(),
                     storage_path,
-                    format: ext,
+                    format: final_format,
                     content_hash,
                     cover_path,
                     cover_extraction_done,
