@@ -684,6 +684,15 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                     </div>
 
                     <div className="mt-6 space-y-3">
+                        {book.series && (
+                            <div className="p-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
+                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Series</p>
+                                <p className="text-sm font-semibold text-[color:var(--color-text-primary)] mt-0.5">
+                                    {book.series}
+                                    {book.seriesIndex !== undefined ? ` • Volume ${book.seriesIndex}` : ""}
+                                </p>
+                            </div>
+                        )}
                         {book.description && (
                             <div>
                                 <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Description</p>
@@ -1187,6 +1196,12 @@ export function LibraryPage() {
             if (metadata.publishedDate && !latestBook.publishedDate) {
                 updates.publishedDate = metadata.publishedDate;
             }
+            if (metadata.series && !latestBook.series) {
+                updates.series = metadata.series;
+            }
+            if (metadata.seriesIndex !== undefined && latestBook.seriesIndex === undefined) {
+                updates.seriesIndex = metadata.seriesIndex;
+            }
 
             const hasUsefulMetadataUpdate = (
                 Boolean(metadata.coverDataUrl)
@@ -1196,6 +1211,8 @@ export function LibraryPage() {
                 || Boolean(metadata.publisher && !latestBook.publisher)
                 || Boolean(metadata.language && !latestBook.language)
                 || Boolean(metadata.publishedDate && !latestBook.publishedDate)
+                || Boolean(metadata.series && !latestBook.series)
+                || Boolean(metadata.seriesIndex !== undefined && latestBook.seriesIndex === undefined)
             );
 
             if (hasUsefulMetadataUpdate) {
@@ -1987,6 +2004,7 @@ export function LibraryPage() {
                                             { id: "author", label: "Author" },
                                             { id: "dateAdded", label: "Added" },
                                             { id: "lastRead", label: "Read" },
+                                            { id: "series", label: "Series" },
                                         ].map((option) => (
                                             <button
                                                 key={option.id}
@@ -2182,6 +2200,7 @@ export function LibraryPage() {
                                             { id: "author", label: "Author" },
                                             { id: "dateAdded", label: "Added" },
                                             { id: "lastRead", label: "Read" },
+                                            { id: "series", label: "Series" },
                                         ].map((option) => (
                                             <button
                                                 key={option.id}

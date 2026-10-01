@@ -1085,6 +1085,9 @@ const BookReaderPage = memo(function BookReaderPage() {
             ...meta,
             pubdate: loadedBook?.publishedDate || meta.pubdate,
             cover: loadedBook?.coverPath || meta.cover,
+            series: loadedBook?.series || meta.series,
+            seriesIndex: loadedBook?.seriesIndex ?? meta.seriesIndex,
+            seriesTotal: meta.seriesTotal,
         };
 
         setMetadata(mergedMetadata);

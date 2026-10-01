@@ -55,6 +55,8 @@ export const BookSchema = z.object({
     syncedWithoutFile: z.boolean().optional(),
     blobHash: z.string().optional(),
     coverBlobHash: z.string().optional(),
+    series: z.string().optional(),
+    seriesIndex: z.number().optional(),
 }).passthrough();
 
 export const BooksArraySchema = z.array(BookSchema);
@@ -107,6 +109,7 @@ export const CollectionSchema = z.object({
     kind: z.enum(["general"]),
     createdAt: dateLike,
     updatedAt: dateLike,
+    groupBySeries: z.boolean().optional(),
 }).passthrough();
 
 export const CollectionsArraySchema = z.array(CollectionSchema);
@@ -254,7 +257,7 @@ const DeviceSyncSettingsSchema = z.object({
 export const AppSettingsSchema = z.object({
     sidebarCollapsed: z.boolean(),
     libraryViewMode: z.enum(["grid", "list", "compact"]),
-    librarySortBy: z.enum(["title", "author", "dateAdded", "lastRead", "progress", "rating"]),
+    librarySortBy: z.enum(["title", "author", "dateAdded", "lastRead", "progress", "rating", "series"]),
     librarySortOrder: z.enum(["asc", "desc"]),
     scanFolders: z.array(z.string()),
     cacheSize: z.number(),

@@ -94,6 +94,12 @@ export interface Book {
 
     /** Companion human-narrated audiobook (attachable to any book). */
     audioTrack?: BookAudioTrack;
+
+    /** Series or collection name this book belongs to */
+    series?: string;
+
+    /** Position or sequence volume within the series (e.g. 1, 2, 2.5) */
+    seriesIndex?: number;
 }
 
 export interface AudioChapter {
@@ -156,6 +162,7 @@ export interface Collection {
     kind: "general";
     createdAt: Date;
     updatedAt?: Date;
+    groupBySeries?: boolean;
 }
 
 export type TombstoneEntity = "book" | "annotation" | "collection" | "feed" | "rss_article" | "vocabulary" | "collection_book";
@@ -202,7 +209,7 @@ export interface ReaderSettings {
 }
 
 export type LibraryViewMode = "grid" | "list" | "compact";
-export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "progress" | "rating";
+export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "progress" | "rating" | "series";
 export type LibrarySortOrder = "asc" | "desc";
 export type LibraryStatusFilter = "all" | "unread" | "reading" | "completed";
 
@@ -478,6 +485,9 @@ export interface DocMetadata {
     producer?: string;
     pdfVersion?: string;
     pageSize?: string;
+    series?: string;
+    seriesIndex?: number;
+    seriesTotal?: number;
     /** Files embedded in a PDF. */
     attachments?: { key: string; name: string; size?: number; description?: string }[];
 }

@@ -36,6 +36,10 @@ pub struct NativeBookRecord {
     pub language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isbn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub series: Option<String>,
+    #[serde(rename = "seriesIndex", skip_serializing_if = "Option::is_none")]
+    pub series_index: Option<f64>,
     #[serde(rename = "fileSize")]
     pub file_size: u64,
     #[serde(rename = "addedAt")]
@@ -115,6 +119,8 @@ struct ParsedMetadata {
     language: Option<String>,
     isbn: Option<String>,
     cover_data_url: Option<String>,
+    series: Option<String>,
+    series_index: Option<f64>,
 }
 
 /// Extract metadata & cover from an EPUB file using streaming XML
@@ -173,6 +179,8 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
     let language = opf_meta.language;
     let isbn = opf_meta.isbn;
     let cover_href = opf_meta.cover_href;
+    let series = opf_meta.series;
+    let series_index = opf_meta.series_index;
 
     // Fallback title / author from filename if missing or empty
     if title.trim().is_empty() || title.eq_ignore_ascii_case("unknown") {
@@ -242,6 +250,8 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
         language,
         isbn,
         cover_data_url,
+        series,
+        series_index,
     })
 }
 
@@ -252,6 +262,8 @@ fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
 
     let (mut title, author) = parse_title_author_from_filename(path);
     let mut cover_data_url = None;
+    let mut series = None;
+    let mut series_index = None;
 
     // Check for ComicInfo.xml
     if let Ok(mut comic_info) = archive.by_name("ComicInfo.xml") {
@@ -260,6 +272,16 @@ fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
             if let Some(t) = extract_xml_tag_text(&xml_str, "Title") {
                 if !t.trim().is_empty() {
                     title = t;
+                }
+            }
+            if let Some(s) = extract_xml_tag_text(&xml_str, "Series") {
+                if !s.trim().is_empty() {
+                    series = Some(s);
+                }
+            }
+            if let Some(num_str) = extract_xml_tag_text(&xml_str, "Number") {
+                if let Ok(idx) = num_str.trim().parse::<f64>() {
+                    series_index = Some(idx);
                 }
             }
         }
@@ -299,6 +321,8 @@ fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
         language: None,
         isbn: None,
         cover_data_url,
+        series,
+        series_index,
     })
 }
 
@@ -314,6 +338,8 @@ fn parse_generic_native(path: &Path) -> Result<ParsedMetadata, String> {
         language: None,
         isbn: None,
         cover_data_url: None,
+        series: None,
+        series_index: None,
     })
 }
 
@@ -358,6 +384,8 @@ struct RawOpfMetadata {
     language: Option<String>,
     isbn: Option<String>,
     cover_href: Option<String>,
+    series: Option<String>,
+    series_index: Option<f64>,
 }
 
 fn parse_opf_xml(xml: &str) -> RawOpfMetadata {
@@ -373,6 +401,8 @@ fn parse_opf_xml(xml: &str) -> RawOpfMetadata {
     let mut manifest_items: Vec<(String, String, Option<String>)> = Vec::new(); // (id, href, properties)
 
     let mut current_tag = String::new();
+    let mut current_meta_is_series = false;
+    let mut current_meta_is_series_index = false;
     let mut buf = Vec::new();
 
     loop {
@@ -384,16 +414,37 @@ fn parse_opf_xml(xml: &str) -> RawOpfMetadata {
                 if local_name.as_ref() == b"meta" {
                     let mut name_val = String::new();
                     let mut content_val = String::new();
+                    let mut is_series_prop = false;
+                    let mut is_pos_prop = false;
                     for attr in e.attributes().flatten() {
                         if attr.key.as_ref() == b"name" {
                             name_val = String::from_utf8_lossy(&attr.value).to_string();
                         } else if attr.key.as_ref() == b"content" {
                             content_val = String::from_utf8_lossy(&attr.value).to_string();
+                        } else if attr.key.as_ref() == b"property" {
+                            let prop = String::from_utf8_lossy(&attr.value);
+                            if prop == "belongs-to-collection" {
+                                is_series_prop = true;
+                            } else if prop == "group-position" {
+                                is_pos_prop = true;
+                            }
                         }
                     }
                     if name_val.eq_ignore_ascii_case("cover") && !content_val.is_empty() {
                         cover_item_id = Some(content_val);
+                    } else if name_val.eq_ignore_ascii_case("calibre:series")
+                        && !content_val.is_empty()
+                    {
+                        meta.series = Some(content_val);
+                    } else if name_val.eq_ignore_ascii_case("calibre:series_index")
+                        && !content_val.is_empty()
+                    {
+                        if let Ok(idx) = content_val.parse::<f64>() {
+                            meta.series_index = Some(idx);
+                        }
                     }
+                    current_meta_is_series = is_series_prop;
+                    current_meta_is_series_index = is_pos_prop;
                 }
             }
             Ok(Event::Empty(ref e)) => {
@@ -426,12 +477,29 @@ fn parse_opf_xml(xml: &str) -> RawOpfMetadata {
                     }
                     if name_val.eq_ignore_ascii_case("cover") && !content_val.is_empty() {
                         cover_item_id = Some(content_val);
+                    } else if name_val.eq_ignore_ascii_case("calibre:series")
+                        && !content_val.is_empty()
+                    {
+                        meta.series = Some(content_val);
+                    } else if name_val.eq_ignore_ascii_case("calibre:series_index")
+                        && !content_val.is_empty()
+                    {
+                        if let Ok(idx) = content_val.parse::<f64>() {
+                            meta.series_index = Some(idx);
+                        }
                     }
                 }
             }
             Ok(Event::Text(ref e)) => {
                 let text = e.unescape().unwrap_or_default().trim().to_string();
                 if !text.is_empty() {
+                    if current_meta_is_series && meta.series.is_none() {
+                        meta.series = Some(text.clone());
+                    } else if current_meta_is_series_index && meta.series_index.is_none() {
+                        if let Ok(idx) = text.parse::<f64>() {
+                            meta.series_index = Some(idx);
+                        }
+                    }
                     match current_tag.as_str() {
                         "title" if meta.title.is_empty() => meta.title = text,
                         "creator" if meta.author.is_empty() => meta.author = text,
@@ -448,6 +516,8 @@ fn parse_opf_xml(xml: &str) -> RawOpfMetadata {
             }
             Ok(Event::End(_)) => {
                 current_tag.clear();
+                current_meta_is_series = false;
+                current_meta_is_series_index = false;
             }
             Ok(Event::Eof) | Err(_) => break,
             _ => {}
@@ -623,6 +693,8 @@ pub async fn ingest_books_native(
                     published_date: metadata.published_date,
                     language: metadata.language,
                     isbn: metadata.isbn,
+                    series: metadata.series,
+                    series_index: metadata.series_index,
                     file_size,
                     added_at: now,
                     progress: 0.0,
@@ -725,5 +797,33 @@ mod tests {
         assert_eq!(meta.publisher, Some("Ace".to_string()));
         assert_eq!(meta.language, Some("en".to_string()));
         assert_eq!(meta.cover_href, Some("images/cover.jpg".to_string()));
+    }
+
+    #[test]
+    fn test_opf_series_parsing() {
+        let calibre_opf = r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+    <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:title>The Fellowship of the Ring</dc:title>
+        <dc:creator>J.R.R. Tolkien</dc:creator>
+        <meta name="calibre:series" content="The Lord of the Rings"/>
+        <meta name="calibre:series_index" content="1.0"/>
+    </metadata>
+</package>"#;
+        let meta1 = parse_opf_xml(calibre_opf);
+        assert_eq!(meta1.series, Some("The Lord of the Rings".to_string()));
+        assert_eq!(meta1.series_index, Some(1.0));
+
+        let epub3_opf = r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+    <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:title>The Two Towers</dc:title>
+        <meta property="belongs-to-collection">The Lord of the Rings</meta>
+        <meta property="group-position">2</meta>
+    </metadata>
+</package>"#;
+        let meta2 = parse_opf_xml(epub3_opf);
+        assert_eq!(meta2.series, Some("The Lord of the Rings".to_string()));
+        assert_eq!(meta2.series_index, Some(2.0));
     }
 }

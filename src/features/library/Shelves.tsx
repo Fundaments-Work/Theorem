@@ -28,6 +28,7 @@ import {
     CheckCheck,
     BookMarked,
     RotateCcw,
+    Layers,
 } from "lucide-react";
 import type { Book, Collection, LibraryViewMode } from "../../core/types";
 
@@ -249,6 +250,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const removeBooks = useLibraryStore((state) => state.removeBooks);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
     const updateBook = useLibraryStore((state) => state.updateBook);
+    const updateCollection = useLibraryStore((state) => state.updateCollection);
     const getBook = useLibraryStore((state) => state.getBook);
     const markBookCompleted = useLibraryStore((state) => state.markBookCompleted);
     const markBookUnread = useLibraryStore((state) => state.markBookUnread);
@@ -547,6 +549,19 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
 
                 <div className="flex items-center gap-2">
                     <button
+                        onClick={() => updateCollection(shelf.id, { groupBySeries: !shelf.groupBySeries })}
+                        className={cn(
+                            "flex items-center justify-center w-10 h-10",
+                            "border",
+                            shelf.groupBySeries
+                                ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        )}
+                        title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
+                    >
+                        <Layers className="w-4 h-4" />
+                    </button>
+                    <button
                         data-action="toggle-select-mode"
                         onClick={handleToggleSelectMode}
                         className={cn(
@@ -585,7 +600,104 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                             </button>
                         )}
                     </div>
+                ) : shelf.groupBySeries ? (
+                    // ── Series-grouped view ────────────────────────────────────────────
+                    (() => {
+                        const seriesMap = new Map<string, Book[]>();
+                        const standalone: Book[] = [];
+                        for (const book of shelfBooks) {
+                            if (book.series) {
+                                const group = seriesMap.get(book.series);
+                                if (group) group.push(book);
+                                else seriesMap.set(book.series, [book]);
+                            } else {
+                                standalone.push(book);
+                            }
+                        }
+                        // Sort each series group by seriesIndex ascending
+                        for (const group of seriesMap.values()) {
+                            group.sort((a, b) => (a.seriesIndex ?? Infinity) - (b.seriesIndex ?? Infinity));
+                        }
+                        // Sort series names alphabetically
+                        const sortedSeries = [...seriesMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+                        const cardProps = {
+                            onOpenBook: handleOpenBook,
+                            onToggleFavorite: toggleFavorite,
+                            onDeleteBook: (id: string) => {
+                                const book = getBook(id);
+                                if (book) setDeleteBookInfo({ bookId: book.id, title: book.title });
+                            },
+                            onShowInfo: (b: Book) => { setInfoModalBook(b); setIsInfoModalOpen(true); },
+                            onAddToShelf: (id: string) => { setAddToShelfBookId(id); setIsAddToShelfModalOpen(true); },
+                            onRename: handleRename,
+                            onExport: handleExport,
+                            renameMenuLabel: "Rename",
+                            onMarkAsRead: markBookCompleted,
+                            onMarkAsUnread: markBookUnread,
+                        };
+
+                        return (
+                            <div className="space-y-8">
+                                {sortedSeries.map(([seriesName, group]) => (
+                                    <div key={seriesName}>
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
+                                            <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-primary)] truncate">
+                                                {seriesName}
+                                            </h2>
+                                            <span className="text-xs text-[color:var(--color-text-muted)] shrink-0">
+                                                {group.length} {group.length === 1 ? "vol." : "vols."}
+                                            </span>
+                                            <div className="flex-1 border-t border-[var(--color-border)]" />
+                                        </div>
+                                        <div
+                                            style={{
+                                                display: "grid",
+                                                gridTemplateColumns: isListView ? "1fr" : `repeat(${effectiveCols}, minmax(0, 1fr))`,
+                                                gap: isCompactView ? "8px" : "20px",
+                                            }}
+                                        >
+                                            {group.map((book) => (
+                                                <MemoizedBookCard
+                                                    key={book.id} book={book} viewMode={viewMode}
+                                                    isSelecting={isSelecting} isSelected={selectedBookIds.has(book.id)} onToggleSelect={handleToggleSelect}
+                                                    {...cardProps}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                                {standalone.length > 0 && (
+                                    <div>
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-muted)]">
+                                                Standalone
+                                            </h2>
+                                            <div className="flex-1 border-t border-[var(--color-border)]" />
+                                        </div>
+                                        <div
+                                            style={{
+                                                display: "grid",
+                                                gridTemplateColumns: isListView ? "1fr" : `repeat(${effectiveCols}, minmax(0, 1fr))`,
+                                                gap: isCompactView ? "8px" : "20px",
+                                            }}
+                                        >
+                                            {standalone.map((book) => (
+                                                <MemoizedBookCard
+                                                    key={book.id} book={book} viewMode={viewMode}
+                                                    isSelecting={isSelecting} isSelected={selectedBookIds.has(book.id)} onToggleSelect={handleToggleSelect}
+                                                    {...cardProps}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()
                 ) : (
+                // ── Flat virtualizer view (default) ───────────────────────────────
                 <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
                         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                             const rowStart = virtualRow.index * (isListView ? 1 : effectiveCols);
