@@ -239,6 +239,8 @@ export interface AppSettings {
     goalNotifications: boolean;
     dailyReminderTime: string;
     syncNotifications: boolean;
+    rssRetentionDays: number;
+    rssKeepUnread: boolean;
 }
 
 export interface PairedDevice {
@@ -414,6 +416,8 @@ export interface RssArticle {
     fetchedAt: Date;
     isRead: boolean;
     isFavorite: boolean;
+    /** Explicitly saved for offline reading — content kept permanently in SQLite. */
+    isSaved: boolean;
     progress?: number;
 }
 

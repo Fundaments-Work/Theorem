@@ -1,4 +1,5 @@
-import { Calendar, ExternalLink, Globe, User, X } from "lucide-react";
+import { Bookmark, Calendar, ExternalLink, Globe, User, X } from "lucide-react";
+import { cn } from "../../../core/lib/utils";
 import { isTauri } from "../../../core/lib/env";
 import type { RssArticle } from "../../../core/types";
 import { FloatingPanel } from "../../../ui";
@@ -9,6 +10,7 @@ interface ArticleReaderInfoPanelProps {
     article: RssArticle;
     feedTitle?: string;
     onClose: () => void;
+    onToggleSaved?: () => void;
 }
 
 export function ArticleReaderInfoPanel({
@@ -16,6 +18,7 @@ export function ArticleReaderInfoPanel({
     article,
     feedTitle,
     onClose,
+    onToggleSaved,
 }: ArticleReaderInfoPanelProps) {
     return (
         <FloatingPanel visible={visible} className="overflow-hidden">
@@ -59,6 +62,22 @@ export function ArticleReaderInfoPanel({
                         </div>
                     )}
                 </div>
+
+                {onToggleSaved && (
+                    <button
+                        type="button"
+                        onClick={onToggleSaved}
+                        className={cn(
+                            "flex h-10 w-full items-center justify-center gap-2 border font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors",
+                            article.isSaved
+                                ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
+                                : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]"
+                        )}
+                    >
+                        <Bookmark className={cn("w-4 h-4", article.isSaved && "fill-current")} />
+                        {article.isSaved ? "Saved for Offline" : "Save for Offline"}
+                    </button>
+                )}
 
                 {article.url && (
                     <button

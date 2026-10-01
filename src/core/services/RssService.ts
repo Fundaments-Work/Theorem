@@ -11,7 +11,7 @@ interface ParsedFeed {
     description?: string;
     siteUrl?: string;
     iconUrl?: string;
-    articles: Omit<RssArticle, 'id' | 'feedId' | 'fetchedAt' | 'isRead' | 'isFavorite'>[];
+    articles: Omit<RssArticle, 'id' | 'feedId' | 'fetchedAt' | 'isRead' | 'isFavorite' | 'isSaved'>[];
 }
 
 class TokenBucket {
@@ -838,6 +838,7 @@ export async function materializeFeed(
         fetchedAt: now,
         isRead: false,
         isFavorite: false,
+        isSaved: false,
     })));
 
     const feed: RssFeed = {

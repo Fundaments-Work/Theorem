@@ -92,6 +92,8 @@ const defaultAppSettings: AppSettings = {
     goalNotifications: true,
     dailyReminderTime: "20:00",
     syncNotifications: true,
+    rssRetentionDays: 30,
+    rssKeepUnread: true,
 };
 
 const defaultReadingStats: ReadingStats = {

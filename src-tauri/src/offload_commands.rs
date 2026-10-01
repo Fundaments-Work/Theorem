@@ -426,6 +426,27 @@ pub async fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Re
 }
 
 #[tauri::command]
+pub async fn sqlite_mark_article_saved(
+    app: AppHandle,
+    article_id: String,
+    is_saved: bool,
+) -> Result<(), String> {
+    offload(move || crate::database::sqlite_mark_article_saved(app, article_id, is_saved)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_cleanup_old_rss_articles(
+    app: AppHandle,
+    retention_days: u32,
+    keep_unread: bool,
+) -> Result<u32, String> {
+    offload(move || {
+        crate::database::sqlite_cleanup_old_rss_articles(app, retention_days, keep_unread)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn sqlite_record_reading_session(
     app: AppHandle,
     session_id: String,

@@ -185,6 +185,7 @@ export const RssArticleSchema = z.object({
     fetchedAt: dateLike,
     isRead: z.boolean(),
     isFavorite: z.boolean(),
+    isSaved: z.boolean().optional().default(false),
 }).passthrough();
 
 export const RssArticlesArraySchema = z.array(RssArticleSchema);

@@ -406,6 +406,7 @@ export interface SqliteRssArticle {
     fetchedAt?: number;
     isRead: boolean;
     isFavorite: boolean;
+    isSaved: boolean;
     progress?: number;
 }
 
@@ -507,10 +508,35 @@ export async function sqliteMarkArticleFavorite(
     await invoke('sqlite_mark_article_favorite', { articleId, isFavorite });
 }
 
+export async function sqliteMarkArticleSaved(
+    articleId: string,
+    isSaved: boolean,
+): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke('sqlite_mark_article_saved', { articleId, isSaved });
+}
+
 export async function sqliteDeleteRssArticle(articleId: string): Promise<void> {
     if (!isTauri()) return;
     const invoke = await getInvoke();
     await invoke('sqlite_delete_rss_article', { articleId });
+}
+
+export async function sqliteCleanupOldRssArticles(
+    retentionDays: number,
+    keepUnread: boolean,
+): Promise<number> {
+    if (!isTauri()) return 0;
+    try {
+        const invoke = await getInvoke();
+        return (await invoke('sqlite_cleanup_old_rss_articles', {
+            retentionDays,
+            keepUnread,
+        })) as number;
+    } catch {
+        return 0;
+    }
 }
 
 export async function sqliteRecordReadingSession(
