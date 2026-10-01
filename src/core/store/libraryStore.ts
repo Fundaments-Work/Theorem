@@ -324,9 +324,9 @@ function mergeImportedBookMetadata(existingBook: Book, incomingBook: Book): Book
     let changed = false;
     const nextBook = { ...existingBook };
 
-    if (existingBook.syncedWithoutFile && incomingBook.storagePath) {
-        nextBook.storagePath = incomingBook.storagePath;
-        nextBook.filePath = incomingBook.filePath;
+    if (existingBook.syncedWithoutFile && (incomingBook.storagePath || incomingBook.filePath)) {
+        nextBook.storagePath = incomingBook.storagePath || incomingBook.filePath;
+        nextBook.filePath = incomingBook.filePath || incomingBook.storagePath || existingBook.filePath;
         nextBook.syncedWithoutFile = false;
         nextBook.coverExtractionDone = false;
         changed = true;

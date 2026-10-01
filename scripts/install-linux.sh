@@ -125,6 +125,9 @@ install_deb_locally() {
 
     mkdir -p "$APP_DIR" "$BIN_DIR" "$HOME/.local/share/applications" "$icons_root"
     rm -rf "$APP_DIR/usr"
+    rm -f "$BIN_DIR/theorem-daemon"
+    rm -rf "$HOME/.local/share/com.lionreader.app"
+    rm -rf "$HOME/.local/share/work.fundamentals.theorem/books"
 
     bsdtar -xf "$artifact" -C "$temp_dir"
     bsdtar -xzf "$temp_dir/data.tar.gz" -C "$APP_DIR"
@@ -151,6 +154,9 @@ install_appimage() {
 
     mkdir -p "$APP_DIR" "$BIN_DIR" "$HOME/.local/share/applications" "$icons_dir"
     rm -rf "$APP_DIR/usr"
+    rm -f "$BIN_DIR/theorem-daemon"
+    rm -rf "$HOME/.local/share/com.lionreader.app"
+    rm -rf "$HOME/.local/share/work.fundamentals.theorem/books"
 
     install -Dm755 "$artifact" "$APP_DIR/Theorem.AppImage"
     ln -sf "$APP_DIR/Theorem.AppImage" "$BIN_DIR/theorem"

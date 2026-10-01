@@ -530,15 +530,14 @@ const BookReaderPage = memo(function BookReaderPage() {
     const handlePdfError = useCallback((err: Error) => {
         const book = currentBookId ? getBook(currentBookId) : null;
         const msg = err.message.toLowerCase();
-        if (book && (msg.includes('not found') || msg.includes('no such file') || msg.includes('failed to read pdf') || msg.includes('404'))) {
-            updateBook(book.id, { syncedWithoutFile: true });
+        if (book?.syncedWithoutFile && (msg.includes('not found') || msg.includes('no such file') || msg.includes('failed to read pdf') || msg.includes('404'))) {
             setLoadError('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
             loadedBookIdRef.current = null;
             return;
         }
         setLoadError(err.message);
         loadedBookIdRef.current = null;
-    }, [currentBookId, getBook, updateBook]);
+    }, [currentBookId, getBook]);
 
     const handlePdfPageChange = useCallback((page: number, total: number, scale: number) => {
         const safePage = Math.max(1, page);
@@ -832,16 +831,18 @@ const BookReaderPage = memo(function BookReaderPage() {
                     const data = await getBookData(book.id, storagePath);
                     if (isCancelled) return;
                     if (!data || data.byteLength === 0) {
-                        updateBook(book.id, { syncedWithoutFile: true });
-                        useUIStore.getState().setDownloadingBook(book.id);
-                        const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
-                        const downloaded = await downloadBookOnDemand(book.id);
-                        if (downloaded && !isCancelled) {
-                            loadedBookIdRef.current = null;
-                            setLoadAttempt(v => v + 1);
-                            return;
+                        if (book.syncedWithoutFile) {
+                            useUIStore.getState().setDownloadingBook(book.id);
+                            const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
+                            const downloaded = await downloadBookOnDemand(book.id);
+                            if (downloaded && !isCancelled) {
+                                loadedBookIdRef.current = null;
+                                setLoadAttempt(v => v + 1);
+                                return;
+                            }
+                            throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
                         }
-                        throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
+                        throw new Error('Book file not found. The file may have been moved, renamed, or deleted from disk.');
                     }
                     setResolvedPdfPath("");
                     setPdfData(new Uint8Array(data));
@@ -872,22 +873,24 @@ const BookReaderPage = memo(function BookReaderPage() {
                 const blob = await getBookBlob(book.id, storagePath);
                 if (isCancelled) return;
                 if (!blob) {
-                    updateBook(book.id, { syncedWithoutFile: true });
-                    useUIStore.getState().setDownloadingBook(book.id);
-                    const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
-                    const downloaded = await downloadBookOnDemand(book.id);
-                    if (downloaded && !isCancelled) {
-                        loadedBookIdRef.current = null;
-                        setLoadAttempt(v => v + 1);
-                        return;
+                    if (book.syncedWithoutFile) {
+                        useUIStore.getState().setDownloadingBook(book.id);
+                        const { downloadBookOnDemand } = await import("../../core/lib/sync-orchestrator");
+                        const downloaded = await downloadBookOnDemand(book.id);
+                        if (downloaded && !isCancelled) {
+                            loadedBookIdRef.current = null;
+                            setLoadAttempt(v => v + 1);
+                            return;
+                        }
+                        const currentBookStillExists = useLibraryStore.getState().getBook(book.id);
+                        if (!currentBookStillExists) {
+                            toast.info("This book was deleted on the source device.");
+                            setRoute("library");
+                            return;
+                        }
+                        throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
                     }
-                    const currentBookStillExists = useLibraryStore.getState().getBook(book.id);
-                    if (!currentBookStillExists) {
-                        toast.info("This book was deleted on the source device.");
-                        setRoute("library");
-                        return;
-                    }
-                    throw new Error('This book was synced from another device, but its file could not be downloaded. Try pairing with the source device or reopening later.');
+                    throw new Error('Book file not found. The file may have been moved, renamed, or deleted from disk.');
                 }
                 const expectedMimeType = getMimeTypeForBookFormat(book.format);
                 

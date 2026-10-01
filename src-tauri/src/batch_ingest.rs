@@ -7,7 +7,7 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use zip::ZipArchive;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +15,7 @@ pub struct NativeBookRecord {
     pub id: String,
     pub title: String,
     pub author: String,
+    #[serde(rename = "filePath")]
     pub file_path: String,
     #[serde(rename = "storagePath", skip_serializing_if = "Option::is_none")]
     pub storage_path: Option<String>,
@@ -557,6 +558,13 @@ pub async fn ingest_books_native(
     let total = file_paths.len();
     let completed_counter = Arc::new(AtomicUsize::new(0));
 
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    let cache_dir = app_data_dir.join("book-cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+
     let results = tokio::task::spawn_blocking(move || {
         let books: Vec<Result<NativeBookRecord, (String, String)>> = file_paths
             .par_iter()
@@ -590,12 +598,22 @@ pub async fn ingest_books_native(
                 let cover_extraction_done = metadata.cover_data_url.is_some();
                 let cover_path = metadata.cover_data_url;
 
+                // Materialize the book binary directly to canonical book-cache/{id}.book
+                let dest_path = cache_dir.join(format!("{id}.book"));
+                let storage_path = match std::fs::copy(path, &dest_path) {
+                    Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
+                    Err(e) => {
+                        eprintln!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {e}");
+                        None
+                    }
+                };
+
                 let book = NativeBookRecord {
                     id,
                     title: metadata.title,
                     author: metadata.author,
                     file_path: raw_path.clone(),
-                    storage_path: None,
+                    storage_path,
                     format: ext,
                     content_hash,
                     cover_path,

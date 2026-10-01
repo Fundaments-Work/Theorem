@@ -54,7 +54,7 @@ fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir.join(DB_FILE_NAME))
 }
 
-fn materialized_book_path_in_dir(app_data_dir: &Path, book_id: &str) -> PathBuf {
+pub(crate) fn materialized_book_path_in_dir(app_data_dir: &Path, book_id: &str) -> PathBuf {
     app_data_dir
         .join(MATERIALIZED_BOOK_CACHE_DIR)
         .join(format!("{book_id}.book"))
@@ -141,13 +141,16 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     }
 
     // Auto-heal books erroneously marked `syncedWithoutFile: true` whose .book files
-    // are already present on disk in `book-cache/{id}.book`.
+    // are already present on disk in `book-cache/{id}.book` or referenced locally.
     let healed_books = reconcile_synced_without_file_metadata(&conn, &app_data_dir)?;
     if healed_books > 0 {
         eprintln!(
             "[database] Auto-healed {healed_books} books marked syncedWithoutFile with local files"
         );
     }
+
+    // Clean up obsolete legacy directory ~/.local/share/com.lionreader.app and empty books dir
+    cleanup_legacy_directories(&app_data_dir);
 
     if reclaimed_books > 0 || reclaimed_dicts > 0 {
         if let Err(e) = conn.execute_batch("VACUUM") {
@@ -319,6 +322,29 @@ fn reclaim_legacy_book_blobs(
     Ok(reclaimed)
 }
 
+fn cleanup_legacy_directories(app_data_dir: &Path) {
+    if let Some(parent) = app_data_dir.parent() {
+        let legacy_lion_dir = parent.join("com.lionreader.app");
+        if legacy_lion_dir.exists() {
+            let _ = std::fs::remove_dir_all(&legacy_lion_dir);
+            eprintln!(
+                "[database] Cleaned up legacy directory {:?}",
+                legacy_lion_dir
+            );
+        }
+    }
+
+    let legacy_books_dir = app_data_dir.join("books");
+    if legacy_books_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&legacy_books_dir) {
+            if entries.count() == 0 {
+                let _ = std::fs::remove_dir(&legacy_books_dir);
+                eprintln!("[database] Cleaned up empty legacy books directory");
+            }
+        }
+    }
+}
+
 fn reconcile_synced_without_file_metadata(
     connection: &Connection,
     app_data_dir: &Path,
@@ -348,10 +374,28 @@ fn reconcile_synced_without_file_metadata(
     for row in rows {
         let (book_id, json_str) = row.map_err(|e| e.to_string())?;
         let book_path = materialized_book_path_in_dir(app_data_dir, &book_id);
+        let mut source_file = None;
+
         if book_path.is_file() {
+            source_file = Some(book_path.clone());
+        } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            if let Some(file_path) = val.get("filePath").and_then(|v| v.as_str()) {
+                let p = Path::new(file_path);
+                if p.is_file() {
+                    let _ = std::fs::copy(p, &book_path);
+                    if book_path.is_file() {
+                        source_file = Some(book_path.clone());
+                    }
+                }
+            }
+        }
+
+        if source_file.is_some() {
             if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 if val.get("syncedWithoutFile") == Some(&serde_json::Value::Bool(true)) {
                     val["syncedWithoutFile"] = serde_json::Value::Bool(false);
+                    val["storagePath"] =
+                        serde_json::Value::String(book_path.to_string_lossy().into_owned());
                     if let Ok(updated_json) = serde_json::to_string(&val) {
                         updates.push((book_id, updated_json));
                     }
@@ -1786,9 +1830,93 @@ fn upsert_sync_rss_article(
     Ok(Some(id.to_string()))
 }
 
+fn merge_book_metadata_json(
+    existing_json: Option<&str>,
+    incoming: &serde_json::Value,
+    cache_file_exists: bool,
+    cache_path: Option<&str>,
+) -> String {
+    let mut merged = if let Some(ex) = existing_json {
+        serde_json::from_str::<serde_json::Value>(ex).unwrap_or_else(|_| incoming.clone())
+    } else {
+        incoming.clone()
+    };
+
+    if let (Some(merged_obj), Some(inc_obj)) = (merged.as_object_mut(), incoming.as_object()) {
+        for (k, v) in inc_obj {
+            // Never overwrite local storage/file paths with null/missing/empty from sync
+            if existing_json.is_some() {
+                if (k == "filePath" || k == "storagePath" || k == "coverPath")
+                    && (v.is_null() || v.as_str().is_some_and(|s| s.is_empty()))
+                {
+                    continue;
+                }
+                if k == "syncedWithoutFile" {
+                    continue;
+                }
+            }
+            merged_obj.insert(k.clone(), v.clone());
+        }
+
+        if cache_file_exists {
+            merged_obj.insert(
+                "syncedWithoutFile".to_string(),
+                serde_json::Value::Bool(false),
+            );
+            if let Some(path) = cache_path {
+                if merged_obj
+                    .get("storagePath")
+                    .and_then(|v| v.as_str())
+                    .is_none_or(|s| s.is_empty())
+                {
+                    merged_obj.insert(
+                        "storagePath".to_string(),
+                        serde_json::Value::String(path.to_string()),
+                    );
+                }
+                if merged_obj
+                    .get("filePath")
+                    .and_then(|v| v.as_str())
+                    .is_none_or(|s| s.is_empty())
+                {
+                    merged_obj.insert(
+                        "filePath".to_string(),
+                        serde_json::Value::String(path.to_string()),
+                    );
+                }
+            }
+        } else if let Some(ex) = existing_json {
+            if let Ok(ex_val) = serde_json::from_str::<serde_json::Value>(ex) {
+                if let Some(existing_synced) = ex_val.get("syncedWithoutFile") {
+                    merged_obj.insert("syncedWithoutFile".to_string(), existing_synced.clone());
+                }
+            }
+        } else {
+            // New book from peer sync without local cache file: mark as syncedWithoutFile: true
+            merged_obj.insert(
+                "syncedWithoutFile".to_string(),
+                serde_json::Value::Bool(true),
+            );
+        }
+
+        serde_json::to_string(&merged).unwrap_or_else(|_| incoming.to_string())
+    } else {
+        incoming.to_string()
+    }
+}
+
+#[allow(dead_code)]
 pub fn sqlite_merge_sync_entries_inner(
     connection: &Connection,
     entries: std::collections::HashMap<String, String>,
+) -> rusqlite::Result<SyncMergeResult> {
+    sqlite_merge_sync_entries_with_dir(connection, entries, None)
+}
+
+pub fn sqlite_merge_sync_entries_with_dir(
+    connection: &Connection,
+    entries: std::collections::HashMap<String, String>,
+    app_data_dir: Option<&Path>,
 ) -> rusqlite::Result<SyncMergeResult> {
     let mut domains_updated: Vec<String> = Vec::new();
     let mut books_count = 0usize;
@@ -1889,9 +2017,34 @@ pub fn sqlite_merge_sync_entries_inner(
                     params![book_id],
                 )?;
 
+                let existing_meta: Option<String> = connection
+                    .query_row(
+                        "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
+                        params![book_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .unwrap_or(None);
+
+                let cache_file_exists = app_data_dir
+                    .map(|dir| materialized_book_path_in_dir(dir, book_id).is_file())
+                    .unwrap_or(false);
+                let cache_path = app_data_dir.map(|dir| {
+                    materialized_book_path_in_dir(dir, book_id)
+                        .to_string_lossy()
+                        .into_owned()
+                });
+
+                let final_json = merge_book_metadata_json(
+                    existing_meta.as_deref(),
+                    &book_val,
+                    cache_file_exists,
+                    cache_path.as_deref(),
+                );
+
                 connection.execute(
                     "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
-                    params![book_id, value],
+                    params![book_id, final_json],
                 )?;
 
                 let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
@@ -1913,16 +2066,40 @@ pub fn sqlite_merge_sync_entries_inner(
                         }
                         let title = b.get("title").and_then(|v| v.as_str()).unwrap_or("");
                         let author = b.get("author").and_then(|v| v.as_str());
-                        let meta_json = serde_json::to_string(b).unwrap_or_default();
 
                         connection.execute(
                             "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
                             params![book_id],
                         )?;
 
+                        let existing_meta: Option<String> = connection
+                            .query_row(
+                                "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
+                                params![book_id],
+                                |row| row.get(0),
+                            )
+                            .optional()
+                            .unwrap_or(None);
+
+                        let cache_file_exists = app_data_dir
+                            .map(|dir| materialized_book_path_in_dir(dir, book_id).is_file())
+                            .unwrap_or(false);
+                        let cache_path = app_data_dir.map(|dir| {
+                            materialized_book_path_in_dir(dir, book_id)
+                                .to_string_lossy()
+                                .into_owned()
+                        });
+
+                        let final_json = merge_book_metadata_json(
+                            existing_meta.as_deref(),
+                            b,
+                            cache_file_exists,
+                            cache_path.as_deref(),
+                        );
+
                         connection.execute(
                             "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
-                            params![book_id, meta_json],
+                            params![book_id, final_json],
                         )?;
 
                         let _ = connection
@@ -2087,8 +2264,9 @@ pub fn sqlite_merge_sync_entries(
     app: AppHandle,
     entries: std::collections::HashMap<String, String>,
 ) -> Result<SyncMergeResult, String> {
+    let app_data_dir = app.path().app_data_dir().ok();
     with_connection(&app, |connection| {
-        sqlite_merge_sync_entries_inner(connection, entries)
+        sqlite_merge_sync_entries_with_dir(connection, entries, app_data_dir.as_deref())
     })
 }
 
@@ -4223,5 +4401,84 @@ mod tests {
         .unwrap();
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
         assert_eq!(rows().len(), 1);
+    }
+
+    #[test]
+    fn test_sqlite_merge_sync_entries_preserves_local_paths() {
+        let conn = setup_db();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let book_cache_dir = temp_dir.path().join("book-cache");
+        fs::create_dir_all(&book_cache_dir).unwrap();
+
+        // 1. Existing local book with local paths
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "b1",
+            r#"{"id":"b1","title":"Local Dune","author":"Frank Herbert","filePath":"/home/user/books/dune.epub","storagePath":"/app_data/book-cache/b1.book","syncedWithoutFile":false}"#,
+        )
+        .unwrap();
+
+        // Also prepare b2 materialized in book_cache
+        fs::write(book_cache_dir.join("b2.book"), b"dummy content").unwrap();
+
+        // 2. Incoming sync entries
+        let mut entries = std::collections::HashMap::new();
+        // b1 has updated progress, but NO filePath, NO storagePath
+        entries.insert(
+            "book:b1".to_string(),
+            r#"{"id":"b1","title":"Local Dune (Read)","author":"Frank Herbert","progress":0.75}"#
+                .to_string(),
+        );
+        // b2 is new from peer, but already materialized on disk
+        entries.insert(
+            "book:b2".to_string(),
+            r#"{"id":"b2","title":"Second Book","author":"Author Two"}"#.to_string(),
+        );
+        // b3 is new from peer and NOT on disk
+        entries.insert(
+            "book:b3".to_string(),
+            r#"{"id":"b3","title":"Third Book","author":"Author Three"}"#.to_string(),
+        );
+
+        let res =
+            sqlite_merge_sync_entries_with_dir(&conn, entries, Some(temp_dir.path())).unwrap();
+        assert_eq!(res.books_count, 3);
+
+        // Check b1: local paths preserved and syncedWithoutFile remains false
+        let meta_b1: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b1")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(meta_b1["title"], "Local Dune (Read)");
+        assert_eq!(meta_b1["progress"], 0.75);
+        assert_eq!(meta_b1["filePath"], "/home/user/books/dune.epub");
+        assert_eq!(meta_b1["storagePath"], "/app_data/book-cache/b1.book");
+        assert_eq!(meta_b1["syncedWithoutFile"], false);
+
+        // Check b2: materialized file detected, syncedWithoutFile is false, storagePath populated
+        let meta_b2: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b2")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(meta_b2["title"], "Second Book");
+        assert_eq!(meta_b2["syncedWithoutFile"], false);
+        assert!(meta_b2["storagePath"]
+            .as_str()
+            .unwrap()
+            .ends_with("b2.book"));
+
+        // Check b3: not materialized, syncedWithoutFile is true
+        let meta_b3: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b3")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(meta_b3["title"], "Third Book");
+        assert_eq!(meta_b3["syncedWithoutFile"], true);
     }
 }
