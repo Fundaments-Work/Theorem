@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://app.theorem.fundaments.work"><img src="https://img.shields.io/badge/try%20the%20web%20demo-app.theorem.fundaments.work-8A2BE2?style=for-the-badge" alt="Web Demo"></a>
+  <a href="https://read.fundaments.work"><img src="https://img.shields.io/badge/try%20the%20web%20demo-read.fundaments.work-8A2BE2?style=for-the-badge" alt="Web Demo"></a>
   <a href="https://github.com/fundaments-work/theorem/releases/latest"><img src="https://img.shields.io/github/v/release/fundaments-work/theorem?label=latest&style=flat-square" alt="Latest Release"></a>
   <a href="https://github.com/fundaments-work/theorem/releases"><img src="https://img.shields.io/github/downloads/fundaments-work/theorem/total?style=flat-square" alt="Downloads"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 | Windows | `.exe` (NSIS) |
 | Android | `.apk` |
 
-All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://app.theorem.fundaments.work) without installing.
+All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://read.fundaments.work) without installing.
 
 ---
 
@@ -209,7 +209,7 @@ Yes. Local-first reading, annotation, and Markdown export without a paid subscri
 
 **What formats are supported?** — EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, and RSS feeds.
 
-**Can I try it without installing?** — Yes. The [web demo](https://app.theorem.fundaments.work) runs in your browser.
+**Can I try it without installing?** — Yes. The [web demo](https://read.fundaments.work) runs in your browser.
 
 **Why MIT instead of AGPL?** — MIT lets anyone use, modify, and integrate the code without forcing them to open-source their changes. For a local-first reading app that stores all data as plain Markdown, the protection AGPL offers is unnecessary — your data is already portable.
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet } from "../functions/api/gutenberg";
 import { browserCatalogUrl } from "../src/core/lib/catalog-fetch-url";
 
-const requestFor = (url: string) => new Request(`https://app.theorem.fundaments.work/api/gutenberg?url=${encodeURIComponent(url)}`);
+const requestFor = (url: string) => new Request(`https://read.fundaments.work/api/gutenberg?url=${encodeURIComponent(url)}`);
 
 afterEach(() => vi.unstubAllGlobals());
 
