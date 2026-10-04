@@ -119,7 +119,7 @@ fn app_quit_ready(app: AppHandle) {
     }
     let previous = coordinator
         .awaiting
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
         .unwrap_or(0);
     if previous <= 1 {
         app.exit(0);

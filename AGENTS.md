@@ -54,6 +54,10 @@ If clippy is noisy, try `cargo clippy --fix --lib` first.
 
 CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) on push to main.
 
+### Known-flaky tests
+
+- `tests/release-1.0.7-store-scale.test.ts` asserts a wall-clock budget (`expect(elapsed).toBeLessThan(25)`) and can exceed it under full-suite parallel load while passing in isolation. Treat a lone failure here as a perf-measurement flake: re-run the file alone (`pnpm test tests/release-1.0.7-store-scale.test.ts`) to confirm, but still verify no genuine O(n) scan was introduced.
+
 ## Architecture
 
 **Routing**: Zustand-driven via `useUIStore.currentRoute` and `AppRoute` union type (`src/core/types/index.ts:403`). No React Router. Additions require updating: `src/App.tsx` (route switch + lazy load), `src/core/types/index.ts` (type), `src/shell/layout/Sidebar.tsx`, `src/shell/AppTitlebar.tsx`.
@@ -102,11 +106,19 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 - **Virtualization**: Search results use `@tanstack/react-virtual` for fast rendering across 75,000+ public domain titles.
 - **Cover system**: `src/ui/TheoremBookCover.tsx` renders a deterministic clothbound fallback cover for books without bundled artwork.
 
+**Comics (CBR/CBZ)**: Comic books are first-class library items. `src-tauri/src/cbr.rs` parses CBR (RAR) archives natively in Rust using the `rars` crate, streaming entries into an in-memory ZIP (stored, no recompression) so CBRs open on every shipped platform including Android — no external `unrar` binary. Metadata comes from `ComicInfo.xml` (series name, volume index) with a filename-parse fallback. Wired through batch ingest, folder scanning (`FolderScanPlugin.kt` on Android), and the reader for full parity with other formats. CBZ metadata is handled in `batch_ingest.rs`.
+
+**Book series**: Books may carry `series` (name) and `seriesIndex` (volume position, fractional allowed — e.g. `2.5`). Read from EPUB metadata on ingest and from `ComicInfo.xml` for comics; editable via the book edit modal and `AssignSeriesModal.tsx`. `series` is a library sort option, shelves can group by series with combined progress, and finishing a book in a series surfaces a "next unread volume" toast with a **Read Next** action.
+
+**RSS articles**: Article bodies live in SQLite (not a serialized JSON blob) with dedicated tables and indices. Retention is configurable in Settings (Keep Forever / 15 / 30 / 60 / 90 days, default 30) and prunes read, non-favorited articles plus cached content; unread articles are protected by the **Keep Unread Articles** toggle and articles saved offline (`isSaved`) are always preserved.
+
+**Vault highlight grouping**: Obsidian/Markdown export groups highlights **By Chapter (Hierarchical)** by default, or flat/chronological. Chapter title and index ride along on each annotation; reader backfills them for legacy annotations on book open.
+
 ## Tauri backend
 
 **Companion Audiobooks**: attach human-narrated audio to any book. `src-tauri/src/audiobook.rs` (`extract_audiobook_metadata`) parses `.m4b/.m4a/.mp3` duration, tags, cover and chapters (M4B chapters via a hand-rolled QuickTime chapter-track walker — no crate exposes them). Optional `Book.audioTrack` (`BookAudioTrack` in types) lives in the library store and syncs; attach/detach via the library context menu. Playback: `src/features/reader/audio/AudiobookBar.tsx` (HTMLAudioElement via asset protocol, chapters, speed, sleep timer, mediaSession, position auto-save). Generation: `src-tauri/src/audiobook_gen.rs` (`generate_audiobook`, desktop only) narrates EPUB sections through Supertonic and encodes one Ogg Opus per book (36kbps mono, hand-rolled Ogg muxer + `audiopus`/libopus static) with chapter marks, then attaches it as the book's `audioTrack` (format `opus`). Docs: `docs/audiobook.md`.
 
-126 `#[tauri::command]` attributes (111 distinct command names; some have desktop/mobile `cfg` variants) across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion and SIMD cover extraction), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), `audio_player.rs` (native rodio playback, desktop-only), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
+179 `#[tauri::command]` attributes (161 distinct command names; some have desktop/mobile `cfg` variants) across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion, SIMD cover extraction, series metadata), `cbr.rs` (native CBR/RAR→CBZ comic archive parsing via `rars`), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), `audio_player.rs` (native rodio playback, desktop-only), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
 
 ## Persistence
 
@@ -157,7 +169,7 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 
 2. **Run full local quality gates**:
    - TypeScript: `pnpm typecheck` — zero errors
-   - Vitest: `pnpm test` — all 72 suites must pass
+   - Vitest: `pnpm test` — all suites must pass (currently 79 files / 758 tests)
    - Production bundle: `pnpm build` — verifies bundle, WebAssembly modules, and PDF.js assets
    - Rust: `cd src-tauri && cargo fmt --check && cargo clippy && cargo check` — zero warnings/errors
    - Foliate runtime: `pnpm foliate:check` — clean pass
@@ -190,6 +202,26 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
    ```bash
    gh release edit v<version> --prerelease
    ```
+
+### Release CI troubleshooting
+
+The release workflow publishes a **draft** release first, then flips it public only if every platform job succeeds. So a failed job leaves assets uploaded but the release unpublished — fix and re-run rather than rebuilding from scratch.
+
+**Android builds fail intermittently with a Maven Central `403`** (seen on 1.5.9):
+```
+Could not GET 'https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/...'
+Received status code 403 from server: Forbidden
+> A problem occurred configuring project ':buildSrc'
+```
+This is Gradle failing to download the Kotlin plugin — a network/upstream issue, **not** a code defect. Re-run the failed job and it will pass:
+```bash
+gh run rerun <run-id> --failed
+```
+Do not "fix" this in the Rust code. To confirm the Rust side is genuinely healthy for Android before re-running:
+```bash
+cd src-tauri && cargo clippy --target aarch64-linux-android
+```
+Notes for debugging: Android logs are only downloadable **after** the whole run completes (`gh run view --job <id> --log-failed`), and the real Gradle cause sits *above* the verbose `Io(...)` wrapper error — search the log for `What went wrong`. Job IDs via `gh run view <run-id> --json jobs --jq '.jobs[].databaseId'`. Android takes ~20 min; Windows is usually the long pole.
 
 ### Android adaptive icon
 
