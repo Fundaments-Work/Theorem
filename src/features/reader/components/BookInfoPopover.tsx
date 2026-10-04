@@ -1,5 +1,5 @@
 
-import { X, Info, Calendar, Hash, Globe, FileText, User, Cpu, Layers, Maximize2, Paperclip, Download } from 'lucide-react';
+import { X, Info, Calendar, Hash, Globe, FileText, User, Cpu, Layers, Maximize2, Paperclip, Download, BookOpen } from 'lucide-react';
 import type { DocMetadata } from '../../../core/types';
 import { Backdrop, FloatingPanel } from '../../../ui';
 import { cn, normalizeAuthor } from '../../../core/lib/utils';
@@ -101,6 +101,24 @@ export function BookInfoPopover({
                             </div>
                         ))}
                     </div>
+
+                    {metadata.series && (
+                        <div className="flex flex-col gap-1.5 pt-2 border-t border-[var(--color-border-subtle)]">
+                            <span className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                                <BookOpen className="w-4 h-4" />
+                                Series
+                            </span>
+                            <span className="text-xs text-[color:var(--color-text-primary)] font-medium leading-relaxed">
+                                {metadata.series}
+                                {metadata.seriesIndex != null && (
+                                    <span className="ml-2 text-[color:var(--color-text-muted)]">
+                                        Vol. {metadata.seriesIndex}
+                                        {metadata.seriesTotal != null && ` of ${metadata.seriesTotal}`}
+                                    </span>
+                                )}
+                            </span>
+                        </div>
+                    )}
 
                     {metadata.attachments && metadata.attachments.length > 0 && (
                         <div className="space-y-2 pt-2 border-t border-[var(--color-border-subtle)]">

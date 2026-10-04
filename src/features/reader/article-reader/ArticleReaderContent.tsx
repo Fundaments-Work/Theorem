@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useMemo, type RefObject } from "react";
+import { Bookmark } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import type {
     FontFamily,
@@ -22,6 +23,7 @@ interface ArticleReaderContentProps {
     scrollContainerRef: RefObject<HTMLDivElement | null>;
     onTextSelect: (text: string, position: { x: number; y: number; height?: number }, range: Range) => void;
     onHeadingsChange: (headings: ArticleHeading[]) => void;
+    onToggleSaved?: () => void;
     
     sanitizedContent?: string;
 }
@@ -118,6 +120,7 @@ export function ArticleReaderContent({
     scrollContainerRef,
     onTextSelect,
     onHeadingsChange,
+    onToggleSaved,
     sanitizedContent: sanitizedContentProp,
 }: ArticleReaderContentProps) {
     const sanitizedContentFallback = useMemo(
@@ -253,6 +256,22 @@ export function ArticleReaderContent({
                         )}
                         {article.publishedAt && <span>{formatArticleDate(article.publishedAt)}</span>}
                         {!article.publishedAt && article.fetchedAt && <span>{formatArticleDate(article.fetchedAt)}</span>}
+                        {onToggleSaved && (
+                            <button
+                                type="button"
+                                onClick={onToggleSaved}
+                                className={cn(
+                                    "inline-flex items-center gap-1 border px-2 py-1 transition-colors cursor-pointer",
+                                    article.isSaved
+                                        ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
+                                        : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]"
+                                )}
+                                title={article.isSaved ? "Saved for offline reading" : "Save for offline reading"}
+                            >
+                                <Bookmark className={cn("w-3 h-3", article.isSaved && "fill-current")} />
+                                <span>{article.isSaved ? "Saved Offline" : "Save Offline"}</span>
+                            </button>
+                        )}
                     </div>
 
                     <h1

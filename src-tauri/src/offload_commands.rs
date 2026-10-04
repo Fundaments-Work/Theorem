@@ -383,6 +383,14 @@ pub async fn sqlite_get_rss_articles(
 }
 
 #[tauri::command]
+pub async fn sqlite_get_rss_article(
+    app: AppHandle,
+    article_id: String,
+) -> Result<Option<crate::database::RssArticleDto>, String> {
+    offload(move || crate::database::sqlite_get_rss_article(app, article_id)).await
+}
+
+#[tauri::command]
 pub async fn sqlite_get_rss_article_content(
     app: AppHandle,
     article_id: String,
@@ -423,6 +431,27 @@ pub async fn sqlite_mark_article_favorite(
 #[tauri::command]
 pub async fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
     offload(move || crate::database::sqlite_delete_rss_article(app, article_id)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_mark_article_saved(
+    app: AppHandle,
+    article_id: String,
+    is_saved: bool,
+) -> Result<(), String> {
+    offload(move || crate::database::sqlite_mark_article_saved(app, article_id, is_saved)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_cleanup_old_rss_articles(
+    app: AppHandle,
+    retention_days: u32,
+    keep_unread: bool,
+) -> Result<u32, String> {
+    offload(move || {
+        crate::database::sqlite_cleanup_old_rss_articles(app, retention_days, keep_unread)
+    })
+    .await
 }
 
 #[tauri::command]

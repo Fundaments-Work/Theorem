@@ -1,6 +1,6 @@
 [package]
 name = "theorem-core"
-version = "1.5.8"
+version = "1.5.9"
 edition = "2021"
 description = "Pure computational algorithms for Theorem (Markdown, fuzzy ranking, text normalization, vault formats)"
 

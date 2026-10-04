@@ -22,6 +22,8 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
     const [category, setCategory] = useState("");
     const [tagsText, setTagsText] = useState("");
     const [rating, setRating] = useState(0);
+    const [series, setSeries] = useState("");
+    const [seriesIndex, setSeriesIndex] = useState<string>("");
 
     const [coverPreview, setCoverPreview] = useState<string>("");
     const [coverBlob, setCoverBlob] = useState<Blob | null>(null);
@@ -46,6 +48,8 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
             setCategory(book.category || "");
             setTagsText(book.tags.join(", "));
             setRating(book.rating || 0);
+            setSeries(book.series || "");
+            setSeriesIndex(book.seriesIndex !== undefined ? String(book.seriesIndex) : "");
             setCoverPreview(book.coverPath || "");
             setCoverBlob(null);
             setRemoveCover(false);
@@ -113,6 +117,14 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
             if (language.trim() !== (book.language || "")) metadata.language = language.trim();
             if (isbn.trim() !== (book.isbn || "")) metadata.isbn = isbn.trim();
             if (category.trim() !== (book.category || "")) metadata.category = category.trim();
+
+            if (series.trim() !== (book.series || "")) {
+                metadata.series = series.trim() || undefined;
+            }
+            const parsedSeriesIndex = seriesIndex.trim() !== "" ? parseFloat(seriesIndex.trim()) : undefined;
+            if (parsedSeriesIndex !== book.seriesIndex) {
+                metadata.seriesIndex = typeof parsedSeriesIndex === "number" && !Number.isNaN(parsedSeriesIndex) ? parsedSeriesIndex : undefined;
+            }
 
             const nextTags = tagsText
                 .split(",")
@@ -237,6 +249,36 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 className="ui-input"
                                 autoFocus
                             />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="sm:col-span-2">
+                                <label htmlFor="edit-series" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                    Series Name
+                                </label>
+                                <input
+                                    id="edit-series"
+                                    type="text"
+                                    value={series}
+                                    onChange={(e) => setSeries(e.target.value)}
+                                    placeholder="e.g., The Lord of the Rings"
+                                    className="ui-input"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="edit-series-index" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                    Volume / Index
+                                </label>
+                                <input
+                                    id="edit-series-index"
+                                    type="number"
+                                    step="any"
+                                    value={seriesIndex}
+                                    onChange={(e) => setSeriesIndex(e.target.value)}
+                                    placeholder="e.g., 1"
+                                    className="ui-input"
+                                />
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

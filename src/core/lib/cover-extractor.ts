@@ -3,7 +3,7 @@ import type { BookFormat } from '../types';
 import { saveCoverImage, downsampleCoverImage } from './storage';
 import { getConfiguredPdfJs, PDFJS_ASSET_OPTIONS } from './pdfjs-runtime';
 import { normalizeAuthor } from './utils';
-import { isMobile } from './env';
+import { isMobile, isTauri } from './env';
 
 const DEFAULT_METADATA_TIMEOUT_MS = isMobile() ? 15000 : 10000;
 const DEFAULT_COVER_TIMEOUT_MS = isMobile() ? 12000 : 5000;
@@ -17,6 +17,8 @@ export interface ExtractedMetadata {
     publishedDate?: string;
     identifier?: string;
     coverDataUrl?: string | null;
+    series?: string;
+    seriesIndex?: number;
 }
 
 export interface MetadataExtractionOptions {
@@ -66,6 +68,51 @@ function normalizeMetadataString(value: unknown): string | undefined {
     }
     const normalized = value.replace(/\s+/g, ' ').trim();
     return normalized.length > 0 ? normalized : undefined;
+}
+
+function extractSeriesInfo(meta: any): { series?: string; seriesIndex?: number } {
+    if (!meta) return {};
+
+    const seriesData = meta.belongsTo?.series;
+    if (seriesData) {
+        const item = Array.isArray(seriesData) ? seriesData[0] : seriesData;
+        if (item) {
+            let name: string | undefined;
+            if (typeof item.name === 'string') {
+                name = item.name;
+            } else if (item.name && typeof item.name === 'object') {
+                const values = Object.values(item.name);
+                if (values.length > 0 && typeof values[0] === 'string') {
+                    name = values[0];
+                }
+            }
+            let position: number | undefined;
+            if (typeof item.position === 'number' && !Number.isNaN(item.position)) {
+                position = item.position;
+            } else if (typeof item.position === 'string') {
+                const parsed = parseFloat(item.position);
+                if (!Number.isNaN(parsed)) position = parsed;
+            }
+            if (name && name.trim().length > 0) {
+                return {
+                    series: name.trim(),
+                    seriesIndex: position,
+                };
+            }
+        }
+    }
+
+    const calibreSeries = meta['calibre:series'] || meta.series;
+    if (typeof calibreSeries === 'string' && calibreSeries.trim().length > 0) {
+        const rawIndex = meta['calibre:series_index'] ?? meta.seriesIndex ?? meta.series_index;
+        const position = typeof rawIndex === 'number' ? rawIndex : (typeof rawIndex === 'string' ? parseFloat(rawIndex) : undefined);
+        return {
+            series: calibreSeries.trim(),
+            seriesIndex: typeof position === 'number' && !Number.isNaN(position) ? position : undefined,
+        };
+    }
+
+    return {};
 }
 
 function isPlaceholderMetadataTitle(title: string): boolean {
@@ -450,6 +497,17 @@ export async function extractMetadata(
     }
 
     try {
+        if (format === 'cbr' && isTauri()) {
+            try {
+                const { invoke } = await import('@tauri-apps/api/core');
+                const cbzData = await invoke<Uint8Array>('read_cbr_as_cbz', { path: filename });
+                data = cbzData.buffer as ArrayBuffer;
+                filename = filename.replace(/\.cbr$/i, '.cbz');
+            } catch {
+                // Ignore fallback
+            }
+        }
+
         const { makeBook } = await import('../../features/reader/foliate-js-runtime/view.js');
         const mimeType = getMimeType(format);
 
@@ -493,6 +551,13 @@ export async function extractMetadata(
             result.language = normalizeMetadataString(book.metadata.language);
             result.publishedDate = normalizeMetadataString(book.metadata.publishedDate);
             result.identifier = normalizeMetadataString(book.metadata.identifier);
+            const seriesInfo = extractSeriesInfo(book.metadata);
+            if (seriesInfo.series) {
+                result.series = seriesInfo.series;
+            }
+            if (seriesInfo.seriesIndex !== undefined) {
+                result.seriesIndex = seriesInfo.seriesIndex;
+            }
         }
 
         if (book.getCover) {

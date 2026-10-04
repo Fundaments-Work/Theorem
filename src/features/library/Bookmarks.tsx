@@ -1,9 +1,15 @@
 import { localDateKey } from "../../core/lib/date-keys";
-import { useState, useMemo, useCallback, useLayoutEffect, memo } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
-import { useLibraryStore, useUIStore } from "../../core/store";
+import { useLibraryStore, useUIStore, useRssStore, getRssArticleById } from "../../core/store";
 import type { Annotation } from "../../core/types";
+import {
+    resolveAnnotationSource,
+    navigateToAnnotationSource,
+    parseAnnotationSourceId,
+    type ResolvedAnnotationSource,
+} from "../../core/lib/annotation-source";
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
 import { Bookmark } from "lucide-react";
 import { AnnotationListCard } from "./components/AnnotationListCard";
@@ -31,19 +37,19 @@ function EmptyBookmarks() {
 
 interface BookmarkCardProps {
     bookmark: Annotation;
-    book: { title: string; author: string } | undefined;
+    source: ResolvedAnnotationSource | undefined;
     menuOpen: boolean;
     layout: CardLayout;
     onToggleExpanded: (id: string) => void;
     searchQuery?: string;
     onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
-    onGoToBookmark: (bookId: string, location: string) => void;
+    onGoToBookmark: (sourceId: string, location: string) => void;
 }
 
 const BookmarkCard = memo(function BookmarkCard({
     bookmark,
-    book,
+    source,
     menuOpen,
     layout,
     onToggleExpanded,
@@ -52,14 +58,15 @@ const BookmarkCard = memo(function BookmarkCard({
     onDelete,
     onGoToBookmark,
 }: BookmarkCardProps) {
+    const isArticle = source?.isArticle ?? bookmark.bookId.startsWith("rss:");
     const goTo = () => onGoToBookmark(bookmark.bookId, bookmark.location);
     return (
         <AnnotationListCard
             id={bookmark.id}
             typeLabel="bookmark"
             dateLabel={localDateKey(new Date(bookmark.createdAt))}
-            sourceTitle={book?.title || "Unknown source"}
-            sourceAuthor={book?.author || "Unknown author"}
+            sourceTitle={source?.title || "Unknown source"}
+            sourceAuthor={source?.author || "Unknown author"}
             quote={bookmark.selectedText}
             note={bookmark.noteContent}
             meta={bookmarkPositionLabel(bookmark)}
@@ -69,11 +76,11 @@ const BookmarkCard = memo(function BookmarkCard({
             layout={layout}
             onToggleExpanded={onToggleExpanded}
             menuItems={[
-                { label: "Go to bookmark", onSelect: goTo },
+                { label: isArticle ? "Open article" : "Go to bookmark", onSelect: goTo },
                 { label: "Delete", onSelect: () => onDelete(bookmark.id), danger: true },
             ]}
             onOpen={goTo}
-            openTitle="Click to open at this bookmark"
+            openTitle={isArticle ? "Click to open article at this bookmark" : "Click to open at this bookmark"}
         />
     );
 });
@@ -93,6 +100,11 @@ export function BookmarksPage() {
     const setRoute = useUIStore((state) => state.setRoute);
     const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
+    const rssArticles = useRssStore((state) => state.articles);
+    const rssFeeds = useRssStore((state) => state.feeds);
+    const openArticleInReader = useRssStore((state) => state.openArticleInReader);
+    const getArticle = useRssStore((state) => state.getArticle);
+    const loadArticle = useRssStore((state) => state.loadArticle);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
     const [bookFilter, setBookFilter] = useState<string>(ALL_BOOKS);
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -113,36 +125,49 @@ export function BookmarksPage() {
     // built before that would hide every bookmark until annotations change.
     const bookCount = useLibraryStore((state) => state.books.length);
     const bookmarks = useMemo(() => annotations.filter((a) => a.type === "bookmark"), [annotations]);
-    const bookLookup = useMemo(
+    const sourceLookup = useMemo(
         () => {
-            const lookup = new Map<string, NonNullable<ReturnType<typeof getBook>>>();
+            const lookup = new Map<string, ResolvedAnnotationSource>();
             for (const bm of bookmarks) {
                 if (lookup.has(bm.bookId)) continue;
-                const book = getBook(bm.bookId);
-                if (book) lookup.set(bm.bookId, book);
+                const source = resolveAnnotationSource(bm.bookId, getBook, rssArticles, rssFeeds, bm.chapterTitle);
+                if (source) lookup.set(bm.bookId, source);
             }
             return lookup;
         },
         // getBook is stable (store action ref); bookCount re-derives once books load
-        [bookmarks, getBook, bookCount],
+        [bookmarks, getBook, bookCount, rssArticles, rssFeeds],
     );
 
+    // If any bookmarks originate from RSS articles not yet loaded into memory,
+    // load them from SQLite in the background so full metadata becomes available.
+    useEffect(() => {
+        for (const bm of bookmarks) {
+            const { isArticle, cleanId } = parseAnnotationSourceId(bm.bookId);
+            if (isArticle || (!getBook(bm.bookId) && bm.bookId)) {
+                if (!getRssArticleById(rssArticles, cleanId)) {
+                    loadArticle(cleanId);
+                }
+            }
+        }
+    }, [bookmarks, rssArticles, getBook, loadArticle]);
+
     const visibleBookmarks = useMemo(
-        () => bookmarks.filter((b) => bookLookup.has(b.bookId)),
-        [bookmarks, bookLookup],
+        () => bookmarks.filter((b) => sourceLookup.has(b.bookId)),
+        [bookmarks, sourceLookup],
     );
 
     const bookOptions = useMemo(() => {
         const counts = new Map<string, number>();
         for (const bm of visibleBookmarks) counts.set(bm.bookId, (counts.get(bm.bookId) ?? 0) + 1);
         const options = [...counts.entries()]
-            .map(([bookId, count]) => ({ value: bookId, label: `${bookLookup.get(bookId)?.title ?? "Unknown source"} (${count})` }))
+            .map(([bookId, count]) => ({ value: bookId, label: `${sourceLookup.get(bookId)?.title ?? "Unknown source"} (${count})` }))
             .sort((a, b) => a.label.localeCompare(b.label));
-        return [{ value: ALL_BOOKS, label: "All books" }, ...options];
-    }, [visibleBookmarks, bookLookup]);
+        return [{ value: ALL_BOOKS, label: "All sources" }, ...options];
+    }, [visibleBookmarks, sourceLookup]);
 
     // A filtered book whose last bookmark was deleted falls back to all books.
-    const activeBookFilter = bookFilter !== ALL_BOOKS && bookLookup.has(bookFilter)
+    const activeBookFilter = bookFilter !== ALL_BOOKS && sourceLookup.has(bookFilter)
         && visibleBookmarks.some((b) => b.bookId === bookFilter)
         ? bookFilter
         : ALL_BOOKS;
@@ -155,12 +180,12 @@ export function BookmarksPage() {
         if (searchQuery.trim()) {
             const rankedBookmarks = rankByFuzzyQuery(
                 filtered.map((bookmark) => {
-                    const book = bookLookup.get(bookmark.bookId);
+                    const source = sourceLookup.get(bookmark.bookId);
                     return {
                         bookmark,
                         selectedText: bookmark.selectedText || "",
-                        bookTitle: book?.title || "",
-                        bookAuthor: book?.author || "",
+                        bookTitle: source?.title || "",
+                        bookAuthor: source?.author || "",
                     };
                 }),
                 searchQuery,
@@ -183,8 +208,8 @@ export function BookmarksPage() {
                 case "oldest":
                     return time(a.createdAt) - time(b.createdAt);
                 case "book": {
-                    const bookA = bookLookup.get(a.bookId)?.title || "";
-                    const bookB = bookLookup.get(b.bookId)?.title || "";
+                    const bookA = sourceLookup.get(a.bookId)?.title || "";
+                    const bookB = sourceLookup.get(b.bookId)?.title || "";
                     return bookA.localeCompare(bookB) || time(b.createdAt) - time(a.createdAt);
                 }
                 default:
@@ -193,7 +218,7 @@ export function BookmarksPage() {
         });
 
         return filtered;
-    }, [visibleBookmarks, activeBookFilter, searchQuery, sortBy, bookLookup]);
+    }, [visibleBookmarks, activeBookFilter, searchQuery, sortBy, sourceLookup]);
 
     // Exact, not an estimate: each card renders at its computed layout height.
     const cardLayouts = useMemo(
@@ -226,10 +251,20 @@ export function BookmarksPage() {
         }
     };
 
-    const handleGoToBookmark = useCallback((bookId: string, location: string) => {
-        setPendingReaderLocation(location);
-        setRoute("reader", bookId);
-    }, [setPendingReaderLocation, setRoute]);
+    const hasBook = useCallback((id: string) => !!useLibraryStore.getState().getBook(id), []);
+
+    const handleGoToBookmark = useCallback((sourceId: string, location: string) => {
+        const bm = bookmarks.find((b) => b.bookId === sourceId && b.location === location);
+        navigateToAnnotationSource(sourceId, location, {
+            setPendingReaderLocation,
+            setRoute,
+            openArticleInReader,
+            getArticle,
+            loadArticle,
+            hasBook,
+            fallbackTitle: bm?.chapterTitle,
+        });
+    }, [bookmarks, setPendingReaderLocation, setRoute, openArticleInReader, getArticle, loadArticle, hasBook]);
 
     if (visibleBookmarks.length === 0) {
         return (
@@ -245,7 +280,7 @@ export function BookmarksPage() {
         <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
             <PageHeader
                 title="Bookmarks"
-                description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "book" : "books"}`}
+                description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "source" : "sources"}`}
             />
 
             <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -307,7 +342,7 @@ export function BookmarksPage() {
                             >
                                 <BookmarkCard
                                     bookmark={bookmark}
-                                    book={bookLookup.get(bookmark.bookId)}
+                                    source={sourceLookup.get(bookmark.bookId)}
                                     menuOpen={menuOpenId === bookmark.id}
                                     layout={cardLayouts[virtualRow.index]}
                                     onToggleExpanded={toggleExpanded}

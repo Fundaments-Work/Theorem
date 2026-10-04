@@ -382,6 +382,16 @@ function mergeImportedBookMetadata(existingBook: Book, incomingBook: Book): Book
         changed = true;
     }
 
+    if (!existingBook.series && incomingBook.series) {
+        nextBook.series = incomingBook.series;
+        changed = true;
+    }
+
+    if (existingBook.seriesIndex === undefined && incomingBook.seriesIndex !== undefined) {
+        nextBook.seriesIndex = incomingBook.seriesIndex;
+        changed = true;
+    }
+
     return changed ? nextBook : existingBook;
 }
 
@@ -420,6 +430,8 @@ function normalizePersistedBook(book: Book): Book {
         filePath: normalizedFilePath,
         storagePath: normalizedStoragePath,
         coverExtractionDone: Boolean(book.coverExtractionDone || hasLegacyPersistedCoverPath),
+        series: typeof book.series === "string" && book.series.trim().length > 0 ? book.series.trim() : undefined,
+        seriesIndex: typeof book.seriesIndex === "number" && !Number.isNaN(book.seriesIndex) ? book.seriesIndex : undefined,
     };
 }
 
@@ -505,6 +517,7 @@ function normalizeCollectionKind(collection: LegacyCollection): Collection | nul
     return {
         ...collection,
         kind: "general",
+        groupBySeries: Boolean(collection.groupBySeries),
     };
 }
 
@@ -1544,7 +1557,7 @@ export const useLibraryStore = create<LibraryStore>()(
         }),
         {
             name: "theorem-library",
-            version: 8,
+            version: 9,
             storage: deferredJsonStorage,
             migrate: (persistedState, version) => {
                 const persisted = (

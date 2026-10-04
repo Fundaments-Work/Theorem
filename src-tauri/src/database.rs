@@ -164,6 +164,9 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     run_v154_database_migrations(&conn)
         .map_err(|e| format!("Failed to run v1.5.4 migrations: {e}"))?;
 
+    run_v159_database_migrations(&conn)
+        .map_err(|e| format!("Failed to run v1.5.9 migrations: {e}"))?;
+
     if let Err(e) = reconcile_books_fts(&conn) {
         eprintln!("[database] books_fts reconcile failed: {e}");
     }
@@ -529,6 +532,7 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
         fetched_at INTEGER NOT NULL,
         is_read INTEGER NOT NULL DEFAULT 0,
         is_favorite INTEGER NOT NULL DEFAULT 0,
+        is_saved INTEGER NOT NULL DEFAULT 0,
         progress REAL,
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         FOREIGN KEY(feed_id) REFERENCES rss_feeds(id) ON DELETE CASCADE
@@ -2342,6 +2346,7 @@ pub struct RssArticleDto {
     pub fetched_at: Option<i64>,
     pub is_read: bool,
     pub is_favorite: bool,
+    pub is_saved: bool,
     pub progress: Option<f64>,
 }
 
@@ -2454,6 +2459,7 @@ pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), Str
 fn map_rss_article_row(row: &rusqlite::Row) -> rusqlite::Result<RssArticleDto> {
     let is_read_int: i32 = row.get(10)?;
     let is_fav_int: i32 = row.get(11)?;
+    let is_saved_int: i32 = row.get(12)?;
     Ok(RssArticleDto {
         id: row.get::<_, String>(0)?.into_boxed_str(),
         feed_id: row.get::<_, String>(1)?.into_boxed_str(),
@@ -2467,7 +2473,8 @@ fn map_rss_article_row(row: &rusqlite::Row) -> rusqlite::Result<RssArticleDto> {
         fetched_at: row.get(9)?,
         is_read: is_read_int != 0,
         is_favorite: is_fav_int != 0,
-        progress: row.get(12)?,
+        is_saved: is_saved_int != 0,
+        progress: row.get(13)?,
     })
 }
 
@@ -2482,13 +2489,13 @@ pub fn sqlite_get_rss_articles_inner(
 
     let sql = if feed_id.is_some() {
         "SELECT id, feed_id, title, author, url, summary, content_source, image_url,
-                published_at, fetched_at, is_read, is_favorite, progress
+                published_at, fetched_at, is_read, is_favorite, is_saved, progress
          FROM rss_articles
          WHERE feed_id = ?1
          ORDER BY fetched_at DESC LIMIT ?2 OFFSET ?3"
     } else {
         "SELECT id, feed_id, title, author, url, summary, content_source, image_url,
-                published_at, fetched_at, is_read, is_favorite, progress
+                published_at, fetched_at, is_read, is_favorite, is_saved, progress
          FROM rss_articles
          ORDER BY fetched_at DESC LIMIT ?1 OFFSET ?2"
     };
@@ -2512,6 +2519,30 @@ pub fn sqlite_get_rss_articles(
     with_connection(&app, |conn| {
         sqlite_get_rss_articles_inner(conn, feed_id.as_deref(), limit, offset)
     })
+}
+
+pub fn sqlite_get_rss_article_inner(
+    connection: &Connection,
+    article_id: &str,
+) -> rusqlite::Result<Option<RssArticleDto>> {
+    let sql = "SELECT id, feed_id, title, author, url, summary, content_source, image_url,
+                      published_at, fetched_at, is_read, is_favorite, is_saved, progress
+               FROM rss_articles
+               WHERE id = ?1";
+    let mut stmt = connection.prepare(sql)?;
+    let mut rows = stmt.query_map(params![article_id], map_rss_article_row)?;
+    match rows.next() {
+        Some(Ok(dto)) => Ok(Some(dto)),
+        Some(Err(e)) => Err(e),
+        None => Ok(None),
+    }
+}
+
+pub fn sqlite_get_rss_article(
+    app: AppHandle,
+    article_id: String,
+) -> Result<Option<RssArticleDto>, String> {
+    with_connection(&app, |conn| sqlite_get_rss_article_inner(conn, &article_id))
 }
 
 pub fn sqlite_get_rss_article_content_inner(
@@ -2551,8 +2582,8 @@ pub fn sqlite_save_rss_article_inner(
         INSERT INTO rss_articles (
             id, feed_id, title, author, url, summary,
             content_source, image_url, published_at, fetched_at,
-            is_read, is_favorite, progress, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, unixepoch())
+            is_read, is_favorite, is_saved, progress, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, ?14, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             feed_id = excluded.feed_id,
             title = excluded.title,
@@ -2565,6 +2596,7 @@ pub fn sqlite_save_rss_article_inner(
             fetched_at = excluded.fetched_at,
             is_read = excluded.is_read,
             is_favorite = excluded.is_favorite,
+            is_saved = excluded.is_saved,
             progress = excluded.progress,
             updated_at = unixepoch()
         "#,
@@ -2581,6 +2613,7 @@ pub fn sqlite_save_rss_article_inner(
             article.fetched_at,
             if article.is_read { 1 } else { 0 },
             if article.is_favorite { 1 } else { 0 },
+            if article.is_saved { 1 } else { 0 },
             article.progress,
         ],
     )?;
@@ -2675,6 +2708,88 @@ pub fn sqlite_delete_rss_article_inner(
 pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
     with_connection(&app, |conn| {
         sqlite_delete_rss_article_inner(conn, &article_id)
+    })
+}
+
+pub fn sqlite_mark_article_saved_inner(
+    connection: &Connection,
+    article_id: &str,
+    is_saved: bool,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE rss_articles SET is_saved = ?1, updated_at = unixepoch() WHERE id = ?2",
+        params![if is_saved { 1 } else { 0 }, article_id],
+    )?;
+    Ok(())
+}
+
+pub fn sqlite_mark_article_saved(
+    app: AppHandle,
+    article_id: String,
+    is_saved: bool,
+) -> Result<(), String> {
+    with_connection(&app, |conn| {
+        sqlite_mark_article_saved_inner(conn, &article_id, is_saved)
+    })
+}
+
+/// Delete read articles (not saved, not favorite) older than `retention_days` days.
+/// If `retention_days` is 0, nothing is deleted.
+/// Content rows for read, non-saved articles older than `retention_days` are also pruned.
+pub fn sqlite_cleanup_old_rss_articles(
+    app: AppHandle,
+    retention_days: u32,
+    keep_unread: bool,
+) -> Result<u32, String> {
+    if retention_days == 0 {
+        return Ok(0);
+    }
+    with_connection(&app, |conn| {
+        let cutoff_secs = retention_days as i64 * 86_400;
+        // Prune content for read, non-saved articles beyond retention window
+        conn.execute(
+            r#"
+            DELETE FROM rss_article_content
+            WHERE article_id IN (
+                SELECT id FROM rss_articles
+                WHERE is_saved = 0
+                  AND is_favorite = 0
+                  AND is_read = 1
+                  AND (unixepoch() - fetched_at) > ?1
+                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
+            )
+            "#,
+            params![cutoff_secs],
+        )?;
+        // Delete metadata rows for read, non-saved, non-favorite articles beyond retention
+        let deleted = conn.execute(
+            r#"
+            DELETE FROM rss_articles
+            WHERE is_saved = 0
+              AND is_favorite = 0
+              AND is_read = 1
+              AND (unixepoch() - fetched_at) > ?1
+              AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
+            "#,
+            params![cutoff_secs],
+        )?;
+        // If keep_unread=false, also drop unread non-saved articles beyond retention
+        let deleted_unread = if !keep_unread {
+            conn.execute(
+                r#"
+                DELETE FROM rss_articles
+                WHERE is_saved = 0
+                  AND is_favorite = 0
+                  AND is_read = 0
+                  AND (unixepoch() - fetched_at) > ?1
+                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
+                "#,
+                params![cutoff_secs],
+            )?
+        } else {
+            0
+        };
+        Ok((deleted + deleted_unread) as u32)
     })
 }
 
@@ -3283,6 +3398,44 @@ pub fn run_v154_database_migrations(connection: &Connection) -> rusqlite::Result
     Ok(())
 }
 
+pub fn run_v159_database_migrations(connection: &Connection) -> rusqlite::Result<()> {
+    let is_done: bool = connection
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM kv_store WHERE key = 'migration_v159_done'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if is_done {
+        return Ok(());
+    }
+
+    // Add is_saved column to rss_articles (idempotent: ignore error if column already exists)
+    let has_is_saved: bool = connection
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('rss_articles') WHERE name = 'is_saved'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_is_saved {
+        connection
+            .execute_batch(
+                "ALTER TABLE rss_articles ADD COLUMN is_saved INTEGER NOT NULL DEFAULT 0;",
+            )
+            .ok();
+    }
+
+    connection.execute(
+        "INSERT INTO kv_store (key, value, updated_at) VALUES ('migration_v159_done', '1', unixepoch())",
+        [],
+    )?;
+
+    eprintln!("[database] Completed Theorem v1.5.9 migrations (rss_articles.is_saved)");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3390,6 +3543,7 @@ mod tests {
                 fetched_at INTEGER NOT NULL,
                 is_read INTEGER NOT NULL DEFAULT 0,
                 is_favorite INTEGER NOT NULL DEFAULT 0,
+                is_saved INTEGER NOT NULL DEFAULT 0,
                 progress REAL,
                 updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
                 FOREIGN KEY(feed_id) REFERENCES rss_feeds(id) ON DELETE CASCADE
@@ -4109,6 +4263,7 @@ mod tests {
             fetched_at: Some(1060),
             is_read: false,
             is_favorite: false,
+            is_saved: false,
             progress: Some(0.25),
         };
         sqlite_save_rss_article_inner(
@@ -4123,6 +4278,7 @@ mod tests {
         assert_eq!(articles.len(), 1);
         assert_eq!(&*articles[0].title, "Article 1");
         assert!(!articles[0].is_read);
+        assert!(!articles[0].is_saved);
 
         let content = sqlite_get_rss_article_content_inner(&conn, "a1")
             .unwrap()
@@ -4130,12 +4286,14 @@ mod tests {
         assert_eq!(&*content.content, "<p>Body 1</p>");
         assert_eq!(content.full_content.as_deref(), Some("<p>Full body 1</p>"));
 
-        // 3. Mark read and favorite
+        // 3. Mark read, favorite, and saved
         sqlite_mark_article_read_inner(&conn, "a1", true).unwrap();
         sqlite_mark_article_favorite_inner(&conn, "a1", true).unwrap();
+        sqlite_mark_article_saved_inner(&conn, "a1", true).unwrap();
         let updated_articles = sqlite_get_rss_articles_inner(&conn, None, None, None).unwrap();
         assert!(updated_articles[0].is_read);
         assert!(updated_articles[0].is_favorite);
+        assert!(updated_articles[0].is_saved);
 
         // 4. Test Reading Sessions
         sqlite_record_reading_session_inner(

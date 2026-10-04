@@ -14,6 +14,7 @@ export interface KnapHighlightItem {
     createdAt?: string;
     updatedAt?: string;
     chapterTitle?: string;
+    chapterIndex?: number;
     progress?: number;
 }
 

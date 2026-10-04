@@ -227,8 +227,9 @@ export function extractFilenameFromPath(filePath: string): string {
     return safeDecodeURIComponent(fallbackFilename);
 }
 
-function isSupportedImportFilename(lowerName: string): boolean {
-    return SUPPORTED_IMPORT_SUFFIXES.some((suffix) => lowerName.endsWith(suffix));
+export function isSupportedImportFilename(filename: string): boolean {
+    const lower = filename.toLowerCase();
+    return SUPPORTED_IMPORT_SUFFIXES.some((suffix) => lower.endsWith(suffix));
 }
 
 function normalizePathForFormatLookup(filePath: string): string {
@@ -265,7 +266,7 @@ function isZipSignature(bytes: Uint8Array): boolean {
         );
 }
 
-function detectFormatFromBuffer(buffer: ArrayBuffer): BookFormat | null {
+export function detectFormatFromBuffer(buffer: ArrayBuffer): BookFormat | null {
     const bytes = new Uint8Array(buffer);
     if (bytes.length === 0) {
         return null;
@@ -728,6 +729,8 @@ export async function importBooksIncremental(
                         publishedDate: raw.publishedDate,
                         language: raw.language,
                         isbn: raw.isbn,
+                        series: raw.series,
+                        seriesIndex: raw.seriesIndex ?? raw.series_index,
                         fileSize: raw.fileSize || 0,
                         readingTime: raw.readingTime || 0,
                         addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
@@ -759,6 +762,8 @@ export async function importBooksIncremental(
                         publishedDate: raw.publishedDate,
                         language: raw.language,
                         isbn: raw.isbn,
+                        series: raw.series,
+                        seriesIndex: raw.seriesIndex ?? raw.series_index,
                         fileSize: raw.fileSize || 0,
                         readingTime: raw.readingTime || 0,
                         addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),

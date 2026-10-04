@@ -58,6 +58,10 @@ export function formatRelativeDate(date: Date): string {
     return `${Math.floor(diffDays / 365)} years ago`;
 }
 
+export function isBookMarkedRead(book: { completedAt?: Date | string | null; progress?: number }): boolean {
+    return Boolean(book.completedAt || (book.progress != null && book.progress >= 0.99));
+}
+
 export function normalizeAuthor(author: unknown): string {
     if (!author) return "";
     

@@ -87,3 +87,81 @@ describe("vault export parity with the native exporter", () => {
         expect(names(backward)).toEqual(names(forward));
     });
 });
+
+describe("chapter-wise highlight organization", () => {
+    const source = {
+        id: "book-test",
+        title: "Test Novel",
+        author: "Novel Author",
+        format: "epub",
+        filePath: "/books/test.epub",
+    };
+
+    const annotations: Annotation[] = [
+        {
+            id: "a1",
+            bookId: "book-test",
+            type: "highlight",
+            selectedText: "Second chapter highlight",
+            chapterTitle: "Chapter 2: The Middle",
+            chapterIndex: 1,
+            createdAt: new Date("2026-09-01T10:00:00Z"),
+        },
+        {
+            id: "a2",
+            bookId: "book-test",
+            type: "highlight",
+            selectedText: "First chapter highlight",
+            chapterTitle: "Chapter 1: The Beginning",
+            chapterIndex: 0,
+            createdAt: new Date("2026-09-01T11:00:00Z"),
+        },
+        {
+            id: "a3",
+            bookId: "book-test",
+            type: "note",
+            noteContent: "A note without chapter",
+            createdAt: new Date("2026-09-01T12:00:00Z"),
+        },
+    ];
+
+    it("groups and orders highlights by chapterIndex in by_chapter mode", () => {
+        const md = buildBookPageMarkdown(source, annotations, undefined, "obsidian", "by_chapter");
+        const idxCh1 = md.indexOf("### Chapter 1: The Beginning");
+        const idxCh2 = md.indexOf("### Chapter 2: The Middle");
+        const idxGen = md.indexOf("### General Highlights");
+
+        expect(idxCh1).toBeGreaterThan(-1);
+        expect(idxCh2).toBeGreaterThan(idxCh1);
+        expect(idxGen).toBeGreaterThan(idxCh2);
+
+        expect(md).toContain("> ==First chapter highlight==");
+        expect(md).toContain("> ==Second chapter highlight==");
+        expect(md).toContain("A note without chapter");
+    });
+
+    it("renders flat without chapter headers in flat mode", () => {
+        const md = buildBookPageMarkdown(source, annotations, undefined, "obsidian", "flat");
+        expect(md).not.toContain("### Chapter 1: The Beginning");
+        expect(md).not.toContain("### Chapter 2: The Middle");
+        expect(md).not.toContain("### General Highlights");
+        expect(md).toContain("> ==First chapter highlight==");
+        expect(md).toContain("> ==Second chapter highlight==");
+    });
+
+    it("renders flat when no annotations have chapter information", () => {
+        const flatAnnotations: Annotation[] = [
+            {
+                id: "f1",
+                bookId: "book-test",
+                type: "highlight",
+                selectedText: "Highlight 1",
+                createdAt: new Date("2026-09-01T10:00:00Z"),
+            },
+        ];
+        const md = buildBookPageMarkdown(source, flatAnnotations, undefined, "obsidian", "by_chapter");
+        expect(md).not.toContain("### General Highlights");
+        expect(md).toContain("> ==Highlight 1==");
+    });
+});
+

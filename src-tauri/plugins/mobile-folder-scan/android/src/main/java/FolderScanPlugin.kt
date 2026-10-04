@@ -54,6 +54,7 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
     ".fb2",
     ".fbz",
     ".cbz",
+    ".cbr",
     ".pdf"
   )
   private val scanExecutor = Executors.newSingleThreadExecutor()

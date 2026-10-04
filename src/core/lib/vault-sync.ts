@@ -11,6 +11,7 @@ import type {
     Book,
     RssArticle,
     VaultExportPreset,
+    VaultHighlightGrouping,
     VaultIntegrationSettings,
     VocabularyTerm,
 } from "../types";
@@ -330,11 +331,54 @@ function buildUniqueFileName(
     return candidate;
 }
 
+function renderAnnotationMarkdown(
+    annotation: Annotation,
+    preset: VaultExportPreset,
+    lines: string[],
+): void {
+    const quote = toMultilineText(annotation.selectedText).split("\n").map((line) => line.trim());
+    const note = toMultilineText(annotation.noteContent);
+    const hasQuote = quote.some(Boolean);
+    const mark = preset === "minimalist" ? "" : "==";
+
+    if (preset === "logseq") {
+        // One outline block per annotation; every continuation line is
+        // indented under it, blank lines would end the block.
+        const noteLines = note ? note.split("\n").filter((line) => line.trim()) : [];
+        if (hasQuote) {
+            quote.forEach((line, index) => {
+                const prefix = index === 0 ? "- >" : "  >";
+                lines.push(line ? `${prefix} ${mark}${line}${mark}` : prefix);
+            });
+            noteLines.forEach((line, index) => {
+                lines.push(index === 0 ? `  - **Note**: ${line}` : `    ${line}`);
+            });
+            lines.push("");
+        } else if (noteLines.length > 0) {
+            noteLines.forEach((line, index) => {
+                lines.push(index === 0 ? `- **Note**: ${line}` : `  ${line}`);
+            });
+            lines.push("");
+        }
+        return;
+    }
+
+    if (hasQuote) {
+        lines.push(...quote.map((line) => line ? `> ${mark}${line}${mark}` : ">"));
+        lines.push("");
+    }
+    if (note) {
+        lines.push(note);
+        lines.push("");
+    }
+}
+
 export function buildBookPageMarkdown(
     source: ExportSource,
     annotations: Annotation[],
     _generatedAt?: string,
     preset: VaultExportPreset = "obsidian",
+    grouping: VaultHighlightGrouping = "by_chapter",
 ): string {
     const sorted = sortAnnotations(annotations);
 
@@ -367,46 +411,59 @@ export function buildBookPageMarkdown(
         return lines.join("\n");
     }
 
-    const logseq = preset === "logseq";
-    const mark = preset === "minimalist" ? "" : "==";
-    sorted.forEach((annotation) => {
-        // Quote lines are trimmed (selections carry layout indentation);
-        // notes keep their own indentation (they may hold nested lists).
-        const quote = toMultilineText(annotation.selectedText).split("\n").map((line) => line.trim());
-        const note = toMultilineText(annotation.noteContent);
-        const hasQuote = quote.some(Boolean);
+    const hasAnyChapters = sorted.some(
+        (a) => a.chapterTitle && a.chapterTitle.trim().length > 0,
+    );
 
-        if (logseq) {
-            // One outline block per annotation; every continuation line is
-            // indented under it, blank lines would end the block.
-            const noteLines = note ? note.split("\n").filter((line) => line.trim()) : [];
-            if (hasQuote) {
-                quote.forEach((line, index) => {
-                    const prefix = index === 0 ? "- >" : "  >";
-                    lines.push(line ? `${prefix} ${mark}${line}${mark}` : prefix);
+    if (grouping === "by_chapter" && hasAnyChapters) {
+        interface ChapterGroup {
+            title: string;
+            index?: number;
+            firstCreatedAt: number;
+            annotations: Annotation[];
+        }
+
+        const chapterGroups: ChapterGroup[] = [];
+        for (const anno of sorted) {
+            const trimmedTitle = anno.chapterTitle?.trim();
+            const title = trimmedTitle || "General Highlights";
+            const existing = chapterGroups.find((g) => g.title === title);
+            if (existing) {
+                if (existing.index === undefined && anno.chapterIndex !== undefined) {
+                    existing.index = anno.chapterIndex;
+                }
+                existing.annotations.push(anno);
+            } else {
+                chapterGroups.push({
+                    title,
+                    index: anno.chapterIndex,
+                    firstCreatedAt: new Date(anno.createdAt).getTime(),
+                    annotations: [anno],
                 });
-                noteLines.forEach((line, index) => {
-                    lines.push(index === 0 ? `  - **Note**: ${line}` : `    ${line}`);
-                });
-                lines.push("");
-            } else if (noteLines.length > 0) {
-                noteLines.forEach((line, index) => {
-                    lines.push(index === 0 ? `- **Note**: ${line}` : `  ${line}`);
-                });
-                lines.push("");
             }
-            return;
         }
 
-        if (hasQuote) {
-            lines.push(...quote.map((line) => line ? `> ${mark}${line}${mark}` : ">"));
-            lines.push("");
+        chapterGroups.sort((a, b) => {
+            if (a.index !== undefined && b.index !== undefined) {
+                if (a.index !== b.index) return a.index - b.index;
+                return a.firstCreatedAt - b.firstCreatedAt;
+            }
+            if (a.index !== undefined && b.index === undefined) return -1;
+            if (a.index === undefined && b.index !== undefined) return 1;
+            return a.firstCreatedAt - b.firstCreatedAt;
+        });
+
+        for (const group of chapterGroups) {
+            lines.push(`### ${group.title}`, "");
+            for (const anno of group.annotations) {
+                renderAnnotationMarkdown(anno, preset, lines);
+            }
         }
-        if (note) {
-            lines.push(note);
-            lines.push("");
+    } else {
+        for (const anno of sorted) {
+            renderAnnotationMarkdown(anno, preset, lines);
         }
-    });
+    }
 
     return lines.join("\n");
 }
@@ -612,6 +669,8 @@ export async function syncVaultMarkdownSnapshot({
                     text: toMultilineText(a.selectedText).split("\n").map((l) => l.trim()).filter(Boolean).join(" "),
                     note: toMultilineText(a.noteContent) || null,
                     color: a.color,
+                    chapterTitle: a.chapterTitle,
+                    chapterIndex: a.chapterIndex,
                     createdAt: a.createdAt ? new Date(a.createdAt).toISOString() : undefined,
                     updatedAt: a.updatedAt ? new Date(a.updatedAt).toISOString() : undefined,
                 })),
@@ -641,6 +700,7 @@ export async function syncVaultMarkdownSnapshot({
                         highlightsFolder,
                         vocabularyFileName,
                         exportPreset: settings.exportPreset || "obsidian",
+                        highlightGrouping: settings.highlightGrouping || "by_chapter",
                         customPages,
                         books: books.map((b) => ({
                             id: b.id,
@@ -658,6 +718,8 @@ export async function syncVaultMarkdownSnapshot({
                             color: a.color,
                             createdAt: a.createdAt,
                             updatedAt: a.updatedAt,
+                            chapterTitle: a.chapterTitle,
+                            chapterIndex: a.chapterIndex,
                         })),
                         vocabularyTerms: vocabularyTerms.map((v) => ({
                             id: v.id,
@@ -704,7 +766,13 @@ export async function syncVaultMarkdownSnapshot({
             await Promise.all(batch.map((page) => {
                 const content = (settings.exportPreset === "custom" && customPages?.[page.source.id])
                     ? customPages[page.source.id]
-                    : buildBookPageMarkdown(page.source, page.annotations, generatedAt, settings.exportPreset || "obsidian");
+                    : buildBookPageMarkdown(
+                        page.source,
+                        page.annotations,
+                        generatedAt,
+                        settings.exportPreset || "obsidian",
+                        settings.highlightGrouping || "by_chapter",
+                    );
                 return fs.writeTextFile(page.absolutePath, content);
             }));
         }

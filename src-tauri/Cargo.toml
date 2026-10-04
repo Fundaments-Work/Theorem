@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "theorem"
-version = "1.5.8"
+version = "1.5.9"
 description = "Local-first desktop reader for PDFs, EPUBs, MOBI, and RSS."
 authors = ["Fundamentals"]
 license = "MIT"
@@ -92,9 +92,9 @@ iroh-mdns-address-lookup = "0.5.0"
 readability = { version = "0.3.0", default-features = false }
 url = "2.5.8"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+rars = "0.9.4"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
-unrar-ng = "0.7.7"
 # Desktop TTS shells (spd-say / say / powershell) need tokio process spawning.
 # Feature sets are additive per-target, so this only applies on desktop.
 tokio = { version = "1", features = ["process"] }

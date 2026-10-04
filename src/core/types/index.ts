@@ -94,6 +94,12 @@ export interface Book {
 
     /** Companion human-narrated audiobook (attachable to any book). */
     audioTrack?: BookAudioTrack;
+
+    /** Series or collection name this book belongs to */
+    series?: string;
+
+    /** Position or sequence volume within the series (e.g. 1, 2, 2.5) */
+    seriesIndex?: number;
 }
 
 export interface AudioChapter {
@@ -144,6 +150,8 @@ export interface Annotation {
     rect?: { x: number; y: number; width: number; height: number };
     rects?: Array<{ x: number; y: number; width: number; height: number }>;
     strokeWidth?: number;
+    chapterTitle?: string;
+    chapterIndex?: number;
 }
 
 export interface Collection {
@@ -154,6 +162,7 @@ export interface Collection {
     kind: "general";
     createdAt: Date;
     updatedAt?: Date;
+    groupBySeries?: boolean;
 }
 
 export type TombstoneEntity = "book" | "annotation" | "collection" | "feed" | "rss_article" | "vocabulary" | "collection_book";
@@ -200,7 +209,7 @@ export interface ReaderSettings {
 }
 
 export type LibraryViewMode = "grid" | "list" | "compact";
-export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "progress" | "rating";
+export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "progress" | "rating" | "series";
 export type LibrarySortOrder = "asc" | "desc";
 export type LibraryStatusFilter = "all" | "unread" | "reading" | "completed";
 
@@ -230,6 +239,8 @@ export interface AppSettings {
     goalNotifications: boolean;
     dailyReminderTime: string;
     syncNotifications: boolean;
+    rssRetentionDays: number;
+    rssKeepUnread: boolean;
 }
 
 export interface PairedDevice {
@@ -308,6 +319,7 @@ export interface TtsSettings {
 }
 
 export type VaultExportPreset = "obsidian" | "logseq" | "minimalist" | "custom";
+export type VaultHighlightGrouping = "by_chapter" | "flat";
 
 export interface VaultIntegrationSettings {
     enabled: boolean;
@@ -318,6 +330,7 @@ export interface VaultIntegrationSettings {
     vocabularyFileName: string;
     exportPreset?: VaultExportPreset;
     customTemplate?: string;
+    highlightGrouping?: VaultHighlightGrouping;
 }
 
 export interface VocabularyMeaning {
@@ -403,6 +416,8 @@ export interface RssArticle {
     fetchedAt: Date;
     isRead: boolean;
     isFavorite: boolean;
+    /** Explicitly saved for offline reading — content kept permanently in SQLite. */
+    isSaved: boolean;
     progress?: number;
 }
 
@@ -474,6 +489,9 @@ export interface DocMetadata {
     producer?: string;
     pdfVersion?: string;
     pageSize?: string;
+    series?: string;
+    seriesIndex?: number;
+    seriesTotal?: number;
     /** Files embedded in a PDF. */
     attachments?: { key: string; name: string; size?: number; description?: string }[];
 }

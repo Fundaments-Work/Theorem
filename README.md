@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://app.theorem.fundaments.work"><img src="https://img.shields.io/badge/try%20the%20web%20demo-app.theorem.fundaments.work-8A2BE2?style=for-the-badge" alt="Web Demo"></a>
+  <a href="https://read.fundaments.work"><img src="https://img.shields.io/badge/try%20the%20web%20demo-read.fundaments.work-8A2BE2?style=for-the-badge" alt="Web Demo"></a>
   <a href="https://github.com/fundaments-work/theorem/releases/latest"><img src="https://img.shields.io/github/v/release/fundaments-work/theorem?label=latest&style=flat-square" alt="Latest Release"></a>
   <a href="https://github.com/fundaments-work/theorem/releases"><img src="https://img.shields.io/github/downloads/fundaments-work/theorem/total?style=flat-square" alt="Downloads"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 | Windows | `.exe` (NSIS) |
 | Android | `.apk` |
 
-All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://app.theorem.fundaments.work) without installing.
+All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://read.fundaments.work) without installing.
 
 ---
 
@@ -86,7 +86,7 @@ See [AGENTS.md](./AGENTS.md) for the full repository map, conventions, and archi
 EPUB, MOBI, AZW, AZW3, FB2, CBZ, CBR, PDF, and RSS articles. Native Rust pre-parser pre-inflates stylesheets and initial spine chapters in parallel threads, delivering **instant book opening (< 50ms)** even on 100MB+ titles. Multi-threaded streaming in-book search crawls 1,000+ page books in ~10–30ms with zero UI lag. Foliate-based reflowable rendering with paged and scroll modes. PDF.js engine with zoom (50–200%), page-fit/width-fit modes, and outline navigation. **Theorem Lens** (in-place footnote, citation, and figure peek portals without losing your reading place). Full table of contents with section progress. Estimated reading time per page and chapter. Reading progress saved per-book across sessions (page-accurate + CFI). File association — open ebooks directly from your file manager.
 
 <p align="center">
-  <img src="./Screenshots/reader_screen.png" alt="Theorem reader with highlights and annotations in dark theme" width="700">
+  <img src="./Screenshots/desktop/reader-annotations-notes-light.png" alt="Theorem reader with highlights and annotations" width="700">
 </p>
 
 ### Discover & OPDS Catalogs
@@ -99,11 +99,15 @@ Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-seri
 Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Notes on any highlight. Bookmarks. Overlayer drawing styles: highlight, underline, strikethrough, squiggly, outline. Annotation panel with quick navigation, editing, and deletion. Works across all formats including PDF and RSS articles.
 
 <p align="center">
-  <img src="./Screenshots/highlights_page.png" alt="Annotation panel with color-coded highlights" width="700">
+  <img src="./Screenshots/desktop/workbench-highlights-dark.png" alt="Workbench annotation panel with color-coded highlights" width="700">
 </p>
 
 ### PDF Annotations
 Freehand drawing with configurable stroke width. Text notes placed anywhere on the page. Multi-line rectangular highlights. Per-page annotation rendering. PDF view state persistence (page, zoom, mode per-book).
+
+<p align="center">
+  <img src="./Screenshots/desktop/pdf-reader-annotations-dark.png" alt="Theorem PDF reader with freehand annotations and drawing" width="700">
+</p>
 
 ### Highlight Sharing
 Generate polished share-card images from any highlight. Multiple formats: Square (1080×1080) and Story (1080×1920). Multiple visual themes: match, dark, tinted, sepia. Download as PNG, copy to clipboard, native share via Web Share API, share to X (Twitter). Android: saves to MediaStore gallery.
@@ -118,7 +122,7 @@ Look up words while reading with instant sub-millisecond definitions. Native mem
 Subscribe to feeds with full annotation tools. Native Rust article fetcher and readability cleaner extracts clean text, OpenGraph metadata, and images while stripping ads, scripts, and clutter with zero IPC bloat. Feed discovery from web pages. Offline article storage with caching. Per-feed unread count. Favoriting.
 
 <p align="center">
-  <img src="./Screenshots/rss_page.png" alt="RSS feed reader with article list" width="700">
+  <img src="./Screenshots/desktop/feeds-reader-dark.png" alt="RSS feed reader with article list" width="700">
 </p>
 
 ### Markdown Export (Obsidian / Logseq)
@@ -128,11 +132,15 @@ Export highlights and annotations to local Markdown files. Designed for vault-ba
 Multi-threaded Rust batch ingestion pipeline (`rayon` + `quick-xml` + `image` SIMD) imports hundreds of books in seconds with hardware-accelerated SHA-256 deduplication and native cover extraction. Custom collections / shelves. Favorites toggle with dedicated section. Book ratings (1–5 stars). Tags and categories. Multiple view modes: grid, list, compact. Sort by title, author, date added, last read, progress, rating. Library search by title, author, or tags.
 
 <p align="center">
-  <img src="./Screenshots/shelves_page.png" alt="Library with custom shelves" width="700">
+  <img src="./Screenshots/desktop/shelves-overview-dark.png" alt="Library with custom shelves" width="700">
 </p>
 
 ### Reading Statistics
 Reading time tracking (total and per-book). Books finished. Reading streaks: current + longest. Daily activity log with 12-week heatmap. Reading goals: daily minutes and yearly books. Book completion tracking.
+
+<p align="center">
+  <img src="./Screenshots/desktop/statistics-activity-heatmap-dark.png" alt="Reading activity and 12-week heatmap" width="700">
+</p>
 
 ### LAN Device Sync
 Encrypted peer-to-peer sync between Theorem installs on local network. Syncs books, reading progress, annotations, collections, settings, and vocabulary. QR-based device pairing. Device identity management with public-key encryption. Auto-sync on peer discovery. Periodic background sync. No cloud relay — fully local and private.
@@ -141,7 +149,7 @@ Encrypted peer-to-peer sync between Theorem installs on local network. Syncs boo
 Backup bundle export: library (book metadata, collections, annotations), settings, statistics, vocabulary, and RSS feeds. Storage usage breakdown. Cache size configuration.
 
 <p align="center">
-  <img src="./Screenshots/settings_page.png" alt="Settings and data management" width="700">
+  <img src="./Screenshots/desktop/settings-data-storage-dark.png" alt="Settings and data management" width="700">
 </p>
 
 ### Cross-Platform
@@ -201,7 +209,7 @@ Yes. Local-first reading, annotation, and Markdown export without a paid subscri
 
 **What formats are supported?** — EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, and RSS feeds.
 
-**Can I try it without installing?** — Yes. The [web demo](https://app.theorem.fundaments.work) runs in your browser.
+**Can I try it without installing?** — Yes. The [web demo](https://read.fundaments.work) runs in your browser.
 
 **Why MIT instead of AGPL?** — MIT lets anyone use, modify, and integrate the code without forcing them to open-source their changes. For a local-first reading app that stores all data as plain Markdown, the protection AGPL offers is unnecessary — your data is already portable.
 

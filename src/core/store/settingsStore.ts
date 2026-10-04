@@ -52,6 +52,7 @@ const defaultVaultSettings: AppSettings["vault"] = {
     vocabularyFileName: "Vocabulary.md",
     exportPreset: "obsidian",
     customTemplate: DEFAULT_KNAP_TEMPLATE,
+    highlightGrouping: "by_chapter",
 };
 
 const defaultDeviceSyncSettings: AppSettings["deviceSync"] = {
@@ -91,6 +92,8 @@ const defaultAppSettings: AppSettings = {
     goalNotifications: true,
     dailyReminderTime: "20:00",
     syncNotifications: true,
+    rssRetentionDays: 30,
+    rssKeepUnread: true,
 };
 
 const defaultReadingStats: ReadingStats = {

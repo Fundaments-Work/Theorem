@@ -34,6 +34,10 @@ pub struct VaultAnnotation {
     pub color: Option<String>,
     pub created_at: String,
     pub updated_at: Option<String>,
+    #[serde(default)]
+    pub chapter_title: Option<String>,
+    #[serde(default)]
+    pub chapter_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,6 +77,14 @@ pub enum VaultExportPreset {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VaultHighlightGrouping {
+    #[default]
+    ByChapter,
+    Flat,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultExportPayload {
@@ -80,6 +92,7 @@ pub struct VaultExportPayload {
     pub highlights_folder: Option<String>,
     pub vocabulary_file_name: Option<String>,
     pub export_preset: Option<String>,
+    pub highlight_grouping: Option<String>,
     pub custom_pages: Option<HashMap<String, String>>,
     pub books: Vec<VaultBook>,
     pub annotations: Vec<VaultAnnotation>,
@@ -280,11 +293,75 @@ fn normalize_multiline(value: Option<&str>) -> String {
     value.unwrap_or("").replace("\r\n", "\n").trim().to_string()
 }
 
+fn render_annotation_markdown(
+    anno: &VaultAnnotation,
+    preset: VaultExportPreset,
+    lines: &mut Vec<String>,
+) {
+    let mark = if preset == VaultExportPreset::Minimalist {
+        ""
+    } else {
+        "=="
+    };
+    let quote = normalize_multiline(anno.selected_text.as_deref());
+    let quote_lines: Vec<&str> = quote.split('\n').map(str::trim).collect();
+    let has_quote = quote_lines.iter().any(|line| !line.is_empty());
+    let note = normalize_multiline(anno.note_content.as_deref());
+
+    if preset == VaultExportPreset::Logseq {
+        let note_lines: Vec<&str> = note.split('\n').filter(|l| !l.trim().is_empty()).collect();
+        if has_quote {
+            for (index, line) in quote_lines.iter().enumerate() {
+                let prefix = if index == 0 { "- >" } else { "  >" };
+                lines.push(if line.is_empty() {
+                    prefix.to_string()
+                } else {
+                    format!("{prefix} {mark}{line}{mark}")
+                });
+            }
+            for (index, line) in note_lines.iter().enumerate() {
+                lines.push(if index == 0 {
+                    format!("  - **Note**: {line}")
+                } else {
+                    format!("    {line}")
+                });
+            }
+            lines.push(String::new());
+        } else if !note_lines.is_empty() {
+            for (index, line) in note_lines.iter().enumerate() {
+                lines.push(if index == 0 {
+                    format!("- **Note**: {line}")
+                } else {
+                    format!("  {line}")
+                });
+            }
+            lines.push(String::new());
+        }
+        return;
+    }
+
+    if has_quote {
+        for line in &quote_lines {
+            lines.push(if line.is_empty() {
+                ">".to_string()
+            } else {
+                format!("> {mark}{line}{mark}")
+            });
+        }
+        lines.push(String::new());
+    }
+    if !note.is_empty() {
+        lines.push(note.clone());
+        lines.push(String::new());
+    }
+}
+
 pub fn build_book_page_markdown(
     source: &ExportSource,
     annotations: &[VaultAnnotation],
     _generated_at: &str,
     preset: VaultExportPreset,
+    grouping: VaultHighlightGrouping,
 ) -> String {
     let mut sorted = annotations.to_vec();
     sorted.sort_by(|a, b| {
@@ -320,67 +397,61 @@ pub fn build_book_page_markdown(
         return lines.join("\n");
     }
 
-    let mark = if preset == VaultExportPreset::Minimalist {
-        ""
-    } else {
-        "=="
-    };
-    for anno in &sorted {
-        // Quote lines are trimmed (selections carry layout indentation); notes
-        // keep their own indentation (they may hold nested lists). Must stay
-        // byte-identical to `buildBookPageMarkdown` in `vault-sync.ts`
-        // (golden files in `tests/fixtures/vault/`).
-        let quote = normalize_multiline(anno.selected_text.as_deref());
-        let quote_lines: Vec<&str> = quote.split('\n').map(str::trim).collect();
-        let has_quote = quote_lines.iter().any(|line| !line.is_empty());
-        let note = normalize_multiline(anno.note_content.as_deref());
+    let has_any_chapters = sorted.iter().any(|a| {
+        a.chapter_title
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|s| !s.is_empty())
+    });
 
-        if preset == VaultExportPreset::Logseq {
-            // One outline block per annotation; blank lines would end the block.
-            let note_lines: Vec<&str> = note.split('\n').filter(|l| !l.trim().is_empty()).collect();
-            if has_quote {
-                for (index, line) in quote_lines.iter().enumerate() {
-                    let prefix = if index == 0 { "- >" } else { "  >" };
-                    lines.push(if line.is_empty() {
-                        prefix.to_string()
-                    } else {
-                        format!("{prefix} {mark}{line}{mark}")
-                    });
-                }
-                for (index, line) in note_lines.iter().enumerate() {
-                    lines.push(if index == 0 {
-                        format!("  - **Note**: {line}")
-                    } else {
-                        format!("    {line}")
-                    });
-                }
-                lines.push(String::new());
-            } else if !note_lines.is_empty() {
-                for (index, line) in note_lines.iter().enumerate() {
-                    lines.push(if index == 0 {
-                        format!("- **Note**: {line}")
-                    } else {
-                        format!("  {line}")
-                    });
-                }
-                lines.push(String::new());
-            }
-            continue;
+    if grouping == VaultHighlightGrouping::ByChapter && has_any_chapters {
+        struct ChapterGroup<'a> {
+            title: &'a str,
+            index: Option<usize>,
+            first_created_at: &'a str,
+            annotations: Vec<&'a VaultAnnotation>,
         }
 
-        if has_quote {
-            for line in &quote_lines {
-                lines.push(if line.is_empty() {
-                    ">".to_string()
-                } else {
-                    format!("> {mark}{line}{mark}")
+        let mut chapter_groups: Vec<ChapterGroup> = Vec::new();
+        for anno in &sorted {
+            let title = match anno.chapter_title.as_deref().map(str::trim) {
+                Some(t) if !t.is_empty() => t,
+                _ => "General Highlights",
+            };
+            if let Some(existing) = chapter_groups.iter_mut().find(|g| g.title == title) {
+                if existing.index.is_none() && anno.chapter_index.is_some() {
+                    existing.index = anno.chapter_index;
+                }
+                existing.annotations.push(anno);
+            } else {
+                chapter_groups.push(ChapterGroup {
+                    title,
+                    index: anno.chapter_index,
+                    first_created_at: &anno.created_at,
+                    annotations: vec![anno],
                 });
             }
-            lines.push(String::new());
         }
-        if !note.is_empty() {
-            lines.push(note.clone());
+
+        chapter_groups.sort_by(|a, b| match (a.index, b.index) {
+            (Some(idx_a), Some(idx_b)) => idx_a
+                .cmp(&idx_b)
+                .then_with(|| a.first_created_at.cmp(b.first_created_at)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.first_created_at.cmp(b.first_created_at),
+        });
+
+        for group in chapter_groups {
+            lines.push(format!("### {}", group.title));
             lines.push(String::new());
+            for anno in group.annotations {
+                render_annotation_markdown(anno, preset, &mut lines);
+            }
+        }
+    } else {
+        for anno in &sorted {
+            render_annotation_markdown(anno, preset, &mut lines);
         }
     }
 
@@ -560,6 +631,11 @@ pub fn export_vault_snapshot_impl(
         _ => VaultExportPreset::Obsidian,
     };
 
+    let grouping = match payload.highlight_grouping.as_deref() {
+        Some("flat") => VaultHighlightGrouping::Flat,
+        _ => VaultHighlightGrouping::ByChapter,
+    };
+
     let custom_pages = payload.custom_pages.as_ref();
 
     for (book_id, annos) in &grouped_annotations {
@@ -576,10 +652,11 @@ pub fn export_vault_snapshot_impl(
                         annos,
                         &generated_at,
                         VaultExportPreset::Obsidian,
+                        grouping,
                     )
                 })
         } else {
-            build_book_page_markdown(&source, annos, &generated_at, preset)
+            build_book_page_markdown(&source, annos, &generated_at, preset, grouping)
         };
         files_to_write.push((abs_path, content));
     }
@@ -736,6 +813,7 @@ mod tests {
                 highlights_folder: None,
                 vocabulary_file_name: None,
                 export_preset: None,
+                highlight_grouping: None,
                 custom_pages: None,
                 books: books
                     .into_iter()
@@ -759,6 +837,8 @@ mod tests {
                         color: Some("yellow".to_string()),
                         created_at: "2026-09-01T10:00:00Z".to_string(),
                         updated_at: None,
+                        chapter_title: None,
+                        chapter_index: None,
                     })
                     .collect(),
                 vocabulary_terms: vec![],
@@ -944,6 +1024,8 @@ mod tests {
                 color: Some("yellow".to_string()),
                 created_at: "2026-09-01T12:00:00Z".to_string(),
                 updated_at: None,
+                chapter_title: None,
+                chapter_index: None,
             },
             VaultAnnotation {
                 id: "anno-2".to_string(),
@@ -954,6 +1036,8 @@ mod tests {
                 color: Some("blue".to_string()),
                 created_at: "2026-09-01T12:05:00Z".to_string(),
                 updated_at: None,
+                chapter_title: None,
+                chapter_index: None,
             },
         ];
 
@@ -962,6 +1046,7 @@ mod tests {
             &annotations,
             "2026-09-13T12:00:00Z",
             VaultExportPreset::Obsidian,
+            VaultHighlightGrouping::ByChapter,
         );
         assert!(md.contains("title: \"Dune\""));
         assert!(md.contains("author: \"Frank Herbert\""));
@@ -981,6 +1066,7 @@ mod tests {
             &annotations,
             "2026-09-13T12:00:00Z",
             VaultExportPreset::Logseq,
+            VaultHighlightGrouping::ByChapter,
         );
         assert!(md_logseq.contains("- > ==Fear is the mind-killer.=="));
         assert!(md_logseq.contains("- > ==I must not fear.=="));
@@ -991,6 +1077,7 @@ mod tests {
             &annotations,
             "2026-09-13T12:00:00Z",
             VaultExportPreset::Minimalist,
+            VaultHighlightGrouping::ByChapter,
         );
         assert!(md_minimal.contains("> Fear is the mind-killer."));
         assert!(md_minimal.contains("> I must not fear."));
@@ -1050,11 +1137,26 @@ mod tests {
             ),
         ];
         for (preset, expected) in cases {
-            let md = build_book_page_markdown(&source, &annotations, "", preset);
+            let md = build_book_page_markdown(
+                &source,
+                &annotations,
+                "",
+                preset,
+                VaultHighlightGrouping::ByChapter,
+            );
             assert_eq!(md, expected, "preset {preset:?}");
             let mut reversed = annotations.clone();
             reversed.reverse();
-            assert_eq!(build_book_page_markdown(&source, &reversed, "", preset), md);
+            assert_eq!(
+                build_book_page_markdown(
+                    &source,
+                    &reversed,
+                    "",
+                    preset,
+                    VaultHighlightGrouping::ByChapter
+                ),
+                md
+            );
         }
     }
 
@@ -1177,5 +1279,98 @@ mod tests {
         let exported =
             fs::read_to_string(vault.0.join("Theorem").join("Books").join(&pages[0])).unwrap();
         assert_eq!(exported, "# Custom Note for B1\n\n> Custom content");
+    }
+
+    #[test]
+    fn test_chapter_wise_grouping_and_ordering() {
+        let source = ExportSource {
+            id: "b1".to_string(),
+            title: "Test Book".to_string(),
+            author: "Author".to_string(),
+            format: "epub".to_string(),
+            file_path: "b1.epub".to_string(),
+        };
+        let annotations = vec![
+            VaultAnnotation {
+                id: "a1".to_string(),
+                book_id: "b1".to_string(),
+                r#type: "highlight".to_string(),
+                selected_text: Some("Quote in chapter 2".to_string()),
+                note_content: None,
+                color: Some("yellow".to_string()),
+                created_at: "2026-09-01T10:00:00Z".to_string(),
+                updated_at: None,
+                chapter_title: Some("Chapter 2: The Second".to_string()),
+                chapter_index: Some(1),
+            },
+            VaultAnnotation {
+                id: "a2".to_string(),
+                book_id: "b1".to_string(),
+                r#type: "highlight".to_string(),
+                selected_text: Some("Quote in chapter 1".to_string()),
+                note_content: None,
+                color: Some("yellow".to_string()),
+                created_at: "2026-09-01T11:00:00Z".to_string(),
+                updated_at: None,
+                chapter_title: Some("Chapter 1: The Beginning".to_string()),
+                chapter_index: Some(0),
+            },
+            VaultAnnotation {
+                id: "a3".to_string(),
+                book_id: "b1".to_string(),
+                r#type: "note".to_string(),
+                selected_text: None,
+                note_content: Some("Uncategorized general note".to_string()),
+                color: Some("yellow".to_string()),
+                created_at: "2026-09-01T12:00:00Z".to_string(),
+                updated_at: None,
+                chapter_title: None,
+                chapter_index: None,
+            },
+        ];
+
+        let md_by_chapter = build_book_page_markdown(
+            &source,
+            &annotations,
+            "2026-09-13T12:00:00Z",
+            VaultExportPreset::Obsidian,
+            VaultHighlightGrouping::ByChapter,
+        );
+
+        // Chapter 1 must appear before Chapter 2, and General Highlights at the end
+        let idx_ch1 = md_by_chapter
+            .find("### Chapter 1: The Beginning")
+            .expect("Chapter 1 header");
+        let idx_ch2 = md_by_chapter
+            .find("### Chapter 2: The Second")
+            .expect("Chapter 2 header");
+        let idx_gen = md_by_chapter
+            .find("### General Highlights")
+            .expect("General Highlights header");
+
+        assert!(
+            idx_ch1 < idx_ch2,
+            "Chapter 1 should be ordered before Chapter 2"
+        );
+        assert!(
+            idx_ch2 < idx_gen,
+            "General highlights should follow indexed chapters"
+        );
+        assert!(md_by_chapter.contains("> ==Quote in chapter 1=="));
+        assert!(md_by_chapter.contains("> ==Quote in chapter 2=="));
+        assert!(md_by_chapter.contains("Uncategorized general note"));
+
+        let md_flat = build_book_page_markdown(
+            &source,
+            &annotations,
+            "2026-09-13T12:00:00Z",
+            VaultExportPreset::Obsidian,
+            VaultHighlightGrouping::Flat,
+        );
+        assert!(!md_flat.contains("### Chapter 1: The Beginning"));
+        assert!(!md_flat.contains("### Chapter 2: The Second"));
+        assert!(!md_flat.contains("### General Highlights"));
+        assert!(md_flat.contains("> ==Quote in chapter 1=="));
+        assert!(md_flat.contains("> ==Quote in chapter 2=="));
     }
 }

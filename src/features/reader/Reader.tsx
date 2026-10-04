@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense, memo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { cn } from "../../core/lib/utils";
+import { cn, isBookMarkedRead } from "../../core/lib/utils";
 import {
     getBookMaterializedPath,
     getBookBlob,
@@ -114,7 +114,7 @@ function resolvePdfTargetPage(target: string): number | null {
 }
 
 /** Formats read through zip.js, which only needs byte ranges. */
-const RANGE_READ_FORMATS: ReadonlySet<BookFormat> = new Set<BookFormat>(["epub", "cbz"]);
+const RANGE_READ_FORMATS: ReadonlySet<BookFormat> = new Set<BookFormat>(["epub", "cbz", "cbr"]);
 
 function getMimeTypeForBookFormat(format: BookFormat): string {
     switch (format) {
@@ -128,9 +128,10 @@ function getMimeTypeForBookFormat(format: BookFormat): string {
             return "application/x-fictionbook+xml";
         case "cbz":
             return "application/vnd.comicbook+zip";
+        case "cbr":
+            return "application/vnd.comicbook-rar";
         case "pdf":
             return "application/pdf";
-        case "cbr":
         default:
             return "application/octet-stream";
     }
@@ -228,6 +229,40 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [toc, setToc] = useState<TocItem[]>([]);
     const [location, setLocation] = useState<DocLocation | null>(null);
     const [sectionFractions, setSectionFractions] = useState<number[]>([]);
+
+    const flatToc = useMemo(() => {
+        const list: TocItem[] = [];
+        const walk = (items: TocItem[]) => {
+            for (const item of items) {
+                list.push(item);
+                if (item.subitems && item.subitems.length > 0) {
+                    walk(item.subitems);
+                }
+            }
+        };
+        walk(toc);
+        return list;
+    }, [toc]);
+
+    const getCurrentChapterInfo = useCallback((): { chapterTitle?: string; chapterIndex?: number } => {
+        if (!location) return {};
+        const label = location.tocItem?.label?.trim() || location.pageItem?.label?.trim();
+        const href = location.tocItem?.href;
+        if (!label && !href) {
+            if (location.pageInfo?.currentPage) {
+                return {
+                    chapterTitle: `Page ${location.pageInfo.currentPage}`,
+                    chapterIndex: location.pageInfo.currentPage - 1,
+                };
+            }
+            return {};
+        }
+        const idx = flatToc.findIndex((item) => (href && item.href === href) || (label && item.label === label));
+        return {
+            chapterTitle: label || (idx >= 0 ? flatToc[idx].label : undefined),
+            chapterIndex: idx >= 0 ? idx : undefined,
+        };
+    }, [location, flatToc]);
     // UI state
     const [isMobileViewport, setIsMobileViewport] = useState(() => (
         typeof window !== 'undefined'
@@ -633,11 +668,16 @@ const BookReaderPage = memo(function BookReaderPage() {
                 setToc([]);
                 setLocation(null);
                 setIsBookReady(false);
-                setInitialLocation(undefined);
+                const pendingLocation = useUIStore.getState().pendingReaderLocation;
+                if (pendingLocation) {
+                    useUIStore.getState().setPendingReaderLocation(undefined);
+                }
+                const nextLocation = normalizeInitialReaderLocation(pendingLocation);
+                setInitialLocation(nextLocation);
                 setInitialFraction(undefined);
-                suppressProgressRef.current = false;
-                resumeTargetRef.current = null;
-                hasAppliedInitialLocationRef.current = true;
+                suppressProgressRef.current = !!nextLocation;
+                resumeTargetRef.current = nextLocation || null;
+                hasAppliedInitialLocationRef.current = !nextLocation;
                 setLoadError(null);
 
                 try {
@@ -1046,6 +1086,9 @@ const BookReaderPage = memo(function BookReaderPage() {
             ...meta,
             pubdate: loadedBook?.publishedDate || meta.pubdate,
             cover: loadedBook?.coverPath || meta.cover,
+            series: loadedBook?.series || meta.series,
+            seriesIndex: loadedBook?.seriesIndex ?? meta.seriesIndex,
+            seriesTotal: meta.seriesTotal,
         };
 
         setMetadata(mergedMetadata);
@@ -1078,6 +1121,32 @@ const BookReaderPage = memo(function BookReaderPage() {
                 ? currentStats.booksReadThisYear + 1
                 : currentStats.booksReadThisYear,
         });
+
+        // Prompt next volume if book belongs to a series
+        const completedBook = useLibraryStore.getState().getBook(bookId);
+        if (completedBook?.series?.trim()) {
+            const seriesName = completedBook.series.trim().toLowerCase();
+            const seriesBooks = useLibraryStore.getState().books
+                .filter((b) => b.series?.trim().toLowerCase() === seriesName && b.id !== bookId)
+                .sort((a, b) => (a.seriesIndex ?? Infinity) - (b.seriesIndex ?? Infinity));
+
+            const currentIdx = completedBook.seriesIndex ?? -1;
+            const nextBook = seriesBooks.find((b) => (b.seriesIndex != null && b.seriesIndex > currentIdx && !isBookMarkedRead(b)))
+                || seriesBooks.find((b) => !isBookMarkedRead(b));
+
+            if (nextBook) {
+                toast(`Finished ${completedBook.title}!`, {
+                    description: `Next up in ${completedBook.series}: ${nextBook.title}${nextBook.seriesIndex != null ? ` (Vol. ${nextBook.seriesIndex})` : ""}`,
+                    action: {
+                        label: "Read Next",
+                        onClick: () => {
+                            useUIStore.getState().setRoute("reader", nextBook.id);
+                        },
+                    },
+                    duration: 10000,
+                });
+            }
+        }
     }, [markBookCompleted, updateStats]);
 
     const flushPendingProgressUpdate = useCallback(() => {
@@ -1868,6 +1937,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                     ? pdfBrushWidth
                     : undefined
             );
+        const chapterInfo = getCurrentChapterInfo();
         const normalizedAnnotation: Annotation = {
             id: annotationId,
             bookId: currentBookId,
@@ -1887,6 +1957,8 @@ const BookReaderPage = memo(function BookReaderPage() {
             rect: partialAnnotation.rect,
             rects: partialAnnotation.rects,
             strokeWidth: annotationStrokeWidth,
+            chapterTitle: partialAnnotation.chapterTitle || chapterInfo.chapterTitle,
+            chapterIndex: partialAnnotation.chapterIndex ?? chapterInfo.chapterIndex,
         };
 
         const existingAnnotation = getBookAnnotations(currentBookId).find((annotation) => annotation.id === annotationId);
@@ -1917,6 +1989,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         addAnnotation,
         currentBookId,
         getBookAnnotations,
+        getCurrentChapterInfo,
         pdfBrushColor,
         pdfBrushWidth,
         pdfCurrentPage,
@@ -1984,13 +2057,42 @@ const BookReaderPage = memo(function BookReaderPage() {
         if (activeDocId && isBookReady) {
             const bookAnnotations = getBookAnnotations(activeDocId);
             setAnnotations(bookAnnotations);
+
+            // Backfill chapter metadata for legacy annotations that lack chapterTitle
+            const legacyAnnotations = bookAnnotations.filter((a) => !a.chapterTitle);
+            if (legacyAnnotations.length > 0) {
+                for (const anno of legacyAnnotations) {
+                    if (isPdfFormat) {
+                        const pageNum = anno.pageNumber ?? (anno.location ? parseInt(anno.location, 10) : undefined);
+                        if (pageNum && !isNaN(pageNum) && pageNum > 0) {
+                            updateAnnotation(anno.id, {
+                                chapterTitle: `Page ${pageNum}`,
+                                chapterIndex: pageNum - 1,
+                            });
+                        }
+                    } else if (anno.location && flatToc.length > 0) {
+                        const idMatch = anno.location.match(/\[([^\]]+)\]/);
+                        if (idMatch && idMatch[1]) {
+                            const anchor = idMatch[1];
+                            const matchedIdx = flatToc.findIndex((item) => item.href && item.href.includes(anchor));
+                            if (matchedIdx >= 0) {
+                                updateAnnotation(anno.id, {
+                                    chapterTitle: flatToc[matchedIdx].label,
+                                    chapterIndex: matchedIdx,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
             if (isPdfFormat) {
                 return;
             }
-            
+
             readerRef.current?.loadAnnotations?.(bookAnnotations).catch(e => console.error("[catch]", e));
         }
-    }, [activeDocId, getBookAnnotations, isBookReady, isPdfFormat]);
+    }, [activeDocId, getBookAnnotations, isBookReady, isPdfFormat, flatToc, updateAnnotation]);
 
     useEffect(() => {
         if (!isBookReady || !readerRef.current || hasAppliedInitialLocationRef.current) return;
@@ -2286,11 +2388,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                 try {
                     const annotation = await readerRef.current?.addHighlight?.(selectedCfi, selectedText, color);
                     if (annotation) {
-                        
-                        const annotationWithBookId = {
+                        const chapterInfo = getCurrentChapterInfo();
+                        const annotationWithBookId: Annotation = {
                             ...annotation,
                             bookId: activeDocId,
                             referenceId: annotation.referenceId || activeDocId,
+                            chapterTitle: annotation.chapterTitle || chapterInfo.chapterTitle,
+                            chapterIndex: annotation.chapterIndex ?? chapterInfo.chapterIndex,
                         };
                         
                         addAnnotation(annotationWithBookId);
@@ -2318,7 +2422,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         setSelectedCfi('');
 
         readerRef.current?.clearSelection?.();
-    }, [selectedCfi, selectedText, activeDocId, addAnnotation, editingHighlightId, annotations, updateAnnotation, removeAnnotation]);
+    }, [selectedCfi, selectedText, activeDocId, addAnnotation, editingHighlightId, annotations, updateAnnotation, removeAnnotation, getCurrentChapterInfo]);
 
     const handleAddNote = useCallback(() => {
         if (!selectedCfi || !activeDocId) return;
@@ -2389,6 +2493,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         } else {
             
             debug('[Reader] Creating new highlight with note');
+            const chapterInfo = getCurrentChapterInfo();
             const annotation: Annotation = {
                 id: crypto.randomUUID(),
                 bookId: activeDocId,
@@ -2398,6 +2503,8 @@ const BookReaderPage = memo(function BookReaderPage() {
                 selectedText,
                 color: pendingHighlightColor ?? 'yellow',
                 noteContent: noteContent || undefined,
+                chapterTitle: chapterInfo.chapterTitle,
+                chapterIndex: chapterInfo.chapterIndex,
                 createdAt: new Date(),
             };
 
@@ -2426,6 +2533,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         annotations,
         addAnnotation,
         editingHighlightId,
+        getCurrentChapterInfo,
         pendingHighlightColor,
         updateAnnotation,
     ]);
@@ -2433,6 +2541,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const handleBookmarkFromSelection = useCallback(() => {
         if (!selectedCfi || !activeDocId) return;
 
+        const chapterInfo = getCurrentChapterInfo();
         const annotation: Annotation = {
             id: crypto.randomUUID(),
             bookId: activeDocId,
@@ -2440,6 +2549,8 @@ const BookReaderPage = memo(function BookReaderPage() {
             type: 'bookmark',
             location: selectedCfi,
             selectedText,
+            chapterTitle: chapterInfo.chapterTitle,
+            chapterIndex: chapterInfo.chapterIndex,
             createdAt: new Date(),
         };
 
@@ -2452,7 +2563,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         setSelectedCfi('');
 
         readerRef.current?.clearSelection?.();
-    }, [selectedCfi, selectedText, activeDocId, addAnnotation]);
+    }, [selectedCfi, selectedText, activeDocId, addAnnotation, getCurrentChapterInfo]);
 
     const handleAddPageBookmark = useCallback(() => {
         if (!activeDocId || !location) return;
@@ -2464,7 +2575,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             removeAnnotation(existingBookmark.id);
             setAnnotations(prev => prev.filter(a => a.id !== existingBookmark.id));
         } else {
-            
+            const chapterInfo = getCurrentChapterInfo();
             const annotation: Annotation = {
                 id: crypto.randomUUID(),
                 bookId: activeDocId,
@@ -2472,13 +2583,15 @@ const BookReaderPage = memo(function BookReaderPage() {
                 type: 'bookmark',
                 location: location.cfi || '',
                 selectedText: location.tocItem?.label || `Page ${location.pageInfo?.currentPage || 0}`,
+                chapterTitle: chapterInfo.chapterTitle,
+                chapterIndex: chapterInfo.chapterIndex,
                 createdAt: new Date(),
             };
 
             addAnnotation(annotation);
             setAnnotations(prev => [...prev, annotation]);
         }
-    }, [activeDocId, location, bookmarkByLocation, addAnnotation, removeAnnotation]);
+    }, [activeDocId, location, bookmarkByLocation, addAnnotation, removeAnnotation, getCurrentChapterInfo]);
 
     const handleDeleteFromColorPicker = useCallback(async () => {
         if (!editingHighlightId) {

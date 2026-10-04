@@ -8,13 +8,15 @@ import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncrementa
 import { pickLibraryFolderMobile, scanLibraryFolderMobile } from "../../core/lib/mobile-folder-scan";
 import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
-import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
+import { useLibraryStore, useUIStore, useSettingsStore, useRssStore } from "../../core/store";
+import { resolveAnnotationSource, navigateToAnnotationSource } from "../../core/lib/annotation-source";
 import type { Book, BookAudioTrackFormat, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
-    ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones
+    ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones,
+    Layers
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -24,6 +26,7 @@ import { useDebounce } from "../../core/lib/useDebounce";
 import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
 import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
+import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { toast } from "sonner";
 import { localDateKey } from "../../core/lib/date-keys";
 
@@ -684,6 +687,15 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                     </div>
 
                     <div className="mt-6 space-y-3">
+                        {book.series && (
+                            <div className="p-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
+                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Series</p>
+                                <p className="text-sm font-semibold text-[color:var(--color-text-primary)] mt-0.5">
+                                    {book.series}
+                                    {book.seriesIndex !== undefined ? ` • Volume ${book.seriesIndex}` : ""}
+                                </p>
+                            </div>
+                        )}
                         {book.description && (
                             <div>
                                 <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Description</p>
@@ -1019,19 +1031,38 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
     const daySeed = localDateKey().split("-").reduce((a, b) => a + parseInt(b), 0);
     const hl = nonBookmarks[daySeed % nonBookmarks.length];
     if (!hl) return null;
-    const hlBook = useLibraryStore.getState().getBook(hl.bookId);
+
+    const getBook = useLibraryStore.getState().getBook;
+    const rssArticles = useRssStore.getState().articles;
+    const rssFeeds = useRssStore.getState().feeds;
+    const source = resolveAnnotationSource(hl.bookId, getBook, rssArticles, rssFeeds, hl.chapterTitle);
+    const hlBook = getBook(hl.bookId);
+    const title = source?.title || hlBook?.title || hl.chapterTitle || "Unknown source";
+    const author = source?.author || hlBook?.author;
+
+    const handleNavigate = () => {
+        navigateToAnnotationSource(hl.bookId, hl.location, {
+            setPendingReaderLocation: useUIStore.getState().setPendingReaderLocation,
+            setRoute: useUIStore.getState().setRoute,
+            openArticleInReader: useRssStore.getState().openArticleInReader,
+            getArticle: useRssStore.getState().getArticle,
+            loadArticle: useRssStore.getState().loadArticle,
+            hasBook: (id) => !!getBook(id),
+            fallbackTitle: hl.chapterTitle,
+        });
+    };
 
     return (
         <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={handleNavigate} title="Click to view highlight in reader">
                 <div className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider mb-1.5">
                     From your highlights
                 </div>
-                <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5">
+                <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5 hover:underline">
                     &ldquo;{hl.selectedText}&rdquo;
                 </p>
                 <div className="text-[11px] text-[color:var(--color-text-secondary)]">
-                    — {hlBook?.title || "Unknown source"}
+                    — {title}{author && author !== "Unknown author" ? ` (${author})` : ""}
                 </div>
             </div>
             <button
@@ -1089,6 +1120,7 @@ export function LibraryPage() {
     const [isAddToShelfModalOpen, setIsAddToShelfModalOpen] = useState(false);
     const [editBook, setEditBook] = useState<Book | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ bookId?: string; title: string; batch?: boolean } | null>(null);
 
@@ -1187,6 +1219,12 @@ export function LibraryPage() {
             if (metadata.publishedDate && !latestBook.publishedDate) {
                 updates.publishedDate = metadata.publishedDate;
             }
+            if (metadata.series && !latestBook.series) {
+                updates.series = metadata.series;
+            }
+            if (metadata.seriesIndex !== undefined && latestBook.seriesIndex === undefined) {
+                updates.seriesIndex = metadata.seriesIndex;
+            }
 
             const hasUsefulMetadataUpdate = (
                 Boolean(metadata.coverDataUrl)
@@ -1196,6 +1234,8 @@ export function LibraryPage() {
                 || Boolean(metadata.publisher && !latestBook.publisher)
                 || Boolean(metadata.language && !latestBook.language)
                 || Boolean(metadata.publishedDate && !latestBook.publishedDate)
+                || Boolean(metadata.series && !latestBook.series)
+                || Boolean(metadata.seriesIndex !== undefined && latestBook.seriesIndex === undefined)
             );
 
             if (hasUsefulMetadataUpdate) {
@@ -1987,6 +2027,7 @@ export function LibraryPage() {
                                             { id: "author", label: "Author" },
                                             { id: "dateAdded", label: "Added" },
                                             { id: "lastRead", label: "Read" },
+                                            { id: "series", label: "Series" },
                                         ].map((option) => (
                                             <button
                                                 key={option.id}
@@ -2182,6 +2223,7 @@ export function LibraryPage() {
                                             { id: "author", label: "Author" },
                                             { id: "dateAdded", label: "Added" },
                                             { id: "lastRead", label: "Read" },
+                                            { id: "series", label: "Series" },
                                         ].map((option) => (
                                             <button
                                                 key={option.id}
@@ -2315,6 +2357,13 @@ export function LibraryPage() {
                         <span className="hidden sm:inline">Add to Shelf</span>
                     </button>
                     <button
+                        onClick={() => setIsSeriesModalOpen(true)}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Series</span>
+                    </button>
+                    <button
                         onClick={handleBatchExport}
                         className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
                     >
@@ -2352,6 +2401,16 @@ export function LibraryPage() {
                 collections={collections}
                 onAddToShelf={handleAddBookToShelf}
                 onCreateShelf={handleCreateShelf}
+            />
+
+            <AssignSeriesModal
+                isOpen={isSeriesModalOpen}
+                onClose={() => {
+                    setIsSeriesModalOpen(false);
+                    clearSelection();
+                    setIsSelecting(false);
+                }}
+                bookIds={selectedBooks}
             />
 
             <EditBookModal

@@ -28,12 +28,19 @@ describe("selectPersistedRssArticles", () => {
         expect(selectPersistedRssArticles([fav, old], NOW).map((a) => a.id)).toEqual(["fav"]);
     });
 
-    it("keeps favorites even when non-favorites fill the 500 cap", () => {
+    it("keeps saved offline articles older than 30 days", () => {
+        const saved = article("saved", 400, { isSaved: true });
+        const old = article("old", 400);
+        expect(selectPersistedRssArticles([saved, old], NOW).map((a) => a.id)).toEqual(["saved"]);
+    });
+
+    it("keeps favorites and saved articles even when non-saved non-favorites fill the 500 cap", () => {
         const recent = Array.from({ length: 600 }, (_, i) => article(`r${i}`, i / 100));
         const favs = [article("fav-new", 0, { isFavorite: true }), article("fav-old", 90, { isFavorite: true })];
-        const kept = selectPersistedRssArticles([...recent, ...favs], NOW);
-        expect(kept.filter((a) => !a.isFavorite)).toHaveLength(500);
-        expect(kept.map((a) => a.id)).toEqual(expect.arrayContaining(["fav-new", "fav-old"]));
+        const saved = [article("saved-old", 120, { isSaved: true })];
+        const kept = selectPersistedRssArticles([...recent, ...favs, ...saved], NOW);
+        expect(kept.filter((a) => !a.isFavorite && !a.isSaved)).toHaveLength(500);
+        expect(kept.map((a) => a.id)).toEqual(expect.arrayContaining(["fav-new", "fav-old", "saved-old"]));
     });
 
     it("caps by recency, not by array position", () => {

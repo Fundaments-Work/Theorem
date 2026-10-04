@@ -10,6 +10,7 @@ import {
     AlertCircle,
     LayoutTemplate, ArrowLeft,
     ExternalLink, BookOpen, CheckCheck, EyeOff, Link2,
+    Bookmark, BookmarkCheck, Star,
 } from "lucide-react";
 import { AddFeedModal } from "./AddFeedModal";
 import { ContextMenu } from "../../ui";
@@ -183,12 +184,16 @@ function ArticleCard({
     onRead,
     onDelete,
     onToggleRead,
+    onToggleFavorite,
+    onToggleSaved,
 }: {
     article: RssArticle;
     feedTitle?: string;
     onRead: () => void;
     onDelete?: (articleId: string) => void;
     onToggleRead?: (articleId: string) => void;
+    onToggleFavorite?: (articleId: string) => void;
+    onToggleSaved?: (articleId: string) => void;
 }) {
     const summaryHtml = useMemo(() => {
         const text = article.summary || article.content || article.fullContent;
@@ -206,6 +211,18 @@ function ArticleCard({
             icon: <BookOpen className="w-4 h-4" />,
             onClick: onRead,
         },
+        ...(onToggleSaved ? [{
+            id: "toggle-saved",
+            label: article.isSaved ? "Remove from Saved Offline" : "Save Offline",
+            icon: <Bookmark className={cn("w-4 h-4", article.isSaved && "fill-current text-[color:var(--color-accent)]")} />,
+            onClick: () => onToggleSaved(article.id),
+        }] as ContextMenuItem[] : []),
+        ...(onToggleFavorite ? [{
+            id: "toggle-favorite",
+            label: article.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+            icon: <Star className={cn("w-4 h-4", article.isFavorite && "fill-current text-amber-500")} />,
+            onClick: () => onToggleFavorite(article.id),
+        }] as ContextMenuItem[] : []),
         ...(article.url ? [{
             id: "open-original",
             label: "Open Original",
@@ -286,6 +303,24 @@ function ArticleCard({
                                     </span>
                                 </>
                             )}
+                            {article.isSaved && (
+                                <>
+                                    <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
+                                    <span className="text-[10px] font-medium text-[color:var(--color-accent)] flex items-center gap-1 uppercase tracking-wide">
+                                        <BookmarkCheck className="w-3 h-3" />
+                                        Saved
+                                    </span>
+                                </>
+                            )}
+                            {article.isFavorite && (
+                                <>
+                                    <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
+                                    <span className="text-[10px] font-medium text-amber-500 flex items-center gap-1 uppercase tracking-wide">
+                                        <Star className="w-3 h-3 fill-current" />
+                                        Favorite
+                                    </span>
+                                </>
+                            )}
                             {article.isRead && (!article.progress || article.progress >= 0.95) && (
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
@@ -340,6 +375,45 @@ function ArticleCard({
                                 >
                                     <ExternalLink className="w-3.5 h-3.5" />
                                     <span>View Original</span>
+                                </button>
+                            )}
+
+                            {onToggleSaved && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onToggleSaved(article.id);
+                                    }}
+                                    className={cn(
+                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                                        article.isSaved
+                                            ? "text-[color:var(--color-accent)] bg-[var(--color-accent)]/10 font-bold"
+                                            : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                                    )}
+                                    title={article.isSaved ? "Saved for offline reading" : "Save for offline"}
+                                >
+                                    <Bookmark className={cn("w-3.5 h-3.5", article.isSaved && "fill-current")} />
+                                    <span>{article.isSaved ? "Saved" : "Save"}</span>
+                                </button>
+                            )}
+
+                            {onToggleFavorite && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onToggleFavorite(article.id);
+                                    }}
+                                    className={cn(
+                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                                        article.isFavorite
+                                            ? "text-amber-500 bg-amber-500/10 font-bold"
+                                            : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                                    )}
+                                    title={article.isFavorite ? "Remove favorite" : "Add to favorites"}
+                                >
+                                    <Star className={cn("w-3.5 h-3.5", article.isFavorite && "fill-current")} />
                                 </button>
                             )}
                         </div>
@@ -416,6 +490,8 @@ export function FeedsPage() {
     const removeFeed = useRssStore((s) => s.removeFeed);
     const deleteArticle = useRssStore((s) => s.deleteArticle);
     const toggleArticleRead = useRssStore((s) => s.toggleArticleRead);
+    const toggleArticleFavorite = useRssStore((s) => s.toggleArticleFavorite);
+    const toggleArticleSaved = useRssStore((s) => s.toggleArticleSaved);
     const refreshFeed = useRssStore((s) => s.refreshFeed);
     const refreshAll = useRssStore((s) => s.refreshAll);
     const getArticlesForFeed = useRssStore((s) => s.getArticlesForFeed);
@@ -444,10 +520,12 @@ export function FeedsPage() {
     const feedListScrollRef = useRef<HTMLDivElement | null>(null);
     const articleListScrollRef = useRef<HTMLDivElement | null>(null);
 
-    const selectedFeed = selectedFeedId ? feeds.find(f => f.id === selectedFeedId) : null;
+    const selectedFeed = selectedFeedId && !selectedFeedId.startsWith("__")
+        ? feeds.find(f => f.id === selectedFeedId)
+        : null;
 
     useEffect(() => {
-        if (selectedFeedId && !feeds.some((feed) => feed.id === selectedFeedId)) {
+        if (selectedFeedId && !selectedFeedId.startsWith("__") && !feeds.some((feed) => feed.id === selectedFeedId)) {
             setSelectedFeedId(null);
         }
     }, [feeds, selectedFeedId]);
@@ -475,16 +553,43 @@ export function FeedsPage() {
         );
     }, [showMobileList]);
 
+    const savedCount = useMemo(() => articles.filter(a => a.isSaved).length, [articles]);
+    const favoriteCount = useMemo(() => articles.filter(a => a.isFavorite).length, [articles]);
+    const unreadCount = useMemo(() => articles.filter(a => !a.isRead).length, [articles]);
+
     const displayedArticles = useMemo(() => {
-        if (selectedFeedId) {
-            return getArticlesForFeed(selectedFeedId);
+        if (!selectedFeedId) {
+            return getAllArticles();
         }
-        return getAllArticles();
+        if (selectedFeedId === "__saved__") {
+            return getAllArticles().filter(a => a.isSaved);
+        }
+        if (selectedFeedId === "__favorites__") {
+            return getAllArticles().filter(a => a.isFavorite);
+        }
+        if (selectedFeedId === "__unread__") {
+            return getAllArticles().filter(a => !a.isRead);
+        }
+        return getArticlesForFeed(selectedFeedId);
     }, [selectedFeedId, articles, getArticlesForFeed, getAllArticles]);
 
+    const headerTitle = useMemo(() => {
+        if (!selectedFeedId) return "All Articles";
+        if (selectedFeedId === "__saved__") return "Saved Offline";
+        if (selectedFeedId === "__favorites__") return "Favorites";
+        if (selectedFeedId === "__unread__") return "Unread Articles";
+        return selectedFeed ? selectedFeed.title : "All Articles";
+    }, [selectedFeedId, selectedFeed]);
+
     const feedListRows = useMemo(
-        () => [{ kind: "all" as const }, ...feeds.map((feed) => ({ kind: "feed" as const, feed }))],
-        [feeds],
+        () => [
+            { kind: "all" as const },
+            { kind: "saved" as const, count: savedCount },
+            { kind: "favorites" as const, count: favoriteCount },
+            { kind: "unread" as const, count: unreadCount },
+            ...feeds.map((feed) => ({ kind: "feed" as const, feed })),
+        ],
+        [feeds, savedCount, favoriteCount, unreadCount],
     );
 
     const feedVirtualizer = useVirtualizer({
@@ -492,13 +597,12 @@ export function FeedsPage() {
         getScrollElement: () => feedListScrollRef.current,
         estimateSize: () => 46,
         overscan: 10,
-        getItemKey: (index) => (
-            index === 0
-                ? "all-articles"
-                : feedListRows[index]?.kind === "feed"
-                    ? feedListRows[index].feed.id
-                    : String(index)
-        ),
+        getItemKey: (index) => {
+            const row = feedListRows[index];
+            if (!row) return String(index);
+            if (row.kind === "feed") return row.feed.id;
+            return row.kind;
+        },
     });
 
     const articleVirtualItemCount = displayedArticles.length > 0
@@ -663,21 +767,90 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed(null)}
                                                 className={cn(
-                                                    "w-full flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
                                                     selectedFeedId === null
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
                                                         : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
                                                 )}
                                             >
-                                                <div className={cn(
-                                                    "w-6 h-6 flex items-center justify-center transition-colors",
-                                                    selectedFeedId === null
-                                                        ? "text-[color:var(--color-accent)]"
-                                                        : "text-[color:var(--color-text-muted)]",
-                                                )}>
-                                                    <LayoutTemplate className="w-4 h-4" />
+                                                <div className="flex items-center gap-3">
+                                                    <div className={cn(
+                                                        "w-6 h-6 flex items-center justify-center transition-colors",
+                                                        selectedFeedId === null
+                                                            ? "text-[color:var(--color-accent)]"
+                                                            : "text-[color:var(--color-text-muted)]",
+                                                    )}>
+                                                        <LayoutTemplate className="w-4 h-4" />
+                                                    </div>
+                                                    <span className="text-sm font-medium">All Articles</span>
                                                 </div>
-                                                <span className="text-sm font-medium">All Articles</span>
+                                                <span className="text-[10px] font-mono text-[color:var(--color-text-muted)]">{articles.length}</span>
+                                            </button>
+                                        ) : row.kind === "saved" ? (
+                                            <button
+                                                onClick={() => handleSelectFeed("__saved__")}
+                                                className={cn(
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
+                                                    selectedFeedId === "__saved__"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                )}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-6 h-6 flex items-center justify-center">
+                                                        <Bookmark className={cn("w-4 h-4", selectedFeedId === "__saved__" ? "fill-current text-[color:var(--color-accent)]" : "text-[color:var(--color-text-muted)]")} />
+                                                    </div>
+                                                    <span className="text-sm font-medium">Saved Offline</span>
+                                                </div>
+                                                {row.count > 0 && (
+                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-[var(--color-accent)]/15 text-[color:var(--color-accent)]">
+                                                        {row.count}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        ) : row.kind === "favorites" ? (
+                                            <button
+                                                onClick={() => handleSelectFeed("__favorites__")}
+                                                className={cn(
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
+                                                    selectedFeedId === "__favorites__"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                )}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-6 h-6 flex items-center justify-center">
+                                                        <Star className={cn("w-4 h-4 text-amber-500", selectedFeedId === "__favorites__" && "fill-current")} />
+                                                    </div>
+                                                    <span className="text-sm font-medium">Favorites</span>
+                                                </div>
+                                                {row.count > 0 && (
+                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-amber-500/15 text-amber-500">
+                                                        {row.count}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        ) : row.kind === "unread" ? (
+                                            <button
+                                                onClick={() => handleSelectFeed("__unread__")}
+                                                className={cn(
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
+                                                    selectedFeedId === "__unread__"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                )}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-6 h-6 flex items-center justify-center">
+                                                        <EyeOff className="w-4 h-4 text-[color:var(--color-text-muted)]" />
+                                                    </div>
+                                                    <span className="text-sm font-medium">Unread</span>
+                                                </div>
+                                                {row.count > 0 && (
+                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                        {row.count}
+                                                    </span>
+                                                )}
                                             </button>
                                         ) : (
                                             <FeedListItem
@@ -719,7 +892,7 @@ export function FeedsPage() {
 
                         <div className="min-w-0">
                             <h1 className="m-0 font-sans text-xl sm:text-[1.45rem] md:text-[1.6rem] font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] truncate">
-                                {selectedFeed ? selectedFeed.title : "All Articles"}
+                                {headerTitle}
                             </h1>
                             <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)] truncate">
                                 {displayedArticles.length} articles
@@ -783,10 +956,12 @@ export function FeedsPage() {
                                             >
                                                 <ArticleCard
                                                     article={article}
-                                                    feedTitle={!selectedFeedId ? feedTitleById.get(article.feedId) : undefined}
+                                                    feedTitle={!selectedFeedId || selectedFeedId.startsWith("__") ? feedTitleById.get(article.feedId) : undefined}
                                                     onRead={() => openArticleInReader(article)}
                                                     onDelete={deleteArticle}
                                                     onToggleRead={toggleArticleRead}
+                                                    onToggleFavorite={toggleArticleFavorite}
+                                                    onToggleSaved={toggleArticleSaved}
                                                 />
                                             </div>
                                         );

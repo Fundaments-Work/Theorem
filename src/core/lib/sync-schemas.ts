@@ -55,6 +55,8 @@ export const BookSchema = z.object({
     syncedWithoutFile: z.boolean().optional(),
     blobHash: z.string().optional(),
     coverBlobHash: z.string().optional(),
+    series: z.string().optional(),
+    seriesIndex: z.number().optional(),
 }).passthrough();
 
 export const BooksArraySchema = z.array(BookSchema);
@@ -93,6 +95,8 @@ export const AnnotationSchema = z.object({
         )
         .optional(),
     strokeWidth: z.number().optional(),
+    chapterTitle: z.string().optional(),
+    chapterIndex: z.number().int().nonnegative().optional(),
 }).passthrough();
 
 export const AnnotationsArraySchema = z.array(AnnotationSchema);
@@ -105,6 +109,7 @@ export const CollectionSchema = z.object({
     kind: z.enum(["general"]),
     createdAt: dateLike,
     updatedAt: dateLike,
+    groupBySeries: z.boolean().optional(),
 }).passthrough();
 
 export const CollectionsArraySchema = z.array(CollectionSchema);
@@ -180,6 +185,7 @@ export const RssArticleSchema = z.object({
     fetchedAt: dateLike,
     isRead: z.boolean(),
     isFavorite: z.boolean(),
+    isSaved: z.boolean().optional().default(false),
 }).passthrough();
 
 export const RssArticlesArraySchema = z.array(RssArticleSchema);
@@ -227,6 +233,9 @@ const VaultSettingsSchema = z.object({
     autoExportHighlights: z.boolean(),
     highlightsFileName: z.string(),
     vocabularyFileName: z.string(),
+    exportPreset: z.enum(["obsidian", "logseq", "minimalist", "custom"]).optional(),
+    customTemplate: z.string().optional(),
+    highlightGrouping: z.enum(["by_chapter", "flat"]).optional(),
 });
 
 const DeviceSyncSettingsSchema = z.object({
@@ -249,7 +258,7 @@ const DeviceSyncSettingsSchema = z.object({
 export const AppSettingsSchema = z.object({
     sidebarCollapsed: z.boolean(),
     libraryViewMode: z.enum(["grid", "list", "compact"]),
-    librarySortBy: z.enum(["title", "author", "dateAdded", "lastRead", "progress", "rating"]),
+    librarySortBy: z.enum(["title", "author", "dateAdded", "lastRead", "progress", "rating", "series"]),
     librarySortOrder: z.enum(["asc", "desc"]),
     scanFolders: z.array(z.string()),
     cacheSize: z.number(),

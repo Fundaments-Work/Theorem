@@ -13,7 +13,7 @@ import {
 import { ConfirmDialog, AlertDialog } from "../../ui";
 import { syncVaultMarkdownSnapshot, triggerVaultAutoSync } from "../../core/lib/vault-sync";
 import { exportUnifiedSyncBundle, estimateSyncBundleSizeBytes } from "../../core/lib/sync-bundle";
-import type { VaultExportPreset } from "../../core/types";
+import type { VaultExportPreset, VaultHighlightGrouping } from "../../core/types";
 
 import {
     useVocabularyStore,
@@ -989,6 +989,39 @@ export const SettingsPage = memo(function SettingsPage() {
                         </SettingRow>
                     </Section>
 
+                    <Section
+                        title="RSS & Articles Retention"
+                        description="Configure local retention and offline storage cleanup for RSS articles and content"
+                        icon={<Rss className="w-4 h-4" />}
+                    >
+                        <SettingRow
+                            label="Article Retention Period"
+                            description="Auto-prune read, un-favorited articles and cached content older than the selected window. Saved offline articles are always preserved."
+                        >
+                            <select
+                                value={settings.rssRetentionDays ?? 30}
+                                onChange={(e) => updateSettings({ rssRetentionDays: Number(e.target.value) })}
+                                className="ui-input py-1.5 px-3 text-xs w-44"
+                            >
+                                <option value={0}>Keep Forever</option>
+                                <option value={15}>15 days</option>
+                                <option value={30}>30 days (default)</option>
+                                <option value={60}>60 days</option>
+                                <option value={90}>90 days</option>
+                            </select>
+                        </SettingRow>
+
+                        <SettingRow
+                            label="Keep Unread Articles"
+                            description="Prevent retention cleaner from removing unread articles regardless of age"
+                        >
+                            <Toggle
+                                checked={settings.rssKeepUnread ?? true}
+                                onChange={(checked) => updateSettings({ rssKeepUnread: checked })}
+                            />
+                        </SettingRow>
+                    </Section>
+
                     {isTauri() && settings.tts.enabled && (
                         <Suspense fallback={null}>
                             <NeuralVoiceSection />
@@ -1207,6 +1240,20 @@ export const SettingsPage = memo(function SettingsPage() {
                                     ]}
                                     value={settings.vault.exportPreset || "obsidian"}
                                     onChange={(v) => updateVaultSettings({ exportPreset: v })}
+                                />
+                            </SettingRow>
+
+                            <SettingRow
+                                label="Highlight Grouping"
+                                description="Organize highlights under chapter sections or as a flat chronological list"
+                            >
+                                <ButtonSelect<VaultHighlightGrouping>
+                                    options={[
+                                        { value: "by_chapter", label: "By Chapter (Hierarchical)" },
+                                        { value: "flat", label: "Flat (Chronological)" },
+                                    ]}
+                                    value={settings.vault.highlightGrouping || "by_chapter"}
+                                    onChange={(v) => updateVaultSettings({ highlightGrouping: v })}
                                 />
                             </SettingRow>
 

@@ -3,11 +3,12 @@ import { useMemo, useState } from 'react';
 import { Bookmark, X, Trash2, ExternalLink, Highlighter, MoreVertical, Pencil, Share2 } from 'lucide-react';
 import { HIGHLIGHT_PICKER_COLORS } from "../../../core/lib/design-tokens";
 import { cn } from "../../../core/lib/utils";
-import { useLibraryStore, useUIStore } from "../../../core/store";
+import { useLibraryStore, useUIStore, useRssStore } from "../../../core/store";
 import { format } from 'date-fns';
 import { useShallow } from 'zustand/react/shallow';
 import { Backdrop, FloatingPanel } from "../../../ui";
 import { ShareMenu } from "../../library/components/ShareMenu";
+import { resolveAnnotationSource } from "../../../core/lib/annotation-source";
 import type { Annotation, HighlightColor } from "../../../core/types";
 
 interface ReaderAnnotationsPanelProps {
@@ -87,7 +88,19 @@ export function ReaderAnnotationsPanel({
 
     const closeMenu = () => setMenuId(null);
 
-    const getBook = (bookId: string) => useLibraryStore.getState().getBook(bookId);
+    const getBook = (id: string, chapterTitle?: string) => {
+        const book = useLibraryStore.getState().getBook(id);
+        if (book) return { title: book.title, author: book.author };
+        const resolved = resolveAnnotationSource(
+            id,
+            (bId) => useLibraryStore.getState().getBook(bId),
+            useRssStore.getState().articles,
+            useRssStore.getState().feeds,
+            chapterTitle,
+        );
+        if (resolved) return { title: resolved.title, author: resolved.author };
+        return undefined;
+    };
 
     const renderContextMenu = (annotation: Annotation) => (
         <div className="absolute right-0 top-full z-20 mt-1 w-40 border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
@@ -152,7 +165,7 @@ export function ReaderAnnotationsPanel({
                     {sharingId === bookmark.id && (
                         <>
                             <div className="fixed inset-0 z-10" role="button" tabIndex={-1} aria-label="Close menu" onClick={(e) => { e.stopPropagation(); setSharingId(null); }} />
-                            <ShareMenu annotation={bookmark} book={getBook(bookmark.bookId)} onClose={() => setSharingId(null)} />
+                            <ShareMenu annotation={bookmark} book={getBook(bookmark.bookId, bookmark.chapterTitle)} onClose={() => setSharingId(null)} />
                         </>
                     )}
                 </div>
@@ -231,7 +244,7 @@ export function ReaderAnnotationsPanel({
                     {sharingId === highlight.id && (
                         <>
                             <div className="fixed inset-0 z-10" role="button" tabIndex={-1} aria-label="Close menu" onClick={(e) => { e.stopPropagation(); setSharingId(null); }} />
-                            <ShareMenu annotation={highlight} book={getBook(highlight.bookId)} onClose={() => setSharingId(null)} />
+                            <ShareMenu annotation={highlight} book={getBook(highlight.bookId, highlight.chapterTitle)} onClose={() => setSharingId(null)} />
                         </>
                     )}
                 </div>
