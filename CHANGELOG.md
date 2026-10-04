@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2026-10-04 (Beta)
+
+### Comics & CBR
+
+- **Pure-Rust CBR support (#121)** — Comic Book Archives are now handled natively in `src-tauri/src/cbr.rs`, with no external `unrar` binary required. `rars::ArchiveReader` streams the RAR container straight into an in-memory ZIP (stored, no recompression), so a CBR opens on every platform we ship, including Android. Title and author fall back to filename parsing, and `ComicInfo.xml` is read when present to pick up series name, volume number, and the rest of the comic metadata.
+- **Full CBR import parity (#121)** — The RAR-to-CBZ path is wired through batch ingest, folder scanning (including the Android `FolderScanPlugin`), and the reader, so CBR files behave like any other comic: cover extraction, page order, and read progress all work. The previous JavaScript/external-tool path in `lib.rs` was removed in favour of the single native implementation.
+- **CBZ ComicInfo & cover extraction tests** — Native coverage for `ComicInfo.xml` metadata parsing and cover downsampling in `batch_ingest.rs`.
+
+### Library & Series
+
+- **Book series metadata (#125)** — Books can now carry a `series` name and a `seriesIndex` volume position (fractional values such as `2.5` are supported). Series are read from EPUB metadata on ingest and from `ComicInfo.xml` for comics, and are editable from the book edit modal and a dedicated Assign Series modal. `series` is a first-class sort option in the library.
+- **Series grouping & shelf layout (#125)** — Shelves can group books by series, showing each series as a labelled, ordered row with its volume numbers and combined progress. Filters and sorting were extended to respect series, and a `groupBySeries` toggle is available on the library.
+- **Next-in-series prompt (#125)** — Finishing a book that belongs to a series surfaces a toast naming the next unread volume, with a **Read Next** action that routes straight into it. Volumes are ordered by `seriesIndex`, with a sensible fallback to reading order when a series is unnumbered.
+
+### RSS & Articles
+
+- **SQLite-backed article storage (#123)** — RSS articles now live in SQLite rather than a serialized JSON blob, with a dedicated table, indices, and a new set of commands on the background pool. Store state is derived from SQLite instead of being rehydrated from a giant `kv_store` payload.
+- **Configurable retention & offline saves (#123)** — Settings → RSS & Articles Retention adds an **Article Retention Period** (Keep Forever / 15 / 30 / 60 / 90 days, default 30) that auto-prunes read, non-favorited articles and their cached content. A separate **Keep Unread Articles** toggle protects unread items regardless of age, and articles saved offline via the new `isSaved` flag are **always** preserved from cleanup.
+
+### Vault & Export
+
+- **Chapter-wise highlight organization (#126)** — Obsidian and Markdown export can now group highlights **By Chapter (Hierarchical)** — the default — or as a flat chronological list. Chapter title and index ride along on each annotation, so exported notes mirror the book's structure instead of dumping highlights into one undifferentiated list. New `VaultHighlightGrouping` setting in Settings, with golden-file preset tests.
+
+### Fixed
+
+- **RSS article highlights & bookmarks resolve (#124)** — Highlights and bookmarks taken in an RSS article previously showed up detached in the Library, without article title, feed, or a working jump target. Annotation sources now resolve article metadata correctly, and clicking one restores the reader's scroll position instead of landing at the top.
+- **Batch ingest materializes books on disk (#library)** — Ingested books were registered in SQLite without their files being written to the library directory, leaving them unopenable. Books are now materialized on ingest, and legacy directories are cleaned up on startup.
+- **Non-destructive sync merge (#library)** — `sqlite_merge_sync_entries_with_dir` verifies that a peer's book actually exists on disk before clearing its `syncedWithoutFile` flag and adopting a local path. A merge can no longer leave a book marked as present-but-missing, and local file paths are preserved across merges.
+- **Legacy annotation chapter metadata backfill (#reader)** — Annotations created before chapter metadata existed are backfilled automatically when the book is opened, restoring correct chapter grouping in exports and the annotations panel.
+- **Dictionary MDX fallback scan (#dictionary)** — MDX dictionaries whose key blocks overlap in case (e.g. an uppercase entry adjacent to a lowercase one) could fail to resolve. The fallback scan now handles case-overlapping key blocks correctly.
+- **Mobile page-end scrolling & grid (#mobile)** — Pages now scroll fully to their end, the scrollbar rail is hidden, and the library grid starts with the correct column count instead of snapping to a wrong layout on first paint.
+- **Release CI (#122)** — Fixed desktop release asset links and made the release workflow build all Android ABIs instead of a subset.
+
+### Documentation
+
+- Replaced the README screenshot set with a current, organized gallery (desktop and mobile), and pointed the web demo link at `read.fundaments.work`.
+- Added an RFC evaluating a native PDFium engine for PDF rendering.
+
 ## [1.5.8] - 2026-09-28 (Beta)
 
 ### ⚠️ Breaking Changes & Migration Notice

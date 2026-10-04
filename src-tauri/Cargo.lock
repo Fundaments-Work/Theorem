@@ -7927,7 +7927,7 @@ dependencies = [
 
 [[package]]
 name = "theorem"
-version = "1.5.8"
+version = "1.5.9"
 dependencies = [
  "audiopus",
  "audiopus_sys",
@@ -8000,7 +8000,7 @@ dependencies = [
 
 [[package]]
 name = "theorem-core"
-version = "1.5.8"
+version = "1.5.9"
 dependencies = [
  "nucleo-matcher",
  "pulldown-cmark",
@@ -8011,7 +8011,7 @@ dependencies = [
 
 [[package]]
 name = "theorem-sync-core"
-version = "1.5.8"
+version = "1.5.9"
 dependencies = [
  "hex",
  "qrcode",
