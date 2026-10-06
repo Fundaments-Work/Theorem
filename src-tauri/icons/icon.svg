@@ -1,5 +1,6 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <title>Theorem App Icon (Q.E.D.)</title>
-  <rect width="512" height="512" fill="#0a0a0a" rx="100"/>
-  <path transform="translate(128, 128) scale(10.666)" d="M 4 4 H 20 V 8 L 14 8 V 16 H 18 V 20 H 14 L 10 20 V 8 L 4 8 V 4 Z M 10 16 H 14 V 20 H 10 V 16 Z" fill="#fafaf8" fill-rule="evenodd"/>
+  <rect width="512" height="512" fill="#f4f4f5" rx="100"/>
+  <rect x="6" y="6" width="500" height="500" rx="94" fill="none" stroke="#d4d4d8" stroke-width="12"/>
+  <path transform="translate(128, 128) scale(10.666)" d="M 4 4 H 20 V 8 L 14 8 V 16 H 18 V 20 H 14 L 10 20 V 8 L 4 8 V 4 Z M 10 16 H 14 V 20 H 10 V 16 Z" fill="#0e0e11" fill-rule="evenodd"/>
 </svg>

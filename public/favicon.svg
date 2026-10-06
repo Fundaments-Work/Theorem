@@ -1,4 +1,6 @@
 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <title>Theorem</title>
-  <path d="M 4 4 H 20 V 8 L 14 8 V 16 H 18 V 20 H 14 L 10 20 V 8 L 4 8 V 4 Z M 10 16 H 14 V 20 H 10 V 16 Z" fill="#0a0a0a" fill-rule="evenodd"/>
+  <rect width="24" height="24" rx="5" fill="#f4f4f5"/>
+  <rect x="0.5" y="0.5" width="23" height="23" rx="4.5" fill="none" stroke="#d4d4d8" stroke-width="1"/>
+  <path d="M 4 4 H 20 V 8 L 14 8 V 16 H 18 V 20 H 14 L 10 20 V 8 L 4 8 V 4 Z M 10 16 H 14 V 20 H 10 V 16 Z" fill="#0e0e11" fill-rule="evenodd"/>
 </svg>
