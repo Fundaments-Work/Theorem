@@ -19,7 +19,7 @@
 - **No sync-based announcements.** See §2 — iroh sync structurally cannot reach users you have not paired with. Announcements are HTTP-only, permanently.
 - No in-app "what's new" changelog viewer. (Natural follow-up, not in scope.)
 - No receipts, supporter list, donation amounts, or payment processing inside the app. Theorem never touches money; it only opens a URL.
-- No announcement rich-text / full Markdown rendering. See §5.4.
+- No announcement rich-text / Markdown rendering. Plain text with `**bold**`, `\n`, and auto-linkified `https://…` URLs only (§4.4, §5.4). No HTML sink anywhere in the render path.
 
 ---
 
@@ -160,13 +160,18 @@ Headers: `ETag`, `Cache-Control: public, max-age=300`, `Access-Control-Allow-Ori
   "id": "1-5-10-out",          // stable dismissal key — human-meaningful, never reused
   "severity": "info",          // "info" | "warning" | "critical"
   "title": "Theorem 1.5.10 is out",
-  "body": "Series grouping on shelves is much faster now.\nAndroid gets fixed comic covers.",
+  "body": "Series grouping on shelves is much faster now.\nDetails at https://github.com/Fundaments-Work/Theorem/releases/tag/v1.5.10",
   "link": "https://github.com/Fundaments-Work/Theorem/releases/tag/v1.5.10",
   "linkLabel": "See what's new",  // optional
   "publishedAt": "2026-10-20T09:00:00Z",
   "expiresAt": null              // optional ISO date; maintenance notices self-retire
 }
 ```
+
+`body` supports two link styles, both safe by construction (§4.4):
+
+- A bare `https://…` URL is **auto-linkified** in place.
+- `link` + `linkLabel` renders one dedicated CTA button — use it for the single most important action.
 
 Rules:
 
@@ -175,15 +180,50 @@ Rules:
 - `publishedAt` in the future → treat as not yet active (lets you schedule).
 - `expiresAt` in the past → filtered out entirely.
 - An empty array is valid and means "no announcements" — the bar simply does not render.
+- At most **one** `link`. A second is a Worker-side validation error, not a silent override.
 
-### 4.4 Security posture
+### 4.4 Links
 
-The Worker is a **remote content-injection channel into every install**. Two rules, enforced app-side:
+Two mechanisms, both supported. Links are first-class — announcements routinely need a "what's new" or "report this" target.
 
-1. `title` and `body` render as **plain text only**. No HTML, no Markdown library, no `dangerouslySetInnerHTML`. A ~15-line formatter handles line breaks and `**bold**` only, escaping everything else. No new dependency in the app.
-2. `link` is validated `https:`-only before it ever reaches an `href`, so a compromised or mistyped KV entry cannot inject `javascript:`.
+**a) Auto-linkified bare URLs in `body`.** A pasted `https://…` becomes a tappable link. Implemented as a **pure string split**, not regex-replacement into HTML:
 
-Worker-side, the POST handler validates the full payload shape and rejects unknown `severity` values, non-`https:` links, missing/duplicate `id`s, and malformed dates. **Fail loudly at post-time**, not as a broken bar on every user's screen.
+```
+linkify(body) → Array<{ kind: "text", value } | { kind: "link", value, href }>
+```
+
+The renderer maps segments to React elements with `key`, rendering `kind === "link"` as `<a href={href}>`. Because React escapes interpolated text, there is **no HTML sink and no injection surface** — `<script>` in the body renders as literal characters, structurally, not by filtering.
+
+**b) A dedicated CTA via `link` + `linkLabel`.** For the primary action ("See what's new"), rendered as an explicit button/anchor. At most one; a second `link` overrides the first (Worker-side validation rejects it).
+
+Every `href` — from both mechanisms — passes `isSafeHttpUrl()` before reaching the DOM:
+
+```ts
+function isSafeHttpUrl(raw: string): boolean {
+    try {
+        const u = new URL(raw);
+        return u.protocol === "https:" && !u.username && !u.password;
+    } catch {
+        return false;
+    }
+}
+```
+
+Rejecting `javascript:`/`data:` is inherent here, not a denylist. Requiring **https:** (not http) is deliberate — MITM on an announcement bar that can carry a download link is a real risk. Also reject credentialed URLs (`user:pass@`) so a link cannot masquerade as the maintainer's domain.
+
+Trailing-punctuation trimming is required so `see https://x.com.` does not swallow the full stop into the href. Cap auto-linked URLs per body (e.g. 5) to keep the bar bounded.
+
+### 4.5 Security posture
+
+The Worker is a **remote content-injection channel into every install**. Posture, in order of strength:
+
+1. **No HTML sink.** Announcements never touch `dangerouslySetInnerHTML`. Text is rendered as React children (auto-escaped); links are rendered as real `<a>` elements. Injection is *structurally impossible*, not filtered.
+2. **`https:`-only links**, no credentials, via `isSafeHttpUrl()` (§4.4).
+3. **No Markdown engine, no new dependency.** Formatting is line breaks + `**bold**` + linkify, all hand-rolled pure functions.
+
+> **Noted alternative, deliberately rejected.** The codebase already has `src/core/lib/sanitize.ts` — DOMPurify with `ALLOWED_TAGS` including `a`, `href`, and `target` — used for book descriptions and RSS article HTML (`Library.tsx:704`, `FeedsPage.tsx:201`). Reusing it for announcements would work and add no dependency. It is not chosen because it makes injection *unlikely* rather than *impossible*, it widens the accepted surface (a body containing `<b>`, `<ul>`, `<img>` would suddenly be honoured, inconsistent with a plain-text spec), and it puts a sanitizer bypass in front of a maintainer-authored channel that has no need to be trusted. Announcement text does not need to be trusted **or** filtered — it needs to be structurally incapable of executing.
+
+Worker-side, the POST handler validates the full payload shape and rejects unknown `severity` values, non-`https:` links, more than one `link`, missing/duplicate `id`s, and malformed dates. **Fail loudly at post-time**, not as a broken bar on every user's screen.
 
 ---
 
@@ -217,9 +257,42 @@ Honour `prefers-reduced-motion` — `animate-fade-in` is already gated (`index.c
 
 Non-blocking and after first paint — never block hydration on the network. Fetch once on app start; re-check when the app returns to the foreground. No polling loop.
 
-### 5.4 Formatting decision
+### 5.4 Formatting & linkify (pure functions, zero dependencies)
 
-**Plain text + `**bold**`** is the recommendation. Adding real Markdown means either a sanitizer dependency or hand-rolling unsafe parsing; for announcement copy neither is worth it. Open question for review — see §9.
+`src/core/lib/announcements.ts` exports the pure text helpers so they are unit-testable without rendering:
+
+- `isSafeHttpUrl(raw: string): boolean` — §4.4.
+- `linkifySegments(body: string, max = 5): TextSegment[]` — splits on bare `https://…` URLs, trims trailing punctuation (`.,;:!?)]}'"`), enforces `max`, and returns alternating text/link segments. URLs failing `isSafeHttpUrl()` stay **plain text** rather than becoming a dead link.
+- `renderInlineBold(text: string): InlineNode[]` — splits on `**…**` into `{ bold: boolean, value: string }` nodes.
+
+Both return **data**, never HTML strings. `AnnouncementBar` maps them to React elements. This is the key structural decision: the render path has no string-to-HTML step anywhere, so there is nothing to escape incorrectly.
+
+`\n` becomes `<br>`. Everything else is rendered as-is.
+
+**No Markdown library, no DOMPurify, no new dependency** — see §4.5 for why this is a deliberate rejection rather than an oversight.
+
+### 5.5 Announcement body rendering
+
+```tsx
+function AnnouncementBody({ body }: { body: string }) {
+    return (
+        <>
+            {linkifySegments(body).map((seg, i) =>
+                seg.kind === "text" ? (
+                    <span key={i}>{renderInlineBold(seg.value)}</span>
+                ) : (
+                    <a key={i} href={seg.href} target="_blank" rel="noopener noreferrer"
+                       onClick={(e) => { e.preventDefault(); void openExternalUrl(seg.href!); }}>
+                        {seg.value}
+                    </a>
+                ),
+            )}
+        </>
+    );
+}
+```
+
+`target="_blank"` is retained only as a browser fallback; `onClick` intercepts and routes through `openExternalUrl()` (§3.4) so the Tauri webview uses the opener plugin.
 
 ---
 
@@ -228,16 +301,31 @@ Non-blocking and after first paint — never block hydration on the network. Fet
 Follows `AGENTS.md` — edge cases, boundaries, outliers. Never weaken an assertion to make a test pass.
 
 **`tests/announcements.test.ts`** (pure logic, no network):
-- `parseAnnouncements`: valid array; `null`/non-array; missing `id`/`title`; wrong `severity`; malformed `publishedAt`; non-`https:` link dropped; unknown extra keys preserved.
+- `parseAnnouncements`: valid array; `null`/non-array; missing `id`/`title`; wrong `severity`; malformed `publishedAt`; non-`https:` link dropped; unknown extra keys preserved; **more than one `link` rejected**.
 - `selectActive`: empty array → `null`; all dismissed → `null`; all expired → `null`; future `publishedAt` not active; severity precedence critical > warning > info; `publishedAt` tiebreak; single valid + malformed mix.
-- 30-day cadence arithmetic: exactly-at-boundary (`now === hiddenUntil` → visible), 1ms before (hidden), DST/timezone-safe (epoch math only), clock moving backwards.
-- Non-`https:` link rejected before reaching an `href`.
 
-**Component tests**: dismiss persists and hides; long body truncates; `critical` applies the error token; empty state renders nothing.
+`linkifySegments` (the highest-risk pure function):
+- no URL → single text segment.
+- one URL mid-string → text, link, text.
+- URL at start / end → no empty leading/trailing segments.
+- trailing `.,;:!?` and a closing `)` are **excluded from the href**.
+- a URL containing `)` (e.g. a Wikipedia link) keeps it.
+- `max` cap enforced; the 6th URL stays plain text.
+- `javascript:`, `data:`, `http:`, and credentialed `https://user:pw@host` are **never** linkified → remain plain text.
+- empty string / whitespace-only → no crash, no empty segments.
+- `<script>alert(1)</script>` → passed through verbatim as text (assert no HTML is produced anywhere).
+
+`renderInlineBold`: unpaired `**` left literal; `****` empty-bold edge; nested/adjacent spans.
+
+30-day cadence arithmetic: exactly-at-boundary (`now === hiddenUntil` → visible), 1ms before (hidden), DST/timezone-safe (epoch math only), clock moving backwards.
+
+Non-`https:` link rejected before reaching an `href`.
+
+**Component tests**: dismiss persists and hides; long body truncates; `critical` applies the error token; empty state renders nothing; a linked body produces exactly one `<a>` with `rel="noopener noreferrer"` and a `javascript:` href never renders as a link.
 
 **Shell tests**: momo icon visible when eligible, hidden when `now < hiddenUntil`, click writes `hiddenUntil = now + 30d`; collapsed sidebar renders icon + `title`; the Settings row is present regardless of cadence.
 
-**Worker** (`theorem-announcements` repo, vitest + `@cloudflare/vitest-pool-workers`): GET returns 200 + CORS headers + `ETag`; POST without token → 401; POST with invalid payload → 400 with field detail; POST valid → 200 and KV updated; `OPTIONS` preflight; expired entries filtered on read.
+**Worker** (`theorem-announcements` repo, vitest + `@cloudflare/vitest-pool-workers`): GET returns 200 + CORS headers + `ETag`; POST without token → 401; POST with invalid payload → 400 with field detail; POST valid → 200 and KV updated; `OPTIONS` preflight; expired entries filtered on read; a second `link` rejected with a field-specific error.
 
 ---
 
@@ -261,16 +349,23 @@ Follows `AGENTS.md` — edge cases, boundaries, outliers. Never weaken an assert
 |---|---|
 | Worker/domain goes down → bar silently absent | Fail-open by design: fetch failure renders nothing. Announcements are never load-bearing. 24h local cache smooths short outages. |
 | Announcements become marketing spam and users tune them out | Default cadence is one bar, dismissible, monthly at most. Ship conservatively. |
-| Compromised Worker injects content | Plain-text rendering, no HTML sink, `https:`-only links, admin POST token-gated, public repo for auditability. |
+| Compromised Worker injects content | **No HTML sink** — React auto-escapes; links are real `<a>` elements. `https:`-only, no credentials. Admin POST token-gated, public repo for auditability. Injection is structurally impossible, not filtered (§4.5). |
+| Malformed/hostile URL inside a body renders as a dead or misleading link | `linkifySegments` demotes anything failing `isSafeHttpUrl()` back to plain text; trailing punctuation trimmed; capped at 5 links. |
+| `http://` link downgraded or MITM'd | Rejected outright — only `https:` linkifies. |
 | Reused announcement `id` means users never see new text | `id` is required and validated; convention documented in the repo README; never reuse. |
 | `target="_blank"` broken in Tauri webview | New shared `openExternalUrl()` using the opener plugin with a `window.open` fallback. |
 | Reader shows no announcements | Intentional — see §5.2. |
 
 ---
 
-## 9. Open Questions
+## 9. Decisions & Open Questions
 
-1. **Markdown in announcements** — plain text + `**bold**` (recommended, zero deps) or full Markdown (adds a sanitizer)?
+### Resolved
+
+1. **Announcement formatting: plain text + `**bold**` + auto-linkified URLs.** No Markdown engine, no DOMPurify, no new dependency. Confirmed — links are supported via both bare-URL linkify and a dedicated `link` CTA (§4.4, §5.4).
+
+### Still open
+
 2. **Community/ecosystem channel** — strictly maintainer releases, or also non-repo news? Affects whether `announcements.json` stays a single flat list or gains a `channel` field.
 3. **Worker hosting** — `workers.dev` subdomain, or a custom domain on the existing Cloudflare zone (`theorem.fundaments.work` / `read.fundaments.work`)?
 4. **iOS App Store review** — does a donation link require specific disclosure? Worth checking before shipping to iOS.
