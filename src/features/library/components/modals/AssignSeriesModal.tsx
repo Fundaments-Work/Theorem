@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Modal, ModalBody, ModalFooter } from "../../../../ui";
 import { useLibraryStore } from "../../../../core/store";
 import { cn } from "../../../../core/lib/utils";
+import { isMobile } from "../../../../core/lib/env";
 import { Layers, Hash, ArrowUpDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +31,7 @@ export function AssignSeriesModal({
     const books = useLibraryStore((s) => s.books);
     const updateBookMetadata = useLibraryStore((s) => s.updateBookMetadata);
     const updateCollection = useLibraryStore((s) => s.updateCollection);
+    const mobile = isMobile();
 
     // Collect all existing series in the library for suggestions
     const existingSeriesList = useMemo(() => {
@@ -122,9 +124,22 @@ export function AssignSeriesModal({
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} size="lg" showCloseButton={true}>
-            <form onSubmit={handleSave}>
-                <ModalBody>
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            size="lg"
+            className={cn(
+                // Phones: keep a gutter so the panel isn't flush to the screen edges
+                // and the controls never sit under a system gesture area.
+                // Desktop keeps the centred 36rem dialog.
+                mobile ? "w-[calc(100%-1.5rem)] max-w-full" : undefined,
+            )}
+        >
+            {/* `flex h-full min-h-0 flex-col` lets ModalBody actually scroll inside
+                the dialog's max-height clamp. Without it the form is a block box, so
+                the body grows to full content height and the footer gets clipped. */}
+            <form onSubmit={handleSave} className="flex h-full min-h-0 flex-col">
+                <ModalBody className="pb-[calc(var(--spacing-lg)+env(safe-area-inset-bottom))] sm:pb-5">
                     <div className="space-y-6">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 flex items-center justify-center bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] border border-[var(--color-accent)]/20 shrink-0">
@@ -155,7 +170,7 @@ export function AssignSeriesModal({
                                 onChange={(e) => setSeriesName(e.target.value)}
                                 placeholder="e.g. Dune, The Dark Tower, Foundation"
                                 className="ui-input w-full font-medium"
-                                autoFocus
+                                autoFocus={!mobile}
                             />
                             <datalist id="existing-series-list">
                                 {existingSeriesList.map((s) => (
@@ -181,7 +196,7 @@ export function AssignSeriesModal({
                                 </button>
                             </div>
 
-                            <div className="max-h-[280px] overflow-y-auto overscroll-contain border border-[var(--color-border)] divide-y divide-[var(--color-border)] bg-[var(--color-surface-muted)]/30">
+                            <div className="max-h-[38vh] sm:max-h-[280px] overflow-y-auto overscroll-contain border border-[var(--color-border)] divide-y divide-[var(--color-border)] bg-[var(--color-surface-muted)]/30">
                                 {entries.map((entry) => (
                                     <div
                                         key={entry.bookId}
@@ -221,21 +236,23 @@ export function AssignSeriesModal({
                         </div>
                     </div>
                 </ModalBody>
-                <ModalFooter>
-                    <div className="flex items-center justify-between w-full">
+                <ModalFooter className="pb-[calc(var(--spacing-md)+env(safe-area-inset-bottom))] sm:pb-4">
+                    {/* Phones: full-width stacked actions so no control is squeezed
+                        below a tappable size. Desktop keeps the single-row layout. */}
+                    <div className="flex flex-col-reverse gap-2 w-full sm:flex-row sm:items-center sm:justify-between">
                         <button
                             type="button"
                             onClick={handleClearSeries}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border border-[var(--color-error)]/30 text-[color:var(--color-error)] hover:bg-[var(--color-error)]/10 flex items-center gap-1.5"
+                            className="ui-btn px-3 py-2.5 text-xs font-bold border w-full sm:w-auto border-[var(--color-error)]/30 text-[color:var(--color-error)] hover:bg-[var(--color-error)]/10 flex items-center justify-center gap-1.5 touch-manipulation"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             Remove from Series
                         </button>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
                             <button
                                 type="button"
                                 onClick={onClose}
-                                className="ui-btn-ghost text-xs"
+                                className="ui-btn-ghost text-xs flex-1 sm:flex-none touch-manipulation"
                             >
                                 Cancel
                             </button>
@@ -243,7 +260,7 @@ export function AssignSeriesModal({
                                 type="submit"
                                 disabled={!seriesName.trim()}
                                 className={cn(
-                                    "ui-btn-primary text-xs",
+                                    "ui-btn-primary text-xs flex-1 sm:flex-none touch-manipulation",
                                     "disabled:opacity-50 disabled:cursor-not-allowed"
                                 )}
                             >
