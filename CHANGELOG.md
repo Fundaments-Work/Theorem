@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Shell & Remote Announcements
 
-- **Remote Announcements Banner (#127)** — Added a non-intrusive, zero-HTML remote announcement system (`src/ui/AnnouncementBar.tsx`) delivering important project updates, critical advisories, and release notes to all installations. Announcements are fetched asynchronously with a 24-hour local cache, fail-open resiliency, and persistent local dismissal. Links are safely tokenized and linkified without an HTML injection sink.
+- **Remote Announcements Banner (#127)** — Added a non-intrusive, zero-HTML remote announcement system (`src/ui/AnnouncementBar.tsx`) delivering project updates, advisories, and release notes to all installations from a dedicated edge Cloudflare Worker (`announcements.fundaments.work`). Announcements are fetched asynchronously with a 24-hour local cache, fail-open resiliency, persistent local dismissal, and responsive mobile/desktop layout with severity badges (`Notice`, `Advisory`, `Alert`).
 - **Zero-HTML AST Parser & Linkifier** — Pure AST linkification (`src/core/lib/announcements.ts`) that strictly validates `https://` URLs without credentials, trims balanced punctuation and parentheses, and converts `**bold**` markdown syntax into React elements without touching `dangerouslySetInnerHTML`.
 - **Reader Isolation** — Announcement banners are strictly isolated from the reading view (`ReaderPage`), preserving a distraction-free, zero-chrome reading experience.
 
@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monthly Cadence Engine** — A recurring 30-day cadence model (`src/core/lib/support-prompt.ts`) keeps the support prompt gentle and unobtrusive: visible on first run, dismissed or clicked prompts hide for 30 days locally without polluting P2P sync CRDT state.
 - **Support Placements** — Added an authentic crescent-dumpling `MomoIcon` to the desktop sidebar footer (both expanded and collapsed layouts), the mobile titlebar header cluster, and a permanent entry in Settings → Links.
 - **Safe External Opener** — Unified external link launching (`src/core/lib/open-external-url.ts`) dynamically invoking `@tauri-apps/plugin-opener` on native desktop/mobile platforms with fallback to `window.open` in browser environments.
+
+### Library & Shelves
+
+- **Shelves Layout & Header Unification** — Standardized Shelves page layout, header spacing, and toolbar button styling (`TOOLBAR_BUTTON_PRIMARY`, `TOOLBAR_BUTTON_BASE`, `TOOLBAR_ICON_BUTTON`) with Library viewport standards. Action buttons, search, and back navigation remain permanently accessible across empty and populated states.
+
+### Fixed
+
+- **Tauri IPC access control check on memory trim** — Added wildcard window capability in `src-tauri/capabilities/default.json` and allowed IPC localhost origins in CSP, resolving Tauri v2 IPC ACL denials (`trim_memory`) on sub-windows and reloaded webviews.
 
 ## [1.5.9] - 2026-10-04 (Beta)
 
