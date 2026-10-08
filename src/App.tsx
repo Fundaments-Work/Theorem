@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { RouteErrorBoundary, KeyboardShortcutsHelp, AlertDialog, PageLoader, SplashScreen } from "./ui";
+import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
 import { isTauriDesktop, isTauri, isMobile } from "./core/lib/env";
@@ -611,6 +612,7 @@ function App() {
 
             <div className="relative flex-1 flex flex-col min-w-0">
                 <AppTitlebar title="Theorem" />
+                <AnnouncementBar />
 
                 <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg))] md:pb-0 md:px-8 md:py-6 scrollbar-solid overscroll-contain">
                     <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>

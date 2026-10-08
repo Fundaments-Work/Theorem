@@ -220,3 +220,17 @@ Sync lifecycle:
 6. **Merge**: Incoming data merged with CRDT Last-Write-Wins and domain-specific conflict resolution
 7. **Live**: `docs-entry-changed` events stream real-time changes during sync; gossip `NeighborUp` triggers auto-sync
 8. **File transfer**: On-demand `download_book_file` writes directly to `book-cache/` from Rust (no IPC), with progress events
+
+## Announcements & Creator Support Architecture
+
+### Remote Announcements
+- **HTTP-Only Broadcast**: P2P sync cannot broadcast public announcements (sync dials paired devices only, and user edits clobber maintainer notices via Last-Write-Wins). Announcements are fetched via HTTPS from an external Cloudflare Worker (`fundaments-work/theorem-announcements`).
+- **Zero-HTML Security Invariant**: The renderer has no HTML sink (`dangerouslySetInnerHTML` is never used). Announcement bodies are tokenized into structured AST data (`linkifySegments`, `renderInlineBold`) and rendered exclusively as native React children with automatic JSX escaping.
+- **Safe URL Invariants**: Only `https:` URLs are linkified; credentials (`user:pass@`) and dangerous schemes (`http:`, `javascript:`, `data:`) are rejected and rendered as plain text. Trailing punctuation is trimmed unless balanced.
+- **Reader Isolation**: Announcements mount between `<AppTitlebar>` and `<main>` in `App.tsx`. They never mount or interrupt active reading sessions because Reader mode early-returns before the shell layout.
+- **Local Caching & Dismissal**: Responses are cached in `localStorage` under `theorem-announcements-cache` (24h TTL); dismissed announcement IDs are persisted in `theorem-announcements:dismissed`.
+
+### Buy Me Momo Support
+- **Nepali Creator Funding Platform**: Links to `https://buymemomo.com/usefundaments` for domestic (Connect IPS, eSewa, Khalti) and international payments.
+- **30-Day Cadence Engine**: Visible in the desktop sidebar footer and mobile titlebar as a recurring monthly nudge. Persisted in `localStorage` (`theorem-support:hiddenUntil`, `theorem-support:lastShownAt`) to keep ephemeral chrome state out of P2P settings sync. Always permanently visible in Settings → About.
+- **Unified Opener Helper**: `openExternalUrl()` delegates to `@tauri-apps/plugin-opener` on native platforms with a standard browser `window.open` fallback.

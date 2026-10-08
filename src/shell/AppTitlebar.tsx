@@ -16,6 +16,8 @@ import { useUIStore } from "../core/store";
 import { getPairedDevices } from "../core/lib/device-sync";
 import { getSearchPlaceholder, hasSearchDomain, resolveSearchDomain } from "../core/lib/search/domain";
 import { TheoremLogo } from "./TheoremLogo";
+import { MomoIcon } from "../ui/MomoIcon";
+import { useSupportPrompt } from "../core/lib/support-prompt";
 
 interface AppTitlebarProps {
     title: string;
@@ -47,6 +49,7 @@ export const AppTitlebar = memo(function AppTitlebar({
     const deviceSyncAt = useUIStore((state) => state.deviceSyncAt);
     const isTauriRuntime = isTauri();
     const isMobileRuntime = isMobile();
+    const { isEligible: showSupport, openSupport: handleSupportClick } = useSupportPrompt();
     const [lastSyncedLabel, setLastSyncedLabel] = useState("");
     const showDesktopWindowControls = isTauriRuntime && !isMobileRuntime;
     const searchDomain = resolveSearchDomain({
@@ -313,6 +316,26 @@ export const AppTitlebar = memo(function AppTitlebar({
                             aria-pressed={isMobileSearchOpen}
                         >
                             <Search className="w-5 h-5" />
+                        </button>
+                    )}
+
+                    {isMobileRuntime && showSupport && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                void handleSupportClick();
+                            }}
+                            data-tauri-drag-region={undefined}
+                            className={cn(
+                                "sm:!hidden",
+                                TITLEBAR_ICON_BUTTON,
+                                "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                            )}
+                            title="Support Theorem"
+                            aria-label="Support Theorem on Buy Me Momo"
+                        >
+                            <MomoIcon className="w-4 h-4" />
                         </button>
                     )}
 

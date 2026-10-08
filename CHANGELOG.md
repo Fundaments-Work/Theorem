@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-08
+
+### Shell & Remote Announcements
+
+- **Remote Announcements Banner (#127)** — Added a non-intrusive, zero-HTML remote announcement system (`src/ui/AnnouncementBar.tsx`) delivering important project updates, critical advisories, and release notes to all installations. Announcements are fetched asynchronously with a 24-hour local cache, fail-open resiliency, and persistent local dismissal. Links are safely tokenized and linkified without an HTML injection sink.
+- **Zero-HTML AST Parser & Linkifier** — Pure AST linkification (`src/core/lib/announcements.ts`) that strictly validates `https://` URLs without credentials, trims balanced punctuation and parentheses, and converts `**bold**` markdown syntax into React elements without touching `dangerouslySetInnerHTML`.
+- **Reader Isolation** — Announcement banners are strictly isolated from the reading view (`ReaderPage`), preserving a distraction-free, zero-chrome reading experience.
+
+### Monetization & Creator Support
+
+- **Buy Me Momo Integration (#128)** — Added a native support link for Nepal's creator-funding platform Buy Me Momo (`https://buymemomo.com/usefundaments`), allowing domestic (eSewa, Khalti, Connect IPS) and international supporters to fund Theorem's development.
+- **Monthly Cadence Engine** — A recurring 30-day cadence model (`src/core/lib/support-prompt.ts`) keeps the support prompt gentle and unobtrusive: visible on first run, dismissed or clicked prompts hide for 30 days locally without polluting P2P sync CRDT state.
+- **Support Placements** — Added an authentic crescent-dumpling `MomoIcon` to the desktop sidebar footer (both expanded and collapsed layouts), the mobile titlebar header cluster, and a permanent entry in Settings → Links.
+- **Safe External Opener** — Unified external link launching (`src/core/lib/open-external-url.ts`) dynamically invoking `@tauri-apps/plugin-opener` on native desktop/mobile platforms with fallback to `window.open` in browser environments.
+
 ## [1.5.9] - 2026-10-04 (Beta)
 
 ### Comics & CBR

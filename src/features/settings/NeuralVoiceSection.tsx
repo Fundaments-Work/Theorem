@@ -10,6 +10,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { isTauriMobile } from "../../core/lib/env";
+import { openExternalUrl } from "../../core/lib/open-external-url";
 import { ConfirmDialog } from "../../ui";
 
 interface TtsAssetStatus {
@@ -308,10 +309,7 @@ function AndroidEnginePicker() {
             >
                 <button
                     onClick={() => {
-                        void import("@tauri-apps/plugin-opener").then(
-                            ({ openUrl }) => openUrl(COMPANION_APP_URL),
-                            () => { /* opener unavailable */ },
-                        );
+                        void openExternalUrl(COMPANION_APP_URL);
                     }}
                     className="ui-btn-primary inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
                 >

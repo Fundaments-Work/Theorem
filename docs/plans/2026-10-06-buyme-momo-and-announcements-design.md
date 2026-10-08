@@ -1,7 +1,7 @@
 # Buy Me Momo + Announcement Bar — Design
 
 **Date**: 2026-10-06
-**Status**: Draft — awaiting implementation approval
+**Status**: In Progress — Theorem client integration delivered (items 2–5); Worker deployment next
 **Area**: Shell / Remote Config / Monetization
 **Repos touched**: `Theorem` (this), `theorem-announcements` (new)
 
@@ -331,13 +331,13 @@ Non-`https:` link rejected before reaching an `href`.
 
 ## 7. Rollout
 
-1. Stand up `theorem-announcements`: Worker, KV namespace, `wrangler.toml`, `schema.json`, seed `announcements.json`, sync workflow, vitest. Deploy. Confirm `GET /api/announcements` from a browser.
-2. Theorem: `openExternalUrl()` helper.
-3. Theorem: `announcements.ts` + tests → `AnnouncementBar` → wire into `App.tsx`.
-4. Theorem: momo icon (Sidebar, AppTitlebar, Settings → About) + cadence hook.
-5. Update `docs/settings.md` (§4.3 lists Settings sections — the About tab gains a row) and `docs/ARCHITECTURE.md`.
-6. CHANGELOG entry.
-7. Release as `1.6.0`.
+1. [ ] Stand up `theorem-announcements`: Worker, KV namespace, `wrangler.toml`, `schema.json`, seed `announcements.json`, sync workflow, vitest. Deploy. Confirm `GET /api/announcements` from a browser.
+2. [x] Theorem: `openExternalUrl()` helper (`src/core/lib/open-external-url.ts`).
+3. [x] Theorem: `announcements.ts` + tests → `AnnouncementBar` → wire into `App.tsx`.
+4. [x] Theorem: momo icon (`src/ui/MomoIcon.tsx`; Sidebar, AppTitlebar, Settings → About) + cadence hook (`src/core/lib/support-prompt.ts`).
+5. [x] Update `docs/settings.md` (§4.3 lists Settings sections — the About tab gains a row) and `docs/ARCHITECTURE.md`.
+6. [x] CHANGELOG entry.
+7. [ ] Release as `1.6.0`.
 
 **Gates before any commit**: `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm foliate:check`, and — no Rust changes expected — `cargo fmt --check && cargo clippy && cargo check`. `cargo clippy --target aarch64-linux-android` only if Android-touching code changes.
 

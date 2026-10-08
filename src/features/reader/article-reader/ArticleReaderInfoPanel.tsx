@@ -1,6 +1,6 @@
 import { Bookmark, Calendar, ExternalLink, Globe, User, X } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
-import { isTauri } from "../../../core/lib/env";
+import { openExternalUrl } from "../../../core/lib/open-external-url";
 import type { RssArticle } from "../../../core/types";
 import { FloatingPanel } from "../../../ui";
 import { formatArticleDate } from "./utils";
@@ -83,13 +83,7 @@ export function ArticleReaderInfoPanel({
                     <button
                         type="button"
                         onClick={() => {
-                            if (isTauri()) {
-                                import("@tauri-apps/plugin-opener").then(
-                                    ({ openUrl }) => openUrl(article.url),
-                                );
-                            } else {
-                                window.open(article.url, "_blank", "noopener,noreferrer");
-                            }
+                            void openExternalUrl(article.url);
                         }}
                         className="flex h-10 w-full items-center justify-center gap-2 border border-[var(--color-border)] font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-[var(--color-surface-muted)]"
                     >

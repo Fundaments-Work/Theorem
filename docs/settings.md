@@ -48,6 +48,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 
 ### About
 - Version info, repository link, license
+- **Support Theorem (Buy Me Momo)**: Link to Buy Me Momo (`https://buymemomo.com/usefundaments`), the Nepali creator-funding platform supporting domestic (Connect IPS, eSewa, Khalti) and international card rails. Always accessible from Settings regardless of the 30-day cadence nudge in the shell.
 - **Build stamp** (`<git hash> · <commit date>`), baked into the binary by
   `src-tauri/build.rs` (`THEOREM_GIT_HASH` / `THEOREM_BUILD_DATE`, exposed via
   the `app_build_info` command). Desktop release binaries embed the web UI at

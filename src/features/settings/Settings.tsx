@@ -27,6 +27,9 @@ const DeviceSyncSection = lazy(() => import("./DeviceSync").then(m => ({ default
 const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => ({ default: m.NeuralVoiceSection })));
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
 import { KnapTemplateEditor } from "./KnapTemplateEditor";
+import { MomoIcon } from "../../ui/MomoIcon";
+import { BUY_ME_MOMO_URL } from "../../core/lib/support-prompt";
+import { openExternalUrl } from "../../core/lib/open-external-url";
 import {
     Database,
     RotateCcw,
@@ -1421,14 +1424,31 @@ export const SettingsPage = memo(function SettingsPage() {
                     >
                         <div className="space-y-2">
                             <a
-                                 href="https://github.com/fundaments-work/Theorem"
+                                href="https://github.com/fundaments-work/Theorem"
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void openExternalUrl("https://github.com/fundaments-work/Theorem");
+                                }}
                                 className="flex items-center gap-2 p-3 border border-[var(--color-border)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)] transition-colors"
                             >
                                 <BookOpen className="w-4 h-4" />
-                                 <span>GitHub Repository</span>
-                             </a>
+                                <span>GitHub Repository</span>
+                            </a>
+                            <a
+                                href={BUY_ME_MOMO_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void openExternalUrl(BUY_ME_MOMO_URL);
+                                }}
+                                className="flex items-center gap-2 p-3 border border-[var(--color-border)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)] transition-colors"
+                            >
+                                <MomoIcon className="w-4 h-4" />
+                                <span>Support Theorem (Buy Me Momo)</span>
+                            </a>
                              {updateInfo ? (
                                  <div className="space-y-2">
                                      <div className="p-3 border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">

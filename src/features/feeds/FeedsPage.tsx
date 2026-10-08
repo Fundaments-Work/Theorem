@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, formatProgress } from "../../core/lib/utils";
-import { isTauri } from "../../core/lib/env";
+import { openExternalUrl } from "../../core/lib/open-external-url";
 import { useRssStore } from "../../core/store";
 import type { RssFeed, RssArticle } from "../../core/types";
 import {
@@ -228,13 +228,7 @@ function ArticleCard({
             label: "Open Original",
             icon: <ExternalLink className="w-4 h-4" />,
             onClick: () => {
-                if (isTauri()) {
-                    import("@tauri-apps/plugin-opener").then(
-                        ({ openUrl }) => openUrl(article.url),
-                    );
-                } else {
-                    window.open(article.url, "_blank", "noopener,noreferrer");
-                }
+                void openExternalUrl(article.url);
             },
         }] as ContextMenuItem[] : []),
         {
@@ -362,13 +356,7 @@ function ArticleCard({
                                     type="button"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        if (isTauri()) {
-                                            import("@tauri-apps/plugin-opener").then(
-                                                ({ openUrl }) => openUrl(article.url),
-                                            );
-                                        } else {
-                                            window.open(article.url, "_blank", "noopener,noreferrer");
-                                        }
+                                        void openExternalUrl(article.url);
                                     }}
                                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] rounded transition-colors"
                                     title="Open original website in browser"

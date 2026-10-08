@@ -16,6 +16,8 @@ import { useUIStore } from "../../core/store";
 import { useSettingsStore } from "../../core/store";
 import type { AppRoute } from "../../core/types";
 import { TheoremLogo } from "../TheoremLogo";
+import { MomoIcon } from "../../ui/MomoIcon";
+import { useSupportPrompt } from "../../core/lib/support-prompt";
 
 interface SidebarItem {
     id: AppRoute;
@@ -49,6 +51,7 @@ export const Sidebar = memo(function Sidebar({ isMobile, onClose }: SidebarProps
     const currentStreak = useSettingsStore((state) => state.stats.currentStreak);
     const isCollapsedDesktop = !isMobile && !sidebarOpen;
     const showDesktopFooterRow = !isMobile && sidebarOpen;
+    const { isEligible: showSupport, openSupport: handleSupportClick } = useSupportPrompt();
 
     const displayStreak = currentStreak > 0;
 
@@ -173,6 +176,18 @@ export const Sidebar = memo(function Sidebar({ isMobile, onClose }: SidebarProps
                                 <span className="text-xs font-semibold text-[var(--color-text-primary)]">{currentStreak}</span>
                             </div>
                         )}
+                        {showSupport && (
+                            <button
+                                onClick={() => {
+                                    void handleSupportClick();
+                                }}
+                                className="flex items-center gap-2 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors shrink-0"
+                                title="Support Theorem on Buy Me Momo"
+                            >
+                                <MomoIcon className="h-4 w-4" />
+                                <span className="uppercase tracking-[0.08em] text-[11px] font-bold">Support</span>
+                            </button>
+                        )}
                         <button
                             onClick={() => {
                                 setRoute("settings");
@@ -202,6 +217,24 @@ export const Sidebar = memo(function Sidebar({ isMobile, onClose }: SidebarProps
                                 <Flame className="w-4 h-4 text-[var(--color-accent)]" />
                                 <span className="text-[10px] font-semibold text-[var(--color-text-primary)]">{currentStreak}</span>
                             </div>
+                        )}
+                        {showSupport && (
+                            <button
+                                onClick={() => {
+                                    void handleSupportClick();
+                                    if (isMobile) {
+                                        onClose?.();
+                                    }
+                                }}
+                                className={cn(
+                                    "flex items-center justify-center text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors",
+                                    isCollapsedDesktop ? "w-full" : "justify-start gap-4"
+                                )}
+                                title={isCollapsedDesktop ? "Support Theorem" : undefined}
+                            >
+                                <MomoIcon className="h-4 w-4" />
+                                {!isCollapsedDesktop && <span className="uppercase tracking-[0.08em] text-[11px] font-bold">Support</span>}
+                            </button>
                         )}
                         <button
                             onClick={() => {
