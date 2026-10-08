@@ -1,7 +1,7 @@
 # Buy Me Momo + Announcement Bar — Design
 
 **Date**: 2026-10-06
-**Status**: In Progress — Theorem client integration delivered (items 2–5); Worker deployment next
+**Status**: Completed — Delivered in Theorem and theorem-announcements (2026-10-08)
 **Area**: Shell / Remote Config / Monetization
 **Repos touched**: `Theorem` (this), `theorem-announcements` (new)
 
@@ -331,7 +331,7 @@ Non-`https:` link rejected before reaching an `href`.
 
 ## 7. Rollout
 
-1. [ ] Stand up `theorem-announcements`: Worker, KV namespace, `wrangler.toml`, `schema.json`, seed `announcements.json`, sync workflow, vitest. Deploy. Confirm `GET /api/announcements` from a browser.
+1. [x] Stand up `theorem-announcements`: Worker, KV namespace, `wrangler.jsonc`, `schema.json`, seed `announcements.json`, sync workflow, vitest. Deploy. Confirm `GET /api/announcements` from a browser.
 2. [x] Theorem: `openExternalUrl()` helper (`src/core/lib/open-external-url.ts`).
 3. [x] Theorem: `announcements.ts` + tests → `AnnouncementBar` → wire into `App.tsx`.
 4. [x] Theorem: momo icon (`src/ui/MomoIcon.tsx`; Sidebar, AppTitlebar, Settings → About) + cadence hook (`src/core/lib/support-prompt.ts`).
