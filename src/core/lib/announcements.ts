@@ -28,7 +28,7 @@ export interface InlineNode {
     value: string;
 }
 
-export const ANNOUNCEMENT_ENDPOINT = "https://read.fundaments.work/api/announcements";
+export const ANNOUNCEMENT_ENDPOINT = "https://announcements.fundaments.work/api/announcements";
 export const ANNOUNCEMENTS_CACHE_KEY = "theorem-announcements-cache";
 export const ANNOUNCEMENTS_DISMISSED_KEY = "theorem-announcements:dismissed";
 export const ANNOUNCEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours

@@ -343,8 +343,8 @@ describe("announcements library", () => {
             globalThis.fetch = originalFetch;
         });
 
-        it("uses read.fundaments.work by default", () => {
-            expect(ANNOUNCEMENT_ENDPOINT).toBe("https://read.fundaments.work/api/announcements");
+        it("uses announcements.fundaments.work by default", () => {
+            expect(ANNOUNCEMENT_ENDPOINT).toBe("https://announcements.fundaments.work/api/announcements");
         });
 
         it("parses and caches valid JSON announcements", async () => {
