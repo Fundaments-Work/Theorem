@@ -84,7 +84,7 @@ describe("AnnouncementBar Component", () => {
         expect(container.querySelector("aside")).toBeNull();
     });
 
-    it("applies critical severity styles", () => {
+    it("applies critical severity styles and alert badge", () => {
         const criticalAnno: Announcement = {
             ...mockAnnouncement,
             id: "critical-1",
@@ -94,6 +94,54 @@ describe("AnnouncementBar Component", () => {
         const container = render(<AnnouncementBar announcement={criticalAnno} />);
         const aside = container.querySelector("aside");
         expect(aside?.className).toContain("var(--color-error)");
+        expect(container.textContent).toContain("Alert");
+    });
+
+    it("applies warning severity styles and advisory badge", () => {
+        const warningAnno: Announcement = {
+            ...mockAnnouncement,
+            id: "warning-1",
+            severity: "warning",
+        };
+
+        const container = render(<AnnouncementBar announcement={warningAnno} />);
+        const aside = container.querySelector("aside");
+        expect(aside?.className).toContain("var(--color-accent)");
+        expect(container.textContent).toContain("Advisory");
+    });
+
+    it("applies info severity styles and notice badge", () => {
+        const container = render(<AnnouncementBar announcement={mockAnnouncement} />);
+        const aside = container.querySelector("aside");
+        expect(aside?.className).toContain("var(--color-surface-variant)");
+        expect(container.textContent).toContain("Notice");
+    });
+
+    it("renders announcement without link correctly", () => {
+        const noLinkAnno: Announcement = {
+            ...mockAnnouncement,
+            id: "nolink-1",
+            link: undefined,
+        };
+
+        const container = render(<AnnouncementBar announcement={noLinkAnno} />);
+        expect(container.textContent).toContain("Test Notice");
+        expect(container.textContent).not.toContain("Details →");
+    });
+
+    it("renders with correct accessibility roles and live region", () => {
+        const container = render(<AnnouncementBar announcement={mockAnnouncement} />);
+        const aside = container.querySelector("aside");
+        expect(aside?.getAttribute("role")).toBe("status");
+        expect(aside?.getAttribute("aria-live")).toBe("polite");
+        const dismissBtn = container.querySelector('button[aria-label="Dismiss announcement"]');
+        expect(dismissBtn?.getAttribute("title")).toBe("Dismiss announcement");
+    });
+
+    it("applies custom className", () => {
+        const container = render(<AnnouncementBar announcement={mockAnnouncement} className="custom-banner-class" />);
+        const aside = container.querySelector("aside");
+        expect(aside?.className).toContain("custom-banner-class");
     });
 
     describe("AnnouncementBody", () => {
