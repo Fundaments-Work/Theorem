@@ -4,7 +4,8 @@
   "description": "Capability for all first-party windows (main + reader_* windows)",
   "windows": [
     "main",
-    "reader_*"
+    "reader_*",
+    "*"
   ],
   "permissions": [
     "core:default",

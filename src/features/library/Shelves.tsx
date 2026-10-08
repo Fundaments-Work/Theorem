@@ -40,6 +40,10 @@ const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     compact: <Grid3X3 className="w-4 h-4" />,
 };
 
+const TOOLBAR_BUTTON_BASE = "ui-btn disabled:opacity-50";
+const TOOLBAR_BUTTON_PRIMARY = "ui-btn-primary disabled:opacity-50";
+const TOOLBAR_ICON_BUTTON = "h-10 w-10 px-0";
+
 function EmptyShelves({ onCreate }: { onCreate: () => void }) {
     return (
         <div className="mx-auto w-full max-w-[26rem] min-w-0 px-4 sm:px-6 flex flex-col items-center justify-center py-20 text-center animate-fade-in">
@@ -55,9 +59,8 @@ function EmptyShelves({ onCreate }: { onCreate: () => void }) {
             <button
                 onClick={onCreate}
                 className={cn(
-                    "min-w-[10.5rem] whitespace-nowrap flex items-center gap-2 px-6 py-2.5",
-                    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] text-sm font-medium",
-                    "hover:opacity-90 transition-opacity"
+                    TOOLBAR_BUTTON_PRIMARY,
+                    "min-w-[10.5rem] whitespace-nowrap px-6 py-2.5"
                 )}
             >
                 <Plus className="w-4 h-4" />
@@ -82,9 +85,8 @@ function EmptyShelfDetail({ shelfName, onAddBooks }: { shelfName: string; onAddB
             <button
                 onClick={onAddBooks}
                 className={cn(
-                    "min-w-[10.5rem] whitespace-nowrap flex items-center gap-2 px-6 py-2.5",
-                    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] text-sm font-medium",
-                    "hover:opacity-90 transition-opacity"
+                    TOOLBAR_BUTTON_PRIMARY,
+                    "min-w-[10.5rem] whitespace-nowrap px-6 py-2.5"
                 )}
             >
                 <BookOpen className="w-4 h-4" />
@@ -539,108 +541,107 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col animate-fade-in">
-            <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                    <button
-                        onClick={onBack}
-                        aria-label="Back to shelves"
-                        title="Back to shelves"
-                        className="p-2 -ml-2 text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors shrink-0"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                    </button>
-                    
-                    <div
-                        className="w-12 h-12 flex items-center justify-center text-lg font-semibold shrink-0 shadow-sm"
-                        style={{
-                            backgroundColor: getShelfColor(shelf.id, shelf.name).bg,
-                            color: getShelfColor(shelf.id, shelf.name).text,
-                        }}
-                    >
-                        {getShelfInitials(shelf.name)}
+            <div className="-mb-4">
+                <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <button
+                            onClick={onBack}
+                            aria-label="Back to shelves"
+                            title="Back to shelves"
+                            className={cn(TOOLBAR_BUTTON_BASE, "px-3 py-2 sm:px-4 border-2 shrink-0")}
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                            <span className="hidden sm:inline font-bold text-xs uppercase">Shelves</span>
+                        </button>
+                        
+                        <div
+                            className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-sm font-semibold shrink-0 shadow-sm"
+                            style={{
+                                backgroundColor: getShelfColor(shelf.id, shelf.name).bg,
+                                color: getShelfColor(shelf.id, shelf.name).text,
+                            }}
+                        >
+                            {getShelfInitials(shelf.name)}
+                        </div>
+                        <div className="min-w-0">
+                            <h1 className="m-0 font-sans text-xl font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl truncate">
+                                {shelf.name}
+                            </h1>
+                            <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
+                                {shelfBooks.length} {shelfBooks.length === 1 ? "book" : "books"}
+                            </p>
+                        </div>
                     </div>
-                    <div className="min-w-0">
-                        <h1 className="m-0 font-sans text-xl font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl truncate">
-                            {shelf.name}
-                        </h1>
-                        <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
-                            {shelfBooks.length} {shelfBooks.length === 1 ? "book" : "books"}
-                        </p>
-                    </div>
-                </div>
 
-                <div className="flex items-center gap-2 sm:gap-3 flex-wrap ml-auto sm:ml-0">
-                    <button
-                        onClick={handleGoToLibrary}
-                        className={cn(
-                            "flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider",
-                            "border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
-                            "hover:bg-[var(--color-surface-muted)] transition-colors"
-                        )}
-                        title="Add books from library"
-                    >
-                        <Plus className="w-4 h-4 text-[color:var(--color-accent)]" />
-                        <span className="hidden sm:inline">Add Books</span>
-                    </button>
-                    <button
-                        onClick={() => updateCollection(shelf.id, { groupBySeries: !shelf.groupBySeries })}
-                        disabled={shelfBooks.length === 0}
-                        className={cn(
-                            "flex items-center justify-center w-10 h-10 border transition-colors",
-                            shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
-                            shelf.groupBySeries
-                                ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
-                        )}
-                        title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
-                    >
-                        <Layers className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={handleOpenSeriesModalForShelf}
-                        disabled={shelfBooks.length === 0}
-                        className={cn(
-                            "flex items-center justify-center w-10 h-10 border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors",
-                            shelfBooks.length === 0 && "opacity-50 cursor-not-allowed"
-                        )}
-                        title="Create / Manage Series from Shelf"
-                    >
-                        <BookOpen className="w-4 h-4 text-[color:var(--color-accent)]" />
-                    </button>
-                    <button
-                        data-action="toggle-select-mode"
-                        onClick={handleToggleSelectMode}
-                        disabled={shelfBooks.length === 0}
-                        className={cn(
-                            "flex items-center justify-center w-10 h-10 border transition-colors",
-                            shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
-                            isSelecting
-                                ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
-                        )}
-                        title={isSelecting ? "Cancel Selection" : "Select Books"}
-                    >
-                        <CheckCheck className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={cycleViewMode}
-                        className={cn(
-                            "flex items-center justify-center w-10 h-10",
-                            "border border-[var(--color-border)] bg-[var(--color-surface)]",
-                            "text-[color:var(--color-text-secondary)]",
-                            "hover:bg-[var(--color-surface-muted)] transition-colors"
-                        )}
-                        title={`View: ${viewMode}`}
-                    >
-                        {viewModeIcons[viewMode]}
-                    </button>
+                    <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0 flex-wrap">
+                        <button
+                            onClick={handleGoToLibrary}
+                            className={cn(TOOLBAR_BUTTON_PRIMARY, "px-3 py-2 sm:px-4")}
+                            title="Add books from library"
+                        >
+                            <Plus className="w-4 h-4" />
+                            <span className="hidden sm:inline">Add Books</span>
+                            <span className="sm:hidden">Add</span>
+                        </button>
+
+                        <button
+                            data-action="toggle-select-mode"
+                            onClick={handleToggleSelectMode}
+                            disabled={shelfBooks.length === 0}
+                            className={cn(
+                                TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
+                                shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
+                                isSelecting && "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                            )}
+                            title={isSelecting ? "Cancel Selection" : "Select Books"}
+                        >
+                            <CheckCheck className="w-4 h-4" />
+                        </button>
+
+                        <button
+                            onClick={cycleViewMode}
+                            className={cn(TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2")}
+                            title={`View: ${viewMode}`}
+                        >
+                            {viewModeIcons[viewMode]}
+                        </button>
+
+                        <div className="h-6 w-px bg-[var(--color-border)]" />
+
+                        <button
+                            onClick={() => updateCollection(shelf.id, { groupBySeries: !shelf.groupBySeries })}
+                            disabled={shelfBooks.length === 0}
+                            className={cn(
+                                TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
+                                shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
+                                shelf.groupBySeries && "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                            )}
+                            title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
+                        >
+                            <Layers className="w-4 h-4" />
+                        </button>
+
+                        <button
+                            onClick={handleOpenSeriesModalForShelf}
+                            disabled={shelfBooks.length === 0}
+                            className={cn(
+                                TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
+                                shelfBooks.length === 0 && "opacity-50 cursor-not-allowed"
+                            )}
+                            title="Create / Manage Series from Shelf"
+                        >
+                            <BookOpen className="w-4 h-4 text-[color:var(--color-accent)]" />
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {shelf.bookIds.length === 0 ? (
                 <EmptyShelfDetail shelfName={shelf.name} onAddBooks={handleGoToLibrary} />
             ) : (
-                <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
+                <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
+                    <div className="flex min-h-0 flex-1 flex-col w-full">
+                        <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                         <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">No documents match criteria</p>
@@ -817,7 +818,9 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                         })}
                 </div>
                 )}
-            </div>
+                        </section>
+                    </div>
+                </div>
             )}
             {isSelecting && selectedBooks.length > 0 && (
                 <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
@@ -1051,7 +1054,7 @@ export function ShelvesPage() {
         const shelf = generalCollections.find((s) => s.id === selectedShelfId);
         if (shelf) {
             return (
-                <div className="mx-auto flex h-full w-full max-w-[var(--layout-content-max-width)] flex-col px-4 py-6 pb-0 sm:px-6 lg:px-8 lg:py-8">
+                <div className="mx-auto flex h-full w-full max-w-[var(--layout-content-max-width)] flex-col px-4 py-3 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
                     <ShelfDetail shelf={shelf} onBack={() => setSelectedShelfId(null)} />
                 </div>
             );
@@ -1059,53 +1062,58 @@ export function ShelvesPage() {
     }
 
     return (
-        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
-            <PageHeader
-                title="Shelves"
-                description={`${generalCollections.length} ${generalCollections.length === 1 ? "shelf" : "shelves"} • ${generalCollections.reduce((acc, s) => acc + getActualBookCount(s.bookIds), 0)} books`}
-            >
-                <button
-                    onClick={handleCreateShelf}
-                    className={cn(
-                        "flex items-center gap-2 px-4 py-2.5",
-                        "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] text-sm font-medium",
-                        "hover:opacity-90 transition-opacity"
-                    )}
+        <div className="mx-auto flex h-full w-full max-w-[var(--layout-content-max-width)] flex-col px-4 py-3 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
+            <div className="-mb-4">
+                <PageHeader
+                    title="Shelves"
+                    description={`${generalCollections.length} ${generalCollections.length === 1 ? "shelf" : "shelves"} • ${generalCollections.reduce((acc, s) => acc + getActualBookCount(s.bookIds), 0)} books`}
                 >
-                    <Plus className="w-4 h-4" />
-                    <span>New Shelf</span>
-                </button>
-            </PageHeader>
+                    <button
+                        onClick={handleCreateShelf}
+                        className={cn(TOOLBAR_BUTTON_PRIMARY, "px-3 py-2 sm:px-4")}
+                    >
+                        <Plus className="w-4 h-4" />
+                        <span className="hidden sm:inline">New Shelf</span>
+                        <span className="sm:hidden">New</span>
+                    </button>
+                </PageHeader>
+            </div>
 
-            {generalCollections.length === 0 ? (
-                <EmptyShelves onCreate={handleCreateShelf} />
-            ) : filteredShelves.length === 0 ? (
-                <div className="text-center py-16">
-                    <p className="text-[color:var(--color-text-muted)]">
-                        No shelves found matching your search.
-                    </p>
+            <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
+                <div className="flex min-h-0 flex-1 flex-col w-full">
+                    <section className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0 pt-4">
+                        {generalCollections.length === 0 ? (
+                            <EmptyShelves onCreate={handleCreateShelf} />
+                        ) : filteredShelves.length === 0 ? (
+                            <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
+                                <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">
+                                    No shelves found matching your search.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                                {filteredShelves.map((shelf) => (
+                                    <ShelfCard
+                                        key={shelf.id}
+                                        shelf={shelf}
+                                        books={getShelfBooks(shelf.bookIds)}
+                                        actualBookCount={getActualBookCount(shelf.bookIds)}
+                                        onClick={() => setSelectedShelfId(shelf.id)}
+                                        onEdit={() =>
+                                            handleEditShelf({
+                                                id: shelf.id,
+                                                name: shelf.name,
+                                                description: shelf.description,
+                                            })
+                                        }
+                                        onDelete={() => handleDeleteShelf(shelf.id, shelf.name)}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </section>
                 </div>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-                    {filteredShelves.map((shelf) => (
-                        <ShelfCard
-                            key={shelf.id}
-                            shelf={shelf}
-                            books={getShelfBooks(shelf.bookIds)}
-                            actualBookCount={getActualBookCount(shelf.bookIds)}
-                            onClick={() => setSelectedShelfId(shelf.id)}
-                            onEdit={() =>
-                                handleEditShelf({
-                                    id: shelf.id,
-                                    name: shelf.name,
-                                    description: shelf.description,
-                                })
-                            }
-                            onDelete={() => handleDeleteShelf(shelf.id, shelf.name)}
-                        />
-                    ))}
-                </div>
-            )}
+            </div>
 
             <ShelfModal
                 isOpen={isModalOpen}
