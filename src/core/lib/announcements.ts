@@ -28,7 +28,7 @@ export interface InlineNode {
     value: string;
 }
 
-export const ANNOUNCEMENT_ENDPOINT = "https://announcements.fundaments.work/api/announcements";
+export const ANNOUNCEMENT_ENDPOINT = "https://read.fundaments.work/api/announcements";
 export const ANNOUNCEMENTS_CACHE_KEY = "theorem-announcements-cache";
 export const ANNOUNCEMENTS_DISMISSED_KEY = "theorem-announcements:dismissed";
 export const ANNOUNCEMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -337,7 +337,8 @@ export async function fetchAnnouncements(
             },
         });
 
-        if (response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        if (response.ok && contentType.includes("application/json")) {
             const data = await response.json();
             const parsed = parseAnnouncements(data);
 

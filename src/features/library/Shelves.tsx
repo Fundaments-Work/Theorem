@@ -8,7 +8,7 @@ import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store"
 import { ShelfModal } from "./components/modals/ShelfModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { SeriesGroupHeader } from "./components/SeriesGroupHeader";
-import { ConfirmDialog } from "../../ui";
+import { ConfirmDialog, PageHeader } from "../../ui";
 import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
@@ -537,24 +537,21 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         updateSettings({ libraryViewMode: nextMode });
     };
 
-    if (shelf.bookIds.length === 0) {
-        return <EmptyShelfDetail shelfName={shelf.name} onAddBooks={handleGoToLibrary} />;
-    }
-
     return (
         <div className="flex min-h-0 flex-1 flex-col animate-fade-in">
-            
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-4">
+            <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                     <button
                         onClick={onBack}
-                        className="p-2 text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        aria-label="Back to shelves"
+                        title="Back to shelves"
+                        className="p-2 -ml-2 text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors shrink-0"
                     >
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                     
                     <div
-                        className="w-12 h-12 flex items-center justify-center text-lg font-semibold flex-shrink-0 shadow-sm"
+                        className="w-12 h-12 flex items-center justify-center text-lg font-semibold shrink-0 shadow-sm"
                         style={{
                             backgroundColor: getShelfColor(shelf.id, shelf.name).bg,
                             color: getShelfColor(shelf.id, shelf.name).text,
@@ -562,25 +559,38 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     >
                         {getShelfInitials(shelf.name)}
                     </div>
-                    <div>
-                        <h1 className="m-0 font-sans text-[1.45rem] font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-[1.6rem]">
+                    <div className="min-w-0">
+                        <h1 className="m-0 font-sans text-xl font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl truncate">
                             {shelf.name}
                         </h1>
-                        <p className="text-sm text-[color:var(--color-text-muted)] mt-0.5">
+                        <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
                             {shelfBooks.length} {shelfBooks.length === 1 ? "book" : "books"}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap ml-auto sm:ml-0">
+                    <button
+                        onClick={handleGoToLibrary}
+                        className={cn(
+                            "flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider",
+                            "border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
+                            "hover:bg-[var(--color-surface-muted)] transition-colors"
+                        )}
+                        title="Add books from library"
+                    >
+                        <Plus className="w-4 h-4 text-[color:var(--color-accent)]" />
+                        <span className="hidden sm:inline">Add Books</span>
+                    </button>
                     <button
                         onClick={() => updateCollection(shelf.id, { groupBySeries: !shelf.groupBySeries })}
+                        disabled={shelfBooks.length === 0}
                         className={cn(
-                            "flex items-center justify-center w-10 h-10",
-                            "border",
+                            "flex items-center justify-center w-10 h-10 border transition-colors",
+                            shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
                             shelf.groupBySeries
                                 ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
                         )}
                         title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
                     >
@@ -588,7 +598,11 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     </button>
                     <button
                         onClick={handleOpenSeriesModalForShelf}
-                        className="flex items-center justify-center w-10 h-10 border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        disabled={shelfBooks.length === 0}
+                        className={cn(
+                            "flex items-center justify-center w-10 h-10 border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors",
+                            shelfBooks.length === 0 && "opacity-50 cursor-not-allowed"
+                        )}
                         title="Create / Manage Series from Shelf"
                     >
                         <BookOpen className="w-4 h-4 text-[color:var(--color-accent)]" />
@@ -596,12 +610,13 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                     <button
                         data-action="toggle-select-mode"
                         onClick={handleToggleSelectMode}
+                        disabled={shelfBooks.length === 0}
                         className={cn(
-                            "flex items-center justify-center w-10 h-10",
-                            "border",
+                            "flex items-center justify-center w-10 h-10 border transition-colors",
+                            shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
                             isSelecting
                                 ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
                         )}
                         title={isSelecting ? "Cancel Selection" : "Select Books"}
                     >
@@ -622,7 +637,10 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 </div>
             </div>
 
-            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
+            {shelf.bookIds.length === 0 ? (
+                <EmptyShelfDetail shelfName={shelf.name} onAddBooks={handleGoToLibrary} />
+            ) : (
+                <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                         <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">No documents match criteria</p>
@@ -800,6 +818,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 </div>
                 )}
             </div>
+            )}
             {isSelecting && selectedBooks.length > 0 && (
                 <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
                     <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
@@ -1039,34 +1058,12 @@ export function ShelvesPage() {
         }
     }
 
-    if (generalCollections.length === 0) {
-        return (
-            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-0 sm:px-6 lg:px-8 lg:py-8">
-                <EmptyShelves onCreate={handleCreateShelf} />
-                <ShelfModal
-                    isOpen={isModalOpen}
-                    shelf={editingShelf}
-                    onClose={() => setIsModalOpen(false)}
-                    onSave={handleSaveShelf}
-                />
-            </div>
-        );
-    }
-
     return (
         <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
-            
-            <div className="flex items-center justify-between mb-10">
-                <div>
-                    <h1 className="m-0 font-sans text-[1.45rem] font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-[1.6rem]">
-                        Shelves
-                    </h1>
-                    <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
-                        {generalCollections.length} {generalCollections.length === 1 ? "shelf" : "shelves"} •{" "}
-                        {generalCollections.reduce((acc, s) => acc + getActualBookCount(s.bookIds), 0)} books
-                    </p>
-                </div>
-
+            <PageHeader
+                title="Shelves"
+                description={`${generalCollections.length} ${generalCollections.length === 1 ? "shelf" : "shelves"} • ${generalCollections.reduce((acc, s) => acc + getActualBookCount(s.bookIds), 0)} books`}
+            >
                 <button
                     onClick={handleCreateShelf}
                     className={cn(
@@ -1078,9 +1075,11 @@ export function ShelvesPage() {
                     <Plus className="w-4 h-4" />
                     <span>New Shelf</span>
                 </button>
-            </div>
+            </PageHeader>
 
-            {filteredShelves.length === 0 ? (
+            {generalCollections.length === 0 ? (
+                <EmptyShelves onCreate={handleCreateShelf} />
+            ) : filteredShelves.length === 0 ? (
                 <div className="text-center py-16">
                     <p className="text-[color:var(--color-text-muted)]">
                         No shelves found matching your search.

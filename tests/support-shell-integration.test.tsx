@@ -59,13 +59,13 @@ describe("Buy Me Momo Shell Integration", () => {
     });
 
     describe("MomoIcon", () => {
-        it("renders SVG with currentColor and standard 24x24 viewBox", () => {
+        it("renders SVG with currentColor and 24x24 viewBox", () => {
             const container = render(<MomoIcon className="w-4 h-4" />);
             const svg = container.querySelector("svg");
             expect(svg).not.toBeNull();
             expect(svg?.getAttribute("viewBox")).toBe("0 0 24 24");
-            expect(svg?.getAttribute("stroke")).toBe("currentColor");
             expect(svg?.getAttribute("fill")).toBe("none");
+            expect(svg?.getAttribute("stroke")).toBe("currentColor");
             expect(svg?.classList.contains("w-4")).toBe(true);
         });
     });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
     isSafeHttpUrl,
     linkifySegments,
@@ -7,6 +7,8 @@ import {
     selectActive,
     getDismissedAnnouncementIds,
     dismissAnnouncement,
+    fetchAnnouncements,
+    ANNOUNCEMENT_ENDPOINT,
     ANNOUNCEMENTS_DISMISSED_KEY,
     ANNOUNCEMENTS_CACHE_KEY,
     Announcement,
@@ -331,6 +333,83 @@ describe("announcements library", () => {
         it("handles corrupted localStorage gracefully", () => {
             localStorage.setItem(ANNOUNCEMENTS_DISMISSED_KEY, "invalid-json");
             expect(getDismissedAnnouncementIds().size).toBe(0);
+        });
+    });
+
+    describe("fetchAnnouncements", () => {
+        const originalFetch = globalThis.fetch;
+
+        beforeEach(() => {
+            globalThis.fetch = originalFetch;
+        });
+
+        it("uses read.fundaments.work by default", () => {
+            expect(ANNOUNCEMENT_ENDPOINT).toBe("https://read.fundaments.work/api/announcements");
+        });
+
+        it("parses and caches valid JSON announcements", async () => {
+            const mockList = [
+                {
+                    id: "anno-fetched-1",
+                    severity: "info",
+                    title: "Fetched",
+                    body: "Content",
+                    publishedAt: "2026-10-08T00:00:00Z",
+                },
+            ];
+
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                headers: new Headers({ "content-type": "application/json; charset=utf-8" }),
+                json: async () => ({ announcements: mockList }),
+            });
+
+            const result = await fetchAnnouncements(2000);
+            expect(result.length).toBe(1);
+            expect(result[0].id).toBe("anno-fetched-1");
+
+            // Cache is written
+            const cached = JSON.parse(localStorage.getItem(ANNOUNCEMENTS_CACHE_KEY) || "{}");
+            expect(cached.data[0].id).toBe("anno-fetched-1");
+        });
+
+        it("ignores non-JSON (e.g. text/html fallback) and falls back to cache", async () => {
+            // Seed cache
+            localStorage.setItem(
+                ANNOUNCEMENTS_CACHE_KEY,
+                JSON.stringify({
+                    data: [
+                        {
+                            id: "cached-anno",
+                            severity: "warning",
+                            title: "Cached",
+                            body: "Cached body",
+                            publishedAt: "2026-10-08T00:00:00Z",
+                        },
+                    ],
+                    timestamp: Date.now(),
+                })
+            );
+
+            // Server returns HTML (SPA fallback)
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
+                json: async () => {
+                    throw new Error("SyntaxError: Unexpected token < in JSON");
+                },
+            });
+
+            const result = await fetchAnnouncements(2000);
+            expect(result.length).toBe(1);
+            expect(result[0].id).toBe("cached-anno");
+        });
+
+        it("handles network error gracefully and returns cache", async () => {
+            globalThis.fetch = vi.fn().mockRejectedValue(new Error("NetworkError: Failed to fetch"));
+
+            const result = await fetchAnnouncements(2000);
+            expect(result).toEqual([]);
         });
     });
 });

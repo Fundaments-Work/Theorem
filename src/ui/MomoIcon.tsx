@@ -5,8 +5,9 @@ interface MomoIconProps extends React.SVGProps<SVGSVGElement> {
 }
 
 /**
- * Momo (dumpling) icon matching Lucide SVG standards and Theorem design tokens.
- * Inherits `currentColor` for seamless theme adapting.
+ * Momo (dumpling steamer) icon based on Flaticon asset 18805151.
+ * Matches Lucide icon grid standards (24x24, 2px stroke, round caps/joins)
+ * to ensure crisp, bold readability at 16x16 (w-4 h-4) and seamless theme styling.
  */
 export function MomoIcon({ className, ...props }: MomoIconProps) {
     return (
@@ -22,14 +23,21 @@ export function MomoIcon({ className, ...props }: MomoIconProps) {
             aria-hidden="true"
             {...props}
         >
-            {/* Dumpling pouch contour */}
-            <path d="M3.5 14C3.5 18.5 8 20.5 12 20.5C16 20.5 20.5 18.5 20.5 14C20.5 8.5 16.5 5 12 5C7.5 5 3.5 8.5 3.5 14Z" />
+            {/* Steamer lid with handle tilted open */}
+            <path d="M9.5 2a2 2 0 0 1 2.5.2" />
+            <ellipse cx="12" cy="5.2" rx="8.5" ry="2" transform="rotate(-15 12 5.2)" />
+            {/* Two plump momos with gathered top knots */}
+            <path d="M5.5 13.5c0-2.5 1.8-4 3.8-4 1.5 0 2.8.9 3.2 2.3" />
+            <path d="M11.5 12.5c.4-1.8 1.7-3 3.5-3 2 0 3.8 1.5 3.8 4" />
             {/* Top pleat folds */}
-            <path d="M12 5V13" />
-            <path d="M8.5 6.8C9.5 9 10 11.2 10 13" />
-            <path d="M15.5 6.8C14.5 9 14 11.2 14 13" />
-            <path d="M5.8 10C7.2 11.5 8.2 13 8.5 14" />
-            <path d="M18.2 10C16.8 11.5 15.8 13 15.5 14" />
+            <path d="M9.3 9.5v2" />
+            <path d="M15 9.5v2" />
+            {/* Steam puffs */}
+            <path d="M19.5 6.5c.8-.4 1.6-.3 2.2.2" />
+            <path d="M20 8.8c.6-.2 1.4 0 1.8.5" />
+            {/* Steamer basket base and rim */}
+            <path d="M3 14v4.5c0 2 4 3.5 9 3.5s9-1.5 9-3.5V14" />
+            <path d="M3 14c0 1.6 4 2.8 9 2.8s9-1.2 9-2.8" />
         </svg>
     );
 }
