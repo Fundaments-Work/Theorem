@@ -118,6 +118,9 @@ function resolvePdfTargetPage(target: string): number | null {
 /** Formats read through zip.js, which only needs byte ranges. */
 const RANGE_READ_FORMATS: ReadonlySet<BookFormat> = new Set<BookFormat>(["epub", "cbz", "cbr"]);
 
+/** Freehand pen stroke width in CSS pixels at scale 1. */
+const PDF_BRUSH_WIDTH = 2;
+
 function getMimeTypeForBookFormat(format: BookFormat): string {
     switch (format) {
         case "epub":
@@ -215,7 +218,9 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [pdfAnnotationMode, setPdfAnnotationMode] = useState<'none' | 'highlight' | 'pen' | 'text' | 'erase'>('none');
     const [pdfHighlightColor, setPdfHighlightColor] = useState<HighlightColor>("yellow");
     const [pdfBrushColor, setPdfBrushColor] = useState<HighlightColor>("blue");
-    const [pdfBrushWidth, setPdfBrushWidth] = useState(2);
+    // Stroke width is not user-adjustable in the PDF toolbar yet; the setter it
+    // used to be fed by was discarded, so this is a constant rather than state.
+    const pdfBrushWidth = PDF_BRUSH_WIDTH;
     const [pdfHasOutline, setPdfHasOutline] = useState(false);
 
     const pageTurnWordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3017,11 +3022,9 @@ const BookReaderPage = memo(function BookReaderPage() {
                         annotationMode={pdfAnnotationMode}
                         highlightColor={pdfHighlightColor}
                         penColor={pdfBrushColor}
-                        penWidth={pdfBrushWidth}
                         onAnnotationModeChange={setPdfAnnotationMode}
                         onHighlightColorChange={setPdfHighlightColor}
                         onPenColorChange={setPdfBrushColor}
-                        onPenWidthChange={setPdfBrushWidth}
                         className={cn(
                             "bottom-6 transition-[transform,opacity] duration-150 ease-out",
                             isMobileViewport ? "right-4" : "right-8",

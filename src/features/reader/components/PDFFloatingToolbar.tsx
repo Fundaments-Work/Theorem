@@ -15,11 +15,9 @@ interface PDFFloatingToolbarProps {
     annotationMode: 'none' | 'highlight' | 'pen' | 'text' | 'erase';
     highlightColor: HighlightColor;
     penColor: HighlightColor;
-    penWidth: number;
     onAnnotationModeChange: (mode: 'none' | 'highlight' | 'pen' | 'text' | 'erase') => void;
     onHighlightColorChange: (color: HighlightColor) => void;
     onPenColorChange: (color: HighlightColor) => void;
-    onPenWidthChange: (width: number) => void;
     className?: string;
 }
 
@@ -42,12 +40,10 @@ const TOOLS = [
 export function PDFFloatingToolbar({
     annotationMode,
     highlightColor,
-    penColor: _penColor,
-    penWidth: _penWidth,
+    penColor,
     onAnnotationModeChange,
     onHighlightColorChange,
-    onPenColorChange: _onPenColorChange,
-    onPenWidthChange: _onPenWidthChange,
+    onPenColorChange,
     className,
 }: PDFFloatingToolbarProps) {
     const [isOpen, setIsOpen] = useState(false);
@@ -60,6 +56,12 @@ export function PDFFloatingToolbar({
             setIsOpen(true);
         }
     };
+
+    // Highlight and pen keep separate colours. Routing the swatches to the
+    // highlight handler unconditionally left the pen stuck on its default blue.
+    const isPen = annotationMode === 'pen';
+    const activeColor = isPen ? penColor : highlightColor;
+    const selectColor = isPen ? onPenColorChange : onHighlightColorChange;
 
     return (
         <div className={cn("fixed z-[100] flex flex-col items-end gap-2 pointer-events-none", className)}>
@@ -100,16 +102,16 @@ export function PDFFloatingToolbar({
                                 <button
                                     key={swatch.color}
                                     type="button"
-                                    onClick={() => onHighlightColorChange(swatch.color)}
+                                    onClick={() => selectColor(swatch.color)}
                                     className={cn(
                                         "h-6 min-w-0 border transition-colors duration-150",
-                                        highlightColor === swatch.color
+                                        activeColor === swatch.color
                                             ? "border-[var(--color-text-primary)]"
                                             : "border-[var(--color-overlay-subtle)] hover:border-[var(--color-text-muted)]"
                                     )}
                                     style={{ backgroundColor: swatch.fill }}
                                     aria-label={`${swatch.label} colour`}
-                                    aria-pressed={highlightColor === swatch.color}
+                                    aria-pressed={activeColor === swatch.color}
                                     title={swatch.label}
                                 />
                             ))}
