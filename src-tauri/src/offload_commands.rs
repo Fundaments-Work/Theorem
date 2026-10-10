@@ -82,7 +82,9 @@ pub async fn fetch_binary_content(url: String) -> Result<Response, String> {
 }
 
 #[tauri::command]
-pub async fn scan_library_folder_desktop(folder_path: String) -> Result<Vec<String>, String> {
+pub async fn scan_library_folder_desktop(
+    folder_path: String,
+) -> Result<Vec<tauri_plugin_mobile_folder_scan::ScannedBookFile>, String> {
     offload(move || crate::scan_library_folder_desktop(folder_path)).await
 }
 
