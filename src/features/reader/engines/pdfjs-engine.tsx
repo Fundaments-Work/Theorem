@@ -2119,10 +2119,16 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     if (!cancelled) {
                         setPages(initialPages.sort((l, r) => l.pageNumber - r.pageNumber));
                         if (loadingGraceTimerRef.current) { clearTimeout(loadingGraceTimerRef.current); loadingGraceTimerRef.current = null; }
-                        setIsLoading(false);
+                        // Keep the loader up until the opening zoom has settled. Revealing as
+                        // soon as the first proxy landed painted the pages at a provisional
+                        // scale; the ResizeObserver then re-fitted width-fit/page-fit ~120ms
+                        // later, so the reader watched the zoom level change a moment after
+                        // opening. Converging inside the stabilization window means the first
+                        // painted frame is already the final scale.
                         renderStabilizationTimeoutRef.current = setTimeout(() => {
                             renderStabilizationTimeoutRef.current = null;
                             setIsInitialRenderStabilizing(false);
+                            setIsLoading(false);
                         }, INITIAL_RENDER_STABILIZATION_MS);
                         const cachedInfo = getCachedPdfDocumentInfo(infoCacheKey, totalPageCount);
                         const initialInfo: PDFDocumentInfo = cachedInfo ?? { title: displayFilename, totalPages: totalPageCount, filename: displayFilename, sourceFilename: sourceFilenameStem, hasOutline: false, toc: [] };

@@ -63,3 +63,42 @@ describe("PDF opens directly at its real zoom level", () => {
         );
     });
 });
+
+/**
+ * Even with one opening scale, the ResizeObserver re-fits width-fit/page-fit
+ * 120ms after the container settles (RESIZE_OBSERVER_DEBOUNCE_MS). If the pages
+ * were already revealed at that point the reader watched the zoom level change a
+ * moment after opening, so the loader is held until the stabilization window
+ * (300ms) has closed and the fit has converged.
+ */
+describe("PDF reveal waits for the opening zoom to converge", () => {
+    it("clears the loading flag inside the stabilization window, not before", () => {
+        expect(engine).toMatch(
+            /renderStabilizationTimeoutRef\.current = setTimeout\(\(\) => \{\s*renderStabilizationTimeoutRef\.current = null;\s*setIsInitialRenderStabilizing\(false\);\s*setIsLoading\(false\);/,
+        );
+    });
+
+    it("no longer reveals the pages as soon as the first proxy lands", () => {
+        expect(engine).not.toMatch(
+            /loadingGraceTimerRef\.current = null; \}\)\s*\n\s*setIsLoading\(false\);/,
+        );
+    });
+
+    it("the resize re-fit debounce fits inside the stabilization window", () => {
+        const debounce = Number(
+            engine.match(/const RESIZE_OBSERVER_DEBOUNCE_MS = (\d+);/)?.[1],
+        );
+        const stabilization = Number(
+            engine.match(/const INITIAL_RENDER_STABILIZATION_MS = (\d+);/)?.[1],
+        );
+        expect(debounce).toBeGreaterThan(0);
+        expect(stabilization).toBeGreaterThan(debounce);
+    });
+
+    it("still re-fits on a genuine later resize", () => {
+        // Convergence must not disable the observer permanently.
+        expect(engine).toMatch(
+            /zoomModeRef\.current === 'width-fit'\) \{\s*applyZoom\(getFitWidthScale\(/,
+        );
+    });
+});
