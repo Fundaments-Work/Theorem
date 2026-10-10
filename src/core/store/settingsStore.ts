@@ -315,6 +315,12 @@ export const useSettingsStore = create<SettingsStore>()(
                     }
                 }
 
+                // "series" was removed from the library sort options; fall back to the
+                // default rather than persisting a value the UI can no longer select.
+                if (state.settings?.librarySortBy === "series") {
+                    state.settings.librarySortBy = defaultAppSettings.librarySortBy;
+                }
+
                 if (!state.settings) {
                     state.settings = {
                         ...defaultAppSettings,

@@ -167,25 +167,6 @@ export function getFilteredAndSortedBooks({
                 comparison = aRating - bRating;
                 break;
             }
-            case "series": {
-                const aSeries = a.book.series || "";
-                const bSeries = b.book.series || "";
-                if (aSeries && bSeries) {
-                    comparison = aSeries.localeCompare(bSeries);
-                    if (comparison === 0) {
-                        const aIdx = a.book.seriesIndex ?? 999999;
-                        const bIdx = b.book.seriesIndex ?? 999999;
-                        comparison = aIdx - bIdx;
-                    }
-                } else if (aSeries) {
-                    comparison = -1;
-                } else if (bSeries) {
-                    comparison = 1;
-                } else {
-                    comparison = a.book.title.localeCompare(b.book.title);
-                }
-                break;
-            }
         }
 
         return sortOrder === "asc" ? comparison : -comparison;

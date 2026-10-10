@@ -2027,8 +2027,7 @@ export function LibraryPage() {
                                             { id: "author", label: "Author" },
                                             { id: "dateAdded", label: "Added" },
                                             { id: "lastRead", label: "Read" },
-                                            { id: "series", label: "Series" },
-                                        ].map((option) => (
+                                            ].map((option) => (
                                             <button
                                                 key={option.id}
                                                 onClick={() => updateSettings({ librarySortBy: option.id as LibrarySortBy })}
@@ -2223,8 +2222,7 @@ export function LibraryPage() {
                                             { id: "author", label: "Author" },
                                             { id: "dateAdded", label: "Added" },
                                             { id: "lastRead", label: "Read" },
-                                            { id: "series", label: "Series" },
-                                        ].map((option) => (
+                                            ].map((option) => (
                                             <button
                                                 key={option.id}
                                                 onClick={() => updateSettings({ librarySortBy: option.id as LibrarySortBy })}

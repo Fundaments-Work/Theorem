@@ -258,7 +258,7 @@ const DeviceSyncSettingsSchema = z.object({
 export const AppSettingsSchema = z.object({
     sidebarCollapsed: z.boolean(),
     libraryViewMode: z.enum(["grid", "list", "compact"]),
-    librarySortBy: z.enum(["title", "author", "dateAdded", "lastRead", "progress", "rating", "series"]),
+    librarySortBy: z.enum(["title", "author", "dateAdded", "lastRead", "progress", "rating"]),
     librarySortOrder: z.enum(["asc", "desc"]),
     scanFolders: z.array(z.string()),
     cacheSize: z.number(),

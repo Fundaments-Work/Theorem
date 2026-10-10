@@ -209,7 +209,7 @@ export interface ReaderSettings {
 }
 
 export type LibraryViewMode = "grid" | "list" | "compact";
-export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "progress" | "rating" | "series";
+export type LibrarySortBy = "title" | "author" | "dateAdded" | "lastRead" | "progress" | "rating";
 export type LibrarySortOrder = "asc" | "desc";
 export type LibraryStatusFilter = "all" | "unread" | "reading" | "completed";
 
