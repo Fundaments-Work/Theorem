@@ -1316,6 +1316,24 @@ fn tts_get_voices(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, Strin
     Ok(Vec::new())
 }
 
+/// Label prefix for reader windows opened via "Open in New Window" / the CLI.
+#[cfg(desktop)]
+const READER_WINDOW_PREFIX: &str = "reader_";
+
+/// Close every reader window this app opened.
+///
+/// Reader windows are independent webviews, not children of the main window, so
+/// closing (or, in release builds, hiding) the main window left them on screen.
+#[cfg(desktop)]
+fn close_reader_windows(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    for (_, window) in app.webview_windows() {
+        if window.label().starts_with(READER_WINDOW_PREFIX) {
+            let _ = window.close();
+        }
+    }
+}
+
 #[tauri::command]
 #[allow(unused_variables)]
 async fn open_book_in_new_window(
@@ -1336,7 +1354,7 @@ pub fn open_reader_window(app: &AppHandle, book_id: &str, title: &str) -> Result
         use tauri::WebviewWindowBuilder;
 
         let safe_id = book_id.replace(|c: char| !c.is_alphanumeric(), "_");
-        let label = format!("reader_{}", safe_id);
+        let label = format!("{}{}", READER_WINDOW_PREFIX, safe_id);
 
         if let Some(existing) = app.get_webview_window(&label) {
             let _ = existing.show();
@@ -1571,6 +1589,11 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
+                    // Reader windows are separate webviews, so closing the main
+                    // window used to leave them open on screen. Close them with it.
+                    #[cfg(desktop)]
+                    close_reader_windows(window.app_handle());
+
                     #[cfg(not(debug_assertions))]
                     {
                         let _ = window.hide();
