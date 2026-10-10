@@ -2,9 +2,12 @@
 import type { Book, BookFormat } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { isTauri, isMobile } from './env';
-import { saveBookData, getBookData } from './storage';
+import { saveBookData, getBookData, saveCoverDataUrl } from './storage';
 import { normalizeFilePath, safeDecodeURIComponent } from './utils';
 import { invoke } from '@tauri-apps/api/core';
+import { readCbrAsCbz } from './cbr';
+import { importNativeBookFile, type ImportedBinary } from './native-book-import';
+import { buildFallbackCoverSvg } from './cover-extractor';
 
 let tauriDialog: typeof import('@tauri-apps/plugin-dialog') | null = null;
 let tauriFs: typeof import('@tauri-apps/plugin-fs') | null = null;
@@ -487,6 +490,19 @@ export function pickBookFilesBrowser(): Promise<File[]> {
     });
 }
 
+async function nativeComicMetadata(result: ImportedBinary, title: string, author: string, id: string): Promise<Partial<Book>> {
+    if (!result.metadata) return {};
+    const metadata = result.metadata;
+    const finalTitle = metadata.title || title;
+    const finalAuthor = metadata.author || author;
+    return {
+        title: finalTitle, author: finalAuthor,
+        series: metadata.series ?? undefined, seriesIndex: metadata.seriesIndex ?? undefined,
+        coverPath: await saveCoverDataUrl(id, metadata.coverDataUrl || `data:image/svg+xml,${encodeURIComponent(buildFallbackCoverSvg(finalTitle, finalAuthor))}`),
+        coverExtractionDone: true,
+    };
+}
+
 export async function createBookEntryFromFile(file: File): Promise<Book | null> {
     const format = getBookFormat(file.name);
     if (!format) {
@@ -496,19 +512,24 @@ export async function createBookEntryFromFile(file: File): Promise<Book | null> 
         return null;
     }
 
-    const buffer = await file.arrayBuffer();
-    if (!buffer || buffer.byteLength === 0) {
-        return null;
-    }
-    const contentHash = await computeContentHash(buffer);
-
+    if (!file.size) return null;
     const id = uuidv4();
     const fileSize = file.size;
-
-    if (fileSize > 100 * 1024 * 1024) {
+    let storagePath: string;
+    let contentHash: string | undefined;
+    let finalFormat = format;
+    let nativeResult: ImportedBinary | undefined;
+    if (isTauri()) {
+        const result = await importNativeBookFile(id, file, format);
+        nativeResult = result;
+        storagePath = result.storagePath;
+        contentHash = result.contentHash;
+        finalFormat = result.format;
+    } else {
+        const buffer = await file.arrayBuffer();
+        contentHash = await computeContentHash(buffer);
+        storagePath = await saveBookData(id, buffer);
     }
-
-    const storagePath = await saveBookData(id, buffer);
 
     const filename = file.name;
     const filenameMetadata = extractFilenameMetadata(filename);
@@ -519,7 +540,7 @@ export async function createBookEntryFromFile(file: File): Promise<Book | null> 
         author: filenameMetadata.author || "",
         filePath: `browser://${filename}`, 
         storagePath,
-        format,
+        format: finalFormat,
         contentHash,
         fileSize,
         addedAt: new Date(),
@@ -528,6 +549,7 @@ export async function createBookEntryFromFile(file: File): Promise<Book | null> 
         tags: [],
         readingTime: 0,
         coverExtractionDone: !INSTANT_IMPORT_MODE,
+        ...(nativeResult ? await nativeComicMetadata(nativeResult, filenameMetadata.title, filenameMetadata.author || "", id) : {}),
     };
 
     return book;
@@ -633,6 +655,22 @@ export async function createBookEntry(filePath: string): Promise<Book | null> {
     if (fileSize > 100 * 1024 * 1024) {
     }
 
+    if (isTauri() && isMobile() && format && isImportFormatSupported(format)) {
+        const id = uuidv4();
+        const result = await invoke<ImportedBinary>(
+            'import_book_path', { id, path: readPath, format },
+        );
+        const metadata = extractFilenameMetadata(extractFilenameFromPath(normalizedFilePath));
+        return {
+            id, title: metadata.title, author: metadata.author || '',
+            filePath: normalizedFilePath, storagePath: result.storagePath,
+            format: result.format, contentHash: result.contentHash, fileSize,
+            addedAt: new Date(), progress: 0, isFavorite: false, tags: [],
+            readingTime: 0, coverExtractionDone: !INSTANT_IMPORT_MODE,
+            ...(await nativeComicMetadata(result, metadata.title, metadata.author || "", id)),
+        };
+    }
+
     const buffer = await readBookFile(readPath);
     if (!buffer || buffer.byteLength === 0) {
         return null;
@@ -659,12 +697,11 @@ export async function createBookEntry(filePath: string): Promise<Book | null> {
 
     if (format === 'cbr' && isTauri()) {
         try {
-            const cbzData = await invoke<Uint8Array>('read_cbr_as_cbz', { path: storagePath });
-            storagePath = await saveBookData(id, (cbzData.buffer as ArrayBuffer));
+            const cbzData = await readCbrAsCbz(storagePath);
+            storagePath = await saveBookData(id, cbzData);
             finalFormat = 'cbz';
         } catch (err) {
-            console.error('CBR to CBZ conversion failed:', err);
-            return null;
+            throw new Error(`CBR conversion failed: ${err}`);
         }
     }
 

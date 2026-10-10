@@ -490,6 +490,9 @@ const BookReaderPage = memo(function BookReaderPage() {
         const book = getBook(bookId);
         if (!book) return;
 
+        // Native comic import already extracted the cover on disk. A fallback
+        // cover must not trigger a second, whole-archive read in the reader.
+        if (isTauri() && book.format === 'cbz' && book.coverExtractionDone) return;
         const hasRealCover = !!book.coverPath && !isFallbackCover(book.coverPath);
         if (hasRealCover && book.coverExtractionDone) {
             return;

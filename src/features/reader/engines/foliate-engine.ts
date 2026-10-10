@@ -1,3 +1,4 @@
+import { readCbrAsCbz } from '../../../core/lib/cbr';
 
 import type {
     DocLocation,
@@ -328,16 +329,15 @@ export class FoliateEngine {
 
             if (format === 'cbr' && isTauri()) {
                 try {
-                    const { invoke } = await import('@tauri-apps/api/core');
                     const targetPath = nativeFilePath || (source as { path?: string })?.path;
                     if (targetPath) {
-                        const cbzBytes = await invoke<Uint8Array>('read_cbr_as_cbz', { path: targetPath });
-                        file = new File([cbzBytes.buffer as ArrayBuffer], _filename.replace(/\.cbr$/i, '.cbz'), {
+                        const cbzBytes = await readCbrAsCbz(targetPath);
+                        file = new File([cbzBytes], _filename.replace(/\.cbr$/i, '.cbz'), {
                             type: 'application/vnd.comicbook+zip',
                         });
                     }
                 } catch (e) {
-                    console.warn('[FoliateEngine] Failed to convert CBR to CBZ:', e);
+                    throw new Error(`Failed to convert CBR to CBZ: ${e}`);
                 }
             }
 
