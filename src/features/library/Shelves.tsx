@@ -425,12 +425,6 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         setIsSeriesModalOpen(true);
     }, [shelf.bookIds, shelf.name]);
 
-    const handleEditSpecificSeries = useCallback((seriesName: string, bookIds: string[]) => {
-        setSeriesModalBookIds(bookIds);
-        setSeriesModalInitialName(seriesName);
-        setIsSeriesModalOpen(true);
-    }, []);
-
     const scrollRef = useRef<HTMLDivElement>(null);
     const isListView = viewMode === "list";
     const isCompactView = viewMode === "compact";
@@ -696,9 +690,6 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                                 seriesName={seriesName}
                                                 group={group}
                                                 onContinue={handleOpenBook}
-                                                onEdit={() =>
-                                                    handleEditSpecificSeries(seriesName, group.map((b) => b.id))
-                                                }
                                             />
                                             <div
                                                 style={{

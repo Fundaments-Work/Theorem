@@ -57,35 +57,33 @@ function qa<T extends Element = HTMLElement>(sel: string): T[] {
     return Array.from(document.body.querySelectorAll<T>(sel));
 }
 
-/** min-w-11 / min-h-11 in Tailwind = 2.75rem = 44px (the touch-target minimum). */
-const TOUCH_MIN_PX = 44;
-
-function hasTouchMin(cls: string) {
-    return cls.includes("min-w-11") && cls.includes("min-h-11");
+/** min-h-11 in Tailwind = 2.75rem = 44px (the touch-target minimum). */
+function hasTouchMinHeight(cls: string) {
+    return cls.includes("min-h-11");
 }
 
 describe("series header touch targets (#128)", () => {
-    it("keeps the Edit control at a 44px target when every volume is read", () => {
-        // Regression: reading the last unread volume removes the Continue button,
-        // leaving only a 26px pencil icon that reads as unresponsive on phones.
+    it("has no per-group Edit control — the shelf toolbar opens the same modal", () => {
         const group = [makeBook({ id: "b1", completedAt: new Date() })];
         const container = render(
-            <SeriesGroupHeader
-                seriesName="Dune"
-                group={group}
-                onContinue={() => {}}
-                onEdit={() => {}}
-            />,
+            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={() => {}} />,
         );
 
-        const edit = container.querySelector<HTMLButtonElement>('button[aria-label="Edit series Dune"]');
-        expect(edit).toBeTruthy();
-        expect(hasTouchMin(edit!.className)).toBe(true);
-        expect(edit!.className).toContain("touch-manipulation");
+        // The redundant pencil is gone; editing a series is reachable from the
+        // shelf header's "Create / Manage Series from Shelf" button.
+        expect(container.querySelector('button[aria-label="Edit series Dune"]')).toBeNull();
+        expect(container.textContent).not.toContain("Edit Series");
+    });
 
-        // The Continue button is gone in this state, confirming Edit is the sole target.
-        const cont = container.querySelector<HTMLButtonElement>('button[aria-label^="Continue reading"]');
-        expect(cont).toBeNull();
+    it("renders no interactive control at all once every volume is read", () => {
+        const group = [makeBook({ id: "b1", completedAt: new Date() })];
+        const container = render(
+            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={() => {}} />,
+        );
+
+        expect(container.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
+        // Nothing small is left behind to trip the touch-target rule.
+        expect(container.querySelectorAll("button")).toHaveLength(0);
     });
 
     it("keeps Continue tappable at 44px height while volumes remain unread", () => {
@@ -95,12 +93,13 @@ describe("series header touch targets (#128)", () => {
         ];
         const onContinue = vi.fn();
         const container = render(
-            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={onContinue} onEdit={() => {}} />,
+            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={onContinue} />,
         );
 
         const cont = container.querySelector<HTMLButtonElement>('button[aria-label^="Continue reading"]');
         expect(cont).toBeTruthy();
-        expect(cont!.className).toContain("min-h-11");
+        expect(hasTouchMinHeight(cont!.className)).toBe(true);
+        expect(cont!.className).toContain("touch-manipulation");
         // Desktop density restored from sm upwards.
         expect(cont!.className).toContain("sm:min-h-0");
 
@@ -109,25 +108,12 @@ describe("series header touch targets (#128)", () => {
         expect(onContinue.mock.calls[0][0].id).toBe("b2");
     });
 
-    it("fires onEdit from the keyboard-accessible labelled button", () => {
-        const onEdit = vi.fn();
-        const group = [makeBook()];
-        const container = render(
-            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={() => {}} onEdit={onEdit} />,
-        );
-        const edit = container.querySelector<HTMLButtonElement>('button[aria-label="Edit series Dune"]')!;
-        act(() => edit.click());
-        expect(onEdit).toHaveBeenCalledTimes(1);
-    });
-
     it("handles an empty group without dividing by zero", () => {
         const container = render(
-            <SeriesGroupHeader seriesName="Empty" group={[]} onContinue={() => {}} onEdit={() => {}} />,
+            <SeriesGroupHeader seriesName="Empty" group={[]} onContinue={() => {}} />,
         );
         expect(container.textContent).toContain("(0 vols.)");
-        // No unread book -> no Continue button, but Edit is still reachable.
         expect(container.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
-        expect(container.querySelector('button[aria-label="Edit series Empty"]')).toBeTruthy();
     });
 
     it("pluralises the volume count and shows Completed only when all are read", () => {
@@ -136,7 +122,6 @@ describe("series header touch targets (#128)", () => {
                 seriesName="Dune"
                 group={[makeBook({ completedAt: new Date() })]}
                 onContinue={() => {}}
-                onEdit={() => {}}
             />,
         );
         expect(single.textContent).toContain("(1 vol.)");
@@ -147,12 +132,49 @@ describe("series header touch targets (#128)", () => {
                 seriesName="Dune"
                 group={[makeBook({ completedAt: new Date() }), makeBook({ id: "b2" })]}
                 onContinue={() => {}}
-                onEdit={() => {}}
             />,
         );
         expect(partial.textContent).toContain("(2 vols.)");
         expect(partial.textContent).toContain("1/2 read (50%)");
         expect(partial.textContent).not.toContain("Completed");
+    });
+});
+
+describe("series header keeps a stable height (scroll anchor)", () => {
+    function headerRow(container: HTMLElement): HTMLElement {
+        return container.firstElementChild as HTMLElement;
+    }
+
+    it("does not change height when the Continue button disappears", () => {
+        // The Continue button is conditional, so an auto-height row collapses as
+        // soon as the last unread volume is finished and shifts every card below
+        // it — which is what broke the shelves scroll anchor.
+        const withUnread = render(
+            <SeriesGroupHeader
+                seriesName="Dune"
+                group={[makeBook({ id: "b1" }), makeBook({ id: "b2", seriesIndex: 2 })]}
+                onContinue={() => {}}
+            />,
+        );
+        const rowWithUnread = headerRow(withUnread);
+
+        const allRead = render(
+            <SeriesGroupHeader
+                seriesName="Dune"
+                group={[makeBook({ id: "b1", completedAt: new Date() }), makeBook({ id: "b2", completedAt: new Date(), seriesIndex: 2 })]}
+                onContinue={() => {}}
+            />,
+        );
+        const rowAllRead = headerRow(allRead);
+
+        // Buttons differ (one has a Continue target, one has none) but the row's
+        // declared height is identical, so layout cannot shift.
+        expect(withUnread.querySelector('button[aria-label^="Continue reading"]')).toBeTruthy();
+        expect(allRead.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
+
+        expect(rowWithUnread.className).toBe(rowAllRead.className);
+        expect(rowWithUnread.className).toMatch(/\bh-\d/);
+        expect(rowWithUnread.className).not.toContain("flex-wrap");
     });
 });
 
