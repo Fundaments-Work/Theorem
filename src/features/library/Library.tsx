@@ -55,6 +55,23 @@ const TOOLBAR_ICON_BUTTON = "h-10 w-10 px-0";
  */
 export const LIBRARY_LIST_ROW_HEIGHT = 96;
 
+/**
+ * Filter-panel chip styles, shared by every section (Sort, Status, Order, Quick).
+ *
+ * These were previously copy-pasted per button, which let the hover treatment
+ * drift: the mobile panel gave Sort and Status a `hover:bg`, while Order and all
+ * three Quick buttons only changed their border. Every section now uses the same
+ * selected/unselected pair so hovering any chip looks identical.
+ */
+const FILTER_CHIP_SELECTED =
+    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]";
+/** Mobile panel: transparent at rest, surfacing on hover. */
+const FILTER_CHIP_UNSELECTED =
+    "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]";
+/** Desktop panel: sits on the panel surface already, so it only outlines on hover. */
+const FILTER_CHIP_UNSELECTED_ON_SURFACE =
+    "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]";
+
 type ExtractMetadataFn = typeof import("../../core/lib/cover-extractor").extractMetadata;
 
 const IMPORT_METADATA_TIMEOUT_MS = isMobile() ? 9000 : 6000;
@@ -1980,7 +1997,7 @@ export function LibraryPage() {
                         }}
                         className={cn(
                             TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
-                            isSelecting && "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                            isSelecting && FILTER_CHIP_SELECTED
                         )}
                         title={isSelecting ? "Cancel Selection" : "Select Books"}
                     >
@@ -2014,7 +2031,7 @@ export function LibraryPage() {
                         className={cn(
                             "ui-btn h-10 px-3 sm:px-5 transition-colors duration-200 border-2",
                             showFilterDropdown
-                                ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                                ? FILTER_CHIP_SELECTED
                                 : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-primary)]"
                         )}
                     >
@@ -2051,8 +2068,8 @@ export function LibraryPage() {
                                                 className={cn(
                                                     "flex items-center justify-between px-3 py-2 text-xs font-bold transition-colors border",
                                                     settings.librarySortBy === option.id
-                                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                        : "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]"
+                                                        ? FILTER_CHIP_SELECTED
+                                                        : FILTER_CHIP_UNSELECTED
                                                 )}
                                             >
                                                 {option.label}
@@ -2077,8 +2094,8 @@ export function LibraryPage() {
                                                 className={cn(
                                                     "px-2 py-2 text-[10px] font-bold border transition-colors",
                                                     statusFilter === option.id
-                                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                        : "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]"
+                                                        ? FILTER_CHIP_SELECTED
+                                                        : FILTER_CHIP_UNSELECTED
                                                 )}
                                             >
                                                 {option.label}
@@ -2097,7 +2114,7 @@ export function LibraryPage() {
                                                     onClick={() => updateSettings({ librarySortOrder: id as LibrarySortOrder })}
                                                     className={cn(
                                                         "px-3 py-2 text-[10px] font-bold border transition-colors",
-                                                        settings.librarySortOrder === id ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]" : "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                        settings.librarySortOrder === id ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
                                                     )}
                                                 >
                                                     {id === "asc" ? "ASC" : "DESC"}
@@ -2115,7 +2132,7 @@ export function LibraryPage() {
                                                 }}
                                                 className={cn(
                                                     "px-3 py-2 text-[10px] font-bold border transition-colors",
-                                                    showFavoritesOnly ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]" : "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                    showFavoritesOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
                                                 )}
                                             >
                                                 Favorites
@@ -2127,14 +2144,14 @@ export function LibraryPage() {
                                                 }}
                                                 className={cn(
                                                     "px-3 py-2 text-[10px] font-bold border transition-colors",
-                                                    showUnshelvedOnly ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]" : "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                    showUnshelvedOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
                                                 )}
                                             >
                                                 Unshelved
                                             </button>
                                             <button
                                                 onClick={() => updateSettings({ librarySortBy: "lastRead", librarySortOrder: "desc" })}
-                                                className="px-3 py-2 text-[10px] font-bold border transition-colors text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                className={cn("px-3 py-2 text-[10px] font-bold border transition-colors", FILTER_CHIP_UNSELECTED)}
                                             >
                                                 Recent
                                             </button>
@@ -2246,8 +2263,8 @@ export function LibraryPage() {
                                                 className={cn(
                                                     "px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
                                                     settings.librarySortBy === option.id
-                                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                        : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                        ? FILTER_CHIP_SELECTED
+                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
                                                 )}
                                             >
                                                 {option.label}
@@ -2270,8 +2287,8 @@ export function LibraryPage() {
                                                 className={cn(
                                                     "px-2 py-1.5 text-[10px] font-bold border transition-colors",
                                                     statusFilter === option.id
-                                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                        : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                        ? FILTER_CHIP_SELECTED
+                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
                                                 )}
                                             >
                                                 {option.label}
@@ -2290,8 +2307,8 @@ export function LibraryPage() {
                                                     className={cn(
                                                         "px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
                                                         settings.librarySortOrder === id
-                                                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                            : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                            ? FILTER_CHIP_SELECTED
+                                                            : FILTER_CHIP_UNSELECTED_ON_SURFACE
                                                     )}
                                                 >
                                                     {id === "asc" ? "ASC" : "DESC"}
@@ -2310,8 +2327,8 @@ export function LibraryPage() {
                                                 className={cn(
                                                     "w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
                                                     showFavoritesOnly
-                                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                        : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                        ? FILTER_CHIP_SELECTED
+                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
                                                 )}
                                             >
                                                 Favorites
@@ -2324,15 +2341,15 @@ export function LibraryPage() {
                                                 className={cn(
                                                     "w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
                                                     showUnshelvedOnly
-                                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
-                                                        : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                        ? FILTER_CHIP_SELECTED
+                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
                                                 )}
                                             >
                                                 Unshelved
                                             </button>
                                             <button
                                                 onClick={() => updateSettings({ librarySortBy: "lastRead", librarySortOrder: "desc" })}
-                                                className="w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]"
+                                                className={cn("w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors", FILTER_CHIP_UNSELECTED_ON_SURFACE)}
                                             >
                                                 Recent
                                             </button>
