@@ -55,7 +55,7 @@ function renderCard(container: HTMLDivElement, props: CardProps) {
             />,
         );
     });
-    return container.querySelector('[role="button"]') as HTMLElement;
+    return container.querySelector(props.isSelecting ? '[role="checkbox"]' : '[role="button"]') as HTMLElement;
 }
 
 describe("BookCard selection interaction", () => {

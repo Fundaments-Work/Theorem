@@ -29,6 +29,7 @@ import { EditBookModal } from "./components/modals/EditBookModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { toast } from "sonner";
 import { localDateKey } from "../../core/lib/date-keys";
+import { useFilteredSelection } from "./useFilteredSelection";
 
 const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     grid: <LayoutGrid className="w-4 h-4" />,
@@ -181,6 +182,19 @@ export const BookCard = memo(function BookCard({
         }
     };
 
+    useEffect(() => {
+        if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+        clickCountRef.current = 0;
+        return () => { if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current); };
+    }, [isSelecting]);
+
+    const selectionIndicator = isSelecting ? (
+        <span aria-hidden="true" className={cn("flex h-6 w-6 shrink-0 items-center justify-center border border-[var(--color-border)]",
+            isSelected ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]" : "bg-[var(--color-surface)]")}>
+            {isSelected && <Check className="h-4 w-4" />}
+        </span>
+    ) : null;
+
     const contextMenuItems: ContextMenuItem[] = [
         {
             id: "open",
@@ -298,18 +312,16 @@ export const BookCard = memo(function BookCard({
             <ContextMenu items={contextMenuItems}>
                 <div
                     className="group flex flex-col text-left w-full select-none"
-                    role="button"
+                    role={isSelecting ? "checkbox" : "button"}
+                    aria-checked={isSelecting ? !!isSelected : undefined}
                     tabIndex={0}
-                    aria-label={`Open ${book.title}`}
+                    aria-label={`${isSelecting ? "Select" : "Open"} ${book.title}`}
                     onClick={handleCardClick}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            if (isSelecting && onToggleSelect) {
-                                onToggleSelect(book.id);
-                            } else {
-                                onOpenBook(book);
-                            }
+                            if (isSelecting) onToggleSelect?.(book.id, e);
+                            else onOpenBook(book);
                         }
                     }}
                 >
@@ -362,7 +374,7 @@ export const BookCard = memo(function BookCard({
                             <Heart className={cn("w-3 h-3", book.isFavorite ? "fill-current" : "")} />
                         </div>
 
-                        {book.syncedWithoutFile && (
+                        {book.syncedWithoutFile && !isSelecting && (
                             <div className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center text-white rounded-sm pointer-events-none z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
                                 <CloudOff className="w-3 h-3" />
                             </div>
@@ -387,22 +399,21 @@ export const BookCard = memo(function BookCard({
             <ContextMenu items={contextMenuItems}>
                 <div
                     className="group flex w-full items-center gap-3 p-3 transition-colors hover:bg-[var(--color-surface-muted)] sm:gap-4 cursor-pointer select-none"
-                    role="button"
+                    role={isSelecting ? "checkbox" : "button"}
+                    aria-checked={isSelecting ? !!isSelected : undefined}
                     tabIndex={0}
-                    aria-label={`Open ${book.title}`}
+                    aria-label={`${isSelecting ? "Select" : "Open"} ${book.title}`}
                     onClick={handleCardClick}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            if (isSelecting && onToggleSelect) {
-                                onToggleSelect(book.id);
-                            } else {
-                                onOpenBook(book);
-                            }
+                            if (isSelecting) onToggleSelect?.(book.id, e);
+                            else onOpenBook(book);
                         }
                     }}
                 >
                     
+                    {selectionIndicator}
                     <div className={cn(
                         "relative w-12 h-16 flex-shrink-0 bg-[var(--color-surface-muted)] overflow-hidden",
                         "border",
@@ -452,7 +463,7 @@ export const BookCard = memo(function BookCard({
                                     <span className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)]">{book.rating}</span>
                                 </div>
                             )}
-                            {book.syncedWithoutFile && (
+                            {book.syncedWithoutFile && !isSelecting && (
                                 <div className="flex items-center gap-0.5 text-[color:var(--color-warning)]" title="Book file not available locally">
                                     <CloudOff className="w-3 h-3" />
                                     <span className="text-[var(--font-size-3xs)]">No file</span>
@@ -490,20 +501,19 @@ export const BookCard = memo(function BookCard({
                         ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
                         : "border-[var(--color-border)]"
                 )}
-                role="button"
+                role={isSelecting ? "checkbox" : "button"}
+                aria-checked={isSelecting ? !!isSelected : undefined}
                 tabIndex={0}
-                aria-label={`Open ${book.title}`}
+                aria-label={`${isSelecting ? "Select" : "Open"} ${book.title}`}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        if (isSelecting && onToggleSelect) {
-                            onToggleSelect(book.id);
-                        } else {
-                            onOpenBook(book);
-                        }
+                        if (isSelecting) onToggleSelect?.(book.id, e);
+                        else onOpenBook(book);
                     }
                 }}
             >
+                {isSelecting && <span className="absolute top-1 left-1 z-20">{selectionIndicator}</span>}
                 <TheoremBookCover
                     title={book.title}
                     author={book.author}
@@ -542,7 +552,7 @@ export const BookCard = memo(function BookCard({
                     <Heart className={cn("w-2.5 h-2.5 fill-current")} />
                 </div>
 
-                {book.syncedWithoutFile && (
+                {book.syncedWithoutFile && !isSelecting && (
                     <div className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center text-white rounded-sm pointer-events-none z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
                         <CloudOff className="w-2.5 h-2.5" />
                     </div>
@@ -1099,10 +1109,6 @@ export function LibraryPage() {
 
     const setRoute = useUIStore((state) => state.setRoute);
     const searchQuery = useUIStore((state) => state.searchQuery);
-    const selectedBooks = useUIStore((state) => state.selectedBooks);
-    const toggleBookSelection = useUIStore((state) => state.toggleBookSelection);
-    const clearSelection = useUIStore((state) => state.clearSelection);
-    const selectedBookIds = useMemo(() => new Set(selectedBooks), [selectedBooks]);
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
 
@@ -1122,7 +1128,7 @@ export function LibraryPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
-    const [deleteConfirm, setDeleteConfirm] = useState<{ bookId?: string; title: string; batch?: boolean } | null>(null);
+    const [deleteConfirm, setDeleteConfirm] = useState<{ bookId?: string; title: string; batch?: boolean; bookIds?: string[] } | null>(null);
 
     const extractedBookIdsRef = useRef<Set<string>>(new Set());
     const pendingImportMetadataQueueRef = useRef<Book[]>([]);
@@ -1340,16 +1346,19 @@ export function LibraryPage() {
 
     const [ftsSearchIds, setFtsSearchIds] = useState<string[] | undefined>(undefined);
     const [nativeSearchFailed, setNativeSearchFailed] = useState(false);
+    const [resolvedSearchQuery, setResolvedSearchQuery] = useState<string | null>(null);
     const [matchHighlights, setMatchHighlights] = useState<Map<string, { titleIndices: number[]; authorIndices: number[] }>>(() => new Map());
 
     useEffect(() => {
         if (!isTauri() || !debouncedSearchQuery.trim()) {
+            setResolvedSearchQuery(null);
             setFtsSearchIds(undefined);
             setMatchHighlights(new Map());
             return;
         }
         let cancelled = false;
         // Previous results stay until the new ones arrive.
+        setResolvedSearchQuery(null);
         twoTierSearchBooks(debouncedSearchQuery.trim(), 200).then((results) => {
             if (cancelled) return;
             setNativeSearchFailed(false);
@@ -1362,11 +1371,13 @@ export function LibraryPage() {
                 });
             }
             setMatchHighlights(highlights);
+            setResolvedSearchQuery(debouncedSearchQuery.trim());
         }, () => {
             if (cancelled) return;
             setNativeSearchFailed(true);
             setFtsSearchIds(undefined);
             setMatchHighlights(new Map());
+            setResolvedSearchQuery(debouncedSearchQuery.trim());
         });
         return () => { cancelled = true; };
     }, [debouncedSearchQuery]);
@@ -1398,6 +1409,13 @@ export function LibraryPage() {
         ftsSearchIds,
         nativeSearchFailed,
     ]);
+
+    const selectionReady = searchQuery.trim() === debouncedSearchQuery.trim()
+        && (!isTauri() || !debouncedSearchQuery.trim() || resolvedSearchQuery === debouncedSearchQuery.trim());
+    const selectionScope = JSON.stringify([searchQuery, selectedShelfId, showFavoritesOnly,
+        showUnshelvedOnly, statusFilter]);
+    const { selectedBooks, selectedBookIds, selectAll, clearSelection, toggleBookSelection, allSelected } =
+        useFilteredSelection(sortedBooks, selectionScope, isSelecting, selectionReady);
 
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -1799,7 +1817,7 @@ export function LibraryPage() {
 
     const handleBatchDelete = useCallback(() => {
         if (selectedBooks.length === 0) return;
-        setDeleteConfirm({ title: `${selectedBooks.length} selected book(s)`, batch: true });
+        setDeleteConfirm({ title: `${selectedBooks.length} selected book(s)`, batch: true, bookIds: [...selectedBooks] });
     }, [selectedBooks]);
 
     const handleBatchAddToShelf = useCallback(() => {
@@ -1854,7 +1872,7 @@ export function LibraryPage() {
         }
         clearSelection();
         setIsSelecting(false);
-    }, [selectedBooks, clearSelection]);
+    }, [selectedBookIds, clearSelection]);
 
     const handleAddToShelf = useCallback((bookId: string) => {
         setAddToShelfBookId(bookId);
@@ -2008,6 +2026,66 @@ export function LibraryPage() {
                 </div>
             </PageHeader>
             </div>
+
+            {isSelecting && (
+                <div role="region" aria-label="Bulk book actions" className="my-4 shrink-0 border-y border-[var(--color-border)] py-3 flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
+                        {selectedBooks.length} of {sortedBooks.length} selected
+                    </span>
+                    <button className="ui-btn px-3 py-1.5 text-xs" onClick={selectAll}
+                        disabled={!selectionReady || sortedBooks.length === 0 || allSelected}>Select all results</button>
+                    <button className="ui-btn px-3 py-1.5 text-xs" onClick={clearSelection}
+                        disabled={selectedBooks.length === 0}>Clear selection</button>
+                    {!selectionReady && <span role="status" className="text-xs">Updating search results…</span>}
+                    <button
+                        onClick={handleBatchMarkRead}
+                        aria-label="Mark read" disabled={!selectionReady || selectedBooks.length === 0}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <CheckCheck className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Mark Read</span>
+                    </button>
+                    <button
+                        onClick={handleBatchMarkUnread}
+                        aria-label="Mark unread" disabled={!selectionReady || selectedBooks.length === 0}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Mark Unread</span>
+                    </button>
+                    <button
+                        onClick={handleBatchAddToShelf}
+                        aria-label="Add to shelf" disabled={!selectionReady || selectedBooks.length === 0}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <BookMarked className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Add to Shelf</span>
+                    </button>
+                    <button onClick={() => setIsSeriesModalOpen(true)}
+                        aria-label="Assign series" disabled={!selectionReady || selectedBooks.length === 0}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase disabled:opacity-40">
+                        <Layers className="w-3.5 h-3.5" /><span className="hidden sm:inline">Series</span>
+                    </button>
+                    <button
+                        onClick={handleBatchExport}
+                        aria-label="Export selected books" disabled={!selectionReady || selectedBooks.length === 0}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                    >
+                        <Download className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Export</span>
+                    </button>
+                    <div className="h-5 w-px bg-[var(--color-border)]" />
+                    <button
+                        onClick={handleBatchDelete}
+                        aria-label="Delete selected books" disabled={!selectionReady || selectedBooks.length === 0}
+                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
+                    >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Delete</span>
+                    </button>
+                    <button className="ui-btn-ghost px-3 py-1.5 text-xs" onClick={() => { clearSelection(); setIsSelecting(false); }}>Done</button>
+                </div>
+            )}
 
             <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                 <div className="flex min-h-0 flex-1 flex-col w-full">
@@ -2330,56 +2408,6 @@ export function LibraryPage() {
                 )}
             </div>
 
-            {isSelecting && selectedBooks.length > 0 && (
-                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
-                    <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
-                        {selectedBooks.length} selected
-                    </span>
-                    <button
-                        onClick={handleBatchMarkRead}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <CheckCheck className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Mark Read</span>
-                    </button>
-                    <button
-                        onClick={handleBatchMarkUnread}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Mark Unread</span>
-                    </button>
-                    <button
-                        onClick={handleBatchAddToShelf}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <BookMarked className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Add to Shelf</span>
-                    </button>
-                    <button
-                        onClick={() => setIsSeriesModalOpen(true)}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <Layers className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Series</span>
-                    </button>
-                    <button
-                        onClick={handleBatchExport}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <Download className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Export</span>
-                    </button>
-                    <div className="h-5 w-px bg-[var(--color-border)]" />
-                    <button
-                        onClick={handleBatchDelete}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
-                    >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Delete</span>
-                    </button>
-                </div>
-            )}
 
             <BookInfoModal
                 book={infoModalBook}
@@ -2441,7 +2469,7 @@ export function LibraryPage() {
                 variant="danger"
                 onConfirm={() => {
                     if (deleteConfirm?.batch) {
-                        removeBooks(selectedBooks);
+                        removeBooks((deleteConfirm.bookIds ?? []).filter((id) => selectedBookIds.has(id)));
                         clearSelection();
                         setIsSelecting(false);
                     } else if (deleteConfirm?.bookId) {
