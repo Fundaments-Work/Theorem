@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     ArrowLeft,
     BookOpen,
@@ -16,7 +17,43 @@ import { cn } from "../../core/lib/utils";
 import { useOpdsStore, useUIStore } from "../../core/store";
 import { OpdsService } from "../../core/services/OpdsService";
 import type { OpdsEntry, OpdsFeed } from "../../core/types";
-import { Modal, ModalHeader, ModalBody, ModalFooter, PageLoader } from "../../ui";
+import { Modal, ModalHeader, ModalBody, ModalFooter } from "../../ui";
+import { OpdsBookCard } from "./components/OpdsBookCard";
+
+/** Column gap between cover columns, in px. Must match the grid's `gap`. */
+const BOOK_GRID_GAP = 16;
+/** Height reserved under each cover for the title + author lines. */
+const BOOK_CARD_TEXT_HEIGHT = 44;
+
+/**
+ * Loading placeholder. A bare spinner replaced the entire viewport, so the page
+ * jumped from "empty" to "full grid" on every catalog change. Skeleton cards
+ * reserve the same shape the real grid will occupy, so nothing reflows when the
+ * feed lands.
+ */
+function CatalogSkeleton() {
+    return (
+        <div className="space-y-8" aria-hidden="true">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {Array.from({ length: 3 }, (_, i) => (
+                    <div
+                        key={i}
+                        className="h-14 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] animate-pulse"
+                    />
+                ))}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {Array.from({ length: 18 }, (_, i) => (
+                    <div key={i} className="flex flex-col">
+                        <div className="aspect-[2/3] w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] animate-pulse" />
+                        <div className="mt-2 h-3 w-4/5 rounded bg-[var(--color-surface-muted)] animate-pulse" />
+                        <div className="mt-1.5 h-2.5 w-3/5 rounded bg-[var(--color-surface-muted)] animate-pulse" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
 
 export function OPDSBrowserPage() {
     const catalogs = useOpdsStore((state) => state.catalogs);
@@ -50,6 +87,24 @@ export function OPDSBrowserPage() {
     }, [catalogs, activeCatalogId]);
 
     const targetUrl = currentFeedUrl || activeCatalog?.url || null;
+
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const gridRef = useRef<HTMLDivElement>(null);
+    const [containerWidth, setContainerWidth] = useState(1024);
+
+    // Track the scroll container so the virtualizer can size rows from the real
+    // column width instead of guessing. Mirrors DiscoverPage.
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+
+        const updateWidth = () => setContainerWidth(el.clientWidth || 1024);
+
+        updateWidth();
+        const ro = new ResizeObserver(updateWidth);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
 
     const loadFeed = useCallback(async (url: string) => {
         setIsLoading(true);
@@ -145,8 +200,66 @@ export function OPDSBrowserPage() {
         return feed?.entries.filter((e) => !e.isNavigation) || [];
     }, [feed]);
 
+    /**
+     * Column count has to be known in JS (not just CSS) because the virtualizer
+     * packs N entries into each row. Breakpoints mirror DiscoverPage so the two
+     * catalog views line up column-for-column.
+     */
+    const effectiveCols = useMemo(() => {
+        if (containerWidth >= 1536) return 8;
+        if (containerWidth >= 1280) return 7;
+        if (containerWidth >= 1024) return 5;
+        if (containerWidth >= 768) return 4;
+        if (containerWidth >= 640) return 3;
+        return 2;
+    }, [containerWidth]);
+
+    /**
+     * Row height is fully determined: the cover is `aspect-[2/3]`, and both the
+     * title and author are single-line truncations. So this is an exact size,
+     * not an estimate — the grid does not need `measureElement` at all, which
+     * removes a measure pass per row on every scroll.
+     *
+     * Measured against the grid itself rather than the scroll container: the
+     * content column is capped at `max-w-7xl`, so a very wide window would
+     * otherwise be over-estimated by the difference and grow a scrollbar of
+     * empty space.
+     */
+    const getBookRowSize = useCallback(() => {
+        const el = gridRef.current ?? scrollRef.current;
+        if (!el) return 300;
+        const cardW = Math.max(
+            1,
+            (el.clientWidth - (effectiveCols - 1) * BOOK_GRID_GAP) / Math.max(effectiveCols, 1),
+        );
+        return Math.round(cardW * 1.5 + BOOK_CARD_TEXT_HEIGHT + BOOK_GRID_GAP);
+    }, [effectiveCols]);
+
+    /**
+     * OPDS catalogs are routinely far larger than a screenful — a single feed can
+     * hold tens of thousands of entries. Rendering one DOM node per entry mounted
+     * all of them at once, which is why this view felt slow while every other
+     * list in the app (Library, Shelves, Bookmarks, Feeds, Discover search)
+     * already virtualizes. Rows, not cells: one virtual row per line of covers.
+     */
+    const bookRowCount = Math.ceil(bookEntries.length / effectiveCols);
+    const bookVirtualizer = useVirtualizer({
+        count: bookRowCount,
+        getScrollElement: useCallback(() => scrollRef.current, []),
+        estimateSize: getBookRowSize,
+        overscan: 3,
+    });
+
+    useLayoutEffect(() => {
+        bookVirtualizer.measure();
+    }, [bookVirtualizer, effectiveCols]);
+
     return (
-        <div className="flex flex-col min-h-full px-4 sm:px-6 md:px-8 py-6 space-y-6 max-w-7xl mx-auto w-full">
+        <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto min-h-0 scrollbar-solid [content-visibility:auto] overscroll-contain h-full"
+        >
+            <div className="flex flex-col px-4 sm:px-6 md:px-8 py-6 space-y-6 max-w-7xl mx-auto w-full">
             {/* Header & Catalog Tabs */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-5">
                 <div>
@@ -248,9 +361,7 @@ export function OPDSBrowserPage() {
 
             {/* Main Content Area */}
             {isLoading || isSearching ? (
-                <div className="flex flex-col items-center justify-center py-20">
-                    <PageLoader message="Loading books…" />
-                </div>
+                <CatalogSkeleton />
             ) : error ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 bg-[var(--color-surface-muted)] rounded-xl border border-[var(--color-border)] p-6">
                     <Globe className="h-8 w-8 text-[color:var(--color-text-muted)]" />
@@ -299,71 +410,69 @@ export function OPDSBrowserPage() {
                         </div>
                     )}
 
-                    {/* Book Cards Grid */}
+                    {/* Book Cards Grid (virtualized) */}
                     {bookEntries.length > 0 ? (
                         <div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                                {bookEntries.map((entry) => {
-                                    const isDownloading = downloadingEntryId === entry.id;
+                            <div className="mb-3 flex items-baseline justify-between gap-3">
+                                <h3 className="text-xs font-semibold text-[color:var(--color-text-secondary)]">
+                                    Books
+                                </h3>
+                                <span className="text-xs text-[color:var(--color-text-muted)] tabular-nums">
+                                    {bookEntries.length.toLocaleString()}{" "}
+                                    {bookEntries.length === 1 ? "title" : "titles"}
+                                </span>
+                            </div>
+                            <div
+                                ref={gridRef}
+                                style={{
+                                    height: `${bookVirtualizer.getTotalSize()}px`,
+                                    width: "100%",
+                                    position: "relative",
+                                }}
+                            >
+                                {bookVirtualizer.getVirtualItems().map((virtualRow) => {
+                                    const startIndex = virtualRow.index * effectiveCols;
+                                    const rowBooks = bookEntries.slice(
+                                        startIndex,
+                                        startIndex + effectiveCols,
+                                    );
+
                                     return (
                                         <div
-                                            key={entry.id}
-                                            onClick={() => {
-                                                if (entry.navUrl && !entry.downloadUrl) {
-                                                    navigateToFeed(entry.navUrl);
-                                                } else {
-                                                    setSelectedEntry(entry);
-                                                }
+                                            key={virtualRow.index}
+                                            style={{
+                                                position: "absolute",
+                                                top: 0,
+                                                left: 0,
+                                                width: "100%",
+                                                transform: `translateY(${virtualRow.start}px)`,
                                             }}
-                                            className="group flex flex-col cursor-pointer"
                                         >
-                                            {/* Cover Container */}
-                                            <div className="relative aspect-[2/3] w-full rounded-md overflow-hidden bg-[var(--color-surface-muted)] border border-[var(--color-border)] shadow-sm group-hover:shadow-md transition-shadow">
-                                                {entry.coverUrl || entry.thumbnailUrl ? (
-                                                    <img
-                                                        src={entry.thumbnailUrl || entry.coverUrl}
-                                                        alt={entry.title}
-                                                        loading="lazy"
-                                                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                                    />
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center h-full w-full p-3 text-center bg-[var(--color-surface-muted)]">
-                                                        <BookOpen className="h-6 w-6 text-[color:var(--color-text-muted)] mb-1.5" />
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-[color:var(--color-text-secondary)] line-clamp-3">
-                                                            {entry.title}
-                                                        </span>
-                                                    </div>
-                                                )}
-
-                                                {/* Download Button Overlay */}
-                                                {(entry.downloadUrl || entry.navUrl) && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            void handleDownload(entry);
+                                            <div
+                                                style={{
+                                                    display: "grid",
+                                                    gridTemplateColumns: `repeat(${effectiveCols}, minmax(0, 1fr))`,
+                                                    gap: `${BOOK_GRID_GAP}px`,
+                                                }}
+                                                className="w-full"
+                                            >
+                                                {rowBooks.map((entry) => (
+                                                    <OpdsBookCard
+                                                        key={entry.id}
+                                                        entry={entry}
+                                                        isDownloading={
+                                                            downloadingEntryId === entry.id
+                                                        }
+                                                        onSelect={() => {
+                                                            if (entry.navUrl && !entry.downloadUrl) {
+                                                                navigateToFeed(entry.navUrl);
+                                                            } else {
+                                                                setSelectedEntry(entry);
+                                                            }
                                                         }}
-                                                        disabled={isDownloading}
-                                                        className="absolute bottom-2 right-2 p-2 rounded-full bg-black/80 text-white hover:bg-black shadow-md transition-transform transform active:scale-95 disabled:opacity-50"
-                                                        title="Add to Library"
-                                                        aria-label="Add to Library"
-                                                    >
-                                                        {isDownloading ? (
-                                                            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                                        ) : (
-                                                            <Download className="h-3.5 w-3.5" />
-                                                        )}
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* Title & Author */}
-                                            <div className="mt-2 flex flex-col min-w-0">
-                                                <h3 className="text-xs font-semibold text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
-                                                    {entry.title}
-                                                </h3>
-                                                <p className="text-[11px] text-[color:var(--color-text-muted)] truncate mt-0.5">
-                                                    {entry.author || "Public Domain"}
-                                                </p>
+                                                        onDownload={() => void handleDownload(entry)}
+                                                    />
+                                                ))}
                                             </div>
                                         </div>
                                     );
@@ -480,6 +589,7 @@ export function OPDSBrowserPage() {
                     </ModalFooter>
                 </form>
             </Modal>
+            </div>
         </div>
     );
 }

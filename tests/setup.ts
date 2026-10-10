@@ -66,6 +66,21 @@ if (typeof window !== "undefined" && !window.cancelAnimationFrame) {
     };
 }
 
+if (typeof globalThis.ResizeObserver === "undefined") {
+    /**
+     * jsdom implements neither ResizeObserver nor layout, so container-based
+     * views (Library, Shelves, Discover, OPDS) cannot observe themselves here.
+     * A no-op stub is enough: they only ever use it to recompute column counts,
+     * and the initial state is already a sane column count.
+     */
+    class NoopResizeObserver {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+    }
+    globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;
+}
+
 try {
     const fs = require("node:fs");
     const path = require("node:path");
