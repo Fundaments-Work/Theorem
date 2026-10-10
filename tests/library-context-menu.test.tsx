@@ -82,26 +82,30 @@ describe("ContextMenu stacking", () => {
 });
 
 describe("ContextMenu stays inside the viewport", () => {
-    it("caps the menu to the height Radix says is available", () => {
-        // Radix publishes --radix-context-menu-content-available-height on both
-        // Content and SubContent. Without the cap a long menu — or a submenu
-        // opened from a row near the bottom — ran off-screen with its items
-        // unreachable.
+    it("does not clamp its height to the popper available height", () => {
+        // Regression: `max-h-[var(--radix-context-menu-content-available-height)]`
+        // resolved to --radix-popper-available-height, which floating-ui measures
+        // from the anchor in the placement direction. For a side="right" submenu
+        // anchored to a row near the bottom of the screen that is only the space
+        // below the anchor, so the clamp squashed the submenu to a fraction of its
+        // height and left it scrolling. Radix already flips/shifts to fit; the
+        // library menu is a fixed eight rows so it never needs a cap.
+        const src = readFileSync(resolve("src/ui/ContextMenu.tsx"), "utf-8");
+        expect(src).not.toContain("max-h-[var(--radix-context-menu-content-available-height)]");
+        expect(src).not.toContain("radix-popper-available-height]\"");
         openMenu([{ id: "a", label: "Item" }]);
         const content = document.body.querySelector('[role="menu"]')!;
-        expect(content.className).toContain(
-            "max-h-[var(--radix-context-menu-content-available-height)]",
-        );
-        expect(content.className).toContain("overflow-y-auto");
+        expect(content.className).not.toContain("max-h-[var(--radix-");
     });
 
     it("does not pass side/align, which Radix omits from its props", () => {
         const src = readFileSync(resolve("src/ui/ContextMenu.tsx"), "utf-8");
         // Radix intentionally Omit<'side' | 'align'> from Content and SubContent;
-        // passing them is a type error and silently does nothing.
+        // passing them is a type error and silently does nothing. The runtime
+        // defaults are already side="right", align="start".
         expect(src).not.toMatch(/<ContextMenuPrimitive\.(Sub)?Content[\s\S]{0,300}?\bside="/);
         expect(src).not.toMatch(/<ContextMenuPrimitive\.(Sub)?Content[\s\S]{0,300}?\balign="/);
-        // collisionPadding is allowed on both.
+        // collisionPadding is allowed on both and keeps content off the edges.
         expect(src.match(/collisionPadding=\{12\}/g)?.length).toBe(2);
     });
 });

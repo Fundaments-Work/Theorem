@@ -24,15 +24,19 @@ const CONTENT_CLASS =
     "min-w-[var(--layout-dropdown-menu-min-width)] max-w-[var(--layout-dropdown-menu-max-width)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1";
 
 /**
- * Never grow past the space Radix says is available.
+ * Deliberately no `max-h-[var(--radix-*-content-available-height)]` here.
  *
- * Radix publishes `--radix-context-menu-content-available-height` (and the same
- * for sub-content). Without this cap a long menu — or a submenu opened from a
- * row near the bottom edge — extends past the viewport and its items become
- * unreachable; `overflow-y-auto` then makes the overflow scrollable instead.
+ * That variable resolves to `--radix-popper-available-height`, which floating-ui
+ * measures from the anchor's position in the placement direction. For a
+ * `side="right"` submenu anchored to a row near the bottom of the screen, that
+ * is only the space *below* the anchor — so clamping to it squashed the submenu
+ * to a fraction of its height and left it scrolling ("broken half"), instead of
+ * letting Radix shift the whole thing up into view.
+ *
+ * Overflow is prevented structurally instead: Radix flips and shifts content to
+ * stay inside the viewport, and the library menu is a fixed eight rows, so it
+ * never grows tall enough to need a cap.
  */
-const HEIGHT_CLASS =
-    "max-h-[var(--radix-context-menu-content-available-height)] overflow-y-auto overscroll-contain";
 const ITEM_CLASS =
     "flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-[color:var(--color-text-primary)] outline-none cursor-pointer data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-[var(--color-surface-muted)] aria-[current]:bg-[var(--color-surface-muted)]";
 
@@ -84,7 +88,7 @@ function MenuItems({ items, depth }: { items: ContextMenuItem[]; depth: number }
                             </ContextMenuPrimitive.SubTrigger>
                             <ContextMenuPrimitive.Portal>
                                 <ContextMenuPrimitive.SubContent
-                                    className={`${CONTENT_CLASS} ${HEIGHT_CLASS} ${depth > 0 ? "z-[calc(var(--z-popover)+1)]" : "z-[var(--z-popover)]"}`}
+                                    className={`${CONTENT_CLASS} ${depth > 0 ? "z-[calc(var(--z-popover)+1)]" : "z-[var(--z-popover)]"}`}
                                     sideOffset={4}
                                     // Radix omits `side`/`align` from these props on
                                     // purpose (sub-content already opens right-aligned
@@ -128,7 +132,7 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
                     "floats above the page"; modals sit lower but cannot be open at the
                     same time (Radix traps focus). */}
                 <ContextMenuPrimitive.Content
-                    className={`${CONTENT_CLASS} ${HEIGHT_CLASS} z-[var(--z-popover)]`}
+                    className={`${CONTENT_CLASS} z-[var(--z-popover)]`}
                     collisionPadding={12}
                 >
                     <MenuItems items={items} depth={0} />
