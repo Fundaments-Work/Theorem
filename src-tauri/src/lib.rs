@@ -7,6 +7,7 @@ pub mod audio_player;
 pub mod audiobook;
 pub mod audiobook_gen;
 pub mod batch_ingest;
+mod book_import;
 pub mod book_search;
 pub mod cbr;
 #[cfg(not(target_os = "android"))]
@@ -1808,6 +1809,8 @@ pub fn run() {
             save_file_mobile,
             materialize_android_content_uri,
             offload_commands::sqlite_save_book_data,
+            offload_commands::finish_book_import,
+            offload_commands::import_book_path,
             offload_commands::sqlite_register_materialized_book,
             offload_commands::sqlite_get_book_data,
             offload_commands::sqlite_delete_book_data,

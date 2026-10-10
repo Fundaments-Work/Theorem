@@ -40,6 +40,9 @@ build_pristine() {
     for file in "${VENDOR_FILES[@]}"; do
         cp "$SUBMODULE_DIR/vendor/$file" "$out/vendor/"
     done
+    # The submodule may be checked out with CRLF on Windows. Patch a canonical
+    # LF copy so regeneration and verification match every host's checkout.
+    find "$out" -type f -exec sed -i 's/\r$//' {} +
     sed -i "s|await import('./vendor/pdfjs/pdf.mjs')|import('pdfjs-dist')|g" "$out/view.js" "$out/fixed-layout.js"
     sed -i "s|import './vendor/pdfjs/pdf.mjs'|import 'pdfjs-dist'|g" "$out/pdf.js"
     # String concat (not a template literal) so Vite's import-glob does not
