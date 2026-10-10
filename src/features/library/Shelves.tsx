@@ -250,6 +250,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
     const addCollection = useLibraryStore((state) => state.addCollection);
     const addBookToCollection = useLibraryStore((state) => state.addBookToCollection);
     const addBooksToCollection = useLibraryStore((state) => state.addBooksToCollection);
+    const removeBookFromCollection = useLibraryStore((state) => state.removeBookFromCollection);
     const removeBooksFromCollection = useLibraryStore((state) => state.removeBooksFromCollection);
     const removeBook = useLibraryStore((state) => state.removeBook);
     const removeBooks = useLibraryStore((state) => state.removeBooks);
@@ -425,6 +426,16 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         setSeriesModalInitialName(shelf.name);
         setIsSeriesModalOpen(true);
     }, [shelf.bookIds, shelf.name]);
+
+    // Shelves the targeted book already belongs to, so the dialog toggles
+    // membership rather than only adding.
+    const addToShelfMembership = useMemo(() => {
+        if (!addToShelfBookId) return undefined;
+        const bookId = addToShelfBookId;
+        return new Set(
+            collections.filter((c) => c.kind === "general" && c.bookIds.includes(bookId)).map((c) => c.id),
+        );
+    }, [addToShelfBookId, collections]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const isListView = viewMode === "list";
@@ -891,6 +902,7 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                 onClose={() => { setIsAddToShelfModalOpen(false); setAddToShelfBookId(null); }}
                 bookId={addToShelfBookId}
                 collections={collections.filter(c => c.kind === "general")}
+                currentShelfIds={addToShelfMembership}
                 onAddToShelf={(bookId, shelfId) => {
                     if (bookId) {
                         addBookToCollection(bookId, shelfId);
@@ -898,6 +910,11 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                         addBooksToCollection(selectedBooks, shelfId);
                         clearSelection();
                         setIsSelecting(false);
+                    }
+                }}
+                onRemoveFromShelf={(shelfId) => {
+                    if (addToShelfBookId) {
+                        removeBookFromCollection(addToShelfBookId, shelfId);
                     }
                 }}
                 onCreateShelf={handleCreateShelf}

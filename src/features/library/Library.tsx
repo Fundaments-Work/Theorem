@@ -16,7 +16,7 @@ import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
     ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones,
-    Layers
+    Layers, MoreHorizontal
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -211,13 +211,23 @@ export const BookCard = memo(function BookCard({
         }
     };
 
-    const contextMenuItems: ContextMenuItem[] = [
+    // Kept to a fixed, short list: the previous menu emitted one "Remove from X"
+    // row per shelf, so a book on six shelves showed 17 rows and overflowed a phone
+    // screen under the bottom bar. Shelf membership now lives in the single
+    // "Shelves…" dialog (which both adds and removes), and the rare actions sit
+    // behind "More…".
+    const moreItems: ContextMenuItem[] = [
         {
-            id: "open",
-            label: "Open Book",
-            icon: <BookOpen className="w-4 h-4" />,
-            shortcut: "Enter",
-            onClick: () => onOpenBook(book),
+            id: "edit-info",
+            label: renameMenuLabel ?? "Edit Info",
+            icon: <Pencil className="w-4 h-4" />,
+            onClick: () => onRename(book),
+        },
+        {
+            id: "export",
+            label: "Export",
+            icon: <Download className="w-4 h-4" />,
+            onClick: () => onExport(book),
         },
         ...(isTauriDesktop() ? [{
             id: "open-new-window",
@@ -231,37 +241,6 @@ export const BookCard = memo(function BookCard({
                 });
             },
         }] : []),
-        {
-            id: "favorite",
-            label: book.isFavorite ? "Remove from Favorites" : "Add to Favorites",
-            icon: <Heart className={cn("w-4 h-4", book.isFavorite && "fill-current")} />,
-            onClick: () => onToggleFavorite(book.id),
-        },
-        {
-            id: isCompleted ? "mark-as-unread" : "mark-as-read",
-            label: isCompleted ? "Mark Unfinish" : "Mark Finish",
-            icon: isCompleted ? <RotateCcw className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />,
-            onClick: () => {
-                if (isCompleted) {
-                    onMarkAsUnread(book.id);
-                    return;
-                }
-                onMarkAsRead(book.id);
-            },
-        },
-        {
-            id: "add-to-shelf",
-            label: "Add to Shelf...",
-            icon: <BookMarked className="w-4 h-4" />,
-            onClick: () => onAddToShelf(book.id),
-        },
-        
-        ...bookShelves.map((shelf) => ({
-            id: `shelf-${shelf.id}`,
-            label: `Remove from "${shelf.name}"`,
-            icon: <BookMarked className="w-4 h-4" />,
-            onClick: () => useLibraryStore.getState().removeBookFromCollection(book.id, shelf.id),
-        })),
         ...(isTauri() ? [{
             id: "audiobook",
             label: book.audioTrack ? "Detach Audiobook" : "Attach Audiobook...",
@@ -286,10 +265,43 @@ export const BookCard = memo(function BookCard({
                 });
             },
         }] : []),
+    ];
+
+    const contextMenuItems: ContextMenuItem[] = [
         {
-            id: "separator1",
-            label: "",
-            separator: true,
+            id: "open",
+            label: "Open Book",
+            icon: <BookOpen className="w-4 h-4" />,
+            shortcut: "Enter",
+            onClick: () => onOpenBook(book),
+        },
+        {
+            id: "favorite",
+            label: book.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+            icon: <Heart className={cn("w-4 h-4", book.isFavorite && "fill-current")} />,
+            onClick: () => onToggleFavorite(book.id),
+        },
+        {
+            id: isCompleted ? "mark-as-unread" : "mark-as-read",
+            label: isCompleted ? "Mark Unfinish" : "Mark Finish",
+            icon: isCompleted ? <RotateCcw className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />,
+            onClick: () => {
+                if (isCompleted) {
+                    onMarkAsUnread(book.id);
+                    return;
+                }
+                onMarkAsRead(book.id);
+            },
+        },
+        {
+            id: "shelves",
+            // Shows current membership and toggles it, so removing a book from a
+            // shelf is possible on a phone without a right-click.
+            label: bookShelves.length > 0
+                ? `Shelves… (${bookShelves.length})`
+                : "Add to Shelf…",
+            icon: <BookMarked className="w-4 h-4" />,
+            onClick: () => onAddToShelf(book.id),
         },
         {
             id: "info",
@@ -298,19 +310,7 @@ export const BookCard = memo(function BookCard({
             onClick: () => onShowInfo(book),
         },
         {
-            id: "edit-info",
-            label: renameMenuLabel ?? "Edit Info",
-            icon: <Pencil className="w-4 h-4" />,
-            onClick: () => onRename(book),
-        },
-        {
-            id: "export",
-            label: "Export",
-            icon: <Download className="w-4 h-4" />,
-            onClick: () => onExport(book),
-        },
-        {
-            id: "separator2",
+            id: "separator1",
             label: "",
             separator: true,
         },
@@ -320,6 +320,17 @@ export const BookCard = memo(function BookCard({
             icon: <Trash2 className="w-4 h-4" />,
             danger: true,
             onClick: () => onDeleteBook(book.id),
+        },
+        {
+            id: "separator2",
+            label: "",
+            separator: true,
+        },
+        {
+            id: "more",
+            label: "More…",
+            icon: <MoreHorizontal className="w-4 h-4" />,
+            items: moreItems,
         },
     ];
 
@@ -836,14 +847,19 @@ export function AddToShelfModal({
     onClose,
     bookId,
     collections,
+    currentShelfIds,
     onAddToShelf,
+    onRemoveFromShelf,
     onCreateShelf,
 }: {
     isOpen: boolean;
     onClose: () => void;
     bookId: string | null;
     collections: Collection[];
+    /** Shelves `bookId` already belongs to, so the dialog can toggle membership. */
+    currentShelfIds?: ReadonlySet<string>;
     onAddToShelf: (bookId: string | null, shelfId: string) => void;
+    onRemoveFromShelf?: (shelfId: string) => void;
     onCreateShelf: (name: string) => void;
 }) {
     const [newShelfName, setNewShelfName] = useState("");
@@ -864,33 +880,52 @@ export function AddToShelfModal({
         [collections, shelfSearch],
     );
 
-    const renderShelfItem = (shelf: Collection) => (
-        <button
-            key={shelf.id}
-            onClick={() => {
-                onAddToShelf(bookId, shelf.id);
-                onClose();
-            }}
-            className="w-full flex items-center gap-2 p-2 hover:bg-[var(--color-surface-muted)] transition-colors text-left"
-        >
-            <FolderOpen className="w-4 h-4 shrink-0 text-[color:var(--color-text-muted)]" />
-            <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[color:var(--color-text-primary)] truncate">
-                    {shelf.name}
-                </p>
-                <p className="text-[11px] text-[color:var(--color-text-muted)]">
-                    {shelf.bookIds.length} {shelf.bookIds.length === 1 ? "book" : "books"}
-                </p>
-            </div>
-        </button>
-    );
+    const renderShelfItem = (shelf: Collection) => {
+        const isMember = !!currentShelfIds?.has(shelf.id);
+        return (
+            <button
+                key={shelf.id}
+                role="checkbox"
+                aria-checked={isMember}
+                onClick={() => {
+                    // Toggle rather than add-only, so a book can also be removed
+                    // from a shelf on a phone. The dialog stays open so several
+                    // shelves can be fixed in one go.
+                    if (isMember) {
+                        onRemoveFromShelf?.(shelf.id);
+                    } else {
+                        onAddToShelf(bookId, shelf.id);
+                    }
+                }}
+                className="w-full flex items-center gap-2 p-2 hover:bg-[var(--color-surface-muted)] transition-colors text-left"
+            >
+                <FolderOpen className="w-4 h-4 shrink-0 text-[color:var(--color-text-muted)]" />
+                <div className="flex-1 min-w-0">
+                    <p className={cn(
+                        "text-sm font-medium truncate",
+                        isMember
+                            ? "text-[color:var(--color-accent)]"
+                            : "text-[color:var(--color-text-primary)]"
+                    )}>
+                        {shelf.name}
+                    </p>
+                    <p className="text-[11px] text-[color:var(--color-text-muted)]">
+                        {shelf.bookIds.length} {shelf.bookIds.length === 1 ? "book" : "books"}
+                    </p>
+                </div>
+                {isMember && (
+                    <Check className="w-4 h-4 shrink-0 text-[color:var(--color-accent)]" />
+                )}
+            </button>
+        );
+    };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={true}>
             <ModalBody className="p-0">
                 <div className="p-4 sm:p-6">
                     <h2 className="text-base sm:text-lg font-semibold text-[color:var(--color-text-primary)] mb-3">
-                        Add to Shelf
+                        {currentShelfIds && currentShelfIds.size > 0 ? "Shelves" : "Add to Shelf"}
                     </h2>
 
                     {collections.length > 0 && (
@@ -1129,6 +1164,7 @@ export function LibraryPage() {
     const markBooksUnread = useLibraryStore((state) => state.markBooksUnread);
     const addBookToCollection = useLibraryStore((state) => state.addBookToCollection);
     const addBooksToCollection = useLibraryStore((state) => state.addBooksToCollection);
+    const removeBookFromCollection = useLibraryStore((state) => state.removeBookFromCollection);
     const addCollection = useLibraryStore((state) => state.addCollection);
 
     const setRoute = useUIStore((state) => state.setRoute);
@@ -1914,6 +1950,22 @@ export function LibraryPage() {
         }
     }, [addBookToCollection, addBooksToCollection, selectedBooks, clearSelection]);
 
+    // Which shelves the book targeted by this dialog already belongs to, so the
+    // dialog can toggle membership instead of only adding.
+    const addToShelfMembership = useMemo(() => {
+        if (!addToShelfBookId) return undefined;
+        const bookId = addToShelfBookId;
+        return new Set(
+            collections.filter((c) => c.bookIds.includes(bookId)).map((c) => c.id),
+        );
+    }, [addToShelfBookId, collections]);
+
+    const handleRemoveBookFromShelf = useCallback((shelfId: string) => {
+        if (addToShelfBookId) {
+            removeBookFromCollection(addToShelfBookId, shelfId);
+        }
+    }, [addToShelfBookId, removeBookFromCollection]);
+
     const handleCreateShelf = useCallback((name: string) => {
         const newShelf: Collection = {
             id: crypto.randomUUID(),
@@ -2431,7 +2483,9 @@ export function LibraryPage() {
                 }}
                 bookId={addToShelfBookId}
                 collections={collections}
+                currentShelfIds={addToShelfMembership}
                 onAddToShelf={handleAddBookToShelf}
+                onRemoveFromShelf={handleRemoveBookFromShelf}
                 onCreateShelf={handleCreateShelf}
             />
 
