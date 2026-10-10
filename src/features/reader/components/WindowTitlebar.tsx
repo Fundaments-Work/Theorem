@@ -287,6 +287,10 @@ export function WindowTitlebar({
 
     return (
         <div
+            // This bar draws the window controls for the reader, so it is also the
+            // drag handle. Reader windows are frameless (like the main window), and
+            // without a drag region they could not be moved at all.
+            data-tauri-drag-region={showDesktopWindowControls ? "true" : undefined}
             className={cn(
                 "w-full z-[150] select-none reader-toolbar relative",
                 "border-b border-[var(--color-border)] bg-[var(--color-surface)]",
@@ -296,10 +300,11 @@ export function WindowTitlebar({
             onDoubleClick={showDesktopWindowControls ? handleMaximize : undefined}
         >
             <div className="h-12 lg:h-11 flex items-center gap-1 pl-3 pr-2">
-                
+
                 <div className="flex items-center gap-1 min-w-0 flex-1 lg:flex-none lg:max-w-[480px]">
                     <button
                         onClick={onBack}
+                        data-tauri-drag-region={undefined}
                         className={cn(ICON_BUTTON_CLASS, "mr-1 sm:mr-2 shrink-0 text-[color:var(--color-text-primary)]")}
                         aria-label="Back to Library"
                         title="Back to Library"
@@ -309,6 +314,7 @@ export function WindowTitlebar({
 
                     <div className="flex-1 min-w-0 text-left overflow-hidden pr-1 sm:pr-2">
                         <h1
+                            data-tauri-drag-region={undefined}
                             className="text-xs sm:text-sm font-bold truncate leading-tight text-[color:var(--color-text-primary)]"
                             title={metadata?.title}
                         >

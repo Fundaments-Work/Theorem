@@ -1368,7 +1368,10 @@ pub fn open_reader_window(app: &AppHandle, book_id: &str, title: &str) -> Result
             .title(title)
             .inner_size(1024.0, 768.0)
             .min_inner_size(600.0, 400.0)
-            .decorations(true)
+            // Frameless, like the main window. With `decorations(true)` the reader
+            // drew its own titlebar *and* the OS one, stacking two title bars, so
+            // the window did not look like the rest of the app.
+            .decorations(false)
             .build()
             .map_err(|e| format!("Failed to create new window: {e}"))?;
 
