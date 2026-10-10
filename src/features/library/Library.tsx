@@ -196,11 +196,10 @@ export const BookCard = memo(function BookCard({
     const collectionSets = useMemo(() => collections.map(c => ({ ...c, bookIdSet: new Set(c.bookIds) })), [collections]);
     const bookShelves = collectionSets.filter((c) => c.bookIdSet.has(book.id));
 
-    // Phones get an action sheet instead of a flyout; see the "more" entry in
-    // contextMenuItems. Resolved with matchMedia rather than a CSS class so the
-    // branch is deterministic and survives rotation/resize.
+    // Phones open nested groups in place instead of as a flyout; see the "more"
+    // entry in contextMenuItems. Resolved with matchMedia rather than a CSS class
+    // so the branch is deterministic and survives rotation/resize.
     const isWideViewport = useMediaQuery(WIDE_VIEWPORT_MEDIA_QUERY);
-    const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
 
     const handleCardClick = (event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
         if (isSelecting && onToggleSelect) {
@@ -346,49 +345,19 @@ export const BookCard = memo(function BookCard({
             icon: <MoreHorizontal className="w-4 h-4" />,
             // A flyout submenu cannot fit a phone: the menu is 180-280px and the
             // submenu needs another 180-280px beside it, which overflows a ~390px
-            // viewport (or flips over the parent menu). So on phones "More…" is a
-            // plain action that opens an action sheet, and only wider viewports get
-            // a real submenu. Collision tuning cannot fix horizontal overflow.
-            onClick: () => setIsMoreSheetOpen(true),
-            ...(isWideViewport ? { items: moreItems } : {}),
+            // viewport (or flips over the parent menu). So on phones the ContextMenu
+            // opens this group in place — the same panel swaps contents and offers
+            // Back — which keeps the menu you long-pressed instead of becoming a
+            // separate dialog. Collision tuning cannot fix horizontal overflow.
+            items: moreItems,
         },
     ];
 
     // Phone presentation of the submenu's contents. Same items, so both paths
     // stay in sync; rendered as a full-width sheet that cannot overflow.
-    const moreSheet = (
-        <Modal isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} size="sm" showCloseButton>
-            <ModalHeader title="More Actions" onClose={() => setIsMoreSheetOpen(false)} />
-            <ModalBody className="p-2">
-                <ul className="divide-y divide-[var(--color-border)]">
-                    {moreItems.map((item) => (
-                        <li key={item.id}>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsMoreSheetOpen(false);
-                                    item.onClick?.();
-                                }}
-                                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-[color:var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-muted)] touch-manipulation"
-                            >
-                                {item.icon && (
-                                    <span className="flex w-5 h-5 shrink-0 [&>svg]:w-5 [&>svg]:h-5">
-                                        {item.icon}
-                                    </span>
-                                )}
-                                <span className="flex-1">{item.label}</span>
-                            </button>
-                        </li>
-                    ))}
-                </ul>
-            </ModalBody>
-        </Modal>
-    );
-
     if (viewMode === "grid") {
         return (
-            <>
-            <ContextMenu items={contextMenuItems}>
+            <ContextMenu items={contextMenuItems} drilldown={!isWideViewport}>
                 <div
                     className="group flex flex-col text-left w-full select-none"
                     role="button"
@@ -472,15 +441,12 @@ export const BookCard = memo(function BookCard({
                     </div>
                 </div>
             </ContextMenu>
-            {moreSheet}
-            </>
         );
     }
 
     if (viewMode === "list") {
         return (
-            <>
-            <ContextMenu items={contextMenuItems}>
+            <ContextMenu items={contextMenuItems} drilldown={!isWideViewport}>
                 <div
                     // Fixed height shared with the row virtualizer's estimate.
                     // Rows are absolutely positioned from that estimate, so an
@@ -577,14 +543,12 @@ export const BookCard = memo(function BookCard({
                     </div>
                 </div>
             </ContextMenu>
-            {moreSheet}
-            </>
         );
     }
 
     return (
         <>
-        <ContextMenu items={contextMenuItems}>
+        <ContextMenu items={contextMenuItems} drilldown={!isWideViewport}>
             <div
                 onClick={handleCardClick}
                 className={cn(
@@ -652,7 +616,6 @@ export const BookCard = memo(function BookCard({
                 )}
             </div>
         </ContextMenu>
-        {moreSheet}
         </>
     );
 });

@@ -1,5 +1,6 @@
+import * as React from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
-import { ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface ContextMenuItem {
     id: string;
@@ -18,6 +19,16 @@ interface ContextMenuProps {
     items: ContextMenuItem[];
     children: React.ReactNode;
     className?: string;
+    /**
+     * Render nested `items` in place — the same panel swaps to the group and
+     * offers a Back row — instead of opening a flyout submenu.
+     *
+     * Required on viewports too narrow for a flyout: a submenu needs its own
+     * width beside the parent (180-280px each), which overflows a phone. This
+     * keeps the context-menu surface and position, so it still reads as the
+     * menu you long-pressed rather than a separate dialog.
+     */
+    drilldown?: boolean;
 }
 
 const CONTENT_CLASS =
@@ -47,10 +58,42 @@ const ITEM_CLASS =
  * each nested level to portal into its own wrapper so it can position against the
  * viewport independently.
  */
-function MenuItems({ items, depth }: { items: ContextMenuItem[]; depth: number }) {
+const BACK_ID = "__context_menu_back__";
+
+type InternalItem = ContextMenuItem & { __back?: boolean };
+
+function MenuItems({
+    items,
+    depth,
+    onBack,
+}: {
+    items: InternalItem[];
+    depth: number;
+    /** Present only in drilldown mode, where nested groups open in place. */
+    onBack?: (group: ContextMenuItem) => void;
+}) {
     return (
         <>
             {items.map((item) => {
+                if (item.__back) {
+                    return (
+                        <ContextMenuPrimitive.Item
+                            key={BACK_ID}
+                            // Radix dismisses the menu on select by default; Back and
+                            // group entries must keep it open.
+                            onSelect={(event) => {
+                                event.preventDefault();
+                                onBack?.(item);
+                            }}
+                            className={ITEM_CLASS}
+                        >
+                            <span className="flex-shrink-0 w-4 h-4">
+                                <ChevronLeft className="w-4 h-4" />
+                            </span>
+                            <span className="flex-1">{item.label}</span>
+                        </ContextMenuPrimitive.Item>
+                    );
+                }
                 if (item.separator) {
                     return (
                         <ContextMenuPrimitive.Separator
@@ -69,7 +112,7 @@ function MenuItems({ items, depth }: { items: ContextMenuItem[]; depth: number }
                                 {item.shortcut}
                             </span>
                         )}
-                        {item.items && (
+                        {item.items?.length && (
                             <ChevronRight className="w-3.5 h-3.5 shrink-0 text-[color:var(--color-text-muted)]" />
                         )}
                     </>
@@ -80,7 +123,27 @@ function MenuItems({ items, depth }: { items: ContextMenuItem[]; depth: number }
                     className: ITEM_CLASS,
                 };
 
-                if (item.items) {
+                if (item.items?.length) {
+                    // Drilldown: swap this panel's contents instead of opening a
+                    // second floating element beside it.
+                    if (onBack) {
+                        return (
+                            <ContextMenuPrimitive.Item
+                                key={item.id}
+                                disabled={item.disabled}
+                                onSelect={(event) => {
+                                    // Keep the menu mounted so the panel can swap in
+                                    // place rather than being dismissed.
+                                    event.preventDefault();
+                                    onBack(item);
+                                }}
+                                className={ITEM_CLASS}
+                            >
+                                {body}
+                            </ContextMenuPrimitive.Item>
+                        );
+                    }
+
                     return (
                         <ContextMenuPrimitive.Sub key={item.id}>
                             <ContextMenuPrimitive.SubTrigger {...shared}>
@@ -96,7 +159,7 @@ function MenuItems({ items, depth }: { items: ContextMenuItem[]; depth: number }
                                     // the viewport edge and the notch on every side.
                                     collisionPadding={12}
                                 >
-                                    <MenuItems items={item.items} depth={depth + 1} />
+                                    <MenuItems items={item.items} depth={depth + 1} onBack={onBack} />
                                 </ContextMenuPrimitive.SubContent>
                             </ContextMenuPrimitive.Portal>
                         </ContextMenuPrimitive.Sub>
@@ -117,7 +180,20 @@ function MenuItems({ items, depth }: { items: ContextMenuItem[]; depth: number }
     );
 }
 
-export function ContextMenu({ items, children, className }: ContextMenuProps) {
+export function ContextMenu({ items, children, className, drilldown }: ContextMenuProps) {
+    // The group currently open in drilldown mode, so the panel can swap back.
+    const [openGroup, setOpenGroup] = React.useState<ContextMenuItem | null>(null);
+
+    const visibleItems: InternalItem[] =
+        drilldown && openGroup?.items
+            ? [
+                // Radix's default align is "start", so the Back row sits where the
+                // group entry was, keeping the panel the same size and position.
+                { id: BACK_ID, label: openGroup.label, __back: true },
+                ...openGroup.items,
+            ]
+            : items;
+
     return (
         <ContextMenuPrimitive.Root>
             <ContextMenuPrimitive.Trigger asChild>
@@ -134,8 +210,16 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
                 <ContextMenuPrimitive.Content
                     className={`${CONTENT_CLASS} z-[var(--z-popover)]`}
                     collisionPadding={12}
+                    onCloseAutoFocus={() => setOpenGroup(null)}
                 >
-                    <MenuItems items={items} depth={0} />
+                    <MenuItems
+                        items={visibleItems}
+                        depth={0}
+                        onBack={drilldown ? (group) => {
+                            if (group.id === BACK_ID) setOpenGroup(null);
+                            else setOpenGroup(group);
+                        } : undefined}
+                    />
                 </ContextMenuPrimitive.Content>
             </ContextMenuPrimitive.Portal>
         </ContextMenuPrimitive.Root>

@@ -107,21 +107,14 @@ describe("ContextMenu stays inside the viewport", () => {
     });
 });
 
-describe("phones never open a flyout submenu", () => {
+describe("phones drill down inside the same menu", () => {
     const src = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
 
-    it("gates the submenu on a wide viewport", () => {
+    it("gates drilldown on viewport width", () => {
         // A flyout cannot fit ~390px: the menu is 180-280px and the submenu needs
         // another 180-280px beside it. Collision tuning cannot add horizontal room.
         expect(src).toContain('const WIDE_VIEWPORT_MEDIA_QUERY = "(min-width: 640px)"');
-        expect(src).toContain("...(isWideViewport ? { items: moreItems } : {})");
-    });
-
-    it("falls back to an action sheet on narrow viewports", () => {
-        expect(src).toContain("onClick: () => setIsMoreSheetOpen(true)");
-        expect(src).toContain('<ModalHeader title="More Actions"');
-        // The sheet is rendered in every card view, not just one branch.
-        expect(src.match(/\{moreSheet\}/g)?.length).toBe(3);
+        expect(src).toContain("drilldown={!isWideViewport}");
     });
 
     it("resolves the breakpoint with matchMedia, not a CSS class", () => {
@@ -130,9 +123,130 @@ describe("phones never open a flyout submenu", () => {
         expect(src).toContain("const isWideViewport = useMediaQuery(WIDE_VIEWPORT_MEDIA_QUERY)");
     });
 
+    it("does not open a dialog for the nested actions", () => {
+        // The sheet read as a separate dialog rather than the menu you long-pressed.
+        expect(src).not.toContain('<ModalHeader title="More Actions"');
+        expect(src).not.toContain("isMoreSheetOpen");
+        expect(src).not.toContain("{moreSheet}");
+    });
+
     it("keeps one shared item list for both presentations", () => {
         expect(src).toMatch(/const moreItems: ContextMenuItem\[\] = \[/);
-        expect(src).toMatch(/\{moreItems\.map\(\(item\) => \(/);
+        expect(src).toContain("items: moreItems,");
+    });
+});
+
+describe("ContextMenu drilldown", () => {
+    function drilldownItems(): ContextMenuItem[] {
+        return [
+            { id: "open", label: "Open Book" },
+            {
+                id: "more",
+                label: "More…",
+                items: [
+                    { id: "edit", label: "Edit Info" },
+                    { id: "export", label: "Export" },
+                ],
+            },
+        ];
+    }
+
+    function openDrilldown() {
+        const container = render(
+            <ContextMenu items={drilldownItems()} drilldown>
+                <div data-testid="trigger">row</div>
+            </ContextMenu>,
+        );
+        act(() => {
+            container.querySelector('[data-testid="trigger"]')!
+                .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 20, clientY: 20 }));
+        });
+        return document.body;
+    }
+
+    it("reveals the group in the same menu and offers Back", () => {
+        const body = openDrilldown();
+        expect(body.textContent).toContain("More…");
+        expect(body.textContent).not.toContain("Edit Info");
+
+        const more = Array.from(body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(el => el.textContent?.includes("More…"))!;
+        act(() => more.click());
+
+        // Same menu, now the group plus a Back row labelled with the group it
+        // returns to ("‹ More…").
+        expect(body.textContent).toContain("Edit Info");
+        expect(body.textContent).toContain("Export");
+        const rows = Array.from(body.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+        expect(rows).toHaveLength(3);
+        expect(rows[0].textContent).toContain("More…");
+        expect(rows[1].textContent).toContain("Edit Info");
+    });
+
+    it("returns to the top-level list on Back", () => {
+        const body = openDrilldown();
+        const more = Array.from(body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(el => el.textContent?.includes("More…"))!;
+        act(() => more.click());
+
+        const back = Array.from(body.querySelectorAll<HTMLElement>('[role="menuitem"]'))[0];
+        expect(back.textContent).toContain("More…");
+        act(() => back.click());
+
+        expect(body.textContent).toContain("Open Book");
+        expect(body.textContent).not.toContain("Edit Info");
+    });
+
+    it("runs the nested action when tapped", () => {
+        const onExport = vi.fn();
+        const container = render(
+            <ContextMenu
+                items={[
+                    { id: "open", label: "Open Book" },
+                    { id: "more", label: "More…", items: [{ id: "export", label: "Export", onClick: onExport }] },
+                ]}
+                drilldown
+            >
+                <div data-testid="trigger">row</div>
+            </ContextMenu>,
+        );
+        act(() => {
+            container.querySelector('[data-testid="trigger"]')!
+                .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 20, clientY: 20 }));
+        });
+
+        const more = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(el => el.textContent?.includes("More…"))!;
+        act(() => more.click());
+
+        const exportItem = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(el => el.textContent?.includes("Export"))!;
+        act(() => exportItem.click());
+        expect(onExport).toHaveBeenCalledTimes(1);
+    });
+
+    it("still opens a real submenu when drilldown is off", () => {
+        // Desktop keeps the flyout, so ContextMenu must not change that path.
+        const container = render(
+            <ContextMenu items={drilldownItems()}>
+                <div data-testid="trigger">row</div>
+            </ContextMenu>,
+        );
+        act(() => {
+            container.querySelector('[data-testid="trigger"]')!
+                .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 20, clientY: 20 }));
+        });
+        const more = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(el => el.textContent?.includes("More…"))!;
+        act(() => more.click());
+
+        // The group opens as its own panel; the root list is untouched, which is
+        // what distinguishes the flyout from the in-place drilldown.
+        expect(document.body.querySelectorAll('[role="menu"]').length).toBe(2);
+        const rootMenu = document.body.querySelector('[role="menu"]')!;
+        expect(rootMenu.textContent).toContain("Open Book");
+        expect(rootMenu.textContent).toContain("More…");
+        expect(rootMenu.textContent).not.toContain("Edit Info");
     });
 });
 
