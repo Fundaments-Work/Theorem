@@ -19,7 +19,7 @@ import { cn } from "../../core/lib/utils";
 import { useOpdsStore, useUIStore } from "../../core/store";
 import { OpdsService } from "../../core/services/OpdsService";
 import type { OpdsEntry, OpdsFeed } from "../../core/types";
-import { Modal, ModalHeader, ModalBody, ModalFooter } from "../../ui";
+import { Modal, ModalHeader, ModalBody, ModalFooter, TheoremBookCover } from "../../ui";
 import { OpdsBookCard } from "./components/OpdsBookCard";
 import {
     CATALOG_SORT_ORDERS,
@@ -35,8 +35,14 @@ import {
 
 /** Column gap between cover columns, in px. Must match the grid's `gap`. */
 const BOOK_GRID_GAP = 16;
-/** Height reserved under each cover for the title + author lines. */
-const BOOK_CARD_TEXT_HEIGHT = 44;
+/**
+ * Height of the text block under each cover: two clamped title lines at
+ * `leading-[14px]` + 2px margin, one clamped author line at `leading-[13px]`,
+ * and the 10px `mt-2.5`. Must match `OpdsBookCard` — both the leading values and
+ * this total are fixed rather than inherited so the virtualizer's row height is
+ * exact and the scrollbar never drifts from the content.
+ */
+const BOOK_CARD_TEXT_HEIGHT = 53;
 /** Delay before an as-you-type search hits the network. */
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -803,11 +809,15 @@ export function OPDSBrowserPage() {
                         <ModalHeader title={selectedEntry.title} onClose={() => setSelectedEntry(null)} />
                         <ModalBody className="space-y-4">
                             <div className="flex flex-col sm:flex-row gap-4">
-                                {selectedEntry.coverUrl && (
-                                    <div className="aspect-[2/3] w-24 shrink-0 bg-[var(--color-surface-muted)] overflow-hidden rounded border border-[var(--color-border)]">
-                                        <img src={selectedEntry.coverUrl} alt={selectedEntry.title} className="h-full w-full object-cover" />
+                                {/* Always rendered: a coverless entry gets the same clothbound fallback the
+                                    grid shows, rather than the modal losing its image column. */}
+                                    <div className="aspect-[2/3] w-24 shrink-0 overflow-hidden rounded border border-[var(--color-border)]">
+                                        <TheoremBookCover
+                                            title={selectedEntry.title}
+                                            author={selectedEntry.author}
+                                            coverUrl={selectedEntry.thumbnailUrl || selectedEntry.coverUrl}
+                                        />
                                     </div>
-                                )}
                                 <div className="flex flex-col gap-1 min-w-0">
                                     <h4 className="text-sm font-bold text-[color:var(--color-text-primary)]">{selectedEntry.title}</h4>
                                     <p className="text-xs text-[color:var(--color-text-secondary)] font-medium">{selectedEntry.author || "Public Domain"}</p>

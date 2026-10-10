@@ -110,9 +110,15 @@ export function clickAriaLabel(container: HTMLElement, label: string): HTMLEleme
     return node as HTMLElement;
 }
 
-/** Titles of the OPDS cards currently mounted in the grid. */
+/**
+ * Titles of the OPDS cards currently mounted in the grid.
+ *
+ * Targets the card's metadata block, not any `h3`: the clothbound fallback cover
+ * renders the title in its own `h3`, so a bare selector matches twice for every
+ * coverless entry.
+ */
 export function shownTitles(container: HTMLElement): string[] {
-    return Array.from(container.querySelectorAll("[data-opds-card] h3")).map(
+    return Array.from(container.querySelectorAll("[data-opds-card] [data-opds-card-title]")).map(
         (el) => el.textContent ?? "",
     );
 }
