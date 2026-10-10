@@ -5,11 +5,13 @@ import {
     BookOpen,
     ChevronRight,
     Download,
+    FileText,
     Folder,
     Globe,
     Plus,
     RefreshCw,
     Search,
+    SortAsc,
     X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +21,17 @@ import { OpdsService } from "../../core/services/OpdsService";
 import type { OpdsEntry, OpdsFeed } from "../../core/types";
 import { Modal, ModalHeader, ModalBody, ModalFooter } from "../../ui";
 import { OpdsBookCard } from "./components/OpdsBookCard";
+import {
+    CATALOG_SORT_ORDERS,
+    applyCatalogFacets,
+    collectCatalogFacets,
+    formatLabel,
+    type CatalogSortOrder,
+} from "./catalog-facets";
+import {
+    FILTER_CHIP_SELECTED,
+    FILTER_CHIP_UNSELECTED_ON_SURFACE,
+} from "../../ui/filter-chips";
 
 /** Column gap between cover columns, in px. Must match the grid's `gap`. */
 const BOOK_GRID_GAP = 16;
@@ -86,6 +99,9 @@ export function OPDSBrowserPage() {
      */
     const [serverResults, setServerResults] = useState<OpdsFeed | null>(null);
     const [searchSource, setSearchSource] = useState<"server" | "local" | null>(null);
+    const [sortOrder, setSortOrder] = useState<CatalogSortOrder>("title");
+    const [languageFilter, setLanguageFilter] = useState<string | null>(null);
+    const [formatFilter, setFormatFilter] = useState<string | null>(null);
     /**
      * Guards against out-of-order responses. Without it, a slow request for
      * "dick" can land after a fast one for "dickens" and overwrite it.
@@ -295,6 +311,36 @@ export function OPDSBrowserPage() {
     }, [usingServerResults, serverResults, trimmedQuery, localMatches, feed]);
 
     /**
+     * Facet options come from the unfiltered set, so the available values do not
+     * vanish as the user narrows the list — otherwise selecting a language could
+     * remove every other language chip and make it impossible to switch.
+     */
+    const facets = useMemo(() => collectCatalogFacets(bookEntries), [bookEntries]);
+
+    const visibleBookEntries = useMemo(
+        () =>
+            applyCatalogFacets(bookEntries, {
+                sortOrder,
+                language: languageFilter,
+                format: formatFilter,
+            }),
+        [bookEntries, sortOrder, languageFilter, formatFilter],
+    );
+
+    const hasActiveFilters = languageFilter !== null || formatFilter !== null;
+
+    // A filter that no longer applies (feed changed, search narrowed) must not
+    // strand the list on an empty result.
+    useEffect(() => {
+        if (languageFilter && !facets.languages.includes(languageFilter)) {
+            setLanguageFilter(null);
+        }
+        if (formatFilter && !facets.formats.includes(formatFilter)) {
+            setFormatFilter(null);
+        }
+    }, [facets, languageFilter, formatFilter]);
+
+    /**
      * Column count has to be known in JS (not just CSS) because the virtualizer
      * packs N entries into each row. Breakpoints mirror DiscoverPage so the two
      * catalog views line up column-for-column.
@@ -336,7 +382,7 @@ export function OPDSBrowserPage() {
      * list in the app (Library, Shelves, Bookmarks, Feeds, Discover search)
      * already virtualizes. Rows, not cells: one virtual row per line of covers.
      */
-    const bookRowCount = Math.ceil(bookEntries.length / effectiveCols);
+    const bookRowCount = Math.ceil(visibleBookEntries.length / effectiveCols);
     const bookVirtualizer = useVirtualizer({
         count: bookRowCount,
         getScrollElement: useCallback(() => scrollRef.current, []),
@@ -456,6 +502,120 @@ export function OPDSBrowserPage() {
                 </form>
             </div>
 
+            {/* Sort & Filters — same chip chrome as the Library filter panel */}
+            {bookEntries.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-border)] pb-4">
+                    <div className="flex items-center gap-1.5">
+                        <SortAsc className="h-3 w-3 text-[color:var(--color-text-muted)] shrink-0" />
+                        {CATALOG_SORT_ORDERS.map((order) => (
+                            <button
+                                key={order.id}
+                                onClick={() => setSortOrder(order.id)}
+                                aria-pressed={sortOrder === order.id}
+                                className={cn(
+                                    "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap",
+                                    sortOrder === order.id
+                                        ? FILTER_CHIP_SELECTED
+                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE,
+                                )}
+                            >
+                                {order.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {facets.languages.length > 1 && (
+                        <div className="flex items-center gap-1.5 min-w-0">
+                            <Globe className="h-3 w-3 text-[color:var(--color-text-muted)] shrink-0" />
+                            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                                <button
+                                    onClick={() => setLanguageFilter(null)}
+                                    aria-pressed={languageFilter === null}
+                                    className={cn(
+                                        "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap uppercase",
+                                        languageFilter === null
+                                            ? FILTER_CHIP_SELECTED
+                                            : FILTER_CHIP_UNSELECTED_ON_SURFACE,
+                                    )}
+                                >
+                                    All
+                                </button>
+                                {facets.languages.map((language) => (
+                                    <button
+                                        key={language}
+                                        onClick={() =>
+                                            setLanguageFilter(
+                                                languageFilter === language ? null : language,
+                                            )
+                                        }
+                                        aria-pressed={languageFilter === language}
+                                        className={cn(
+                                            "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap uppercase",
+                                            languageFilter === language
+                                                ? FILTER_CHIP_SELECTED
+                                                : FILTER_CHIP_UNSELECTED_ON_SURFACE,
+                                        )}
+                                    >
+                                        {language}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {facets.formats.length > 1 && (
+                        <div className="flex items-center gap-1.5 min-w-0">
+                            <FileText className="h-3 w-3 text-[color:var(--color-text-muted)] shrink-0" />
+                            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                                <button
+                                    onClick={() => setFormatFilter(null)}
+                                    aria-pressed={formatFilter === null}
+                                    className={cn(
+                                        "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap",
+                                        formatFilter === null
+                                            ? FILTER_CHIP_SELECTED
+                                            : FILTER_CHIP_UNSELECTED_ON_SURFACE,
+                                    )}
+                                >
+                                    All
+                                </button>
+                                {facets.formats.map((format) => (
+                                    <button
+                                        key={format}
+                                        onClick={() =>
+                                            setFormatFilter(
+                                                formatFilter === format ? null : format,
+                                            )
+                                        }
+                                        aria-pressed={formatFilter === format}
+                                        className={cn(
+                                            "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap",
+                                            formatFilter === format
+                                                ? FILTER_CHIP_SELECTED
+                                                : FILTER_CHIP_UNSELECTED_ON_SURFACE,
+                                        )}
+                                    >
+                                        {formatLabel(format)}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {hasActiveFilters && (
+                        <button
+                            onClick={() => {
+                                setLanguageFilter(null);
+                                setFormatFilter(null);
+                            }}
+                            className="px-2.5 py-1 text-[10px] font-bold border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors whitespace-nowrap"
+                        >
+                            Clear filters
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Main Content Area */}
             {isLoading ? (
                 <CatalogSkeleton />
@@ -508,7 +668,7 @@ export function OPDSBrowserPage() {
                     )}
 
                     {/* Book Cards Grid (virtualized) */}
-                    {bookEntries.length > 0 ? (
+                    {visibleBookEntries.length > 0 ? (
                         <div>
                             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                                 <h3 className="text-xs font-semibold text-[color:var(--color-text-secondary)]">
@@ -530,8 +690,8 @@ export function OPDSBrowserPage() {
                                         </span>
                                     )}
                                     <span className="text-xs text-[color:var(--color-text-muted)] tabular-nums">
-                                        {bookEntries.length.toLocaleString()}{" "}
-                                        {bookEntries.length === 1 ? "title" : "titles"}
+                                        {visibleBookEntries.length.toLocaleString()}{" "}
+                                        {visibleBookEntries.length === 1 ? "title" : "titles"}
                                     </span>
                                 </div>
                             </div>
@@ -545,7 +705,7 @@ export function OPDSBrowserPage() {
                             >
                                 {bookVirtualizer.getVirtualItems().map((virtualRow) => {
                                     const startIndex = virtualRow.index * effectiveCols;
-                                    const rowBooks = bookEntries.slice(
+                                    const rowBooks = visibleBookEntries.slice(
                                         startIndex,
                                         startIndex + effectiveCols,
                                     );
@@ -609,6 +769,22 @@ export function OPDSBrowserPage() {
                                 className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                             >
                                 Clear search
+                            </button>
+                        </div>
+                    ) : hasActiveFilters && bookEntries.length > 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+                            <FileText className="h-8 w-8 text-[color:var(--color-text-muted)]" />
+                            <p className="text-xs font-medium text-[color:var(--color-text-secondary)]">
+                                No titles match these filters.
+                            </p>
+                            <button
+                                onClick={() => {
+                                    setLanguageFilter(null);
+                                    setFormatFilter(null);
+                                }}
+                                className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            >
+                                Clear filters
                             </button>
                         </div>
                     ) : navigationEntries.length === 0 && (

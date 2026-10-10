@@ -2,6 +2,11 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
+import {
+    FILTER_CHIP_SELECTED,
+    FILTER_CHIP_UNSELECTED,
+    FILTER_CHIP_UNSELECTED_ON_SURFACE,
+} from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
 import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
 import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncremental, pickAndImportBooksIncremental, scanFolderForBooks } from "../../core/lib/import";
@@ -64,21 +69,9 @@ const WIDE_VIEWPORT_MEDIA_QUERY = "(min-width: 640px)";
 export const LIBRARY_LIST_ROW_HEIGHT = 96;
 
 /**
- * Filter-panel chip styles, shared by every section (Sort, Status, Order, Quick).
- *
- * These were previously copy-pasted per button, which let the hover treatment
- * drift: the mobile panel gave Sort and Status a `hover:bg`, while Order and all
- * three Quick buttons only changed their border. Every section now uses the same
- * selected/unselected pair so hovering any chip looks identical.
+ * Filter-panel chip styles live in `src/ui/filter-chips.ts` so the OPDS catalog
+ * browser shares the exact same treatment without importing the Library route.
  */
-const FILTER_CHIP_SELECTED =
-    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]";
-/** Mobile panel: transparent at rest, surfacing on hover. */
-const FILTER_CHIP_UNSELECTED =
-    "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]";
-/** Desktop panel: sits on the panel surface already, so it only outlines on hover. */
-const FILTER_CHIP_UNSELECTED_ON_SURFACE =
-    "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]";
 
 type ExtractMetadataFn = typeof import("../../core/lib/cover-extractor").extractMetadata;
 

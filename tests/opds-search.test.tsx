@@ -15,8 +15,7 @@
  * title/author filter otherwise, so search works on every catalog.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import React from "react";
 import type { OpdsEntry, OpdsFeed } from "../src/core/types";
 
 const fetchFeed = vi.fn();
@@ -37,40 +36,16 @@ vi.mock("../src/core/services/OpdsService", async (importOriginal) => {
 
 import { OPDSBrowserPage } from "../src/features/catalogs/OPDSBrowser";
 import { useOpdsStore } from "../src/core/store";
-
-// @ts-expect-error React 19 act environment flag
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-const mounted: Root[] = [];
-
-function render(ui: React.ReactElement) {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    mounted.push(root);
-    act(() => {
-        root.render(ui);
-    });
-    return container;
-}
-
-/** virtual-core reads the viewport via offsetWidth/offsetHeight, both 0 in jsdom. */
-function stubLayout(width = 1200, height = 800) {
-    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
-    const before = ["offsetWidth", "offsetHeight", "clientWidth", "clientHeight"].map((key) => [
-        key,
-        Object.getOwnPropertyDescriptor(proto, key),
-    ] as const);
-
-    for (const key of ["offsetWidth", "offsetHeight", "clientWidth", "clientHeight"]) {
-        Object.defineProperty(proto, key, { get: () => width, configurable: true });
-    }
-    return () => {
-        for (const [key, descriptor] of before) {
-            if (descriptor) Object.defineProperty(proto, key, descriptor);
-        }
-    };
-}
+import {
+    clickAriaLabel,
+    flush,
+    flushDebounce,
+    render,
+    setInputValue,
+    shownTitles,
+    stubLayout,
+    unmountAll,
+} from "./helpers/opds-browser-harness";
 
 function makeEntry(index: number, over: Partial<OpdsEntry> = {}): OpdsEntry {
     return {
@@ -97,31 +72,8 @@ function makeFeed(over: Partial<OpdsFeed> = {}): OpdsFeed {
     } as OpdsFeed;
 }
 
-async function flush(times = 5) {
-    for (let i = 0; i < times; i++) {
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-    }
-}
-
 function setQuery(container: HTMLElement, value: string) {
-    const input = container.querySelector('input[type="search"]') as HTMLInputElement;
-    expect(input).not.toBeNull();
-    const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype,
-        "value",
-    )!.set!;
-    act(() => {
-        setter.call(input, value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-}
-
-function shownTitles(container: HTMLElement): string[] {
-    return Array.from(container.querySelectorAll("[data-opds-card] h3")).map(
-        (el) => el.textContent ?? "",
-    );
+    setInputValue(container, 'input[type="search"]', value);
 }
 
 describe("OPDS search", () => {
@@ -139,11 +91,7 @@ describe("OPDS search", () => {
     });
 
     afterEach(() => {
-        while (mounted.length) {
-            const root = mounted.pop()!;
-            act(() => root.unmount());
-        }
-        document.body.innerHTML = "";
+        unmountAll();
         unstub();
         unstub = () => {};
     });
@@ -198,9 +146,7 @@ describe("OPDS search", () => {
 
     it("uses server search when the feed advertises a template", async () => {
         fetchFeed.mockResolvedValue(
-            makeFeed({
-                searchUrlTemplate: "https://example.com/search?q={searchTerms}",
-            }),
+            makeFeed({ searchUrlTemplate: "https://example.com/search?q={searchTerms}" }),
         );
         search.mockResolvedValue(
             makeFeed({
@@ -213,11 +159,7 @@ describe("OPDS search", () => {
         await flush();
 
         setQuery(container, "remote");
-        // Debounce is 250ms, so let the timer fire.
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-        });
-        await flush();
+        await flushDebounce();
 
         expect(search).toHaveBeenCalledTimes(1);
         expect(search.mock.calls[0][1]).toBe("remote");
@@ -234,10 +176,7 @@ describe("OPDS search", () => {
         await flush();
 
         setQuery(container, "shelley");
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-        });
-        await flush();
+        await flushDebounce();
 
         // A broken endpoint must not dead-end the search.
         expect(shownTitles(container)).toEqual(["Frankenstein"]);
@@ -267,25 +206,18 @@ describe("OPDS search", () => {
         await flush();
 
         setQuery(container, "aus");
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-        });
+        await flushDebounce();
         setQuery(container, "austen");
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-        });
-        await flush();
+        await flushDebounce();
         expect(shownTitles(container)).toEqual(["Austen Collected"]);
 
         // The abandoned "aus" request now lands last. It must be discarded.
-        await act(async () => {
-            resolveSlow(
-                makeFeed({
-                    entries: [makeEntry(7, { title: "Stale Result", author: "Nobody" })],
-                }),
-            );
-            await new Promise((resolve) => setTimeout(resolve, 20));
-        });
+        await flushDebounce(20);
+        resolveSlow(
+            makeFeed({
+                entries: [makeEntry(7, { title: "Stale Result", author: "Nobody" })],
+            }),
+        );
         await flush();
 
         expect(shownTitles(container)).toEqual(["Austen Collected"]);
@@ -303,8 +235,7 @@ describe("OPDS search", () => {
         expect(container.textContent).toContain("No results for");
         expect(shownTitles(container)).toHaveLength(0);
 
-        const clear = container.querySelector('button[aria-label="Clear search"]') as HTMLElement;
-        act(() => clear.click());
+        clickAriaLabel(container, "Clear search");
         await flush();
 
         expect(shownTitles(container)).toHaveLength(4);
@@ -322,18 +253,14 @@ describe("OPDS search", () => {
         await flush();
 
         setQuery(container, "only");
-        await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-        });
-        await flush();
+        await flushDebounce();
         expect(shownTitles(container)).toEqual(["Only Result"]);
 
         // Previously the result feed had overwritten the browsed one, so clearing
         // the query required a network refetch. Clearing must be client-side and
         // must not issue another request.
         const callsBefore = fetchFeed.mock.calls.length;
-        const clear = container.querySelector('button[aria-label="Clear search"]') as HTMLElement;
-        act(() => clear.click());
+        clickAriaLabel(container, "Clear search");
         await flush();
 
         expect(fetchFeed).toHaveBeenCalledTimes(callsBefore);
