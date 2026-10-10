@@ -172,6 +172,9 @@ const PAGE_LOAD_AHEAD_THRESHOLD = 4;
 const PAGE_EDGE_PREFETCH_COUNT = 8;
 const EDGE_PREFETCH_MIN_INTERVAL_MS = 60;
 const PAGE_PROXY_LOAD_CONCURRENCY = 3;
+/** Two scales closer than this are the same scale for reveal purposes. */
+const ZOOM_SETTLE_EPSILON = 0.0005;
+
 /**
  * How long a parked scroll jump keeps retrying before giving up.
  *
@@ -1380,7 +1383,14 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
     }, ref) {
         const containerRef = useRef<HTMLDivElement>(null);
         const zoomContainerRef = useRef<HTMLDivElement>(null);
-        const [isLoading, setIsLoading] = useState(false);
+        /**
+         * Starts `true`: before the load effect runs there is nothing to show but
+         * empty page slots, and painting those before the loader is what made a PDF
+         * open on a blank page template instead of a spinner.
+         */
+        const [isLoading, setIsLoading] = useState(true);
+        /** rAF handle for the reveal-on-converged check. */
+        const revealRafRef = useRef<number | null>(null);
         const loadingGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         const [error, setError] = useState<string | null>(null);
         const [currentPage, setCurrentPage] = useState(initialPage);
@@ -1404,7 +1414,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const hasAppliedInitialViewStateRef = useRef(false);
         const initialPageRestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         const interactionIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-        const renderStabilizationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+        
         const loadingTaskRef = useRef<any>(null);
         const pendingScrollPageRef = useRef<number | null>(null);
         /** rAF handle for the bounded retry loop started by `retryPendingScroll`. */
@@ -1491,10 +1501,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 clearTimeout(interactionIdleTimeoutRef.current);
                 interactionIdleTimeoutRef.current = null;
             }
-            if (renderStabilizationTimeoutRef.current) {
-                clearTimeout(renderStabilizationTimeoutRef.current);
-                renderStabilizationTimeoutRef.current = null;
-            }
+            if (revealRafRef.current !== null) { cancelAnimationFrame(revealRafRef.current); revealRafRef.current = null; }
         }, []);
 
         const prunePageProxyCache = useCallback((existingPages: PDFPageProxy[], centerPage: number, pageCount: number) => {
@@ -1926,11 +1933,23 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             const loadPdf = async () => {
                 const isVirtualPath = pdfPath.startsWith("idb://") || pdfPath.startsWith("browser://") || pdfPath.startsWith("sqlite://");
                 const requiresProvidedData = !isTauri() || isVirtualPath || !pdfPath;
-                if (requiresProvidedData && !pdfData) return;
+                if (requiresProvidedData && !pdfData) {
+                    // `isLoading` starts true, so bail out through the normal error
+                    // path or the spinner would never go away.
+                    setError("PDF data was not provided. Please reopen the book.");
+                    setIsInitialRenderStabilizing(false);
+                    setIsLoading(false);
+                    return;
+                }
 
                 try {
                     setError(null); setPages([]);
-                    
+                    // Show the loader straight away. Deferring it behind the grace
+                    // timer below let the empty page-slot template paint first, so
+                    // opening a PDF flashed a column of blank pages before the
+                    // spinner appeared.
+                    setIsLoading(true);
+
                     if (loadingGraceTimerRef.current) clearTimeout(loadingGraceTimerRef.current);
                     loadingGraceTimerRef.current = setTimeout(() => {
                         loadingGraceTimerRef.current = null;
@@ -1950,7 +1969,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     searchSessionRef.current += 1;
                     hasAppliedInitialViewStateRef.current = false;
                     if (initialPageRestoreTimeoutRef.current) { clearTimeout(initialPageRestoreTimeoutRef.current); initialPageRestoreTimeoutRef.current = null; }
-                    if (renderStabilizationTimeoutRef.current) { clearTimeout(renderStabilizationTimeoutRef.current); renderStabilizationTimeoutRef.current = null; }
+                    if (revealRafRef.current !== null) { cancelAnimationFrame(revealRafRef.current); revealRafRef.current = null; }
                     zoomModeRef.current = initialZoomMode;
 
                     const canUseDirectAssetUrl = isTauri() && Boolean(pdfPath) && !isVirtualPath && !pdfData;
@@ -2119,17 +2138,42 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     if (!cancelled) {
                         setPages(initialPages.sort((l, r) => l.pageNumber - r.pageNumber));
                         if (loadingGraceTimerRef.current) { clearTimeout(loadingGraceTimerRef.current); loadingGraceTimerRef.current = null; }
-                        // Keep the loader up until the opening zoom has settled. Revealing as
-                        // soon as the first proxy landed painted the pages at a provisional
-                        // scale; the ResizeObserver then re-fitted width-fit/page-fit ~120ms
-                        // later, so the reader watched the zoom level change a moment after
-                        // opening. Converging inside the stabilization window means the first
-                        // painted frame is already the final scale.
-                        renderStabilizationTimeoutRef.current = setTimeout(() => {
-                            renderStabilizationTimeoutRef.current = null;
+                        // Reveal as soon as the opening zoom has actually converged, rather
+                        // than after a fixed delay. The pages used to be painted at a
+                        // provisional scale and then re-fitted ~120ms later by the
+                        // ResizeObserver, so the reader watched the level change after opening.
+                        // Polling until the fitted scale matches (bounded by the
+                        // stabilization window) keeps the common case instant — no resize means
+                        // the scale is already correct and the pages appear immediately.
+                        const revealDeadline = Date.now() + INITIAL_RENDER_STABILIZATION_MS;
+                        const firstPageForReveal = initialPages[0];
+                        const tryReveal = () => {
+                            revealRafRef.current = null;
+                            const mode = zoomModeRef.current;
+                            const revealContainer = containerRef.current;
+                            if (
+                                (mode === 'width-fit' || mode === 'page-fit')
+                                && revealContainer
+                                && firstPageForReveal
+                            ) {
+                                const isTwoPage = presentationModeRef.current === 'two-page';
+                                const fitted = mode === 'page-fit'
+                                    ? getFitPageScale(revealContainer, firstPageForReveal, isTwoPage)
+                                    : getFitWidthScale(revealContainer, firstPageForReveal, isTwoPage);
+                                if (Math.abs(fitted - scaleRef.current) > ZOOM_SETTLE_EPSILON) {
+                                    if (Date.now() < revealDeadline) {
+                                        revealRafRef.current = window.requestAnimationFrame(tryReveal);
+                                        return;
+                                    }
+                                    // Out of budget: converge now rather than showing a
+                                    // stale scale, then reveal.
+                                    applyZoom(fitted, { mode, preserveMode: true, anchor: false });
+                                }
+                            }
                             setIsInitialRenderStabilizing(false);
                             setIsLoading(false);
-                        }, INITIAL_RENDER_STABILIZATION_MS);
+                        };
+                        revealRafRef.current = window.requestAnimationFrame(tryReveal);
                         const cachedInfo = getCachedPdfDocumentInfo(infoCacheKey, totalPageCount);
                         const initialInfo: PDFDocumentInfo = cachedInfo ?? { title: displayFilename, totalPages: totalPageCount, filename: displayFilename, sourceFilename: sourceFilenameStem, hasOutline: false, toc: [] };
                         callbacksRef.current.onLoad?.(initialInfo);
@@ -2224,7 +2268,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (loadingGraceTimerRef.current) { clearTimeout(loadingGraceTimerRef.current); loadingGraceTimerRef.current = null; }
                 if (initialPageRestoreTimeoutRef.current) { clearTimeout(initialPageRestoreTimeoutRef.current); initialPageRestoreTimeoutRef.current = null; }
                 if (interactionIdleTimeoutRef.current) { clearTimeout(interactionIdleTimeoutRef.current); interactionIdleTimeoutRef.current = null; }
-                if (renderStabilizationTimeoutRef.current) { clearTimeout(renderStabilizationTimeoutRef.current); renderStabilizationTimeoutRef.current = null; }
+                if (revealRafRef.current !== null) { cancelAnimationFrame(revealRafRef.current); revealRafRef.current = null; }
                 setIsInitialRenderStabilizing(false);
                 setPages((existingPages) => { existingPages.forEach((p) => p.cleanup()); return []; });
                 pageLayoutRef.current = [];
