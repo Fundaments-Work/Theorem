@@ -539,13 +539,16 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
             <div className="-mb-4">
                 <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        {/* Navigation, not a toolbar action: a borderless ghost
+                            control so it does not compete with the shelf avatar
+                            beside it, at the app's 44px phone touch minimum. */}
                         <button
                             onClick={onBack}
                             aria-label="Back to shelves"
                             title="Back to shelves"
-                            className={cn(TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2 shrink-0")}
+                            className="inline-flex items-center justify-center shrink-0 h-11 w-11 sm:h-10 sm:w-10 -ml-1 text-[color:var(--color-text-primary)] transition-colors duration-200 ease-out hover:bg-[var(--color-surface-muted)] touch-manipulation"
                         >
-                            <ArrowLeft className="w-4 h-4" />
+                            <ArrowLeft className="w-5 h-5" />
                         </button>
                         
                         <div

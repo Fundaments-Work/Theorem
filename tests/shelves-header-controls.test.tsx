@@ -132,9 +132,10 @@ describe("Shelves Header and Controls Integration", () => {
     });
 
     // The back control used to be a full-width `ui-btn` with an uppercase
-    // "Shelves" label, so it outweighed the shelf name and read as a primary
-    // action. It must stay a square icon button like its header siblings.
-    it("keeps the back button a square icon button, not a labelled control", () => {
+    // "Shelves" label, so it outweighed the shelf name. It then became a bordered
+    // square `ui-btn`, which on phones read as a second box competing with the
+    // shelf avatar. It is navigation, so it must stay borderless and ghosted.
+    it("keeps the back button a borderless ghost control at a 44px phone target", () => {
         useLibraryStore.setState({
             collections: [{
                 id: "shelf-back-btn",
@@ -153,12 +154,22 @@ describe("Shelves Header and Controls Integration", () => {
                 ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         });
 
-        const backBtn = container.querySelector('button[aria-label="Back to shelves"]');
+        const backBtn = container.querySelector('button[aria-label="Back to shelves"]')!;
         expect(backBtn).not.toBeNull();
-        expect(backBtn?.getAttribute("title")).toBe("Back to shelves");
-        expect(backBtn?.className).toContain("h-10");
-        expect(backBtn?.className).toContain("w-10");
+        expect(backBtn.getAttribute("title")).toBe("Back to shelves");
+
+        // 44px on phones, desktop density from sm upwards.
+        expect(backBtn.className).toContain("h-11");
+        expect(backBtn.className).toContain("w-11");
+        expect(backBtn.className).toContain("sm:h-10");
+        expect(backBtn.className).toContain("touch-manipulation");
+
+        // Borderless: no toolbar chrome competing with the shelf avatar.
+        expect(backBtn.className).not.toContain("ui-btn");
+        expect(backBtn.className).not.toContain("border-2");
+        expect(backBtn.className).not.toMatch(/border-\[/);
+
         // No text label competing with the shelf heading.
-        expect(backBtn?.textContent?.trim()).toBe("");
+        expect(backBtn.textContent?.trim()).toBe("");
     });
 });
