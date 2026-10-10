@@ -3,8 +3,15 @@ use tauri::{
     Runtime,
 };
 
-#[cfg(target_os = "android")]
 use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScannedBookFile {
+    pub path: Box<str>,
+    pub relative_path: Box<str>,
+    pub root_name: Box<str>,
+}
 #[cfg(target_os = "android")]
 use tauri::{AppHandle, Manager};
 
@@ -41,7 +48,7 @@ struct ScanFolderPayload<'a> {
 #[cfg(target_os = "android")]
 #[derive(Deserialize)]
 struct ScanFolderResponse {
-    files: Vec<String>,
+    files: Vec<ScannedBookFile>,
 }
 
 #[cfg(target_os = "android")]
@@ -100,7 +107,10 @@ pub fn pick_folder<R: Runtime>(app: &AppHandle<R>) -> Result<Option<String>, Str
 }
 
 #[cfg(target_os = "android")]
-pub fn scan_folder<R: Runtime>(app: &AppHandle<R>, tree_uri: &str) -> Result<Vec<String>, String> {
+pub fn scan_folder<R: Runtime>(
+    app: &AppHandle<R>,
+    tree_uri: &str,
+) -> Result<Vec<ScannedBookFile>, String> {
     let state = get_scan_state(app)?;
     let response = state
         .handle

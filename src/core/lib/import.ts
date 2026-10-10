@@ -1,5 +1,6 @@
 
 import type { Book, BookFormat } from '../types';
+import type { ScannedBookFile } from './source-folders';
 import { v4 as uuidv4 } from 'uuid';
 import { isTauri, isMobile } from './env';
 import { saveBookData, getBookData } from './storage';
@@ -838,7 +839,7 @@ export async function pickAndImportBooksIncremental(
     }
 }
 
-export async function scanFolderForBooks(folderPath: string): Promise<string[]> {
+export async function scanFolderForBooks(folderPath: string): Promise<ScannedBookFile[]> {
     const rootFolderPath = normalizeImportPath(folderPath);
     if (!rootFolderPath) {
         return [];
@@ -847,7 +848,7 @@ export async function scanFolderForBooks(folderPath: string): Promise<string[]> 
     if (isTauri() && !isMobile()) {
         try {
             const { invoke } = await import('@tauri-apps/api/core');
-            const result = await invoke<string[]>('scan_library_folder_desktop', {
+            const result = await invoke<ScannedBookFile[]>('scan_library_folder_desktop', {
                 folderPath: rootFolderPath,
             });
             return Array.isArray(result) ? result : [];
@@ -860,7 +861,8 @@ export async function scanFolderForBooks(folderPath: string): Promise<string[]> 
     if (!plugins?.fs) throw new Error('FS plugin not available - folder scanning requires Tauri');
     const fs = plugins.fs;
 
-    const bookFiles: string[] = [];
+    const bookFiles: ScannedBookFile[] = [];
+    const rootName = rootFolderPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || rootFolderPath;
     const visitedDirectories = new Set<string>();
 
     type ScanEntryLike = {
@@ -942,7 +944,7 @@ export async function scanFolderForBooks(folderPath: string): Promise<string[]> 
         return 'skip';
     }
 
-    async function scanDir(dir: string) {
+    async function scanDir(dir: string, relativeDirectory = '') {
         const normalizedDir = normalizeImportPath(dir);
         if (visitedDirectories.has(normalizedDir)) {
             return;
@@ -963,13 +965,13 @@ export async function scanFolderForBooks(folderPath: string): Promise<string[]> 
                 const kind = await resolveEntryKind(entryLike, fullPath);
 
                 if (kind === 'directory') {
-                    await scanDir(fullPath);
+                    await scanDir(fullPath, `${relativeDirectory}${entryName}/`);
                 } else if (kind === 'file') {
                     const lowerName = entryName.toLowerCase();
                     const isSupportedBook = isSupportedImportFilename(lowerName);
 
                     if (isSupportedBook) {
-                        bookFiles.push(fullPath);
+                        bookFiles.push({ path: fullPath, relativePath: `${relativeDirectory}${entryName}`, rootName });
                     }
                 }
             }
@@ -978,5 +980,5 @@ export async function scanFolderForBooks(folderPath: string): Promise<string[]> 
     }
 
     await scanDir(rootFolderPath);
-    return Array.from(new Set(bookFiles));
+    return [...new Map(bookFiles.map((file) => [file.path, file])).values()];
 }

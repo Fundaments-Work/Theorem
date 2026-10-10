@@ -1079,7 +1079,7 @@ fn pick_library_folder_mobile(app: tauri::AppHandle) -> Result<Option<String>, S
 fn scan_library_folder_mobile(
     app: tauri::AppHandle,
     tree_uri: String,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<tauri_plugin_mobile_folder_scan::ScannedBookFile>, String> {
     #[cfg(target_os = "android")]
     {
         tauri_plugin_mobile_folder_scan::scan_folder(&app, &tree_uri)
@@ -1091,7 +1091,9 @@ fn scan_library_folder_mobile(
     }
 }
 
-fn scan_library_folder_desktop(folder_path: String) -> Result<Vec<String>, String> {
+fn scan_library_folder_desktop(
+    folder_path: String,
+) -> Result<Vec<tauri_plugin_mobile_folder_scan::ScannedBookFile>, String> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let _ = folder_path;
@@ -1108,7 +1110,11 @@ fn scan_library_folder_desktop(folder_path: String) -> Result<Vec<String>, Strin
             ".epub", ".mobi", ".azw", ".azw3", ".fb2", ".fbz", ".fb2.zip", ".cbz", ".cbr", ".pdf",
         ];
 
-        let mut book_files: Vec<String> = Vec::new();
+        let mut book_files = Vec::new();
+        let root_name = path
+            .file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy();
 
         for entry in walkdir::WalkDir::new(path)
             .follow_links(false)
@@ -1127,12 +1133,21 @@ fn scan_library_folder_desktop(folder_path: String) -> Result<Vec<String>, Strin
                     .iter()
                     .any(|ext| name_lower.ends_with(ext))
                 {
-                    book_files.push(entry_path.to_string_lossy().to_string());
+                    if let Ok(relative) = entry_path.strip_prefix(path) {
+                        book_files.push(tauri_plugin_mobile_folder_scan::ScannedBookFile {
+                            path: entry_path.to_string_lossy().into_owned().into_boxed_str(),
+                            relative_path: relative
+                                .to_string_lossy()
+                                .replace('\\', "/")
+                                .into_boxed_str(),
+                            root_name: root_name.to_string().into_boxed_str(),
+                        });
+                    }
                 }
             }
         }
 
-        book_files.sort();
+        book_files.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(book_files)
     }
 }

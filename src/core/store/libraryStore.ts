@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { mergeSourceFolders, normalizeSourceFolders } from "../lib/source-folders";
 import { triggerVaultAutoSync } from "../lib/vault-sync";
 import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
@@ -323,6 +324,13 @@ function isPlaceholderAuthor(author: string): boolean {
 function mergeImportedBookMetadata(existingBook: Book, incomingBook: Book): Book {
     let changed = false;
     const nextBook = { ...existingBook };
+    if (incomingBook.sourceFolders?.length) {
+        const sourceFolders = mergeSourceFolders(existingBook.sourceFolders, incomingBook.sourceFolders);
+        if (JSON.stringify(sourceFolders) !== JSON.stringify(existingBook.sourceFolders ?? [])) {
+            nextBook.sourceFolders = sourceFolders;
+            changed = true;
+        }
+    }
 
     if (existingBook.syncedWithoutFile && (incomingBook.storagePath || incomingBook.filePath)) {
         nextBook.storagePath = incomingBook.storagePath || incomingBook.filePath;
@@ -428,6 +436,7 @@ function normalizePersistedBook(book: Book): Book {
         ...book,
         contentHash,
         filePath: normalizedFilePath,
+        sourceFolders: normalizeSourceFolders(book.sourceFolders),
         storagePath: normalizedStoragePath,
         coverExtractionDone: Boolean(book.coverExtractionDone || hasLegacyPersistedCoverPath),
         series: typeof book.series === "string" && book.series.trim().length > 0 ? book.series.trim() : undefined,
@@ -1557,7 +1566,7 @@ export const useLibraryStore = create<LibraryStore>()(
         }),
         {
             name: "theorem-library",
-            version: 9,
+            version: 10,
             storage: deferredJsonStorage,
             migrate: (persistedState, version) => {
                 const persisted = (
