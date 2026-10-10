@@ -24,6 +24,8 @@ import { OpdsBookCard } from "./components/OpdsBookCard";
 const BOOK_GRID_GAP = 16;
 /** Height reserved under each cover for the title + author lines. */
 const BOOK_CARD_TEXT_HEIGHT = 44;
+/** Delay before an as-you-type search hits the network. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * Loading placeholder. A bare spinner replaced the entire viewport, so the page
@@ -74,6 +76,21 @@ export function OPDSBrowserPage() {
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [isSearching, setIsSearching] = useState(false);
+    /**
+     * Server search results are held separately from `feed`.
+     *
+     * They used to be written back into `feed`, which replaced the feed the user
+     * had drilled into — so searching a category destroyed the category and left
+     * no way back to it. Keeping them apart means the browsing context survives,
+     * and clearing the query is a pure client-side operation with no refetch.
+     */
+    const [serverResults, setServerResults] = useState<OpdsFeed | null>(null);
+    const [searchSource, setSearchSource] = useState<"server" | "local" | null>(null);
+    /**
+     * Guards against out-of-order responses. Without it, a slow request for
+     * "dick" can land after a fast one for "dickens" and overwrite it.
+     */
+    const searchRequestId = useRef(0);
 
     const [selectedEntry, setSelectedEntry] = useState<OpdsEntry | null>(null);
     const [downloadingEntryId, setDownloadingEntryId] = useState<string | null>(null);
@@ -122,34 +139,87 @@ export function OPDSBrowserPage() {
 
     useEffect(() => {
         if (targetUrl) {
+            // A search belongs to the feed it ran against; leaving it applied to
+            // the next category would show matches the user never asked for.
+            setSearchQuery("");
             void loadFeed(targetUrl);
         }
     }, [targetUrl, loadFeed]);
 
-    const handleSearch = async (e?: React.FormEvent) => {
-        e?.preventDefault();
-        const trimmed = searchQuery.trim();
-        if (!trimmed) {
-            if (targetUrl) void loadFeed(targetUrl);
+    /**
+     * Server search, used only when the feed advertises an OpenSearch template.
+     *
+     * A failure falls back to filtering what is already loaded rather than
+     * dead-ending: many catalogs advertise a template they do not honour, and a
+     * toast with no results is the worst possible answer.
+     */
+    const runServerSearch = useCallback(
+        async (query: string) => {
+            const template = feed?.searchUrlTemplate;
+            if (!template) return;
+
+            const requestId = ++searchRequestId.current;
+            setIsSearching(true);
+            try {
+                const results = await OpdsService.search(
+                    template,
+                    query,
+                    feed?.selfUrl || targetUrl || "",
+                );
+                if (requestId !== searchRequestId.current) return;
+                setServerResults(results);
+                setSearchSource("server");
+            } catch {
+                if (requestId !== searchRequestId.current) return;
+                setServerResults(null);
+                setSearchSource("local");
+                toast.error("Catalog search failed — showing matches on this page instead.");
+            } finally {
+                if (requestId === searchRequestId.current) setIsSearching(false);
+            }
+        },
+        [feed, targetUrl],
+    );
+
+    /**
+     * Search-as-you-type.
+     *
+     * Previously this only ran on form submit and only when the feed had a
+     * search template — so on a feed without one the input was not even
+     * rendered, and typing simply did nothing.
+     */
+    useEffect(() => {
+        const query = searchQuery.trim();
+        // Any keystroke invalidates whatever is in flight.
+        searchRequestId.current += 1;
+
+        if (!query) {
+            setServerResults(null);
+            setSearchSource(null);
+            setIsSearching(false);
             return;
         }
 
-        if (feed?.searchUrlTemplate) {
-            setIsSearching(true);
-            try {
-                const searchResults = await OpdsService.search(
-                    feed.searchUrlTemplate,
-                    trimmed,
-                    feed.selfUrl || targetUrl || ""
-                );
-                setFeed(searchResults);
-            } catch (err: any) {
-                toast.error("Could not find results for that query.");
-            } finally {
-                setIsSearching(false);
-            }
+        if (!feed?.searchUrlTemplate) {
+            // No search endpoint: filter the loaded entries. Instant, no debounce.
+            setSearchSource("local");
+            setServerResults(null);
+            return;
         }
+
+        const timer = setTimeout(() => {
+            void runServerSearch(query);
+        }, SEARCH_DEBOUNCE_MS);
+        return () => clearTimeout(timer);
+    }, [searchQuery, feed?.searchUrlTemplate, runServerSearch]);
+
+    const handleSearchSubmit = (e?: React.FormEvent) => {
+        e?.preventDefault();
+        const query = searchQuery.trim();
+        if (query) void runServerSearch(query);
     };
+
+    const clearSearch = () => setSearchQuery("");
 
     const handleDownload = async (entry: OpdsEntry) => {
         setDownloadingEntryId(entry.id);
@@ -192,13 +262,37 @@ export function OPDSBrowserPage() {
         toast.success(`Added "${newCatalogTitle}" catalog`);
     };
 
+    const trimmedQuery = searchQuery.trim();
+    const usingServerResults = trimmedQuery.length > 0 && searchSource === "server" && !!serverResults;
+
+    /**
+     * Local fallback. Matches title and author, case-insensitively, so search
+     * works on every catalog rather than only on those implementing OpenSearch.
+     */
+    const localMatches = useMemo(() => {
+        if (!trimmedQuery) return null;
+        const query = trimmedQuery.toLowerCase();
+        return (feed?.entries ?? []).filter(
+            (e) =>
+                !e.isNavigation &&
+                (e.title.toLowerCase().includes(query) ||
+                    (e.author ?? "").toLowerCase().includes(query)),
+        );
+    }, [feed, trimmedQuery]);
+
+    // Categories are hidden while searching — a sub-feed is not a search result.
     const navigationEntries = useMemo(() => {
+        if (trimmedQuery) return [];
         return feed?.entries.filter((e) => e.isNavigation) || [];
-    }, [feed]);
+    }, [feed, trimmedQuery]);
 
     const bookEntries = useMemo(() => {
+        if (usingServerResults) {
+            return (serverResults?.entries ?? []).filter((e) => !e.isNavigation);
+        }
+        if (trimmedQuery) return localMatches ?? [];
         return feed?.entries.filter((e) => !e.isNavigation) || [];
-    }, [feed]);
+    }, [usingServerResults, serverResults, trimmedQuery, localMatches, feed]);
 
     /**
      * Column count has to be known in JS (not just CSS) because the virtualizer
@@ -333,34 +427,37 @@ export function OPDSBrowserPage() {
                     </h2>
                 </div>
 
-                {feed?.searchUrlTemplate && (
-                    <form onSubmit={handleSearch} className="relative sm:w-72 md:w-80 shrink-0">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[color:var(--color-text-muted)]" />
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search books or authors…"
-                            className="w-full h-8 pl-8 pr-7 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[color:var(--color-text-primary)] placeholder-[color:var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent)]"
-                        />
-                        {searchQuery && (
+                {/* Always rendered: gating this on `feed.searchUrlTemplate` meant
+                    catalogs without an OpenSearch endpoint had no search at all. */}
+                <form onSubmit={handleSearchSubmit} className="relative sm:w-72 md:w-80 shrink-0">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[color:var(--color-text-muted)]" />
+                    <input
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search books or authors…"
+                        aria-label="Search this catalog"
+                        className="w-full h-8 pl-8 pr-14 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[color:var(--color-text-primary)] placeholder-[color:var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent)] transition-colors"
+                    />
+                    {isSearching ? (
+                        <RefreshCw className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[color:var(--color-text-muted)] animate-spin" />
+                    ) : (
+                        searchQuery && (
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setSearchQuery("");
-                                    if (targetUrl) void loadFeed(targetUrl);
-                                }}
+                                onClick={clearSearch}
+                                aria-label="Clear search"
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)]"
                             >
                                 <X className="h-3.5 w-3.5" />
                             </button>
-                        )}
-                    </form>
-                )}
+                        )
+                    )}
+                </form>
             </div>
 
             {/* Main Content Area */}
-            {isLoading || isSearching ? (
+            {isLoading ? (
                 <CatalogSkeleton />
             ) : error ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 bg-[var(--color-surface-muted)] rounded-xl border border-[var(--color-border)] p-6">
@@ -413,14 +510,30 @@ export function OPDSBrowserPage() {
                     {/* Book Cards Grid (virtualized) */}
                     {bookEntries.length > 0 ? (
                         <div>
-                            <div className="mb-3 flex items-baseline justify-between gap-3">
+                            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                                 <h3 className="text-xs font-semibold text-[color:var(--color-text-secondary)]">
-                                    Books
+                                    {trimmedQuery
+                                        ? `Results for “${trimmedQuery}”`
+                                        : "Books"}
                                 </h3>
-                                <span className="text-xs text-[color:var(--color-text-muted)] tabular-nums">
-                                    {bookEntries.length.toLocaleString()}{" "}
-                                    {bookEntries.length === 1 ? "title" : "titles"}
-                                </span>
+                                <div className="flex items-baseline gap-3">
+                                    {searchSource === "local" && trimmedQuery && (
+                                        <span
+                                            className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider"
+                                            title={
+                                                feed?.searchUrlTemplate
+                                                    ? "This catalog's search endpoint is unavailable — matching the titles on this page."
+                                                    : "This catalog does not offer a search endpoint — matching the titles on this page."
+                                            }
+                                        >
+                                            On this page
+                                        </span>
+                                    )}
+                                    <span className="text-xs text-[color:var(--color-text-muted)] tabular-nums">
+                                        {bookEntries.length.toLocaleString()}{" "}
+                                        {bookEntries.length === 1 ? "title" : "titles"}
+                                    </span>
+                                </div>
                             </div>
                             <div
                                 ref={gridRef}
@@ -478,6 +591,25 @@ export function OPDSBrowserPage() {
                                     );
                                 })}
                             </div>
+                        </div>
+                    ) : trimmedQuery ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+                            <Search className="h-8 w-8 text-[color:var(--color-text-muted)]" />
+                            <p className="text-xs font-medium text-[color:var(--color-text-secondary)]">
+                                No results for &ldquo;{trimmedQuery}&rdquo;
+                            </p>
+                            {searchSource === "local" && (
+                                <p className="text-[11px] text-[color:var(--color-text-muted)] max-w-sm">
+                                    This catalog has no search endpoint, so only titles already
+                                    loaded on this page were matched.
+                                </p>
+                            )}
+                            <button
+                                onClick={clearSearch}
+                                className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            >
+                                Clear search
+                            </button>
                         </div>
                     ) : navigationEntries.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
