@@ -33,10 +33,11 @@ export function SeriesGroupHeader({
         : 0;
 
     return (
-        // Fixed height + no wrap: the Continue button is conditional, so an
-        // auto-height row would collapse when the last unread volume is finished
-        // and shift every card below it, breaking the scroll anchor.
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-3 h-11 sm:h-9">
+        // The action cluster reserves its height unconditionally (see below), so
+        // this row is the same height whether or not Continue is showing. An
+        // auto-height row collapsed as soon as the last unread volume was read,
+        // shifting every card below it and breaking the shelves scroll anchor.
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-3">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
                 <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
                 <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-primary)] truncate">
@@ -55,9 +56,11 @@ export function SeriesGroupHeader({
                     </span>
                 )}
             </div>
-            {/* The action cluster is allowed to wrap onto its own row on narrow screens so
-                a 44px touch target is never squeezed by the truncating title. */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Reserve the slot's height whether or not Continue renders, so the row does
+                not change height when the last unread volume is read. The height
+                lives here rather than on the row so `items-center` can still
+                centre the content instead of overflowing a fixed-height box. */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-h-11 sm:min-h-0">
                 {nextUnreadBook && (
                     <button
                         onClick={() => onContinue(nextUnreadBook)}

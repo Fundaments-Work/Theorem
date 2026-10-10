@@ -141,14 +141,14 @@ describe("series header touch targets (#128)", () => {
 });
 
 describe("series header keeps a stable height (scroll anchor)", () => {
-    function headerRow(container: HTMLElement): HTMLElement {
-        return container.firstElementChild as HTMLElement;
+    function actionSlot(container: HTMLElement): HTMLElement {
+        return container.firstElementChild!.lastElementChild as HTMLElement;
     }
 
-    it("does not change height when the Continue button disappears", () => {
-        // The Continue button is conditional, so an auto-height row collapses as
-        // soon as the last unread volume is finished and shifts every card below
-        // it — which is what broke the shelves scroll anchor.
+    it("reserves the action slot height whether or not Continue renders", () => {
+        // The Continue button is conditional. Height is reserved on the action
+        // slot (not forced onto the row) so the row cannot collapse as the last
+        // unread volume is read, while `items-center` still centres the content.
         const withUnread = render(
             <SeriesGroupHeader
                 seriesName="Dune"
@@ -156,8 +156,6 @@ describe("series header keeps a stable height (scroll anchor)", () => {
                 onContinue={() => {}}
             />,
         );
-        const rowWithUnread = headerRow(withUnread);
-
         const allRead = render(
             <SeriesGroupHeader
                 seriesName="Dune"
@@ -165,16 +163,32 @@ describe("series header keeps a stable height (scroll anchor)", () => {
                 onContinue={() => {}}
             />,
         );
-        const rowAllRead = headerRow(allRead);
 
-        // Buttons differ (one has a Continue target, one has none) but the row's
-        // declared height is identical, so layout cannot shift.
         expect(withUnread.querySelector('button[aria-label^="Continue reading"]')).toBeTruthy();
         expect(allRead.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
 
-        expect(rowWithUnread.className).toBe(rowAllRead.className);
-        expect(rowWithUnread.className).toMatch(/\bh-\d/);
-        expect(rowWithUnread.className).not.toContain("flex-wrap");
+        // Identical reserved height in both states => no layout shift.
+        expect(actionSlot(withUnread).className).toBe(actionSlot(allRead).className);
+        expect(actionSlot(withUnread).className).toContain("min-h-11");
+    });
+
+    it("does not force a fixed row height, so content stays vertically centred", () => {
+        // A fixed `h-*` on the row fought the `pb-3` and the 44px slot and pushed
+        // the row out of centre; height belongs on the slot only.
+        const container = render(
+            <SeriesGroupHeader
+                seriesName="Dune"
+                group={[makeBook({ id: "b1" }), makeBook({ id: "b2", seriesIndex: 2 })]}
+                onContinue={() => {}}
+            />,
+        );
+        const row = container.firstElementChild as HTMLElement;
+
+        expect(row.className).toContain("items-center");
+        expect(row.className).not.toMatch(/\bh-\d/);
+        expect(row.className).not.toContain("flex-wrap");
+        // The border/spacing that gives the row its height.
+        expect(row.className).toContain("pb-3");
     });
 });
 
