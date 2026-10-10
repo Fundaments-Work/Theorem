@@ -1,9 +1,17 @@
 # OPDS Browser Redesign — Design
 
 **Date**: 2026-10-10
-**Status**: Approved — in progress
+**Status**: Completed — all four phases delivered
 **Area**: Catalogs / OPDS
-**Files touched**: `src/features/catalogs/OPDSBrowser.tsx`, `src/core/services/OpdsService.ts`, new shared catalog components
+**Files touched**: `src/features/catalogs/OPDSBrowser.tsx`, `src/features/catalogs/catalog-facets.ts`, `src/features/catalogs/components/OpdsBookCard.tsx`, `src/ui/filter-chips.ts`
+
+| Phase | Commit |
+|---|---|
+| Design note | `b7587d9` |
+| 1 — Virtualization + skeletons | `7a65e8d` |
+| 2 — Search that always works | `eebe493` |
+| 3 — Sort + filters | `a1a27bc` |
+| 4 — Visual consistency | `93f70e0` |
 
 ---
 
@@ -91,6 +99,12 @@ a cover grid over a scroll container.
 - `estimateSize` derived from the column width, mirroring the Library's non-list branch.
 - Re-measure on column-count change.
 
+**Delivered as:** rows sized from the *grid's* own width, not the scroll container's — the
+content column is capped at `max-w-7xl`, so a wide window would over-estimate and grow a
+scrollbar of empty space. `measureElement` was dropped rather than kept: the cover is
+`aspect-[2/3]` and title/author are clamped to a fixed number of lines with explicit
+leading, so the row height is exact and no measure pass is needed per scrolled row.
+
 ### 3.2 Search that always works (phase 2)
 
 - Debounce to 250 ms, search-as-you-type, no submit required (the form stays for Enter).
@@ -144,10 +158,28 @@ paths remain.
 - **Search**: local fallback filters by title and author; debounce does not fire on
   keystroke; empty query restores the feed; server path is used when a template exists.
 - **Sort/filter**: ordering and narrowing are stable; clearing filters restores the full set.
-- **Consistency**: cards render `TheoremBookCover`, so an entry with no cover gets the
-  fallback rather than a broken image.
+- **Consistency**: cards render `TheoremBookCover`, so an entry with no cover — or a cover
+  URL that 404s — gets the fallback rather than a broken image.
 
 Existing suites that must keep passing: `tests/opds.test.ts`, `tests/discover.test.ts`.
+
+Delivered as `tests/opds-virtualization.test.tsx`, `tests/opds-search.test.tsx`,
+`tests/opds-catalog-facets-ui.test.tsx`, `tests/opds-catalog-facets.test.ts` and
+`tests/opds-book-card.test.tsx`, over the shared harness in
+`tests/helpers/opds-browser-harness.ts`.
+
+### 5.1 A note for anyone touching the harness
+
+jsdom gives two things this feature depends on, and the harness supplies both:
+
+- `getRect` in `@tanstack/virtual-core` reads `offsetWidth`/`offsetHeight`, not
+  `clientWidth`/`getBoundingClientRect`. Both are hard 0 in jsdom, and `outerSize === 0`
+  sets the range to `null` — **zero** rows mount, overscan does not rescue it.
+- `ResizeObserver` does not exist at all; `tests/setup.ts` stubs it no-op.
+
+The same zero-size window occurs in production: routes stay mounted inside a
+`display:none` wrapper until first visited, so a grid's scroll element really does measure
+0×0 until the route becomes visible.
 
 ---
 
