@@ -42,6 +42,19 @@ const TOOLBAR_BUTTON_PRIMARY =
     "ui-btn-primary disabled:opacity-50";
 const TOOLBAR_ICON_BUTTON = "h-10 w-10 px-0";
 
+/**
+ * Fixed height of a list-view book row, in CSS pixels.
+ *
+ * The row virtualizer positions rows absolutely from its estimate, so the
+ * rendered row must be exactly this tall or it overlaps its neighbour. It is
+ * shared with the estimate so the two can never drift apart (see
+ * `getEstimateSize` in Library.tsx and Shelves.tsx).
+ *
+ * 24px of `p-3` padding + a 64px `h-16` cover = 88px, rounded up to leave room
+ * for a two-line title plus the author and metadata lines.
+ */
+export const LIBRARY_LIST_ROW_HEIGHT = 96;
+
 type ExtractMetadataFn = typeof import("../../core/lib/cover-extractor").extractMetadata;
 
 const IMPORT_METADATA_TIMEOUT_MS = isMobile() ? 9000 : 6000;
@@ -386,7 +399,12 @@ export const BookCard = memo(function BookCard({
         return (
             <ContextMenu items={contextMenuItems}>
                 <div
+                    // Fixed height shared with the row virtualizer's estimate.
+                    // Rows are absolutely positioned from that estimate, so an
+                    // auto-height row taller than the estimate overlaps the next
+                    // row — which is what made list view collide on phones.
                     className="group flex w-full items-center gap-3 p-3 transition-colors hover:bg-[var(--color-surface-muted)] sm:gap-4 cursor-pointer select-none"
+                    style={{ height: `${LIBRARY_LIST_ROW_HEIGHT}px` }}
                     role="button"
                     tabIndex={0}
                     aria-label={`Open ${book.title}`}
@@ -459,14 +477,13 @@ export const BookCard = memo(function BookCard({
                                 </div>
                             )}
                         </div>
-                        {book.progress > 0 && (
-                            <p className="mt-1 text-[0.6875rem] text-[color:var(--color-text-muted)] sm:hidden">
-                                {formatProgress(book.progress)}
-                            </p>
-                        )}
+                        {/* Progress lives in the right-hand column at every width. It used to be
+                        duplicated as an `sm:hidden` line under the title, which
+                        made phone rows taller than desktop rows and broke the
+                        virtualizer's single row estimate — rows overlapped. */}
                     </div>
 
-                    <div className="hidden text-right sm:block">
+                    <div className="shrink-0 text-right">
                         {book.progress > 0 ? (
                             <p className="text-sm text-[color:var(--color-text-secondary)]">
                                 {formatProgress(book.progress)}
@@ -1457,7 +1474,7 @@ export function LibraryPage() {
         : Math.ceil(sortedBooks.length / Math.max(effectiveCols, 1));
 
     const getEstimateSize = useCallback(() => {
-        if (isListView) return 70;
+        if (isListView) return LIBRARY_LIST_ROW_HEIGHT;
         const el = scrollRef.current;
         if (!el) return 300;
         const gap = isCompactView ? 8 : 20;

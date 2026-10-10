@@ -10,7 +10,7 @@ import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { SeriesGroupHeader } from "./components/SeriesGroupHeader";
 import { SeriesGroupContinue } from "./components/SeriesGroupContinue";
 import { ConfirmDialog, PageHeader } from "../../ui";
-import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal } from "./Library";
+import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal, LIBRARY_LIST_ROW_HEIGHT } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
 import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
@@ -482,7 +482,9 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
         : Math.ceil(shelfBooks.length / Math.max(effectiveCols, 1));
 
     const getEstimateSize = useCallback(() => {
-        if (isListView) return 70;
+        // Must equal the rendered row height or rows overlap. See
+        // LIBRARY_LIST_ROW_HEIGHT in Library.tsx.
+        if (isListView) return LIBRARY_LIST_ROW_HEIGHT;
         const el = scrollRef.current;
         if (!el) return 300;
         const gap = isCompactView ? 8 : 20;
