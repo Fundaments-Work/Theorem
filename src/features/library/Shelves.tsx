@@ -8,6 +8,7 @@ import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store"
 import { ShelfModal } from "./components/modals/ShelfModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { SeriesGroupHeader } from "./components/SeriesGroupHeader";
+import { SeriesGroupContinue } from "./components/SeriesGroupContinue";
 import { ConfirmDialog, PageHeader } from "../../ui";
 import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
@@ -688,6 +689,12 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                                         <div key={seriesName} className="space-y-4">
                                             <SeriesGroupHeader
                                                 seriesName={seriesName}
+                                                group={group}
+                                            />
+                                            {/* Own row beneath the header: the header stays
+                                                purely static, so the scroll anchor cannot
+                                                shift when this button appears/disappears. */}
+                                            <SeriesGroupContinue
                                                 group={group}
                                                 onContinue={handleOpenBook}
                                             />

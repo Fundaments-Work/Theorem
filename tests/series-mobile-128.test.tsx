@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { SeriesGroupHeader } from "../src/features/library/components/SeriesGroupHeader";
+import { SeriesGroupContinue } from "../src/features/library/components/SeriesGroupContinue";
 import { AssignSeriesModal } from "../src/features/library/components/modals/AssignSeriesModal";
 import { useLibraryStore } from "../src/core/store";
 import type { Book } from "../src/core/types";
@@ -62,39 +63,72 @@ function hasTouchMinHeight(cls: string) {
     return cls.includes("min-h-11");
 }
 
-describe("series header touch targets (#128)", () => {
-    it("has no per-group Edit control — the shelf toolbar opens the same modal", () => {
-        const group = [makeBook({ id: "b1", completedAt: new Date() })];
+describe("series header is purely static (#128)", () => {
+    it("contains no interactive controls at all", () => {
+        // The edit pencil duplicated the shelf header's "Create / Manage Series"
+        // button, and the Continue button was conditional — both made the header
+        // reflow and broke the shelves scroll anchor.
         const container = render(
-            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={() => {}} />,
+            <SeriesGroupHeader seriesName="Dune" group={[makeBook({ id: "b1" })]} />,
         );
 
-        // The redundant pencil is gone; editing a series is reachable from the
-        // shelf header's "Create / Manage Series from Shelf" button.
-        expect(container.querySelector('button[aria-label="Edit series Dune"]')).toBeNull();
-        expect(container.textContent).not.toContain("Edit Series");
-    });
-
-    it("renders no interactive control at all once every volume is read", () => {
-        const group = [makeBook({ id: "b1", completedAt: new Date() })];
-        const container = render(
-            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={() => {}} />,
-        );
-
-        expect(container.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
-        // Nothing small is left behind to trip the touch-target rule.
         expect(container.querySelectorAll("button")).toHaveLength(0);
+        expect(container.querySelector('button[aria-label="Edit series Dune"]')).toBeNull();
+        expect(container.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
     });
 
+    it("renders the same markup whether or not volumes remain unread", () => {
+        // Nothing conditional may remain, so reading progress cannot change the
+        // header's height.
+        const withUnread = render(
+            <SeriesGroupHeader
+                seriesName="Dune"
+                group={[makeBook({ id: "b1" }), makeBook({ id: "b2", seriesIndex: 2 })]}
+            />,
+        );
+        const allRead = render(
+            <SeriesGroupHeader
+                seriesName="Dune"
+                group={[makeBook({ id: "b1", completedAt: new Date() }), makeBook({ id: "b2", completedAt: new Date(), seriesIndex: 2 })]}
+            />,
+        );
+
+        expect((withUnread.firstElementChild as HTMLElement).className)
+            .toBe((allRead.firstElementChild as HTMLElement).className);
+    });
+
+    it("handles an empty group without dividing by zero", () => {
+        const container = render(<SeriesGroupHeader seriesName="Empty" group={[]} />);
+        expect(container.textContent).toContain("(0 vols.)");
+    });
+
+    it("pluralises the volume count and shows Completed only when all are read", () => {
+        const single = render(
+            <SeriesGroupHeader seriesName="Dune" group={[makeBook({ completedAt: new Date() })]} />,
+        );
+        expect(single.textContent).toContain("(1 vol.)");
+        expect(single.textContent).toContain("Completed");
+
+        const partial = render(
+            <SeriesGroupHeader
+                seriesName="Dune"
+                group={[makeBook({ completedAt: new Date() }), makeBook({ id: "b2" })]}
+            />,
+        );
+        expect(partial.textContent).toContain("(2 vols.)");
+        expect(partial.textContent).toContain("1/2 read (50%)");
+        expect(partial.textContent).not.toContain("Completed");
+    });
+});
+
+describe("series continue row touch targets (#128)", () => {
     it("keeps Continue tappable at 44px height while volumes remain unread", () => {
         const group = [
             makeBook({ id: "b1", completedAt: new Date() }),
             makeBook({ id: "b2", title: "Dune Messiah", seriesIndex: 2 }),
         ];
         const onContinue = vi.fn();
-        const container = render(
-            <SeriesGroupHeader seriesName="Dune" group={group} onContinue={onContinue} />,
-        );
+        const container = render(<SeriesGroupContinue group={group} onContinue={onContinue} />);
 
         const cont = container.querySelector<HTMLButtonElement>('button[aria-label^="Continue reading"]');
         expect(cont).toBeTruthy();
@@ -108,87 +142,40 @@ describe("series header touch targets (#128)", () => {
         expect(onContinue.mock.calls[0][0].id).toBe("b2");
     });
 
-    it("handles an empty group without dividing by zero", () => {
+    it("shows no button once every volume is read", () => {
         const container = render(
-            <SeriesGroupHeader seriesName="Empty" group={[]} onContinue={() => {}} />,
+            <SeriesGroupContinue
+                group={[makeBook({ id: "b1", completedAt: new Date() })]}
+                onContinue={() => { }}
+            />,
         );
-        expect(container.textContent).toContain("(0 vols.)");
         expect(container.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
     });
 
-    it("pluralises the volume count and shows Completed only when all are read", () => {
-        const single = render(
-            <SeriesGroupHeader
-                seriesName="Dune"
-                group={[makeBook({ completedAt: new Date() })]}
-                onContinue={() => {}}
-            />,
-        );
-        expect(single.textContent).toContain("(1 vol.)");
-        expect(single.textContent).toContain("Completed");
-
-        const partial = render(
-            <SeriesGroupHeader
-                seriesName="Dune"
-                group={[makeBook({ completedAt: new Date() }), makeBook({ id: "b2" })]}
-                onContinue={() => {}}
-            />,
-        );
-        expect(partial.textContent).toContain("(2 vols.)");
-        expect(partial.textContent).toContain("1/2 read (50%)");
-        expect(partial.textContent).not.toContain("Completed");
-    });
-});
-
-describe("series header keeps a stable height (scroll anchor)", () => {
-    function actionSlot(container: HTMLElement): HTMLElement {
-        return container.firstElementChild!.lastElementChild as HTMLElement;
-    }
-
-    it("reserves the action slot height whether or not Continue renders", () => {
-        // The Continue button is conditional. Height is reserved on the action
-        // slot (not forced onto the row) so the row cannot collapse as the last
-        // unread volume is read, while `items-center` still centres the content.
+    it("reserves its height in both states so cards below never shift", () => {
+        // The row keeps min-h even when empty, so the button appearing or
+        // disappearing cannot move the grid underneath it.
         const withUnread = render(
-            <SeriesGroupHeader
-                seriesName="Dune"
+            <SeriesGroupContinue
                 group={[makeBook({ id: "b1" }), makeBook({ id: "b2", seriesIndex: 2 })]}
-                onContinue={() => {}}
+                onContinue={() => { }}
             />,
         );
         const allRead = render(
-            <SeriesGroupHeader
-                seriesName="Dune"
-                group={[makeBook({ id: "b1", completedAt: new Date() }), makeBook({ id: "b2", completedAt: new Date(), seriesIndex: 2 })]}
-                onContinue={() => {}}
+            <SeriesGroupContinue
+                group={[makeBook({ id: "b1", completedAt: new Date() })]}
+                onContinue={() => { }}
             />,
         );
+
+        const rowA = withUnread.firstElementChild as HTMLElement;
+        const rowB = allRead.firstElementChild as HTMLElement;
+        expect(rowA.className).toBe(rowB.className);
+        expect(rowA.className).toContain("min-h-11");
+        expect(rowA.className).toContain("sm:min-h-9");
 
         expect(withUnread.querySelector('button[aria-label^="Continue reading"]')).toBeTruthy();
         expect(allRead.querySelector('button[aria-label^="Continue reading"]')).toBeNull();
-
-        // Identical reserved height in both states => no layout shift.
-        expect(actionSlot(withUnread).className).toBe(actionSlot(allRead).className);
-        expect(actionSlot(withUnread).className).toContain("min-h-11");
-    });
-
-    it("does not force a fixed row height, so content stays vertically centred", () => {
-        // A fixed `h-*` on the row fought the `pb-3` and the 44px slot and pushed
-        // the row out of centre; height belongs on the slot only.
-        const container = render(
-            <SeriesGroupHeader
-                seriesName="Dune"
-                group={[makeBook({ id: "b1" }), makeBook({ id: "b2", seriesIndex: 2 })]}
-                onContinue={() => {}}
-            />,
-        );
-        const row = container.firstElementChild as HTMLElement;
-
-        expect(row.className).toContain("items-center");
-        expect(row.className).not.toMatch(/\bh-\d/);
-        expect(row.className).not.toContain("flex-wrap");
-        // The border/spacing that gives the row its height.
-        expect(row.className).toContain("pb-3");
     });
 });
 
