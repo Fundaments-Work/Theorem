@@ -1,3 +1,6 @@
+import './comic-strip';
+import { ComicFlowController, comicBookForFlow, COMIC_SCROLL_CSS, isComicFormat } from './comic-flow';
+import { readCbrAsCbz } from '../../../core/lib/cbr';
 
 import type {
     DocLocation,
@@ -86,6 +89,7 @@ export class FoliateEngine {
     private currentLocation: DocLocation | null = null;
     private sectionFractions: number[] = [];
 
+    private comicFlowController = new ComicFlowController();
     private format: BookFormat = 'epub';
     private isFixedLayoutFormat = false;
 
@@ -328,16 +332,15 @@ export class FoliateEngine {
 
             if (format === 'cbr' && isTauri()) {
                 try {
-                    const { invoke } = await import('@tauri-apps/api/core');
                     const targetPath = nativeFilePath || (source as { path?: string })?.path;
                     if (targetPath) {
-                        const cbzBytes = await invoke<Uint8Array>('read_cbr_as_cbz', { path: targetPath });
-                        file = new File([cbzBytes.buffer as ArrayBuffer], _filename.replace(/\.cbr$/i, '.cbz'), {
+                        const cbzBytes = await readCbrAsCbz(targetPath);
+                        file = new File([cbzBytes], _filename.replace(/\.cbr$/i, '.cbz'), {
                             type: 'application/vnd.comicbook+zip',
                         });
                     }
                 } catch (e) {
-                    console.warn('[FoliateEngine] Failed to convert CBR to CBZ:', e);
+                    throw new Error(`Failed to convert CBR to CBZ: ${e}`);
                 }
             }
 
@@ -374,8 +377,9 @@ export class FoliateEngine {
 
             this.setupEventListeners();
 
+            this.flow = flow;
             await this.withTimeout(
-                this.view.open(this.book),
+                this.view.open(isComicFormat(this.format) ? comicBookForFlow(this.book, flow) : this.book),
                 READER_OPEN_TIMEOUT_MS,
                 'opening the book',
             );
@@ -529,6 +533,10 @@ export class FoliateEngine {
                     range: `${currentPage}`,
                     isEstimated: false,
                 };
+            } else if (isComicFormat(this.format) && typeof detail.section?.current === 'number') {
+                const currentPage = detail.section.current + 1;
+                pageInfo = { currentPage, endPage: currentPage, totalPages: this.book.sections.length,
+                    range: String(currentPage), isEstimated: false };
             } else if (detail.location) {
                 const totalLoc = detail.location.total;
                 const currentLoc = isAtEnd ? totalLoc : Math.min(totalLoc, detail.location.current + 1);
@@ -584,7 +592,8 @@ export class FoliateEngine {
 
             this.currentLocation = location;
 
-            const sectionIndex = typeof detail.index === 'number' ? detail.index : -1;
+            const sectionIndex = typeof detail.index === 'number' ? detail.index
+                : typeof detail.section?.current === 'number' ? detail.section.current : -1;
             if (sectionIndex >= 0 && sectionIndex !== this._lastSectionIndex) {
                 this._lastSectionIndex = sectionIndex;
                 if (!this._navigationInProgress) {
@@ -830,6 +839,14 @@ export class FoliateEngine {
 
     private async applySettingsAsync(): Promise<void> {
         if (!this.view?.renderer) return;
+        if (isComicFormat(this.format)) {
+            const view = this.view;
+            const switched = await this.comicFlowController.ensure(view, this.book,
+                () => this.flow, this._lastSectionIndex,
+                () => this.applySettingsSync(), () => this.view === view);
+            if (this.view !== view) return;
+            if (switched) this._lastCssSettingsKey = '';
+        }
 
         const currentSettings = getCurrentReaderSettings();
         if (!currentSettings) return;
@@ -845,6 +862,7 @@ export class FoliateEngine {
             currentSettings.forcePublisherStyles ?? false,
             this.theme,
             this.zoom_level,
+            this.flow,
         ].join('|');
 
         const renderer = this.view.renderer;
@@ -1023,9 +1041,10 @@ export class FoliateEngine {
             `;
             
             const foliateCSS = getCSS(readerStyle);
+            const comicCSS = isComicFormat(this.format) && this.flow === 'scroll' ? COMIC_SCROLL_CSS : '';
             const cssResult = Array.isArray(foliateCSS)
-                ? `${foliateCSS[1]}\n${customCSS}`
-                : `${foliateCSS}\n${customCSS}`;
+                ? `${foliateCSS[1]}\n${customCSS}\n${comicCSS}`
+                : `${foliateCSS}\n${customCSS}\n${comicCSS}`;
             this._lastCssResult = cssResult;
 
             if (Array.isArray(foliateCSS)) {

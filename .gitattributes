@@ -1,0 +1,4 @@
+tests/fixtures/vault/**/*.md text eol=lf
+scripts/*.sh text eol=lf
+scripts/patches/*.patch text eol=lf
+src/features/reader/foliate-js-runtime/** text eol=lf
