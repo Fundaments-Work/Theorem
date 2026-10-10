@@ -393,6 +393,45 @@ describe("PDF engine never derives a display name from the internal cache path",
     });
 });
 
+describe("PDF bottom page pill stays readable when space is tight", () => {
+    const engineSource = readFileSync(resolve("src/features/reader/engines/pdfjs-engine.tsx"), "utf-8");
+
+    // The pill is a shrink-to-fit flex row with a viewport max-width. Without
+    // `shrink-0` on every sibling, flex squashed the arrows, the "/" and the
+    // total page count instead of just the label, so the numbers vanished.
+    it("locks the navigation arrows, separator and page count against shrinking", () => {
+        // The button's own className precedes its title attribute; the icon's
+        // `className` follows it, so anchor on the nearest one *before*.
+        function classNameBefore(anchor: string): string | undefined {
+            const at = engineSource.indexOf(anchor);
+            expect(at).toBeGreaterThan(-1);
+            const head = engineSource.slice(0, at);
+            const matches = [...head.matchAll(/className="([^"]*)"/g)];
+            return matches[matches.length - 1]?.[1];
+        }
+
+        expect(classNameBefore('title="Previous page"')).toContain("shrink-0");
+        expect(classNameBefore('title="Next page"')).toContain("shrink-0");
+
+        expect(engineSource).toContain('className="shrink-0 text-[color:var(--color-text-muted)]">/</span>');
+        expect(engineSource).toContain('className="shrink-0 tabular-nums px-0.5">{totalPages}</span>');
+        expect(engineSource).toContain('className="mx-0.5 w-px h-3.5 shrink-0 bg-[var(--color-border)]"');
+    });
+
+    it("lets only the label truncate, without an arbitrary width cap", () => {
+        // `max-w-[45vw]` was far wider than the pill's own max-width, so the
+        // label never actually truncated and the row overflowed instead.
+        expect(engineSource).toContain(
+            'className="min-w-0 shrink truncate font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5"',
+        );
+        expect(engineSource).not.toContain("max-w-[45vw]");
+    });
+
+    it("keeps the pill itself bounded to the viewport", () => {
+        expect(engineSource).toContain("max-w-[calc(100vw-1.5rem)]");
+    });
+});
+
 describe("source filename is plumbed from the book row to the PDF engine", () => {
     const readerSource = readFileSync(resolve("src/features/reader/Reader.tsx"), "utf-8");
     const pdfReaderSource = readFileSync(resolve("src/features/reader/components/PDFReader.tsx"), "utf-8");

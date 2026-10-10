@@ -548,10 +548,9 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
                             onClick={onBack}
                             aria-label="Back to shelves"
                             title="Back to shelves"
-                            className={cn(TOOLBAR_BUTTON_BASE, "px-3 py-2 sm:px-4 border-2 shrink-0")}
+                            className={cn(TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2 shrink-0")}
                         >
                             <ArrowLeft className="w-4 h-4" />
-                            <span className="hidden sm:inline font-bold text-xs uppercase">Shelves</span>
                         </button>
                         
                         <div

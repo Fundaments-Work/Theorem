@@ -130,4 +130,35 @@ describe("Shelves Header and Controls Integration", () => {
         expect(mainTitle?.textContent?.trim()).toBe("Shelves");
         expect(container.textContent).toContain("1 shelf • 0 books");
     });
+
+    // The back control used to be a full-width `ui-btn` with an uppercase
+    // "Shelves" label, so it outweighed the shelf name and read as a primary
+    // action. It must stay a square icon button like its header siblings.
+    it("keeps the back button a square icon button, not a labelled control", () => {
+        useLibraryStore.setState({
+            collections: [{
+                id: "shelf-back-btn",
+                name: "Favorites Fiction",
+                description: "My fiction books",
+                bookIds: [],
+                kind: "general" as const,
+                createdAt: new Date(),
+            }],
+            books: [],
+        });
+
+        const container = render(<ShelvesPage />);
+        act(() => {
+            container.querySelector("button.block.w-full")
+                ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        });
+
+        const backBtn = container.querySelector('button[aria-label="Back to shelves"]');
+        expect(backBtn).not.toBeNull();
+        expect(backBtn?.getAttribute("title")).toBe("Back to shelves");
+        expect(backBtn?.className).toContain("h-10");
+        expect(backBtn?.className).toContain("w-10");
+        // No text label competing with the shelf heading.
+        expect(backBtn?.textContent?.trim()).toBe("");
+    });
 });

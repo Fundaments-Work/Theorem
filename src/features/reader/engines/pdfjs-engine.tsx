@@ -172,6 +172,16 @@ const PAGE_LOAD_AHEAD_THRESHOLD = 4;
 const PAGE_EDGE_PREFETCH_COUNT = 8;
 const EDGE_PREFETCH_MIN_INTERVAL_MS = 60;
 const PAGE_PROXY_LOAD_CONCURRENCY = 3;
+/**
+ * How long a parked scroll jump keeps retrying before giving up.
+ *
+ * A jump target is often not in the DOM yet (pages are virtualized) and
+ * `loadSpecificPages` may early-return without touching `pages` when the
+ * target is already loaded or in flight, so no state change re-triggers the
+ * layout effect. This deadline-bounded rAF loop retries on its own instead of
+ * relying on a coincidental re-render.
+ */
+const PENDING_SCROLL_RETRY_MS = 1200;
 const KEYBOARD_SCROLL_STEP_RATIO = 0.82;
 const KEYBOARD_SCROLL_STEP_MIN_PX = 72;
 
@@ -675,6 +685,31 @@ function getFitWidthScaleFromPts(container: HTMLElement, widthPt: number, isTwoP
     if (containerWidth <= 0 || widthPt <= 0) return DEFAULT_SCALE;
     const cssPtWidth = widthPt * PDF_TO_CSS_UNITS;
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, containerWidth / cssPtWidth));
+}
+
+/**
+ * `getFitPageScale` equivalent computed from raw PDF point dimensions, so the
+ * opening zoom can honour "fit page" before any `PDFPageProxy` exists.
+ */
+function getFitPageScaleFromPts(
+    container: HTMLElement,
+    widthPt: number,
+    heightPt: number,
+    isTwoPage = false,
+): number {
+    const horizontalPadding = container.clientWidth < 768 ? 16 : 32;
+    const spreadGap = isTwoPage ? 24 : 0;
+    const verticalPadding = container.clientHeight < 768 ? 24 : 40;
+    const containerHeight = container.clientHeight - verticalPadding;
+    const containerWidth = (container.clientWidth - horizontalPadding - spreadGap) / (isTwoPage ? 2 : 1);
+    if (containerWidth <= 0 || containerHeight <= 0) return DEFAULT_SCALE;
+    const cssPtWidth = widthPt * PDF_TO_CSS_UNITS;
+    const cssPtHeight = heightPt * PDF_TO_CSS_UNITS;
+    if (cssPtWidth <= 0 || cssPtHeight <= 0) return DEFAULT_SCALE;
+    return Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, Math.min(containerWidth / cssPtWidth, containerHeight / cssPtHeight)),
+    );
 }
 
 function clearSearchHighlights(textLayerDiv: HTMLElement) {
@@ -1372,6 +1407,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
         const renderStabilizationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
         const loadingTaskRef = useRef<any>(null);
         const pendingScrollPageRef = useRef<number | null>(null);
+        /** rAF handle for the bounded retry loop started by `retryPendingScroll`. */
+        const pendingScrollRetryRafRef = useRef<number | null>(null);
         const pendingScrollAdjustmentRef = useRef<ZoomAnchor | null>(null);
         /**
          * Visual zoom preview (CSS transform on the zoom container) waiting for
@@ -1541,6 +1578,28 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
             return false;
         }, []);
+
+        const retryPendingScroll = useCallback((
+            targetPage: number,
+            behavior: ScrollBehavior,
+            deadline: number = Date.now() + PENDING_SCROLL_RETRY_MS,
+        ) => {
+            // Superseded by a newer jump, or the document was torn down.
+            if (pendingScrollPageRef.current !== targetPage) return;
+
+            rebuildPageLayout();
+            if (scrollToPage(targetPage, behavior)) {
+                pendingScrollPageRef.current = null;
+                pendingScrollRetryRafRef.current = null;
+                return;
+            }
+
+            if (Date.now() < deadline) {
+                pendingScrollRetryRafRef.current = window.requestAnimationFrame(() => {
+                    retryPendingScroll(targetPage, behavior, deadline);
+                });
+            }
+        }, [rebuildPageLayout, scrollToPage]);
 
         useLayoutEffect(() => {
             const rafId = window.requestAnimationFrame(() => {
@@ -1886,6 +1945,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     lastEdgePrefetchAtRef.current = 0;
                     lastScrollTopRef.current = 0;
                     pendingScrollPageRef.current = null;
+                    if (pendingScrollRetryRafRef.current !== null) { cancelAnimationFrame(pendingScrollRetryRafRef.current); pendingScrollRetryRafRef.current = null; }
                     clearPageTextContentCache();
                     searchSessionRef.current += 1;
                     hasAppliedInitialViewStateRef.current = false;
@@ -1921,25 +1981,43 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     const prefetched = await prefetchPromise;
                     if (cancelled) return;
 
+                    // The zoom *mode* must decide the opening zoom, not the saved numeric zoom.
+                    // "Fit width"/"fit page" are viewport-relative, so honouring the raw
+                    // `initialZoom` here rendered the document at a stale size that jumped
+                    // to the fitted size once the first page proxy landed.
+                    const zoomContainer = containerRef.current;
+                    const isTwoPageAtOpen = initialPresentationMode === 'two-page';
+                    let openingScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
+                    if (
+                        zoomContainer
+                        && (initialZoomMode === 'width-fit' || initialZoomMode === 'page-fit')
+                        && prefetched
+                        && prefetched.default_width_pt > 0
+                        && prefetched.default_height_pt > 0
+                    ) {
+                        openingScale = initialZoomMode === 'page-fit'
+                            ? getFitPageScaleFromPts(
+                                zoomContainer,
+                                prefetched.default_width_pt,
+                                prefetched.default_height_pt,
+                                isTwoPageAtOpen,
+                            )
+                            : getFitWidthScaleFromPts(
+                                zoomContainer,
+                                prefetched.default_width_pt,
+                                isTwoPageAtOpen,
+                            );
+                    }
+
                     if (prefetched && prefetched.total_pages > 0) {
                         prefetchedStructureRef.current = prefetched;
-                        // Determine the initial scale to use for the tops computation.
-                        // If zoom mode is width-fit we can compute the initial scale now from
-                        // the container width and the default page width in pts.
-                        const container = containerRef.current;
-                        const isInitialTwoPage = initialPresentationMode === 'two-page';
-                        let initialScaleForTops = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
-                        if (container && (initialZoomMode === 'width-fit' || initialZoomMode === 'page-fit')) {
-                            initialScaleForTops = getFitWidthScaleFromPts(container, prefetched.default_width_pt, isInitialTwoPage);
-                        }
-                        scaleRef.current = initialScaleForTops;
-                        setScale(initialScaleForTops);
-                        // Pre-compute page tops using default aspect ratio
+                        // Pre-compute page tops using default aspect ratio, at the same
+                        // scale the pages will actually render at.
                         pageTopsRef.current = computeVirtualPageTops(
                             prefetched.total_pages,
                             prefetched.default_height_pt,
-                            initialScaleForTops,
-                            isInitialTwoPage,
+                            openingScale,
+                            isTwoPageAtOpen,
                         );
                         // Set totalPages immediately so N placeholder divs render right away
                         totalPagesRef.current = prefetched.total_pages;
@@ -2033,8 +2111,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     initialPageToRestoreRef.current = clampedInitialPage;
                     currentPageRef.current = clampedInitialPage;
                     totalPagesRef.current = totalPageCount;
-                    scaleRef.current = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, initialZoom));
-                    setCurrentPage(clampedInitialPage); setTotalPages(totalPageCount); setScale(scaleRef.current);
+                    scaleRef.current = openingScale;
+                    setCurrentPage(clampedInitialPage); setTotalPages(totalPageCount); setScale(openingScale);
                     setZoomMode(initialZoomMode, true);
 
                     const initialPages = [await pdf.getPage(clampedInitialPage)];
@@ -2136,6 +2214,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 lastEdgePrefetchAtRef.current = 0;
                 lastScrollTopRef.current = 0;
                 pendingScrollPageRef.current = null;
+                if (pendingScrollRetryRafRef.current !== null) { cancelAnimationFrame(pendingScrollRetryRafRef.current); pendingScrollRetryRafRef.current = null; }
                 if (loadingGraceTimerRef.current) { clearTimeout(loadingGraceTimerRef.current); loadingGraceTimerRef.current = null; }
                 if (initialPageRestoreTimeoutRef.current) { clearTimeout(initialPageRestoreTimeoutRef.current); initialPageRestoreTimeoutRef.current = null; }
                 if (interactionIdleTimeoutRef.current) { clearTimeout(interactionIdleTimeoutRef.current); interactionIdleTimeoutRef.current = null; }
@@ -2171,7 +2250,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 hasAppliedInitialViewStateRef.current = true;
                 // Opening: no anchoring. Page 1 must start at its top, and later
                 // pages are positioned by restoreInitialPageWithRetry below.
-                applyZoom(nextScale, { mode: normalizedMode, preserveMode: normalizedMode !== "custom", anchor: false });
+                // The opening scale was already derived from the page dimensions,
+                // so re-applying an identical value only churns the layout.
+                if (Math.abs(nextScale - scaleRef.current) > 0.0005) {
+                    applyZoom(nextScale, { mode: normalizedMode, preserveMode: normalizedMode !== "custom", anchor: false });
+                }
                 const targetPage = Math.max(1, Math.min(initialPageToRestoreRef.current, totalPagesRef.current || 1));
                 if (targetPage > 1) restoreInitialPageWithRetry(targetPage);
             });
@@ -2408,7 +2491,11 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (targetPage + offset <= totalPageCount) nearTargets.push(targetPage + offset);
                 if (targetPage - offset >= 1) nearTargets.push(targetPage - offset);
             }
-            void loadSpecificPages(nearTargets);
+            void loadSpecificPages(nearTargets).then(() => {
+                if (pendingScrollPageRef.current === targetPage) {
+                    retryPendingScroll(targetPage, effectiveBehavior);
+                }
+            });
 
             if (presentationModeRef.current === 'paged') {
                 containerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -2419,8 +2506,17 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 pendingScrollPageRef.current = null;
                 return;
             }
+
+            // The target is virtualized, so it may have no DOM node yet and no
+            // measured position. Park the request and retry on a bounded rAF
+            // loop: previously the only retry was a layout effect keyed on
+            // `pages`, and `loadSpecificPages` early-returns *without* touching
+            // `pages` when the pages are already loaded or in flight — so the
+            // jump was dropped outright, which is why the first TOC click after
+            // opening a PDF did nothing while later clicks worked.
             pendingScrollPageRef.current = targetPage;
-        }, [loadSpecificPages, scrollToPage]);
+            retryPendingScroll(targetPage, effectiveBehavior);
+        }, [loadSpecificPages, scrollToPage, retryPendingScroll]);
 
         const handleViewportClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
             if (isLoading || !!error || annotationMode !== "none") return;
@@ -3160,13 +3256,15 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                 }
                             }}
                             disabled={currentPage <= 1}
-                            className="p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                            className="shrink-0 p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
                             title="Previous page"
                             aria-label="Previous page"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5 min-w-0 max-w-[45vw] sm:max-w-[16rem] truncate">
+                        {/* Only this span may shrink: the arrows and the page
+                            count must never be squeezed out of a narrow viewport. */}
+                        <span className="min-w-0 shrink truncate font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5">
                             {presentationMode === 'two-page' ? (
                                 (() => {
                                     const spreadStart = currentPage % 2 === 1 ? currentPage : currentPage - 1;
@@ -3175,8 +3273,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                 })()
                             ) : formatPageIndicator(pageLabels, currentPage)}
                         </span>
-                        <span className="text-[color:var(--color-text-muted)]">/</span>
-                        <span className="tabular-nums px-0.5">{totalPages}</span>
+                        <span className="shrink-0 text-[color:var(--color-text-muted)]">/</span>
+                        <span className="shrink-0 tabular-nums px-0.5">{totalPages}</span>
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -3189,13 +3287,14 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                 }
                             }}
                             disabled={currentPage >= totalPages}
-                            className="p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                            className="shrink-0 p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
                             title="Next page"
                             aria-label="Next page"
                         >
                             <ChevronRight className="w-4 h-4" />
                         </button>
-                        <span className="mx-0.5 w-px h-3.5 bg-[var(--color-border)]" />
+                        <span className="mx-0.5 w-px h-3.5 shrink-0 bg-[var(--color-border)]" />
+                        <div className="shrink-0">
                         <Dropdown
                             options={[
                                 { value: 'fitW', label: 'Fit Width' },
@@ -3221,6 +3320,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             showCheckmark={false}
                             className="min-w-[4.25rem]"
                         />
+                        </div>
                     </div>
                 )}
             </div>
