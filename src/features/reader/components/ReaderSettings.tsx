@@ -545,7 +545,7 @@ export function ReaderSettings({
                                 <span className="block mb-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Mode</span>
                                 <div className="grid grid-cols-2 gap-1.5">
                                     {FLOW_OPTIONS.map(({ id, label, icon: Icon }) => {
-                                        const disabled = isFixed && id === "scroll";
+                                        const disabled = isFixed && format !== "cbr" && format !== "cbz" && id === "scroll";
                                         const active = !disabled && settings.flow === id;
 
                                         return (
