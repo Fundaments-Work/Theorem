@@ -28,6 +28,7 @@ pub mod mobi_parser;
 mod offload_commands;
 pub mod opds_parser;
 pub mod rss_parser;
+mod smart_shelves;
 pub mod stardict;
 pub mod stemmer;
 pub mod supertonic;
@@ -1746,6 +1747,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            smart_shelves::evaluate_smart_shelves,
             setup_linux_cli_symlink,
             print_webview,
             tts_get_engines,

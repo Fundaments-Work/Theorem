@@ -248,13 +248,15 @@ export function mergeCollections(
         const matchTs = toEpoch(match.updatedAt) || toEpoch(match.createdAt);
         const merged: Collection = {
             ...match,
+            smartRules: incTs > matchTs ? inc.smartRules : match.smartRules,
+            groupBySeries: incTs > matchTs ? inc.groupBySeries : match.groupBySeries,
             name: incTs > matchTs ? inc.name : match.name,
             description:
                 incTs > matchTs
                     ? inc.description ?? match.description
                     : match.description ?? inc.description,
             
-            bookIds: [...new Set([...match.bookIds, ...inc.bookIds])].filter(
+            bookIds: (incTs > matchTs ? inc.smartRules : match.smartRules) ? [] : [...new Set([...match.bookIds, ...inc.bookIds])].filter(
                 (id) => !deletedBookIds.has(id) && !isBookRemovedFromCollection(match.id, id),
             ),
             

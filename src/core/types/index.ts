@@ -154,6 +154,16 @@ export interface Annotation {
     chapterIndex?: number;
 }
 
+export interface SmartShelfRule {
+    field: "author" | "series" | "tag" | "category" | "format" | "status" | "favorite";
+    operator: "equals" | "contains";
+    value: string;
+}
+export interface SmartShelfDefinition {
+    mode: "all" | "any";
+    conditions: SmartShelfRule[];
+}
+
 export interface Collection {
     id: string;
     name: string;
@@ -163,6 +173,7 @@ export interface Collection {
     createdAt: Date;
     updatedAt?: Date;
     groupBySeries?: boolean;
+    smartRules?: SmartShelfDefinition;
 }
 
 export type TombstoneEntity = "book" | "annotation" | "collection" | "feed" | "rss_article" | "vocabulary" | "collection_book";
