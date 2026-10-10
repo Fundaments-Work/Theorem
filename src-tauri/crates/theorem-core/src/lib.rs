@@ -19,3 +19,5 @@ pub use text_normalizer::{
     normalize_speech_text, number_to_words, ordinal_to_words, year_to_words,
 };
 pub use vault::{build_frontmatter, safe_vault_filename};
+
+pub mod smart_shelves;

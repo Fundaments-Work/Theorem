@@ -1,3 +1,4 @@
+import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -825,8 +826,8 @@ export function AddToShelfModal({
 
     const filteredShelves = useMemo(
         () => shelfSearch.trim()
-            ? collections.filter((s) => s.name.toLowerCase().includes(shelfSearch.toLowerCase()))
-            : collections,
+            ? collections.filter((s) => !s.smartRules && s.name.toLowerCase().includes(shelfSearch.toLowerCase()))
+            : collections.filter((s) => !s.smartRules),
         [collections, shelfSearch],
     );
 
@@ -1081,7 +1082,8 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
 
 export function LibraryPage() {
     const books = useLibraryStore((state) => state.books);
-    const collections = useLibraryStore((state) => state.collections);
+    const shelfDefinitions = useLibraryStore((state) => state.collections);
+    const { collections, ready: smartShelvesReady, error: smartShelvesError } = useSmartShelves(books, shelfDefinitions);
     const coversHydrated = useLibraryStore((state) => state.coversHydrated);
     const addBook = useLibraryStore((state) => state.addBook);
     const removeBook = useLibraryStore((state) => state.removeBook);
@@ -1917,6 +1919,10 @@ export function LibraryPage() {
         const nextMode = modes[(currentIndex + 1) % modes.length];
         updateSettings({ libraryViewMode: nextMode });
     };
+
+    if (!smartShelvesReady && (selectedShelf?.smartRules || showUnshelvedOnly)) {
+        return <div role={smartShelvesError ? "alert" : "status"} className="p-6">{smartShelvesError ?? "Updating smart shelves…"}</div>;
+    }
 
     if (books.length === 0) {
         return (

@@ -101,6 +101,22 @@ export const AnnotationSchema = z.object({
 
 export const AnnotationsArraySchema = z.array(AnnotationSchema);
 
+export const SmartShelfDefinitionSchema = z.object({
+    mode: z.enum(["all", "any"]),
+    conditions: z.array(z.object({
+        field: z.enum(["author", "series", "tag", "category", "format", "status", "favorite"]),
+        operator: z.enum(["equals", "contains"]),
+        value: z.string().trim().min(1).max(256),
+    }).superRefine((rule, context) => {
+        const allowed = rule.field === "format" ? ["epub", "pdf", "mobi", "azw", "azw3", "fb2", "cbz", "cbr"]
+            : rule.field === "status" ? ["unread", "reading", "completed"]
+            : rule.field === "favorite" ? ["true", "false"] : null;
+        if (allowed && (rule.operator !== "equals" || !allowed.includes(rule.value))) {
+            context.addIssue({ code: "custom", message: "Invalid smart-shelf rule", path: ["value"] });
+        }
+    })).min(1).max(32),
+});
+
 export const CollectionSchema = z.object({
     id: z.string().min(1),
     name: z.string(),
@@ -110,6 +126,7 @@ export const CollectionSchema = z.object({
     createdAt: dateLike,
     updatedAt: dateLike,
     groupBySeries: z.boolean().optional(),
+    smartRules: SmartShelfDefinitionSchema.optional(),
 }).passthrough();
 
 export const CollectionsArraySchema = z.array(CollectionSchema);
