@@ -88,11 +88,9 @@ describe("ContextMenu stays inside the viewport", () => {
         // from the anchor in the placement direction. For a side="right" submenu
         // anchored to a row near the bottom of the screen that is only the space
         // below the anchor, so the clamp squashed the submenu to a fraction of its
-        // height and left it scrolling. Radix already flips/shifts to fit; the
-        // library menu is a fixed eight rows so it never needs a cap.
+        // height and left it scrolling.
         const src = readFileSync(resolve("src/ui/ContextMenu.tsx"), "utf-8");
         expect(src).not.toContain("max-h-[var(--radix-context-menu-content-available-height)]");
-        expect(src).not.toContain("radix-popper-available-height]\"");
         openMenu([{ id: "a", label: "Item" }]);
         const content = document.body.querySelector('[role="menu"]')!;
         expect(content.className).not.toContain("max-h-[var(--radix-");
@@ -105,8 +103,36 @@ describe("ContextMenu stays inside the viewport", () => {
         // defaults are already side="right", align="start".
         expect(src).not.toMatch(/<ContextMenuPrimitive\.(Sub)?Content[\s\S]{0,300}?\bside="/);
         expect(src).not.toMatch(/<ContextMenuPrimitive\.(Sub)?Content[\s\S]{0,300}?\balign="/);
-        // collisionPadding is allowed on both and keeps content off the edges.
         expect(src.match(/collisionPadding=\{12\}/g)?.length).toBe(2);
+    });
+});
+
+describe("phones never open a flyout submenu", () => {
+    const src = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
+
+    it("gates the submenu on a wide viewport", () => {
+        // A flyout cannot fit ~390px: the menu is 180-280px and the submenu needs
+        // another 180-280px beside it. Collision tuning cannot add horizontal room.
+        expect(src).toContain('const WIDE_VIEWPORT_MEDIA_QUERY = "(min-width: 640px)"');
+        expect(src).toContain("...(isWideViewport ? { items: moreItems } : {})");
+    });
+
+    it("falls back to an action sheet on narrow viewports", () => {
+        expect(src).toContain("onClick: () => setIsMoreSheetOpen(true)");
+        expect(src).toContain('<ModalHeader title="More Actions"');
+        // The sheet is rendered in every card view, not just one branch.
+        expect(src.match(/\{moreSheet\}/g)?.length).toBe(3);
+    });
+
+    it("resolves the breakpoint with matchMedia, not a CSS class", () => {
+        // A CSS-visibility approach would depend on Tailwind's display cascade
+        // order; matchMedia is deterministic and reacts to rotation.
+        expect(src).toContain("const isWideViewport = useMediaQuery(WIDE_VIEWPORT_MEDIA_QUERY)");
+    });
+
+    it("keeps one shared item list for both presentations", () => {
+        expect(src).toMatch(/const moreItems: ContextMenuItem\[\] = \[/);
+        expect(src).toMatch(/\{moreItems\.map\(\(item\) => \(/);
     });
 });
 

@@ -21,6 +21,7 @@ import {
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
 import { Modal, ModalHeader, ModalBody, ModalFooter, ConfirmDialog, AlertDialog } from "../../ui";
+import { useMediaQuery } from "../../core/lib/use-media-query";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
 import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
@@ -41,6 +42,13 @@ const TOOLBAR_BUTTON_BASE =
 const TOOLBAR_BUTTON_PRIMARY =
     "ui-btn-primary disabled:opacity-50";
 const TOOLBAR_ICON_BUTTON = "h-10 w-10 px-0";
+
+/**
+ * Width at which a context-menu submenu has room to open beside its parent.
+ * Below this, "More…" opens an action sheet instead — a flyout cannot fit.
+ * Matches Tailwind's `sm` breakpoint, where the desktop filter panel takes over.
+ */
+const WIDE_VIEWPORT_MEDIA_QUERY = "(min-width: 640px)";
 
 /**
  * Fixed height of a list-view book row, in CSS pixels.
@@ -188,6 +196,12 @@ export const BookCard = memo(function BookCard({
     const collectionSets = useMemo(() => collections.map(c => ({ ...c, bookIdSet: new Set(c.bookIds) })), [collections]);
     const bookShelves = collectionSets.filter((c) => c.bookIdSet.has(book.id));
 
+    // Phones get an action sheet instead of a flyout; see the "more" entry in
+    // contextMenuItems. Resolved with matchMedia rather than a CSS class so the
+    // branch is deterministic and survives rotation/resize.
+    const isWideViewport = useMediaQuery(WIDE_VIEWPORT_MEDIA_QUERY);
+    const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
+
     const handleCardClick = (event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
         if (isSelecting && onToggleSelect) {
             onToggleSelect(book.id, event);
@@ -330,12 +344,50 @@ export const BookCard = memo(function BookCard({
             id: "more",
             label: "More…",
             icon: <MoreHorizontal className="w-4 h-4" />,
-            items: moreItems,
+            // A flyout submenu cannot fit a phone: the menu is 180-280px and the
+            // submenu needs another 180-280px beside it, which overflows a ~390px
+            // viewport (or flips over the parent menu). So on phones "More…" is a
+            // plain action that opens an action sheet, and only wider viewports get
+            // a real submenu. Collision tuning cannot fix horizontal overflow.
+            onClick: () => setIsMoreSheetOpen(true),
+            ...(isWideViewport ? { items: moreItems } : {}),
         },
     ];
 
+    // Phone presentation of the submenu's contents. Same items, so both paths
+    // stay in sync; rendered as a full-width sheet that cannot overflow.
+    const moreSheet = (
+        <Modal isOpen={isMoreSheetOpen} onClose={() => setIsMoreSheetOpen(false)} size="sm" showCloseButton>
+            <ModalHeader title="More Actions" onClose={() => setIsMoreSheetOpen(false)} />
+            <ModalBody className="p-2">
+                <ul className="divide-y divide-[var(--color-border)]">
+                    {moreItems.map((item) => (
+                        <li key={item.id}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsMoreSheetOpen(false);
+                                    item.onClick?.();
+                                }}
+                                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-[color:var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-muted)] touch-manipulation"
+                            >
+                                {item.icon && (
+                                    <span className="flex w-5 h-5 shrink-0 [&>svg]:w-5 [&>svg]:h-5">
+                                        {item.icon}
+                                    </span>
+                                )}
+                                <span className="flex-1">{item.label}</span>
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            </ModalBody>
+        </Modal>
+    );
+
     if (viewMode === "grid") {
         return (
+            <>
             <ContextMenu items={contextMenuItems}>
                 <div
                     className="group flex flex-col text-left w-full select-none"
@@ -420,11 +472,14 @@ export const BookCard = memo(function BookCard({
                     </div>
                 </div>
             </ContextMenu>
+            {moreSheet}
+            </>
         );
     }
 
     if (viewMode === "list") {
         return (
+            <>
             <ContextMenu items={contextMenuItems}>
                 <div
                     // Fixed height shared with the row virtualizer's estimate.
@@ -522,10 +577,13 @@ export const BookCard = memo(function BookCard({
                     </div>
                 </div>
             </ContextMenu>
+            {moreSheet}
+            </>
         );
     }
 
     return (
+        <>
         <ContextMenu items={contextMenuItems}>
             <div
                 onClick={handleCardClick}
@@ -594,6 +652,8 @@ export const BookCard = memo(function BookCard({
                 )}
             </div>
         </ContextMenu>
+        {moreSheet}
+        </>
     );
 });
 
