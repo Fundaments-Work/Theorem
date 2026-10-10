@@ -566,8 +566,17 @@ foliate-view * {
     }
 }
 
-[data-reading-mode] .reader-sheet {
+/* Floating reader sheets (book info, search, settings...) must always be opaque.
+   PDF reading deliberately renders without `data-reading-mode`, so the reading
+   tokens below do not apply there and the panel would otherwise be see-through. */
+.reader-sheet {
     background-color: var(--color-surface);
+    border-color: var(--color-border);
+    box-shadow: none;
+}
+
+[data-reading-mode] .reader-sheet {
+    background-color: var(--reader-bg);
     border-color: var(--color-border);
     box-shadow: none;
 }

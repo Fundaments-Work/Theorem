@@ -14,6 +14,8 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { cn } from "../../../core/lib/utils";
 import { isTauri, isWebKitBrowserEngine } from "../../../core/lib/env";
 import { configurePdfJsWorker, PDFJS_ASSET_OPTIONS } from "../../../core/lib/pdfjs-runtime";
+import { isPlaceholderMetadataTitle } from "../../../core/lib/cover-extractor";
+import { pdfFileNameStem } from "./pdf-display-title";
 import * as pdfjsLib from "pdfjs-dist";
 import { Dropdown, PageLoader } from "../../../ui";
 import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
@@ -42,6 +44,14 @@ export interface PDFJsEngineProps {
     pdfPath: string;
     pdfData?: Uint8Array;
     originalFilename?: string;
+    /**
+     * The book's real on-disk file name (e.g. `0132180146.pdf`).
+     *
+     * Distinct from `originalFilename`, which carries the library *title*. Used
+     * only to recognise a PDF `Title` that merely echoes the file name, which
+     * scanners and archival tools emit routinely.
+     */
+    sourceFilename?: string;
     initialPage?: number;
     initialZoom?: number;
     initialZoomMode?: PdfZoomMode;
@@ -88,6 +98,8 @@ export interface PDFDocumentInfo {
     modificationDate?: Date;
     totalPages: number;
     filename: string;
+    /** Real on-disk file name stem; see `PDFJsEngineProps.sourceFilename`. */
+    sourceFilename?: string;
     hasOutline?: boolean;
     toc?: TocItem[];
     pageLabels?: string[];
@@ -1322,7 +1334,7 @@ function findPageForScrollCenter(pageLayout: PageLayoutEntry[], centerY: number)
 
 export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
     function PDFJsEngine({
-        pdfPath, pdfData, originalFilename,
+        pdfPath, pdfData, originalFilename, sourceFilename,
         initialPage = 1, initialZoom = DEFAULT_SCALE, initialZoomMode = DEFAULT_ZOOM_MODE,
         presentationMode: initialPresentationMode = 'scroll', onPresentationModeChange,
         onLoad, onError, onPageChange, onZoomModeChange, onViewportTap, showControls = true, className,
@@ -1940,7 +1952,16 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
 
                     if (cancelled) return;
 
-                    const displayFilename = originalFilename || pdfPath.split("/").pop()?.replace(/\.[^/.]+$/, "") || "document";
+                    // `pdfPath` may point at the internal `<book-id>.book` cache entry, so a
+                    // path-derived name can be the raw book id. Never surface that as a
+                    // document title — fall back to a neutral label instead.
+                    const pathDerivedName = pdfPath.split("/").pop()?.replace(/\.[^/.]+$/, "");
+                    const displayFilename = originalFilename
+                        || (isPlaceholderMetadataTitle(pathDerivedName) ? "document" : pathDerivedName)
+                        || "document";
+                    // Best-known real file-name stem, used only to detect a PDF
+                    // `Title` that is just the file name echoed back.
+                    const sourceFilenameStem = pdfFileNameStem(sourceFilename || pathDerivedName);
                     const infoCacheKey = buildPdfInfoCacheKey(pdfPath, originalFilename, dataByteLength);
                     const commonPdfOptions = PDFJS_ASSET_OPTIONS;
                     const preferredRangeChunkSize = getPreferredPdfRangeChunkSize();
@@ -2026,7 +2047,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             setIsInitialRenderStabilizing(false);
                         }, INITIAL_RENDER_STABILIZATION_MS);
                         const cachedInfo = getCachedPdfDocumentInfo(infoCacheKey, totalPageCount);
-                        const initialInfo: PDFDocumentInfo = cachedInfo ?? { title: displayFilename, totalPages: totalPageCount, filename: displayFilename, hasOutline: false, toc: [] };
+                        const initialInfo: PDFDocumentInfo = cachedInfo ?? { title: displayFilename, totalPages: totalPageCount, filename: displayFilename, sourceFilename: sourceFilenameStem, hasOutline: false, toc: [] };
                         callbacksRef.current.onLoad?.(initialInfo);
                         callbacksRef.current.onPageChange?.(clampedInitialPage, totalPageCount, scaleRef.current);
                         const warmupTargets: number[] = [clampedInitialPage];
@@ -2082,7 +2103,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                     // PDF dates are `D:YYYYMMDDHHmmSS+hh'mm'`, which `new Date()` cannot parse.
                                     creationDate: parsePdfDate(metaInfo?.CreationDate),
                                     modificationDate: parsePdfDate(metaInfo?.ModDate),
-                                    totalPages: totalPageCount, filename: displayFilename, hasOutline, toc: tocItems,
+                                    totalPages: totalPageCount, filename: displayFilename, sourceFilename: sourceFilenameStem, hasOutline, toc: tocItems,
                                     pageLabels: labels,
                                     pdfVersion,
                                     pageSize,
@@ -2132,7 +2153,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 searchSessionRef.current += 1;
             };
             
-        }, [initialPage, initialZoom, initialZoomMode, pdfPath, pdfData, originalFilename, setZoomMode]);
+        }, [initialPage, initialZoom, initialZoomMode, pdfPath, pdfData, originalFilename, sourceFilename, setZoomMode]);
 
         useEffect(() => {
             if (hasAppliedInitialViewStateRef.current) return;
@@ -3123,7 +3144,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     <div
                         data-no-viewport-tap
                         className={cn(
-                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
+                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-1.5rem)] px-2.5 py-1.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
                             showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
                         )}
                     >
@@ -3145,7 +3166,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5">
+                        <span className="font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5 min-w-0 max-w-[45vw] sm:max-w-[16rem] truncate">
                             {presentationMode === 'two-page' ? (
                                 (() => {
                                     const spreadStart = currentPage % 2 === 1 ? currentPage : currentPage - 1;

@@ -16,6 +16,7 @@ import {
     extractMetadata,
     shouldUseExtractedTitle,
     shouldUseExtractedAuthor,
+    isPlaceholderMetadataTitle,
 } from "../../core/lib/cover-extractor";
 import { extractFilenameFromPath, ensureFilenameForFormat } from "../../core/lib/import";
 import { isTauri, isTauriDesktop, isTauriMobile, useAndroidBackButton } from "../../core/lib/env";
@@ -55,6 +56,7 @@ import { ReaderSearch } from "./components/ReaderSearch";
 import { BookInfoPopover } from "./components/BookInfoPopover";
 import { ReaderNavbar } from "./components/progress/ReaderNavbar";
 import { ReaderViewport } from "./components/ReaderViewport";
+import { resolvePdfDisplayTitle } from "./engines/pdf-display-title";
 import { HighlightColorPicker } from "./components/highlights/HighlightColorPicker";
 import { NoteEditor } from "./components/highlights/NoteEditor";
 const PDFReader = lazy(() => import("./components/PDFReader"));
@@ -337,6 +339,17 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     // Get current book format
     const currentBook = currentBookId ? getBook(currentBookId) : null;
+    // The book's real file name, e.g. `0132180146.pdf`. Kept separate from the
+    // title so a PDF `Title` that merely echoes the file name can be recognised.
+    const currentBookSourceFilename = useMemo(
+        () => currentBook?.filePath
+            ? ensureFilenameForFormat(
+                extractFilenameFromPath(currentBook.filePath),
+                currentBook.format,
+            )
+            : undefined,
+        [currentBook?.filePath, currentBook?.format],
+    );
     const audioTrack = currentBook?.audioTrack;
     // Pause platform/neural narration while the human-narrated player is active.
     useEffect(() => {
@@ -443,12 +456,12 @@ const BookReaderPage = memo(function BookReaderPage() {
         // Get current book data for fallback
         const currentBookData = currentBookId ? getBook(currentBookId) : null;
 
-        // Priority: 1. PDF metadata title, 2. Book title from library, 3. Filename, 4. 'Untitled'
-        // Only use PDF title if it differs from the filename (meaning it came from actual metadata)
-        const isPdfTitleFromMetadata = info.title && info.title !== info.filename;
-        const displayTitle = (isPdfTitleFromMetadata
-            ? info.title
-            : (currentBookData?.title || info.title || 'Untitled')) || 'Untitled';
+        const displayTitle = resolvePdfDisplayTitle({
+            pdfTitle: info.title,
+            filename: info.filename,
+            sourceFilename: info.sourceFilename,
+            libraryTitle: currentBookData?.title,
+        });
         const displayAuthor = info.author || currentBookData?.author || 'Unknown';
 
         setMetadata({
@@ -553,7 +566,10 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
     }, [getBook, updateBook]);
 
-    // Sync book title from store to metadata when renamed while reader is open
+    // Sync book title from store to metadata when renamed while reader is open.
+    // Intentionally keyed on `storeTitle` only: on initial load the document's own
+    // title is preferred (see `handleReady`/`handlePdfLoad`), and a PDF/EPUB may
+    // carry a better title in its metadata than the library row does.
     const storeTitle = useLibraryStore(
         (s) => currentBookId ? (s.getBook(currentBookId)?.title ?? null) : null,
     );
@@ -1084,6 +1100,12 @@ const BookReaderPage = memo(function BookReaderPage() {
         const loadedBook = currentBookId ? getBook(currentBookId) : null;
         const mergedMetadata: DocMetadata = {
             ...meta,
+            // Comics take their title straight off the archive file name, and
+            // blob-loaded books use the synthetic `document.<ext>` name. When
+            // the loader has nothing better, the library title wins.
+            title: isPlaceholderMetadataTitle(meta.title)
+                ? (loadedBook?.title || meta.title)
+                : meta.title,
             pubdate: loadedBook?.publishedDate || meta.pubdate,
             cover: loadedBook?.coverPath || meta.cover,
             series: loadedBook?.series || meta.series,
@@ -2922,6 +2944,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                                 pdfPath={resolvedPdfPath}
                                 pdfData={pdfData ?? undefined}
                                 originalFilename={currentBook?.title}
+                                sourceFilename={currentBookSourceFilename}
                                 initialPage={pdfInitialPage}
                                 initialZoom={pdfInitialZoom}
                                 initialZoomMode={pdfInitialZoomMode}
@@ -2960,6 +2983,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         initialLocation={initialLocation}
                         savedLocations={currentBook?.locations}
                         nativeFilePath={resolvedNativePath || currentBook?.storagePath || currentBook?.filePath}
+                        filenameHint={currentBookSourceFilename}
                         onReady={handleReady}
                         onLocationChange={handleLocationChange}
                         onLocationsSaved={handleLocationsSaved}

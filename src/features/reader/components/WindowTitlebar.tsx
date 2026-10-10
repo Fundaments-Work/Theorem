@@ -205,8 +205,10 @@ export function WindowTitlebar({
         if (!location) return null;
         if (location.pageInfo) {
             const totalStr = location.pageInfo.totalPages ? ` / ${location.pageInfo.totalPages}` : "";
+            // The label already names the page ("Cover", "xii"); repeating the
+            // physical number next to it just reads as noise and wraps the line.
             if (location.pageItem?.label && location.pageItem.label !== String(location.pageInfo.currentPage)) {
-                return `${location.pageItem.label} (${location.pageInfo.currentPage}${totalStr})`;
+                return `${location.pageItem.label}${totalStr}`;
             }
             return `Page ${location.pageInfo.currentPage}${totalStr}`;
         }

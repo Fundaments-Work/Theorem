@@ -20,8 +20,12 @@ describe("page labels on a real PDF (tests/fixtures/pdf/page-labels.pdf)", () =>
             const labels = normalizePageLabels(await doc.getPageLabels(), doc.numPages);
             expect(labels).toEqual(["i", "ii", "1", "2", "3", "A-1", "A-2"]);
 
-            expect(formatPageIndicator(labels, 1)).toBe("i (1)");
-            expect(formatPageIndicator(labels, 6)).toBe("A-1 (6)");
+            // The label alone: the pill renders `/ total` beside it, so the
+            // physical page number was redundant noise that wrapped the row.
+            expect(formatPageIndicator(labels, 1)).toBe("i");
+            expect(formatPageIndicator(labels, 6)).toBe("A-1");
+            // Never the bare number while a meaningful label exists.
+            expect(formatPageIndicator(labels, 3)).toBe("1");
             expect(pageNumberForLabel(labels, " II ")).toBe(2);
             expect(pageNumberForLabel(labels, "a-2")).toBe(7);
 

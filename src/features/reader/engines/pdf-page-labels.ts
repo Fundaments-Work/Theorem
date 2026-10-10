@@ -41,8 +41,15 @@ export function pageNumberForLabel(labels: ReadonlyArray<string> | null, input: 
     return index >= 0 ? index + 1 : null;
 }
 
-/** Page indicator text: `xii (12)` when labelled, else the number. */
+/**
+ * Page indicator text: the logical label when the document has one (`Cover`,
+ * `xii`, `A-3`), otherwise the physical page number.
+ *
+ * The physical number is deliberately *not* appended to the label — the pill
+ * that renders this already shows `/ total` right beside it, so `Cover (1) / 57`
+ * repeated the page number twice and pushed the control into a second line.
+ */
 export function formatPageIndicator(labels: ReadonlyArray<string> | null, pageNumber: number): string {
     const label = pageLabelAt(labels, pageNumber);
-    return label ? `${label} (${pageNumber})` : String(pageNumber);
+    return label ?? String(pageNumber);
 }

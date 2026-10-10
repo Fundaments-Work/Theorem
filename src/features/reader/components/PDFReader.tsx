@@ -24,6 +24,9 @@ interface PDFReaderProps {
     
     originalFilename?: string;
     
+    /** The book's real on-disk file name; see `PDFJsEngineProps.sourceFilename`. */
+    sourceFilename?: string;
+    
     initialPage?: number;
     
     initialZoom?: number;
@@ -118,6 +121,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
             pdfPath,
             pdfData,
             originalFilename,
+            sourceFilename,
             initialPage,
             initialZoom,
             initialZoomMode,
@@ -324,6 +328,7 @@ export const PDFReader = memo(forwardRef<PDFJsEngineRef, PDFReaderProps>(
                         pdfPath={pdfPath}
                         pdfData={pdfData}
                         originalFilename={originalFilename}
+                        sourceFilename={sourceFilename}
                         initialPage={initialPage}
                         initialZoom={initialZoom}
                         initialZoomMode={initialZoomMode}

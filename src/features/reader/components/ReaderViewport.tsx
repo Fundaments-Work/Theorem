@@ -64,6 +64,11 @@ interface ReaderViewportProps {
     onHistoryChange?: (state: { canGoBack: boolean; canGoForward: boolean }) => void;
     
     nativeFilePath?: string;
+    /**
+     * Archive file name to use when `file` is a plain Blob and therefore carries
+     * none. Purely a display hint — `document.<ext>` is the last resort.
+     */
+    filenameHint?: string;
 }
 
 export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewportProps>(({
@@ -83,6 +88,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
     savedLocations,
     onHistoryChange,
     nativeFilePath,
+    filenameHint,
 }, ref) => {
     
     const [navDirection, setNavDirection] = useState<'next' | 'prev' | null>(null);
@@ -227,7 +233,12 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         const openFile = async () => {
             try {
                 const extension = FORMAT_EXTENSION_MAP[format] ?? 'epub';
-                const filename = file instanceof File || isNativeRangeFile(file) ? file.name : `document.${extension}`;
+                // Range files and `File`s already carry the real archive name —
+                // comics read their title from it. Plain blobs do not, so fall
+                // back to the book's own file name before the synthetic default.
+                const filename = file instanceof File || isNativeRangeFile(file)
+                    ? file.name
+                    : (filenameHint || `document.${extension}`);
                 await open(
                     file,
                     filename,
@@ -256,7 +267,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
             cancelled = true;
         };
         
-    }, [file, format, initialLocation, isInitialized, savedLocations]);
+    }, [file, format, filenameHint, initialLocation, isInitialized, savedLocations]);
 
     useEffect(() => {
         const engine = getEngine();

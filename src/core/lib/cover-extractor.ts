@@ -115,12 +115,70 @@ function extractSeriesInfo(meta: any): { series?: string; seriesIndex?: number }
     return {};
 }
 
-function isPlaceholderMetadataTitle(title: string): boolean {
-    const normalized = title.trim().toLowerCase();
-    return normalized === 'unknown title' || normalized === 'untitled' || normalized === 'untitled book';
-}
+/** Matches a bare UUID — the library's book id. */
+const BOOK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const BOOK_EXTENSIONS = ['.epub', '.pdf', '.mobi', '.azw', '.azw3', '.fb2', '.cbz', '.cbr'];
+
+/** The synthetic name blob-loaded books get, e.g. `document.cbz`. */
+const SYNTHETIC_DOCUMENT_NAME_PATTERN = new RegExp(
+    `^document\\.(?:${BOOK_EXTENSIONS.map(ext => ext.slice(1)).join('|')})$`,
+);
+
+/** The bare literal the PDF engine falls back to. Case-sensitive on purpose. */
+const PDF_ENGINE_FALLBACK_NAME = 'document';
+
+/**
+ * An inventory/archive number masquerading as a title — `0132180146`.
+ *
+ * Observed in the wild: `Adobe InDesign CS3` + `PDFKit.NET` exports from
+ * document-management systems put the record id in `Title`. Length is part of
+ * the test so real numeric titles survive: "1984", "2001", "451" are books.
+ */
+const IDENTIFIER_LIKE_TITLE_PATTERN = /^\d[\d\s._-]{5,}$/;
+
+/** True when a "title" is really a file name, e.g. `0132180146.pdf`. */
+export function hasBookExtension(title: string | null | undefined): boolean {
+    const lowered = (title ?? '').trim().toLowerCase();
+    return BOOK_EXTENSIONS.some(ext => lowered.endsWith(ext));
+}
+
+/**
+ * A title that is a stand-in rather than a real one.
+ *
+ * Beyond the generic "Unknown Title" family, loaders fall back to the on-disk
+ * file name when a document carries no metadata of its own, and that name is
+ * not always meaningful:
+ *  - books whose bytes live in SQLite materialize to `<book-id>.book`, so the
+ *    fallback is the raw book UUID;
+ *  - blob-sourced books get the synthetic name `document.<ext>` (comics read
+ *    their title straight off the archive file name);
+ *  - document-management exports put a record id in `Title` (`0132180146.pdf`).
+ */
+export function isPlaceholderMetadataTitle(title: string | null | undefined): boolean {
+    const normalized = (title ?? '').trim();
+    if (!normalized) {
+        return true;
+    }
+    const lowered = normalized.toLowerCase();
+    if (lowered === 'unknown title' || lowered === 'untitled' || lowered === 'untitled book') {
+        return true;
+    }
+    if (SYNTHETIC_DOCUMENT_NAME_PATTERN.test(lowered)) {
+        return true;
+    }
+    if (normalized === PDF_ENGINE_FALLBACK_NAME) {
+        return true;
+    }
+    // A title still carrying its extension is a file name: `0132180146.pdf`.
+    if (hasBookExtension(normalized)) {
+        return true;
+    }
+    if (IDENTIFIER_LIKE_TITLE_PATTERN.test(normalized)) {
+        return true;
+    }
+    return BOOK_ID_PATTERN.test(normalized);
+}
 
 function stripBookExtension(title: string): string {
     const lower = title.toLowerCase();
@@ -161,11 +219,33 @@ export function shouldUseExtractedTitle(currentTitle: string, extractedTitle: st
         return false;
     }
 
+    // A "title" that still carries a file extension is a file name, and one that
+    // is a bare number is an inventory id. Document-management exports
+    // (`Adobe InDesign CS3` + `PDFKit.NET`) ship `Title: 0132180146.pdf`; the
+    // `.pdf` strip below turns that into "0132180146", which would otherwise
+    // silently rename the book to a record number on every open.
+    if (hasBookExtension(nextTitle) || IDENTIFIER_LIKE_TITLE_PATTERN.test(nextTitle)) {
+        return false;
+    }
+
     const filenameInfo = filenameFallbackData(filePath);
     const currentNormalized = normalizeMetadataTitle(currentTitle);
     if (!currentNormalized) return true;
 
     if (currentNormalized === nextTitle) return false;
+
+    // An "extracted" title that is just the file name again tells us nothing.
+    // Scanners and archival tools write the file name into the PDF `Title`
+    // (`0132180146.pdf` ships `Title: 0132180146`), and adopting that would
+    // silently rename the book in the library to an identifier. Reaching here
+    // means the library title differs from the file name, so the echo is never
+    // an upgrade.
+    if (
+        filenameInfo.title.length > 0
+        && loweredNext === filenameInfo.title.toLowerCase()
+    ) {
+        return false;
+    }
 
     const currentIsFilenameFallback = (
         filenameInfo.title.length > 0
