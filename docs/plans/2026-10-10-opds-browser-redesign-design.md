@@ -12,7 +12,7 @@
 | 2 — Search that always works | `eebe493` |
 | 3 — Sort + filters | `a1a27bc` |
 | 4 — Visual consistency | `93f70e0` |
-| 5 — Feed pagination | _(this commit)_ |
+| 5 — Feed pagination | `4006608` |
 
 ---
 
