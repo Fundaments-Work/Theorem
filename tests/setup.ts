@@ -66,6 +66,36 @@ if (typeof window !== "undefined" && !window.cancelAnimationFrame) {
     };
 }
 
+if (typeof Element !== "undefined" && typeof Element.prototype.scrollTo !== "function") {
+    /**
+     * jsdom implements neither `Element.scrollTo` nor its siblings (`scroll`,
+     * `scrollBy`) — the methods are `undefined`, so any component call throws.
+     * Faithful enough for tests: honour `top`/`left` via `scrollTop`/`scrollLeft`,
+     * which jsdom does implement.
+     */
+    const applyScroll = function (
+        this: Element,
+        options?: ScrollToOptions | number,
+        y?: number,
+    ) {
+        const el = this as unknown as { scrollTop: number; scrollLeft: number };
+        if (typeof options === "object" && options !== null) {
+            if (options.top !== undefined) el.scrollTop = options.top;
+            if (options.left !== undefined) el.scrollLeft = options.left;
+        } else if (typeof options === "number") {
+            el.scrollLeft = options;
+            if (y !== undefined) el.scrollTop = y;
+        }
+    };
+    for (const key of ["scrollTo", "scroll", "scrollBy"] as const) {
+        Object.defineProperty(Element.prototype, key, {
+            value: applyScroll,
+            configurable: true,
+            writable: true,
+        });
+    }
+}
+
 if (typeof globalThis.ResizeObserver === "undefined") {
     /**
      * jsdom implements neither ResizeObserver nor layout, so container-based

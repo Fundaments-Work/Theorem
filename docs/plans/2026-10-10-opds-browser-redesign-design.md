@@ -1,7 +1,7 @@
 # OPDS Browser Redesign — Design
 
 **Date**: 2026-10-10
-**Status**: Completed — all four phases delivered
+**Status**: Completed — all four phases plus pagination delivered
 **Area**: Catalogs / OPDS
 **Files touched**: `src/features/catalogs/OPDSBrowser.tsx`, `src/features/catalogs/catalog-facets.ts`, `src/features/catalogs/components/OpdsBookCard.tsx`, `src/ui/filter-chips.ts`
 
@@ -12,6 +12,7 @@
 | 2 — Search that always works | `eebe493` |
 | 3 — Sort + filters | `a1a27bc` |
 | 4 — Visual consistency | `93f70e0` |
+| 5 — Feed pagination | _(this commit)_ |
 
 ---
 
@@ -135,6 +136,25 @@ paths remain.
 - Reuse the Library's responsive column observation rather than a second breakpoint set.
 - Match card padding, title clamping and metadata line to the Library book card.
 
+### 3.5 Feed pagination (phase 5)
+
+The parser always extracted `next`/`previous` links; the browser never offered them, so
+everything past page one of a paginated catalog was unreachable.
+
+- A Prev/Next pager under the grid, rendered only when the on-screen feed links at
+  least one direction. OPDS carries no page numbers, so nothing is displayed between the
+  buttons — no "Page 2 of ?" guessing.
+- Page turns are soft: the old grid stays mounted with the pager spinning, rather than
+  flashing a skeleton. `loadFeed` takes a `soft` flag for this; initial loads and category
+  changes keep the skeleton.
+- A category's page turns go through a new `goToPage` store action that moves the URL
+  without pushing navigation history — a page turn is not a navigation, so Back returns
+  to the parent category instead of stepping through pages. The target-URL effect skips
+  URLs the pager already loaded (`loadedUrlRef`), so there is no double fetch.
+- Server-search result pages turn inside the result set, leaving the browsed category
+  untouched. Sort, filters and the search query survive page turns.
+- The scroll container returns to the top on every turn.
+
 ---
 
 ## 4. Data & Error Handling
@@ -164,9 +184,9 @@ paths remain.
 Existing suites that must keep passing: `tests/opds.test.ts`, `tests/discover.test.ts`.
 
 Delivered as `tests/opds-virtualization.test.tsx`, `tests/opds-search.test.tsx`,
-`tests/opds-catalog-facets-ui.test.tsx`, `tests/opds-catalog-facets.test.ts` and
-`tests/opds-book-card.test.tsx`, over the shared harness in
-`tests/helpers/opds-browser-harness.ts`.
+`tests/opds-catalog-facets-ui.test.tsx`, `tests/opds-catalog-facets.test.ts`,
+`tests/opds-book-card.test.tsx` and `tests/opds-pagination.test.tsx`, over the shared
+harness in `tests/helpers/opds-browser-harness.ts`.
 
 ### 5.1 A note for anyone touching the harness
 

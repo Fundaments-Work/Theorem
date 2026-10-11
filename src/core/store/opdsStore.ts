@@ -15,6 +15,13 @@ export interface OpdsState {
     updateCatalog: (id: string, updates: Partial<OpdsCatalog>) => void;
     setActiveCatalog: (id: string | null) => void;
     navigateToFeed: (url: string) => void;
+    /**
+     * Move to another page of the *same* feed (OPDS `next`/`previous` links)
+     * without pushing navigation history. A page turn is not a navigation:
+     * stepping Back through five pages to leave a catalog would be tedious,
+     * so Back returns to the parent category instead.
+     */
+    goToPage: (url: string) => void;
     navigateBack: () => boolean;
     resetNavigation: () => void;
 }
@@ -92,6 +99,10 @@ export const useOpdsStore = create<OpdsState>()(
                 } else {
                     set({ currentFeedUrl: url });
                 }
+            },
+
+            goToPage: (url) => {
+                set({ currentFeedUrl: url });
             },
 
             navigateBack: () => {

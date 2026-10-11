@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     ArrowLeft,
+    ChevronLeft,
     BookOpen,
     ChevronRight,
     Download,
@@ -47,6 +48,62 @@ const BOOK_CARD_TEXT_HEIGHT = 53;
 const SEARCH_DEBOUNCE_MS = 250;
 
 /**
+ * Previous/next page controls for paginated feeds.
+ *
+ * OPDS catalogs page through `next`/`previous` links, and large ones (Gutenberg
+ * search results, Internet Archive collections) only serve a slice per response.
+ * The parser always extracted these links; the browser just never offered them,
+ * so everything past page one was unreachable.
+ *
+ * Rendered only when the on-screen feed links at least one direction. OPDS
+ * carries no page numbers, so there is nothing truthful to display between the
+ * buttons — no "Page 2 of ?" guessing.
+ */
+function FeedPager({
+    hasPrev,
+    hasNext,
+    isPaging,
+    onPrev,
+    onNext,
+}: {
+    hasPrev: boolean;
+    hasNext: boolean;
+    isPaging: boolean;
+    onPrev: () => void;
+    onNext: () => void;
+}) {
+    const buttonClass =
+        "px-4 py-2 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none";
+    return (
+        <nav
+            aria-label="Catalog pages"
+            className="flex items-center justify-center gap-3 pt-2 pb-6"
+        >
+            {hasPrev && (
+                <button onClick={onPrev} disabled={isPaging} className={buttonClass}>
+                    {isPaging ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                    )}
+                    <span>Previous</span>
+                </button>
+            )}
+            {hasNext && (
+                <button onClick={onNext} disabled={isPaging} className={buttonClass}>
+                    <span>Next</span>
+                    {isPaging ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                </button>
+            )}
+        </nav>
+    );
+}
+
+/**
  * Loading placeholder. A bare spinner replaced the entire viewport, so the page
  * jumped from "empty" to "full grid" on every catalog change. Skeleton cards
  * reserve the same shape the real grid will occupy, so nothing reflows when the
@@ -83,6 +140,7 @@ export function OPDSBrowserPage() {
     const feedHistory = useOpdsStore((state) => state.feedHistory);
 
     const setActiveCatalog = useOpdsStore((state) => state.setActiveCatalog);
+    const goToPage = useOpdsStore((state) => state.goToPage);
     const navigateToFeed = useOpdsStore((state) => state.navigateToFeed);
     const navigateBack = useOpdsStore((state) => state.navigateBack);
     const addCatalog = useOpdsStore((state) => state.addCatalog);
@@ -145,28 +203,78 @@ export function OPDSBrowserPage() {
         return () => ro.disconnect();
     }, []);
 
-    const loadFeed = useCallback(async (url: string) => {
-        setIsLoading(true);
+    /**
+     * The feed URL whose content is already on screen. Page turns update the
+     * store's URL *and* load directly, so without this the target-URL effect
+     * below would fetch the same page a second time.
+     */
+    const loadedUrlRef = useRef<string | null>(null);
+    /** A page turn in flight. The old grid stays mounted; only the pager spins. */
+    const [isPaging, setIsPaging] = useState(false);
+
+    const loadFeed = useCallback(async (url: string, soft = false) => {
+        loadedUrlRef.current = url;
+        if (soft) {
+            setIsPaging(true);
+        } else {
+            setIsLoading(true);
+        }
         setError(null);
         try {
             const data = await OpdsService.fetchFeed(url);
             setFeed(data);
+            scrollRef.current?.scrollTo({ top: 0 });
         } catch (err: any) {
             console.error("Feed load error:", err);
             setError("Could not load catalog. Please check your internet connection or URL.");
         } finally {
-            setIsLoading(false);
+            if (soft) {
+                setIsPaging(false);
+            } else {
+                setIsLoading(false);
+            }
         }
     }, []);
 
     useEffect(() => {
-        if (targetUrl) {
+        if (targetUrl && targetUrl !== loadedUrlRef.current) {
             // A search belongs to the feed it ran against; leaving it applied to
             // the next category would show matches the user never asked for.
             setSearchQuery("");
             void loadFeed(targetUrl);
         }
     }, [targetUrl, loadFeed]);
+
+    /**
+     * Turn the browsed feed's page. The store URL moves so a catalog switch and
+     * back lands on the same page, but no history is pushed (see `goToPage`) and
+     * the search query is kept: it still applies to the new page's entries.
+     */
+    const handleFeedPage = useCallback(
+        (url: string) => {
+            goToPage(url);
+            void loadFeed(url, true);
+        },
+        [goToPage, loadFeed],
+    );
+
+    /**
+     * Turn a server-search result page. Results live apart from the browsed feed,
+     * so this only swaps the result set — the category underneath is untouched.
+     */
+    const handleServerPage = useCallback(async (url: string) => {
+        setIsPaging(true);
+        setError(null);
+        try {
+            const data = await OpdsService.fetchFeed(url);
+            setServerResults(data);
+            scrollRef.current?.scrollTo({ top: 0 });
+        } catch {
+            toast.error("Could not load the next page of results.");
+        } finally {
+            setIsPaging(false);
+        }
+    }, []);
 
     /**
      * Server search, used only when the feed advertises an OpenSearch template.
@@ -286,6 +394,17 @@ export function OPDSBrowserPage() {
 
     const trimmedQuery = searchQuery.trim();
     const usingServerResults = trimmedQuery.length > 0 && searchSource === "server" && !!serverResults;
+
+    /**
+     * Whichever feed is on screen — the browsed category or the server-search
+     * result set. The pager follows this, not `feed`, so result pages turn
+     * inside the results instead of navigating the category away.
+     */
+    const activeFeed = usingServerResults ? serverResults : feed;
+    const pagePrevUrl = activeFeed?.prevUrl ?? null;
+    const pageNextUrl = activeFeed?.nextUrl ?? null;
+    const showPager = (pagePrevUrl ?? pageNextUrl) !== null;
+    const handlePageTurn = usingServerResults ? handleServerPage : handleFeedPage;
 
     /**
      * Local fallback. Matches title and author, case-insensitively, so search
@@ -757,6 +876,15 @@ export function OPDSBrowserPage() {
                                     );
                                 })}
                             </div>
+                            {showPager && (
+                                <FeedPager
+                                    hasPrev={pagePrevUrl !== null}
+                                    hasNext={pageNextUrl !== null}
+                                    isPaging={isPaging}
+                                    onPrev={() => pagePrevUrl && void handlePageTurn(pagePrevUrl)}
+                                    onNext={() => pageNextUrl && void handlePageTurn(pageNextUrl)}
+                                />
+                            )}
                         </div>
                     ) : trimmedQuery ? (
                         <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
