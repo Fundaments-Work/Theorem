@@ -1288,7 +1288,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 let changed = false;
                 set((state) => ({
                     collections: state.collections.map((c) => {
-                        if (c.id !== collectionId) return c;
+                        if (c.id !== collectionId || c.smartRules) return c;
                         const existing = new Set(c.bookIds);
                         const merged = [...c.bookIds];
                         for (const id of validIds) {
@@ -1319,7 +1319,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 const deletedAt = new Date().toISOString();
                 set((state) => {
                     const collections = state.collections.map((c) => {
-                        if (c.id !== collectionId) return c;
+                        if (c.id !== collectionId || c.smartRules) return c;
                         const nextIds = c.bookIds.filter((id) => !idSet.has(id));
                         if (nextIds.length === c.bookIds.length) return c;
                         changed = true;
@@ -1562,7 +1562,7 @@ export const useLibraryStore = create<LibraryStore>()(
         }),
         {
             name: "theorem-library",
-            version: 10,
+            version: 11,
             storage: deferredJsonStorage,
             migrate: (persistedState, version) => {
                 const persisted = (
