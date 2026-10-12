@@ -404,6 +404,8 @@ export class View extends HTMLElement {
         if (this.isFixedLayout) {
             await import('./fixed-layout.js')
             this.renderer = document.createElement('foliate-fxl')
+        } else if (book.rendition?.comicFlow === 'scroll') {
+            this.renderer = document.createElement('theorem-comic-strip')
         } else {
             await import('./paginator.js')
             this.renderer = document.createElement('foliate-paginator')

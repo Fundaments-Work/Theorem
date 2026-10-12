@@ -242,7 +242,16 @@
  export class View extends HTMLElement {
      #root = this.attachShadow({ mode: 'closed' })
      #sectionProgress
-@@ -276,7 +426,7 @@
+@@ -254,6 +404,8 @@
+         if (this.isFixedLayout) {
+             await import('./fixed-layout.js')
+             this.renderer = document.createElement('foliate-fxl')
++        } else if (book.rendition?.comicFlow === 'scroll') {
++            this.renderer = document.createElement('theorem-comic-strip')
+         } else {
+             await import('./paginator.js')
+             this.renderer = document.createElement('foliate-paginator')
+@@ -276,7 +428,7 @@
                  this.renderer.goTo(resolved)
                      .then(() => {
                          const { doc } = this.renderer.getContents()
@@ -251,7 +260,7 @@
                          const el = resolved.anchor(doc)
                          el.classList.add(activeClass)
                          if (playbackActiveClass) el.ownerDocument
-@@ -337,7 +487,7 @@
+@@ -337,7 +489,7 @@
          this.#emit('relocate', this.lastLocation)
      }
      #onLoad({ doc, index }) {
@@ -260,7 +269,7 @@
          doc.documentElement.lang ||= this.language.canonical ?? ''
          if (!this.language.isCJK)
              doc.documentElement.dir ||= this.language.direction ?? ''
-@@ -350,17 +500,74 @@
+@@ -350,17 +502,74 @@
      #handleLinks(doc, index) {
          const { book } = this
          const section = book.sections[index]
@@ -338,7 +347,7 @@
                  .then(x => x ? this.goTo(href) : null)
                  .catch(e => console.error(e))
          })
-@@ -388,9 +595,25 @@
+@@ -388,9 +597,25 @@
              const { overlayer, doc } = obj
              overlayer.remove(value)
              if (!remove) {
@@ -367,7 +376,7 @@
              }
          }
          const label = this.#tocProgress.getProgress(index)?.label ?? ''
-@@ -405,7 +628,40 @@
+@@ -405,7 +630,40 @@
      }
      #createOverlayer({ doc, index }) {
          const overlayer = new Overlayer()
@@ -408,7 +417,7 @@
              const [value, range] = overlayer.hitTest(e)
              if (value && !value.startsWith(SEARCH_PREFIX)) {
                  this.#emit('show-annotation', { value, index, range })
-@@ -423,9 +679,17 @@
+@@ -423,9 +681,17 @@
          const resolved = await this.goTo(value)
          if (resolved) {
              const { index, anchor } = resolved
