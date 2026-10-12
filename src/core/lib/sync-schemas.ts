@@ -102,6 +102,7 @@ export const AnnotationSchema = z.object({
 export const AnnotationsArraySchema = z.array(AnnotationSchema);
 
 export const CollectionSchema = z.object({
+    parentId: z.string().min(1).optional(),
     id: z.string().min(1),
     name: z.string(),
     description: z.string().optional(),

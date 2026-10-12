@@ -1,3 +1,4 @@
+import { normalizeShelfHierarchy } from "./shelf-hierarchy";
 
 import type {
     Book,
@@ -248,6 +249,7 @@ export function mergeCollections(
         const matchTs = toEpoch(match.updatedAt) || toEpoch(match.createdAt);
         const merged: Collection = {
             ...match,
+            parentId: incTs > matchTs ? inc.parentId : match.parentId,
             name: incTs > matchTs ? inc.name : match.name,
             description:
                 incTs > matchTs
@@ -276,7 +278,10 @@ export function mergeCollections(
         }
     }
 
-    return [...byId.values()];
+    // Progressive sync may deliver a child before its parent. Keep that reference
+    // until the parent arrives, unless a deletion tombstone explicitly removes it.
+    return normalizeShelfHierarchy([...byId.values()].map(col =>
+        col.parentId && deletedCollectionIds.has(col.parentId) ? { ...col, parentId: undefined } : col), true);
 }
 
 export function mergeVocabulary(

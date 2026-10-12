@@ -1,3 +1,4 @@
+import { canSetShelfParent, normalizeShelfHierarchy } from "../lib/shelf-hierarchy";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { triggerVaultAutoSync } from "../lib/vault-sync";
@@ -1243,13 +1244,16 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             addCollection: (collection) => {
+                if (get().collections.some(shelf => shelf.id === collection.id)
+                    || !canSetShelfParent(get().collections, collection.id, collection.parentId)) return;
                 set((state) => ({ collections: [...state.collections, collection] }));
                 scheduleMutationSync();
             },
 
             removeCollection: (collectionId) => {
                 set((state) => ({
-                    collections: state.collections.filter((c) => c.id !== collectionId),
+                    collections: state.collections.filter((c) => c.id !== collectionId).map(c =>
+                        c.parentId === collectionId ? { ...c, parentId: undefined, updatedAt: new Date() } : c),
                     deletionTombstones: [
                         ...state.deletionTombstones,
                         { entityId: collectionId, entityType: "collection" as const, deletedAt: new Date().toISOString() },
@@ -1259,6 +1263,7 @@ export const useLibraryStore = create<LibraryStore>()(
             },
 
             updateCollection: (collectionId, updates) => {
+                if ("parentId" in updates && !canSetShelfParent(get().collections, collectionId, updates.parentId)) return;
                 set((state) => ({
                     collections: state.collections.map((c) =>
                         c.id === collectionId ? { ...c, ...updates, updatedAt: new Date() } : c
@@ -1557,7 +1562,7 @@ export const useLibraryStore = create<LibraryStore>()(
         }),
         {
             name: "theorem-library",
-            version: 9,
+            version: 10,
             storage: deferredJsonStorage,
             migrate: (persistedState, version) => {
                 const persisted = (
@@ -1619,7 +1624,7 @@ export const useLibraryStore = create<LibraryStore>()(
 
                 return {
                     books: isTauri() ? [] : books,
-                    collections,
+                    collections: normalizeShelfHierarchy(collections),
                     annotations: isTauri() ? [] : annotations,
                     deletionTombstones,
                     lastScannedAt,
@@ -1643,9 +1648,9 @@ export const useLibraryStore = create<LibraryStore>()(
                     return;
                 }
 
-                state.collections = state.collections
+                state.collections = normalizeShelfHierarchy(state.collections
                     .map((collection) => normalizeCollectionKind(collection as LegacyCollection))
-                    .filter((collection): collection is Collection => Boolean(collection));
+                    .filter((collection): collection is Collection => Boolean(collection)));
 
                 if (isTauri()) {
                     void sqliteGetAllAnnotations().then((annStrings) => {

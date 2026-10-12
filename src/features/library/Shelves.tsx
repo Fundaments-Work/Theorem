@@ -242,9 +242,11 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
 interface ShelfDetailProps {
     shelf: Collection;
     onBack: () => void;
+    onNavigate: (id: string) => void;
+    onCreateChild: () => void;
 }
 
-function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
+function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailProps) {
     const books = useLibraryStore((state) => state.books);
     const collections = useLibraryStore((state) => state.collections);
     const addCollection = useLibraryStore((state) => state.addCollection);
@@ -549,6 +551,14 @@ function ShelfDetail({ shelf, onBack }: ShelfDetailProps) {
 
     return (
         <div className="flex min-h-0 flex-1 flex-col animate-fade-in">
+            {!shelf.parentId && (
+                <nav aria-label="Sub-shelves" className="flex flex-wrap gap-2 mb-4">
+                    {collections.filter(c => c.parentId === shelf.id).map(child => (
+                        <button key={child.id} className="ui-btn" onClick={() => onNavigate(child.id)}>{child.name}</button>
+                    ))}
+                    <button className="ui-btn-ghost" onClick={onCreateChild}><Plus className="w-4 h-4" />New sub-shelf</button>
+                </nav>
+            )}
             <div className="-mb-4">
                 <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -988,7 +998,8 @@ export function ShelvesPage() {
     const searchQuery = useUIStore((state) => state.searchQuery);
     const [selectedShelfId, setSelectedShelfId] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingShelf, setEditingShelf] = useState<{ id: string; name: string; description?: string } | undefined>();
+    const [editingShelf, setEditingShelf] = useState<{ id: string; name: string; description?: string; parentId?: string } | undefined>();
+    const [initialParentId, setInitialParentId] = useState<string | undefined>();
     const generalCollections = useMemo(() => collections, [collections]);
 
     const bookLookup = useMemo(
@@ -1000,7 +1011,7 @@ export function ShelvesPage() {
 
     const filteredShelves = useMemo(() => {
         if (!debouncedSearchQuery.trim()) {
-            return generalCollections;
+            return generalCollections.filter(shelf => !shelf.parentId || !generalCollections.some(parent => parent.id === shelf.parentId));
         }
 
         const rankedShelves = rankByFuzzyQuery(
@@ -1032,22 +1043,24 @@ export function ShelvesPage() {
 
     const handleCreateShelf = () => {
         setEditingShelf(undefined);
+        setInitialParentId(undefined);
         setIsModalOpen(true);
     };
 
-    const handleEditShelf = (shelf: { id: string; name: string; description?: string }) => {
+    const handleEditShelf = (shelf: Collection) => {
         setEditingShelf(shelf);
         setIsModalOpen(true);
     };
 
-    const handleSaveShelf = (name: string, description: string) => {
+    const handleSaveShelf = (name: string, description: string, parentId?: string) => {
         if (editingShelf) {
-            updateCollection(editingShelf.id, { name, description });
+            updateCollection(editingShelf.id, { name, description, parentId });
         } else {
             addCollection({
                 id: crypto.randomUUID(),
                 name,
                 description,
+                parentId,
                 bookIds: [],
                 kind: "general",
                 createdAt: new Date(),
@@ -1074,7 +1087,11 @@ export function ShelvesPage() {
         if (shelf) {
             return (
                 <div className="mx-auto flex h-full w-full max-w-[var(--layout-content-max-width)] flex-col px-4 py-3 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
-                    <ShelfDetail shelf={shelf} onBack={() => setSelectedShelfId(null)} />
+                    <ShelfDetail key={shelf.id} shelf={shelf} onBack={() => setSelectedShelfId(shelf.parentId || null)}
+                        onNavigate={setSelectedShelfId}
+                        onCreateChild={() => { setEditingShelf(undefined); setInitialParentId(shelf.id); setIsModalOpen(true); }} />
+                    <ShelfModal isOpen={isModalOpen} shelf={editingShelf} collections={collections} initialParentId={initialParentId}
+                        onClose={() => setIsModalOpen(false)} onSave={handleSaveShelf} />
                 </div>
             );
         }
@@ -1112,21 +1129,20 @@ export function ShelvesPage() {
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
                                 {filteredShelves.map((shelf) => (
+                                    <div key={shelf.id}>
+                                    {shelf.parentId && <p className="text-sm text-[color:var(--color-text-muted)] mb-2">{collections.find(c => c.id === shelf.parentId)?.name} / {shelf.name}</p>}
+                                    {!shelf.parentId && collections.some(c => c.parentId === shelf.id) && <p className="text-sm text-[color:var(--color-text-muted)] mb-2">{collections.filter(c => c.parentId === shelf.id).length} sub-shelves</p>}
                                     <ShelfCard
-                                        key={shelf.id}
                                         shelf={shelf}
                                         books={getShelfBooks(shelf.bookIds)}
                                         actualBookCount={getActualBookCount(shelf.bookIds)}
                                         onClick={() => setSelectedShelfId(shelf.id)}
                                         onEdit={() =>
-                                            handleEditShelf({
-                                                id: shelf.id,
-                                                name: shelf.name,
-                                                description: shelf.description,
-                                            })
+                                            handleEditShelf(shelf)
                                         }
                                         onDelete={() => handleDeleteShelf(shelf.id, shelf.name)}
                                     />
+                                    </div>
                                 ))}
                             </div>
                         )}
@@ -1137,6 +1153,8 @@ export function ShelvesPage() {
             <ShelfModal
                 isOpen={isModalOpen}
                 shelf={editingShelf}
+                collections={collections}
+                initialParentId={initialParentId}
                 onClose={() => setIsModalOpen(false)}
                 onSave={handleSaveShelf}
             />
@@ -1144,7 +1162,7 @@ export function ShelvesPage() {
             <ConfirmDialog
                 isOpen={!!deleteShelfInfo}
                 title="Delete Shelf"
-                message={deleteShelfInfo ? `Are you sure you want to delete "${deleteShelfInfo.name}"? Books in this shelf will remain in your library.` : ""}
+                message={deleteShelfInfo ? `Are you sure you want to delete "${deleteShelfInfo.name}"? Books will remain in your library. Sub-shelves will become top-level shelves.` : ""}
                 confirmLabel="Delete"
                 cancelLabel="Cancel"
                 variant="danger"

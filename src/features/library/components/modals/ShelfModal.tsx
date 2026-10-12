@@ -1,3 +1,5 @@
+import type { Collection } from "../../../../core/types";
+import { canSetShelfParent } from "../../../../core/lib/shelf-hierarchy";
 import { useState, useEffect } from "react";
 import { cn } from "../../../../core/lib/utils";
 import { Modal, ModalBody, ModalFooter } from "../../../../ui";
@@ -8,27 +10,32 @@ interface ShelfModalProps {
         id: string;
         name: string;
         description?: string;
+        parentId?: string;
     };
     onClose: () => void;
-    onSave: (name: string, description: string) => void;
+    onSave: (name: string, description: string, parentId?: string) => void;
+    collections?: Collection[];
+    initialParentId?: string;
 }
 
-export function ShelfModal({ isOpen, shelf, onClose, onSave }: ShelfModalProps) {
+export function ShelfModal({ isOpen, shelf, onClose, onSave, collections = [], initialParentId }: ShelfModalProps) {
     const [name, setName] = useState(shelf?.name || "");
     const [description, setDescription] = useState(shelf?.description || "");
+    const [parentId, setParentId] = useState(shelf?.parentId || initialParentId || "");
     const isEditing = !!shelf;
 
     useEffect(() => {
         if (isOpen) {
+            setParentId(shelf?.parentId || initialParentId || "");
             setName(shelf?.name || "");
             setDescription(shelf?.description || "");
         }
-    }, [isOpen, shelf]);
+    }, [isOpen, shelf, initialParentId]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (name.trim()) {
-            onSave(name.trim(), description.trim());
+            onSave(name.trim(), description.trim(), parentId || undefined);
         }
     };
 
@@ -36,7 +43,7 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave }: ShelfModalProps) 
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             if (name.trim()) {
-                onSave(name.trim(), description.trim());
+                onSave(name.trim(), description.trim(), parentId || undefined);
             }
         }
     };
@@ -46,6 +53,15 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave }: ShelfModalProps) 
             <form onSubmit={handleSubmit}>
                 <ModalBody>
                     <div className="space-y-4">
+                        <div>
+                            <label htmlFor="shelf-parent" className="block text-sm font-medium mb-1.5">Parent shelf</label>
+                            <select id="shelf-parent" className="ui-input" value={parentId} onChange={e => setParentId(e.target.value)}>
+                                <option value="">None (top-level shelf)</option>
+                                {collections.filter(c => canSetShelfParent(collections, shelf?.id || "", c.id)).map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
                         <div>
                             <label htmlFor="shelf-name" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
                                 Name

@@ -155,6 +155,8 @@ export interface Annotation {
 }
 
 export interface Collection {
+    /** Optional top-level parent; sub-shelves retain independent membership. */
+    parentId?: string;
     id: string;
     name: string;
     description?: string;
