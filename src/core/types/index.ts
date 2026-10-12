@@ -44,11 +44,19 @@ export interface PdfViewState {
     presentationMode?: 'scroll' | 'paged' | 'two-page';
 }
 
+export interface BookSourceFolder {
+    root: string;
+    name: string;
+    relativePath: string;
+}
+
 export interface Book {
     id: string;
     title: string;
     author: string;
     filePath: string;
+    /** Original folder membership, independent of storage paths and shelves. */
+    sourceFolders?: BookSourceFolder[];
     storagePath?: string; 
     format: BookFormat;
     contentHash?: string;

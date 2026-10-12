@@ -135,10 +135,10 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  private fun collectBookUris(root: DocumentFile, recursive: Boolean): List<String> {
-    val results = Collections.synchronizedList(ArrayList<String>())
+  private fun collectBookUris(root: DocumentFile, recursive: Boolean): List<JSObject> {
+    val results = Collections.synchronizedList(ArrayList<JSObject>())
 
-    fun scanDirectory(dir: DocumentFile) {
+    fun scanDirectory(dir: DocumentFile, relativeDirectory: String) {
       val entries = try {
         dir.listFiles()
       } catch (_: Exception) {
@@ -156,20 +156,27 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
         }
 
         if (entry.isFile && isSupportedBookFile(entry)) {
-          results.add(entry.uri.toString())
+          val name = entry.name ?: continue
+          val file = JSObject()
+          file.put("path", entry.uri.toString())
+          file.put("relativePath", relativeDirectory + name)
+          file.put("rootName", root.name ?: "Imported folder")
+          results.add(file)
         }
       }
 
       if (subdirs.isNotEmpty() && recursive) {
         runBlocking {
           subdirs.map { subdir ->
-            async(Dispatchers.IO) { scanDirectory(subdir) }
+            async(Dispatchers.IO) {
+              subdir.name?.let { scanDirectory(subdir, relativeDirectory + it + "/") }
+            }
           }.awaitAll()
         }
       }
     }
 
-    scanDirectory(root)
+    scanDirectory(root, "")
     return results
   }
 

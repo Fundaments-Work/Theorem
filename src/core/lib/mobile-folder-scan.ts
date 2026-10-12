@@ -1,3 +1,4 @@
+import type { ScannedBookFile } from "./source-folders";
 import { invoke } from "@tauri-apps/api/core";
 import { isMobile, isTauri } from "./env";
 
@@ -13,7 +14,7 @@ export async function pickLibraryFolderMobile(): Promise<string | null> {
     return folderUri.trim() || null;
 }
 
-export async function scanLibraryFolderMobile(treeUri: string): Promise<string[]> {
+export async function scanLibraryFolderMobile(treeUri: string): Promise<ScannedBookFile[]> {
     if (!isTauri() || !isMobile()) {
         return [];
     }
@@ -23,7 +24,7 @@ export async function scanLibraryFolderMobile(treeUri: string): Promise<string[]
         return [];
     }
 
-    const files = await invoke<string[]>("scan_library_folder_mobile", {
+    const files = await invoke<ScannedBookFile[]>("scan_library_folder_mobile", {
         treeUri: normalizedTreeUri,
     });
     return Array.isArray(files) ? files : [];
