@@ -308,7 +308,7 @@ export const BookCard = memo(function BookCard({
         },
         {
             id: isCompleted ? "mark-as-unread" : "mark-as-read",
-            label: isCompleted ? "Mark Unfinish" : "Mark Finish",
+            label: isCompleted ? "Mark Unread" : "Mark Read",
             icon: isCompleted ? <RotateCcw className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />,
             onClick: () => {
                 if (isCompleted) {
@@ -1523,6 +1523,13 @@ export function LibraryPage() {
     const { selectedBooks, selectedBookIds, selectAll, clearSelection, toggleBookSelection, allSelected } =
         useFilteredSelection(sortedBooks, selectionScope, isSelecting, selectionReady);
 
+    const allSelectedCompleted = useMemo(() => {
+        if (selectedBooks.length === 0) return false;
+        const libraryBooks = useLibraryStore.getState().books;
+        const targetBooks = libraryBooks.filter((b) => selectedBookIds.has(b.id));
+        return targetBooks.length > 0 && targetBooks.every(isBookMarkedRead);
+    }, [selectedBooks.length, selectedBookIds, books]);
+
     useEffect(() => {
         if (!isSelecting) return;
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -2222,39 +2229,35 @@ export function LibraryPage() {
                     aria-label="Bulk book actions"
                     className="w-full shrink-0 my-4 border-y-2 border-[var(--color-border)] bg-[var(--color-surface)] py-3 px-3 sm:px-4 space-y-3"
                 >
-                    {/* Top Row: Selection Status and Pinned Exit Button */}
-                    <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-                            <span className="text-sm font-bold text-[color:var(--color-text-primary)] shrink-0">
-                                {selectedBooks.length} of {sortedBooks.length} selected
-                            </span>
-                            <button
-                                className="ui-btn px-2.5 py-1 text-xs font-semibold whitespace-nowrap shrink-0"
-                                onClick={selectAll}
-                                disabled={!selectionReady || sortedBooks.length === 0 || allSelected}
-                                title="Select all filtered books"
-                            >
-                                {allSelected ? "All selected" : `Select all (${sortedBooks.length})`}
-                            </button>
-                            {selectedBooks.length > 0 && (
-                                <button
-                                    className="ui-btn-ghost px-2.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] whitespace-nowrap shrink-0"
-                                    onClick={clearSelection}
-                                    title="Clear selection"
-                                >
-                                    Clear
-                                </button>
-                            )}
-                            {!selectionReady && (
-                                <span role="status" className="text-xs text-[color:var(--color-text-muted)] animate-pulse shrink-0">
-                                    Updating search results…
-                                </span>
-                            )}
-                        </div>
-
-                        {/* Pinned Exit Button: locked on the right via justify-between, CANNOT wrap */}
+                    {/* Top Row: Selection Status, Controls, and Done in the same line */}
+                    <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+                        <span className="text-sm font-bold text-[color:var(--color-text-primary)] shrink-0 mr-1">
+                            {selectedBooks.length} of {sortedBooks.length} selected
+                        </span>
                         <button
-                            className="ui-btn-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 shrink-0"
+                            className="ui-btn px-2.5 py-1 text-xs font-semibold whitespace-nowrap shrink-0"
+                            onClick={selectAll}
+                            disabled={!selectionReady || sortedBooks.length === 0 || allSelected}
+                            title="Select all filtered books"
+                        >
+                            {allSelected ? "All selected" : `Select all (${sortedBooks.length})`}
+                        </button>
+                        {selectedBooks.length > 0 && (
+                            <button
+                                className="ui-btn-ghost px-2.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] whitespace-nowrap shrink-0"
+                                onClick={clearSelection}
+                                title="Clear selection"
+                            >
+                                Clear
+                            </button>
+                        )}
+                        {!selectionReady && (
+                            <span role="status" className="text-xs text-[color:var(--color-text-muted)] animate-pulse shrink-0">
+                                Updating search results…
+                            </span>
+                        )}
+                        <button
+                            className="ui-btn-primary px-3 py-1 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 whitespace-nowrap shrink-0"
                             onClick={() => {
                                 clearSelection();
                                 setIsSelecting(false);
@@ -2269,24 +2272,27 @@ export function LibraryPage() {
 
                     {/* Bottom Row: Actions with full icons + full text labels in horizontal scrollable strip */}
                     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-                        <button
-                            onClick={handleBatchMarkRead}
-                            aria-label="Mark selected as read"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
-                        >
-                            <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
-                            <span>Mark Read</span>
-                        </button>
-                        <button
-                            onClick={handleBatchMarkUnread}
-                            aria-label="Mark selected as unread"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
-                        >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Mark Unread</span>
-                        </button>
+                        {allSelectedCompleted ? (
+                            <button
+                                onClick={handleBatchMarkUnread}
+                                aria-label="Mark selected as unread"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Mark Unread</span>
+                            </button>
+                        ) : (
+                            <button
+                                onClick={handleBatchMarkRead}
+                                aria-label="Mark selected as read"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
+                                <span>Mark Read</span>
+                            </button>
+                        )}
                         <button
                             onClick={handleBatchAddToShelf}
                             aria-label="Add selected to shelf"

@@ -277,6 +277,13 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
     const lastSelectedIndexRef = useRef<number | null>(null);
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
+
+    const allSelectedCompleted = useMemo(() => {
+        if (selectedBooks.length === 0) return false;
+        const selectedSet = new Set(selectedBooks);
+        const targetBooks = books.filter((b) => selectedSet.has(b.id));
+        return targetBooks.length > 0 && targetBooks.every((b) => !!b.completedAt);
+    }, [selectedBooks, books]);
     
     const viewMode = settings.libraryViewMode;
 
@@ -403,16 +410,38 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
     }, [removeBooksFromCollection, selectedBooks, shelf.id, clearSelection]);
 
     const handleBatchMarkRead = useCallback(() => {
-        markBooksCompleted(selectedBooks);
+        const ids = [...selectedBooks];
+        markBooksCompleted(ids);
         clearSelection();
         setIsSelecting(false);
-    }, [markBooksCompleted, selectedBooks, clearSelection]);
+        toast.success(`Marked ${ids.length} ${ids.length === 1 ? "book" : "books"} as read`, {
+            duration: 7000,
+            action: {
+                label: "Undo",
+                onClick: () => {
+                    markBooksUnread(ids);
+                    toast.info(`Restored ${ids.length} ${ids.length === 1 ? "book" : "books"} to unread`);
+                },
+            },
+        });
+    }, [selectedBooks, markBooksCompleted, markBooksUnread, clearSelection]);
 
     const handleBatchMarkUnread = useCallback(() => {
-        markBooksUnread(selectedBooks);
+        const ids = [...selectedBooks];
+        markBooksUnread(ids);
         clearSelection();
         setIsSelecting(false);
-    }, [markBooksUnread, selectedBooks, clearSelection]);
+        toast.success(`Marked ${ids.length} ${ids.length === 1 ? "book" : "books"} as unread`, {
+            duration: 7000,
+            action: {
+                label: "Undo",
+                onClick: () => {
+                    markBooksCompleted(ids);
+                    toast.info(`Restored ${ids.length} ${ids.length === 1 ? "book" : "books"} to read`);
+                },
+            },
+        });
+    }, [selectedBooks, markBooksUnread, markBooksCompleted, clearSelection]);
 
     const [isSeriesModalOpen, setIsSeriesModalOpen] = useState(false);
     const [seriesModalBookIds, setSeriesModalBookIds] = useState<string[]>([]);
@@ -876,20 +905,23 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         <Plus className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Add to Shelf</span>
                     </button>
-                    <button
-                        onClick={handleBatchMarkRead}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <CheckCheck className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Mark Read</span>
-                    </button>
-                    <button
-                        onClick={handleBatchMarkUnread}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
-                    >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Mark Unread</span>
-                    </button>
+                    {allSelectedCompleted ? (
+                        <button
+                            onClick={handleBatchMarkUnread}
+                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Mark Unread</span>
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handleBatchMarkRead}
+                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                        >
+                            <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
+                            <span className="hidden sm:inline">Mark Read</span>
+                        </button>
+                    )}
                     <button
                         onClick={handleOpenSeriesModalForSelection}
                         className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
@@ -904,6 +936,16 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Delete</span>
+                    </button>
+                    <button
+                        onClick={() => {
+                            clearSelection();
+                            setIsSelecting(false);
+                        }}
+                        className="ui-btn-primary px-3 py-1.5 text-xs font-bold border-2 uppercase ml-auto"
+                        title="Done selecting"
+                    >
+                        <span>Done</span>
                     </button>
                 </div>
             )}

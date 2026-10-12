@@ -155,5 +155,18 @@ describe("bulk selection actions and undo safety", () => {
 
         // Defend Escape key handling for accessibility
         expect(libraryCode).toContain('e.key === "Escape"');
+
+        // Defend dynamic Mark Read / Unread toggle (never show both at once)
+        expect(libraryCode).toContain("allSelectedCompleted ? (");
+        expect(libraryCode).not.toContain("<span>Mark Read</span>\n                        <button");
+
+        // Defend right-click context menu consistency
+        expect(libraryCode).toContain('isCompleted ? "Mark Unread" : "Mark Read"');
+        expect(libraryCode).not.toContain('"Mark Finish"');
+        expect(libraryCode).not.toContain('"Mark Unfinish"');
+
+        // Defend shelf detail dynamic Mark Read / Unread toggle
+        const shelvesCode = readFileSync(resolve("src/features/library/Shelves.tsx"), "utf-8");
+        expect(shelvesCode).toContain("allSelectedCompleted ? (");
     });
 });
