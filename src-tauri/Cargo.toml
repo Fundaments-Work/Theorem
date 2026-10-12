@@ -143,3 +143,7 @@ unknown_lints = "allow"
 
 [lints.clippy]
 chunks_exact_to_as_chunks = "allow"
+
+# RAR decoding is CPU intensive; Android debug APKs must handle real comics.
+[profile.dev.package.rars]
+opt-level = 3

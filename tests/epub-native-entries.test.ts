@@ -7,7 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { unzipSync } from "fflate";
+import { unzipSync, zipSync } from "fflate";
 
 const epubBytes = new Uint8Array(readFileSync(`${process.cwd()}/tests/fixtures/epub/multi-chapter.epub`));
 const entries = unzipSync(epubBytes);
@@ -69,4 +69,21 @@ describe("EPUB entries inflated natively", () => {
         const book = await makeBook(epubFile(), Promise.resolve(nativePrefetch())) as LoadedBook;
         expect(await book.loadText("OEBPS/does-not-exist.xhtml")).toBeNull();
     });
+    it("keeps comic fallback reads in ranges when native prefetch is unavailable", async () => {
+        const { makeBook } = await import("../src/features/reader/foliate-js-runtime/view.js");
+        const bytes = zipSync({ 'page.jpg': new Uint8Array([1, 2, 3]) });
+        const file = new File([bytes], 'comic.cbz', { type: 'application/vnd.comicbook+zip' });
+        Object.defineProperty(file, 'isNativeRangeFile', { value: true });
+        const wholeRead = vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new Error('Whole-file read forbidden'));
+        const worker = { initEpub: vi.fn() };
+        (window as any).__THEOREM_CORE_WORKER__ = worker;
+        try {
+            const book = await makeBook(file, Promise.resolve(null)) as LoadedBook & { getCover(): Promise<Blob> };
+            expect(book.sections).toHaveLength(1);
+            expect(new Uint8Array(await (await book.getCover()).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+            expect(worker.initEpub).not.toHaveBeenCalled();
+            expect(wholeRead).not.toHaveBeenCalled();
+        } finally { delete (window as any).__THEOREM_CORE_WORKER__; }
+    });
+
 });

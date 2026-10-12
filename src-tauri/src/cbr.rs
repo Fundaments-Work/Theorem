@@ -7,122 +7,80 @@ use crate::batch_ingest::{
     ParsedMetadata,
 };
 
-/// A shared buffer writer to receive streaming uncompressed data from `rars::extract_to`.
-struct BufferWriter(Arc<Mutex<Vec<u8>>>);
+/// Write each extracted member straight into ZIP, without retaining all pages.
+struct ZipEntryWriter<W: Write + std::io::Seek>(Arc<Mutex<zip::ZipWriter<W>>>);
 
-impl Write for BufferWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
+impl<W: Write + std::io::Seek> Write for ZipEntryWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .map_err(|_| std::io::Error::other("ZIP writer poisoned"))?
+            .write(bytes)
     }
-
     fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+        self.0
+            .lock()
+            .map_err(|_| std::io::Error::other("ZIP writer poisoned"))?
+            .flush()
     }
 }
 
-type ArchiveEntryList = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
-
-/// Convert a CBR (RAR) archive into in-memory CBZ (ZIP) bytes.
-pub fn convert_cbr_to_cbz(path: &Path) -> Result<Vec<u8>, String> {
-    let archive = rars::ArchiveReader::read_path(path)
-        .map_err(|e| format!("Failed to open CBR archive '{}': {}", path.display(), e))?;
-
-    let mut zip_buffer = Cursor::new(Vec::new());
-    {
-        let mut zip_writer = zip::ZipWriter::new(&mut zip_buffer);
-        let options: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-
-        let entries_data: ArchiveEntryList = Arc::new(Mutex::new(Vec::new()));
-        let entries_data_clone = entries_data.clone();
-
-        let current_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-        let current_buf_clone = current_buf.clone();
-        let current_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-        let current_name_clone = current_name.clone();
-
-        let extract_res = archive.extract_to(None, move |meta| {
-            let mut name_lock = current_name_clone.lock().unwrap();
-            let mut buf_lock = current_buf_clone.lock().unwrap();
-            if let Some(prev_name) = name_lock.take() {
-                if !buf_lock.is_empty() {
-                    entries_data_clone
-                        .lock()
-                        .unwrap()
-                        .push((prev_name, std::mem::take(&mut *buf_lock)));
-                }
-            }
-
+fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
+    path: &Path,
+    output: W,
+) -> Result<W, String> {
+    let archive =
+        rars::ArchiveReader::read_path(path).map_err(|e| format!("Failed to open CBR: {e}"))?;
+    let writer = Arc::new(Mutex::new(zip::ZipWriter::new(output)));
+    let shared = writer.clone();
+    let mut count = 0usize;
+    archive
+        .extract_to(None, |meta| {
             if meta.is_directory {
                 return Ok(Box::new(std::io::sink()));
             }
-
-            let name = meta.name_lossy();
-            *name_lock = Some(name);
-            buf_lock.clear();
-
-            Ok(Box::new(BufferWriter(current_buf_clone.clone())))
-        });
-
-        // Flush the final entry if any
-        {
-            let mut name_lock = current_name.lock().unwrap();
-            let mut buf_lock = current_buf.lock().unwrap();
-            if let Some(last_name) = name_lock.take() {
-                entries_data
-                    .lock()
-                    .unwrap()
-                    .push((last_name, std::mem::take(&mut *buf_lock)));
-            }
-        }
-
-        // If extract_to succeeded, write out all entries into ZIP
-        let mut wrote_entries = false;
-        if extract_res.is_ok() {
-            let collected = entries_data.lock().unwrap();
-            for (name, data) in collected.iter() {
-                zip_writer
-                    .start_file(name.clone(), options)
-                    .map_err(|e| format!("Failed to write ZIP entry '{name}': {e}"))?;
-                zip_writer
-                    .write_all(data)
-                    .map_err(|e| format!("Failed to write ZIP data for '{name}': {e}"))?;
-                wrote_entries = true;
-            }
-        }
-
-        // Fallback to read_member_at if extract_to didn't produce entries
-        if !wrote_entries {
-            for (idx, member) in archive.members().enumerate() {
-                if member.meta.is_directory {
-                    continue;
-                }
-                let name = member.meta.name_lossy();
-                if let Ok(Some(data)) = archive.read_member_at(idx, None) {
-                    zip_writer
-                        .start_file(name.clone(), options)
-                        .map_err(|e| format!("Failed to write ZIP entry '{name}': {e}"))?;
-                    zip_writer
-                        .write_all(&data)
-                        .map_err(|e| format!("Failed to write ZIP data for '{name}': {e}"))?;
-                }
-            }
-        }
-
-        zip_writer
-            .finish()
-            .map_err(|e| format!("Failed to finalize ZIP: {e}"))?;
+            let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            shared
+                .lock()
+                .map_err(|_| std::io::Error::other("ZIP writer poisoned"))?
+                .start_file(meta.name_lossy(), options)
+                .map_err(std::io::Error::other)?;
+            count += 1;
+            Ok(Box::new(ZipEntryWriter(shared.clone())))
+        })
+        .map_err(|e| format!("CBR extraction failed: {e}"))?;
+    if count == 0 {
+        return Err("CBR contains no files".into());
     }
-
-    Ok(zip_buffer.into_inner())
+    drop(shared);
+    Arc::try_unwrap(writer)
+        .map_err(|_| "ZIP writer still in use".to_string())?
+        .into_inner()
+        .map_err(|_| "ZIP writer poisoned".to_string())?
+        .finish()
+        .map_err(|e| format!("Failed to finalize ZIP: {e}"))
 }
 
-/// Convert a CBR file to a CBZ file on disk.
+/// Legacy binary reader response; imports use the disk-backed conversion below.
+pub fn convert_cbr_to_cbz(path: &Path) -> Result<Vec<u8>, String> {
+    Ok(convert_cbr_into(path, Cursor::new(Vec::new()))?.into_inner())
+}
+
 pub fn convert_cbr_to_cbz_file(source: &Path, dest: &Path) -> Result<(), String> {
-    let zip_bytes = convert_cbr_to_cbz(source)?;
-    std::fs::write(dest, zip_bytes)
-        .map_err(|e| format!("Failed to write CBZ file '{}': {e}", dest.display()))
+    let output = std::fs::File::create(dest).map_err(|e| format!("Failed to create CBZ: {e}"))?;
+    let output = std::io::BufWriter::with_capacity(64 * 1024, output);
+    match convert_cbr_into(source, output) {
+        Ok(output) => output
+            .into_inner()
+            .map_err(|e| format!("Failed to flush CBZ: {e}"))?
+            .sync_all()
+            .map_err(|e| format!("Failed to flush CBZ: {e}")),
+        Err(error) => {
+            let _ = std::fs::remove_file(dest);
+            Err(error)
+        }
+    }
 }
 
 /// Extract metadata & cover from a CBR comic archive.
@@ -261,6 +219,10 @@ mod tests {
         let cbz_bytes = convert_cbr_to_cbz(&cbr_path).unwrap();
         assert!(!cbz_bytes.is_empty());
 
+        let disk_path = temp_dir.path().join("converted.cbz");
+        convert_cbr_to_cbz_file(&cbr_path, &disk_path).unwrap();
+        assert_eq!(std::fs::read(&disk_path).unwrap(), cbz_bytes);
+
         // Verify cbz_bytes is a valid ZIP file with our entries
         let mut zip = zip::ZipArchive::new(Cursor::new(cbz_bytes)).unwrap();
         assert_eq!(zip.len(), 2);
@@ -276,5 +238,14 @@ mod tests {
             img_entry.read_to_end(&mut img_read).unwrap();
             assert_eq!(img_read, png_bytes);
         }
+    }
+    #[test]
+    fn failed_conversion_removes_partial_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("broken.cbr");
+        let destination = directory.path().join("broken.cbz");
+        std::fs::write(&source, b"not a RAR archive").unwrap();
+        assert!(convert_cbr_to_cbz_file(&source, &destination).is_err());
+        assert!(!destination.exists());
     }
 }

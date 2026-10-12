@@ -79,7 +79,13 @@ pub fn compute_file_sha256(path: &Path) -> Option<String> {
 
 /// Downsample image bytes to max 360x540 JPEG and convert to base64 data URL
 pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
-    let img = image::load_from_memory(bytes).ok()?;
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let img = reader.decode().ok()?;
     let (width, height) = img.dimensions();
 
     if width == 0 || height == 0 {
@@ -111,6 +117,8 @@ pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
 // PARSERS FOR INDIVIDUAL FORMATS
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ParsedMetadata {
     pub(crate) title: String,
     pub(crate) author: String,
@@ -257,7 +265,7 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
 }
 
 /// Extract metadata & cover from a CBZ comic archive
-fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
+pub(crate) fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open CBZ: {e}"))?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid CBZ ZIP: {e}"))?;
 
@@ -269,7 +277,7 @@ fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
     // Check for ComicInfo.xml
     if let Ok(mut comic_info) = archive.by_name("ComicInfo.xml") {
         let mut xml_str = String::new();
-        if comic_info.read_to_string(&mut xml_str).is_ok() {
+        if comic_info.size() <= 1024 * 1024 && comic_info.read_to_string(&mut xml_str).is_ok() {
             if let Some(t) = extract_xml_tag_text(&xml_str, "Title") {
                 if !t.trim().is_empty() {
                     title = t;
@@ -307,7 +315,7 @@ fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
     if let Some(first_img) = image_names.first() {
         if let Ok(mut entry) = archive.by_name(first_img) {
             let mut bytes = Vec::new();
-            if entry.read_to_end(&mut bytes).is_ok() {
+            if entry.size() <= 32 * 1024 * 1024 && entry.read_to_end(&mut bytes).is_ok() {
                 cover_data_url = downsample_cover_to_data_url(&bytes);
             }
         }

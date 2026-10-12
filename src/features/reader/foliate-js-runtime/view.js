@@ -34,7 +34,7 @@ const makeZipLoader = async (file, prefetchPromise) => {
     const toc = prefetch?.toc
 
     if (!textCache && !sizes) {
-        if (typeof window !== 'undefined' && window.__THEOREM_CORE_WORKER__ && typeof file?.arrayBuffer === 'function') {
+        if (!file?.isNativeRangeFile && typeof window !== 'undefined' && window.__THEOREM_CORE_WORKER__ && typeof file?.arrayBuffer === 'function') {
             try {
                 const buffer = await file.arrayBuffer();
                 const worker = window.__THEOREM_CORE_WORKER__;
