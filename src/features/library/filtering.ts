@@ -30,6 +30,7 @@ export interface LibraryFilterOptions {
      * matching is only for the browser build or a failed native call.
      */
     nativeSearchPending?: boolean;
+    sourceFolderBookIds?: Set<string>;
 }
 
 export function getFilteredAndSortedBooks({
@@ -44,6 +45,7 @@ export function getFilteredAndSortedBooks({
     sortOrder,
     ftsSearchIds,
     nativeSearchPending = false,
+    sourceFolderBookIds,
 }: LibraryFilterOptions): Book[] {
     let searchResults = books;
     const trimmedQuery = searchQuery.trim();
@@ -90,7 +92,7 @@ export function getFilteredAndSortedBooks({
         }
     }
 
-    let result = searchResults;
+    let result = sourceFolderBookIds ? searchResults.filter((book) => sourceFolderBookIds.has(book.id)) : searchResults;
 
     if (selectedShelfBookIds) {
         result = result.filter((book) => selectedShelfBookIds.has(book.id));
