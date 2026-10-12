@@ -120,3 +120,40 @@ describe("accessible book selection", () => {
         act(() => vi.advanceTimersByTime(300)); expect(handlers.onOpenBook).not.toHaveBeenCalled();
     });
 });
+
+describe("bulk selection actions and undo safety", () => {
+    it("restores prior reading progress when undoing accidental mark as read", () => {
+        const testBook: Book = book("book-1", { progress: 0.42, progressBeforeFinish: undefined });
+        useLibraryStore.setState({ books: [testBook] });
+
+        // User accidentally marks read
+        useLibraryStore.getState().markBooksCompleted(["book-1"]);
+        expect(useLibraryStore.getState().books[0].progress).toBe(1);
+        expect(useLibraryStore.getState().books[0].progressBeforeFinish).toBe(0.42);
+
+        // User clicks Undo (which calls markBooksUnread)
+        useLibraryStore.getState().markBooksUnread(["book-1"]);
+        expect(useLibraryStore.getState().books[0].progress).toBe(0.42);
+    });
+
+    it("ensures bulk selection buttons carry explicit text labels and safe styling", () => {
+        const { readFileSync } = require("fs");
+        const { resolve } = require("path");
+        const libraryCode = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
+
+        // Defend against regression to icon-only mystery buttons
+        expect(libraryCode).toContain("<span>Mark Read</span>");
+        expect(libraryCode).toContain("<span>Mark Unread</span>");
+        expect(libraryCode).toContain("<span>Add to Shelf</span>");
+        expect(libraryCode).toContain("<span>Series</span>");
+        expect(libraryCode).toContain("<span>Export</span>");
+        expect(libraryCode).toContain("<span>Delete</span>");
+        expect(libraryCode).toContain("<span>Done</span>");
+
+        // Defend danger styling for Delete action
+        expect(libraryCode).toContain("ui-btn-danger");
+
+        // Defend Escape key handling for accessibility
+        expect(libraryCode).toContain('e.key === "Escape"');
+    });
+});

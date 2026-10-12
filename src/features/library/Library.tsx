@@ -22,7 +22,7 @@ import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
     ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones,
-    Layers, MoreHorizontal, X
+    Layers, MoreHorizontal, X, CheckSquare
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -1523,6 +1523,18 @@ export function LibraryPage() {
     const { selectedBooks, selectedBookIds, selectAll, clearSelection, toggleBookSelection, allSelected } =
         useFilteredSelection(sortedBooks, selectionScope, isSelecting, selectionReady);
 
+    useEffect(() => {
+        if (!isSelecting) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                clearSelection();
+                setIsSelecting(false);
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isSelecting, clearSelection]);
+
     const scrollRef = useRef<HTMLDivElement>(null);
 
     const isListView = settings.libraryViewMode === "list";
@@ -1955,9 +1967,13 @@ export function LibraryPage() {
         clearSelection();
         setIsSelecting(false);
         toast.success(`Marked ${ids.length} ${ids.length === 1 ? "book" : "books"} as read`, {
+            duration: 7000,
             action: {
                 label: "Undo",
-                onClick: () => markBooksUnread(ids),
+                onClick: () => {
+                    markBooksUnread(ids);
+                    toast.info(`Restored ${ids.length} ${ids.length === 1 ? "book" : "books"} to unread`);
+                },
             },
         });
     }, [selectedBooks, markBooksCompleted, markBooksUnread, clearSelection]);
@@ -1968,9 +1984,13 @@ export function LibraryPage() {
         clearSelection();
         setIsSelecting(false);
         toast.success(`Marked ${ids.length} ${ids.length === 1 ? "book" : "books"} as unread`, {
+            duration: 7000,
             action: {
                 label: "Undo",
-                onClick: () => markBooksCompleted(ids),
+                onClick: () => {
+                    markBooksCompleted(ids);
+                    toast.info(`Restored ${ids.length} ${ids.length === 1 ? "book" : "books"} to read`);
+                },
             },
         });
     }, [selectedBooks, markBooksUnread, markBooksCompleted, clearSelection]);
@@ -2145,12 +2165,14 @@ export function LibraryPage() {
                             setIsSelecting((prev) => !prev);
                         }}
                         className={cn(
-                            TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
+                            TOOLBAR_BUTTON_BASE, "h-10 w-10 px-0 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
                             isSelecting && FILTER_CHIP_SELECTED
                         )}
-                        title={isSelecting ? "Cancel Selection" : "Select Books"}
+                        title={isSelecting ? "Exit selection mode (Esc)" : "Select books"}
+                        aria-label={isSelecting ? "Exit selection mode" : "Select books"}
                     >
-                        <CheckCheck className="w-4 h-4" />
+                        {isSelecting ? <X className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
+                        <span className="hidden sm:inline font-bold text-xs uppercase">{isSelecting ? "Done" : "Select"}</span>
                     </button>
 
                     <button
@@ -2193,100 +2215,6 @@ export function LibraryPage() {
             <SourceFolderBrowser index={sourceFolderIndex} selected={selectedSourceFolder}
                 onSelect={(folder) => { setSelectedSourceFolder(folder); clearSelection(); }} />
             </div>
-
-            {isSelecting && (
-                <div role="region" aria-label="Bulk book actions" className="my-4 shrink-0 border-y border-[var(--color-border)] py-3 space-y-2.5">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                        <span className="text-sm font-bold text-[color:var(--color-text-primary)] shrink-0">
-                            {selectedBooks.length} of {sortedBooks.length} selected
-                        </span>
-                        <button
-                            className="ui-btn px-2.5 py-1 text-xs whitespace-nowrap"
-                            onClick={selectAll}
-                            disabled={!selectionReady || sortedBooks.length === 0 || allSelected}
-                            title="Select all filtered books"
-                        >
-                            Select all results
-                        </button>
-                        <button
-                            className="ui-btn px-2.5 py-1 text-xs whitespace-nowrap"
-                            onClick={clearSelection}
-                            disabled={selectedBooks.length === 0}
-                            title="Clear selection"
-                        >
-                            Clear selection
-                        </button>
-                        {!selectionReady && <span role="status" className="text-xs text-[color:var(--color-text-muted)] animate-pulse">Updating search results…</span>}
-                        <button
-                            className="ui-btn-ghost px-3 py-1 text-xs ml-auto flex items-center gap-1.5 font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
-                            onClick={() => { clearSelection(); setIsSelecting(false); }}
-                            title="Done (exit selection)"
-                            aria-label="Done (exit selection)"
-                        >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Done</span>
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-                        <button
-                            onClick={handleBatchMarkRead}
-                            aria-label="Mark read"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                            <CheckCheck className="w-3.5 h-3.5" />
-                            <span>Mark Read</span>
-                        </button>
-                        <button
-                            onClick={handleBatchMarkUnread}
-                            aria-label="Mark unread"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Mark Unread</span>
-                        </button>
-                        <button
-                            onClick={handleBatchAddToShelf}
-                            aria-label="Add to shelf"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                            <BookMarked className="w-3.5 h-3.5" />
-                            <span>Add to Shelf</span>
-                        </button>
-                        <button
-                            onClick={() => setIsSeriesModalOpen(true)}
-                            aria-label="Assign series"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                            <Layers className="w-3.5 h-3.5" />
-                            <span>Series</span>
-                        </button>
-                        <button
-                            onClick={handleBatchExport}
-                            aria-label="Export selected books"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Export</span>
-                        </button>
-                        <div className="h-5 w-px bg-[var(--color-border)] shrink-0 mx-1" />
-                        <button
-                            onClick={handleBatchDelete}
-                            aria-label="Delete selected books"
-                            disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20 flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                        >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                        </button>
-                    </div>
-                </div>
-            )}
 
             <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                 <div className="flex min-h-0 flex-1 flex-col w-full">
@@ -2407,7 +2335,15 @@ export function LibraryPage() {
                         </div>
                     </div>
 
-                    <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
+                    <section
+                        ref={scrollRef}
+                        className={cn(
+                            "flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid",
+                            isSelecting
+                                ? "pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+7.5rem)] lg:pb-24"
+                                : "pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0"
+                        )}
+                    >
                         <DailyHighlightBanner
                             showDailyHighlight={!!settings.showDailyHighlight}
                             selectedShelf={selectedShelf}
@@ -2607,6 +2543,152 @@ export function LibraryPage() {
                 )}
             </div>
 
+            {isSelecting && (
+                <aside
+                    role="region"
+                    aria-label="Bulk book actions"
+                    className={cn(
+                        "fixed z-50 transition-all duration-200 ease-out",
+                        // Mobile / Tablet: docked above bottom navigation
+                        "bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] left-0 right-0 w-full",
+                        "bg-[var(--color-surface)] border-t-2 border-[var(--color-border)] shadow-[0_-8px_30px_rgba(0,0,0,0.18)] px-3 py-2.5",
+                        // Desktop (lg+): floating centered command island
+                        "lg:bottom-6 lg:left-1/2 lg:-translate-x-1/2 lg:w-auto lg:max-w-5xl lg:border-2 lg:rounded-xl lg:px-4 lg:py-2.5 lg:shadow-[0_16px_48px_rgba(0,0,0,0.22)] lg:bg-[var(--color-surface)]/95 lg:backdrop-blur-md"
+                    )}
+                >
+                    <div className="flex flex-col lg:flex-row lg:items-center lg:gap-3">
+                        {/* Scope Summary & Mobile Exit */}
+                        <div className="flex items-center justify-between lg:justify-start gap-2 pb-2 lg:pb-0 border-b lg:border-b-0 border-[var(--color-border)] shrink-0">
+                            <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-1 rounded bg-[var(--color-accent)]/15 text-[color:var(--color-accent)] font-mono text-xs font-bold tracking-tight whitespace-nowrap">
+                                    {selectedBooks.length} of {sortedBooks.length} selected
+                                </span>
+                                <button
+                                    className="ui-btn px-2.5 py-1 text-xs font-semibold whitespace-nowrap"
+                                    onClick={selectAll}
+                                    disabled={!selectionReady || sortedBooks.length === 0 || allSelected}
+                                    title="Select all filtered results"
+                                >
+                                    {allSelected ? "All selected" : `Select all (${sortedBooks.length})`}
+                                </button>
+                                {selectedBooks.length > 0 && (
+                                    <button
+                                        className="ui-btn-ghost px-2 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] whitespace-nowrap font-medium"
+                                        onClick={clearSelection}
+                                        title="Clear current selection"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                                {!selectionReady && (
+                                    <span role="status" className="text-xs text-[color:var(--color-text-muted)] animate-pulse whitespace-nowrap">
+                                        Updating…
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Mobile/Tablet dedicated Done button (top-right of bar, never wraps) */}
+                            <div className="lg:hidden shrink-0">
+                                <button
+                                    className="ui-btn-primary px-3 py-1 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                    onClick={() => {
+                                        clearSelection();
+                                        setIsSelecting(false);
+                                    }}
+                                    title="Done (exit selection)"
+                                    aria-label="Done (exit selection)"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                    <span>Done</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Divider on Desktop */}
+                        <div className="hidden lg:block h-6 w-px bg-[var(--color-border)] shrink-0" />
+
+                        {/* Action Buttons: horizontally scrollable on mobile/tablet, inline on desktop */}
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-2 lg:pt-0 shrink-0">
+                            <button
+                                onClick={handleBatchMarkRead}
+                                aria-label="Mark selected as read"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
+                                <span>Mark Read</span>
+                            </button>
+                            <button
+                                onClick={handleBatchMarkUnread}
+                                aria-label="Mark selected as unread"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Mark Unread</span>
+                            </button>
+                            <button
+                                onClick={handleBatchAddToShelf}
+                                aria-label="Add selected to shelf"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <BookMarked className="w-3.5 h-3.5" />
+                                <span>Add to Shelf</span>
+                            </button>
+                            <button
+                                onClick={() => setIsSeriesModalOpen(true)}
+                                aria-label="Assign series"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <Layers className="w-3.5 h-3.5" />
+                                <span>Series</span>
+                            </button>
+                            <button
+                                onClick={handleBatchExport}
+                                aria-label="Export selected books"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Export</span>
+                            </button>
+
+                            <div className="h-5 w-px bg-[var(--color-border)] shrink-0 mx-0.5" />
+
+                            <button
+                                onClick={handleBatchDelete}
+                                aria-label="Delete selected books"
+                                disabled={!selectionReady || selectedBooks.length === 0}
+                                className="ui-btn-danger px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                            </button>
+                        </div>
+
+                        {/* Divider on Desktop */}
+                        <div className="hidden lg:block h-6 w-px bg-[var(--color-border)] shrink-0" />
+
+                        {/* Desktop Done button */}
+                        <div className="hidden lg:block shrink-0">
+                            <button
+                                className="ui-btn-primary px-4 py-1.5 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 whitespace-nowrap shadow-sm"
+                                onClick={() => {
+                                    clearSelection();
+                                    setIsSelecting(false);
+                                }}
+                                title="Done (exit selection, Esc)"
+                                aria-label="Done (exit selection)"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Done</span>
+                            </button>
+                        </div>
+                    </div>
+                </aside>
+            )}
 
             <BookInfoModal
                 book={infoModalBook}
