@@ -5,10 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2026-10-08
+## [1.6.0] - 2026-10-12
 
-### Shell & Remote Announcements
+### Smart Shelves & Sub-Shelves
 
+- **Smart Shelves (#132)** — Introduced dynamic, automated smart shelves powered by native filter rules (reading status, tags, series, authors, and formats). Smart shelves dynamically recompute membership on library changes without manual bookkeeping, preserving upstream layout and custom shelf sorting.
+- **Hierarchical Sub-Shelves (#138)** — Added one-level nested sub-shelves to organize large libraries hierarchically. Create and navigate sub-shelves with breadcrumbs, dedicated parent-child navigation, and unified shelf action controls.
+
+### Library & Organization
+
+- **Preserve Source Folder Structure (#133)** — Ingesting folders now preserves folder hierarchy with an integrated Source Folder browser chip strip. Users can toggle between preserving directory hierarchy or flat importing, filter the library view by source folder, and keep library organizations in sync with external storage trees.
+- **Bulk Selection UX Overhaul (#134)** — Completely redesigned filtered bulk selection. "Select All" now selects all filtered items across virtualized rows; selections automatically clear on filter shifts to prevent accidental batch operations. Features a solid full-width bottom toolbar with explicit icon+label buttons, mobile-optimized single-row control layout, Esc key dismissal, and 1-click Undo toast protection on batch mark read/unread.
+- **Dynamic Read/Unread Toggles** — Replaced dual "Mark Read" and "Mark Unread" buttons with an intelligent, dynamic toggle across both the bulk selection toolbar and right-click book context menus. If all selected items are completed, the action displays "Mark Unread"; otherwise "Mark Read".
+- **Shelves Layout & Header Unification** — Standardized Shelves page layout, header spacing, and toolbar button styling (`TOOLBAR_BUTTON_PRIMARY`, `TOOLBAR_BUTTON_BASE`, `TOOLBAR_ICON_BUTTON`) with Library viewport standards. Action buttons, search, and back navigation remain permanently accessible across empty and populated states.
+
+### Reader & Comics
+
+- **Continuous Strip Comic Reading (#135)** — Added an optional continuous vertical strip view for CBZ/CBR comic books with bounded DOM image virtualization and adaptive preloading, eliminating page-turn friction for webtoons and vertical-scrolling comics.
+- **Streamed Native Comic Ingestion (#136)** — Streaming archive decompression in native Rust avoids whole-archive memory buffers, dramatically speeding up multi-gigabyte comic imports and preserving CBR binary responses.
+
+### Shell, Stability & Remote Announcements
+
+- **Android Crash Prevention & Memory Management (#137)** — Resolved startup crash loops and out-of-memory crashes on Android by deduplicating native runtime initialization, adding aggressive webview memory trimming on backgrounding, and safely validating book files before reopening last-read state.
 - **Remote Announcements Banner (#127)** — Added a non-intrusive, zero-HTML remote announcement system (`src/ui/AnnouncementBar.tsx`) delivering project updates, advisories, and release notes to all installations from a dedicated edge Cloudflare Worker (`announcements.fundaments.work`). Announcements are fetched asynchronously with a 24-hour local cache, fail-open resiliency, persistent local dismissal, and responsive mobile/desktop layout with severity badges (`Notice`, `Advisory`, `Alert`).
 - **Zero-HTML AST Parser & Linkifier** — Pure AST linkification (`src/core/lib/announcements.ts`) that strictly validates `https://` URLs without credentials, trims balanced punctuation and parentheses, and converts `**bold**` markdown syntax into React elements without touching `dangerouslySetInnerHTML`.
 - **Reader Isolation** — Announcement banners are strictly isolated from the reading view (`ReaderPage`), preserving a distraction-free, zero-chrome reading experience.
@@ -20,13 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Support Placements** — Added an authentic crescent-dumpling `MomoIcon` to the desktop sidebar footer (both expanded and collapsed layouts), the mobile titlebar header cluster, and a permanent entry in Settings → Links.
 - **Safe External Opener** — Unified external link launching (`src/core/lib/open-external-url.ts`) dynamically invoking `@tauri-apps/plugin-opener` on native desktop/mobile platforms with fallback to `window.open` in browser environments.
 
-### Library & Shelves
-
-- **Shelves Layout & Header Unification** — Standardized Shelves page layout, header spacing, and toolbar button styling (`TOOLBAR_BUTTON_PRIMARY`, `TOOLBAR_BUTTON_BASE`, `TOOLBAR_ICON_BUTTON`) with Library viewport standards. Action buttons, search, and back navigation remain permanently accessible across empty and populated states.
-
 ### Fixed
 
 - **Tauri IPC access control check on memory trim** — Added wildcard window capability in `src-tauri/capabilities/default.json` and allowed IPC localhost origins in CSP, resolving Tauri v2 IPC ACL denials (`trim_memory`) on sub-windows and reloaded webviews.
+- **PDF Viewer Stability & Zoom Convergence** — Eliminated PDF zoom jumping, dropped TOC jumps, and page-pill layout squeezing on document load.
 
 ## [1.5.9] - 2026-10-04 (Beta)
 
