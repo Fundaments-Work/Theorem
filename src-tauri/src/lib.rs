@@ -1610,6 +1610,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_log::Builder::new()
+                // JNI/network trace output can overwhelm Android during startup.
+                .level(tauri_plugin_log::log::LevelFilter::Info)
                 .targets([tauri_plugin_log::Target::new(
                     tauri_plugin_log::TargetKind::Stdout,
                 )])

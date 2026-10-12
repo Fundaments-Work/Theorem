@@ -985,28 +985,6 @@ const BookReaderPage = memo(function BookReaderPage() {
         };
     }, [currentBookId, getBook, loadAttempt]);
 
-    useEffect(() => {
-        if (!currentBookId) {
-            return;
-        }
-
-        const allBooks = useLibraryStore.getState().books;
-        const currentBookIndex = allBooks.findIndex((book) => book.id === currentBookId);
-        if (currentBookIndex === -1) {
-            return;
-        }
-
-        const upcomingBooks = allBooks.slice(currentBookIndex + 1, currentBookIndex + 4);
-        for (const book of upcomingBooks) {
-            if (book.format === 'pdf') {
-                continue;
-            }
-
-            const storagePath = book.storagePath || book.filePath;
-            void getBookBlob(book.id, storagePath).catch(e => console.error("[catch]", e));
-        }
-    }, [currentBookId]);
-
     const { recordPageTurn, setCurrentPageWordCount } = useReadingTime({
         currentBookId,
         addReadingTime,

@@ -109,13 +109,17 @@ export const useUIStore = create<UIStore>()(
         }),
         {
             name: 'theorem-ui',
-            version: 1,
+            version: 2,
+            // Navigation is session state; a failed reader must not reopen on launch.
+            migrate: (state) => ({ sidebarOpen: (state as Partial<UIState>)?.sidebarOpen ?? !isMobile() }),
+            merge: (state, current) => ({
+                ...current,
+                sidebarOpen: (state as Partial<UIState>)?.sidebarOpen ?? current.sidebarOpen,
+            }),
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
-                (state) => [state.currentRoute, state.currentBookId, state.sidebarOpen],
+                (state) => [state.sidebarOpen],
                 (state) => ({
-                    currentRoute: state.currentRoute,
-                    currentBookId: state.currentBookId,
                     sidebarOpen: state.sidebarOpen,
                 }),
             ),
