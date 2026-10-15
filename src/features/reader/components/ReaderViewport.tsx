@@ -401,7 +401,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
 
         window.addEventListener('keydown', handleKeyDown, { passive: false });
         return () => {
-            document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keydown', handleKeyDown);
         };
     }, [next, prev, goToFraction, showNavFeedback]);
 

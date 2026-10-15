@@ -706,17 +706,23 @@ class Loader {
         Object.defineProperty(detail, 'name', { value: href }) 
         const event = new CustomEvent('data', { detail })
         this.eventTarget.dispatchEvent(event)
-        const newData = await event.detail.data
-        const newType = await event.detail.type
-        const url = URL.createObjectURL(new Blob([newData], { type: newType }))
-        this.#cache.set(href, url)
-        this.#refCount.set(href, 1)
-        if (parent) {
-            const childList = this.#children.get(parent)
-            if (childList) childList.push(href)
-            else this.#children.set(parent, [href])
+        try {
+            const newData = await event.detail.data
+            const newType = await event.detail.type
+            const blobData = newData == null ? [] : [newData]
+            const url = URL.createObjectURL(new Blob(blobData, { type: newType }))
+            this.#cache.set(href, url)
+            this.#refCount.set(href, 1)
+            if (parent) {
+                const childList = this.#children.get(parent)
+                if (childList) childList.push(href)
+                else this.#children.set(parent, [href])
+            }
+            return url
+        } catch (e) {
+            console.warn(new Error(`Failed to load resource ${href}`, { cause: e }))
+            return ''
         }
-        return url
     }
     ref(href, parent) {
         const childList = this.#children.get(parent)
@@ -779,9 +785,14 @@ class Loader {
         if (!item) {
             try {
                 const cleanPath = path.split('#')[0].split('?')[0]
+                const ext = cleanPath.split('.').pop()?.toLowerCase()
+                if (ext === 'css') {
+                    const synthesizedItem = { href: cleanPath, mediaType: 'text/css' }
+                    const url = await this.loadItem(synthesizedItem, parents.concat(base))
+                    if (url) return url
+                }
                 const blob = await this.loadBlob(cleanPath)
                 if (blob) {
-                    const ext = cleanPath.split('.').pop()?.toLowerCase()
                     const mediaType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
                         : ext === 'png' ? 'image/png'
                         : ext === 'gif' ? 'image/gif'
