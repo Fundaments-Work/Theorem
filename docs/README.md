@@ -22,10 +22,16 @@ pnpm dev:tauri    # desktop (full experience)
 |----------|---------|
 | [reader.md](reader.md) | EPUB/MOBI/PDF/CBR reading, Theorem Lens, search |
 | [library.md](library.md) | Book import, organization, search, virtual scrolling |
+| [folder-import.md](folder-import.md) | Importing folders & preserving source-folder structure |
+| [bulk-selection.md](bulk-selection.md) | Bulk selection across filtered results, bulk actions & Undo |
+| [smart-shelves.md](smart-shelves.md) | Rule-based smart shelves that auto-populate from native filters |
+| [sub-shelves.md](sub-shelves.md) | One level of nested sub-shelves |
+| [comic-scrolling.md](comic-scrolling.md) | Continuous vertical strip reading for CBZ/CBR |
+| [cbr-android-fix.md](cbr-android-fix.md) | Native CBR/RAR→CBZ path on Android |
 | [discover.md](discover.md) | OPDS 1.2 catalog browser & public domain storefront |
 | [sync.md](sync.md) | P2P device sync via iroh |
 | [annotations.md](annotations.md) | Highlights, notes, bookmarks |
-| [vocabulary.md](vocabulary.md) | Dictionary lookups, StarDict |
+| [vocabulary.md](vocabulary.md) | Dictionary lookups, StarDict + MDict |
 | [feeds.md](feeds.md) | RSS/Atom feed subscriptions |
 | [vault-sync.md](vault-sync.md) | Markdown export to Obsidian/Logseq |
 | [settings.md](settings.md) | App configuration, storage management |
@@ -46,4 +52,12 @@ pnpm dev:tauri    # desktop (full experience)
 | [DISTRIBUTION.md](DISTRIBUTION.md) | Packaging and distribution |
 | [SIGNING-KEYS.md](SIGNING-KEYS.md) | Updater and Android signing keys |
 | [PKGBUILD](PKGBUILD) | Arch Linux PKGBUILD (unofficial) |
-| [plans/](plans/) | Technical design plans & roadmaps |
+
+## Design Plans & Research
+
+| Folder | What it covers |
+|--------|----------------|
+| [plans/](plans/) | Technical design plans & roadmaps (`plans/done/` holds shipped plans) |
+| [plans/2026-08-30-plugin-extensibility-architecture.md](plans/2026-08-30-plugin-extensibility-architecture.md) | Plugin extensibility architecture (designed, not implemented) |
+| [plans/2026-09-29-native-pdfium-rendering-engine-rfc.md](plans/2026-09-29-native-pdfium-rendering-engine-rfc.md) | Native PDFium rendering engine RFC |
+| [research/](research/) | Long-form research: Rust rewrite candidates, memory/SQLite tuning, announcements architecture |

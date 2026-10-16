@@ -20,7 +20,7 @@ importBooksIncremental()
        ├─ read_file (Tauri) → ArrayBuffer
        ├─ contentHash = SHA-256(buffer) → dedup check against existing books
        ├─ Detect format from extension
-       ├─ CBR → read_cbr_as_cbz (Rust unrar-ng → zip conversion; Tauri only)
+       ├─ CBR → read_cbr_as_cbz (Rust `rars` RAR → stored-ZIP conversion; Tauri only)
        ├─ Extract metadata via cover-extractor.ts (per-format strategy)
        ├─ Extract cover image
        ├─ addBook() → libraryStore mutation (batched for multi-import)
@@ -69,7 +69,7 @@ The `useLibraryStore` has result caches (`WeakMap`-based) for search results, re
 | AZW / AZW3 | Foliate | Kindle Format 8 |
 | FB2 | Foliate | FictionBook XML |
 | CBZ | Foliate | Comic book ZIP |
-| CBR | Foliate (converted) | Converted to CBZ via Rust unrar-ng |
+| CBR | Foliate (converted) | Converted to CBZ via the Rust `rars` crate (no external `unrar`) |
 | PDF | PDF.js | Fixed-layout, range-based reads |
 
 ## Folder Scanning
