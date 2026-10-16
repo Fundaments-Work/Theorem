@@ -53,6 +53,7 @@
         "install:linux": "bash ./scripts/install-linux.sh",
         "uninstall:linux": "bash ./scripts/uninstall-linux.sh",
         "test": "vitest run",
+        "check:content": "node scripts/check-content.mjs",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
         "preview": "vite preview",

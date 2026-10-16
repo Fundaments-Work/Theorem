@@ -1,3 +1,8 @@
-# GitHub Sponsors. The "Sponsor" button appears on the repository once the
-# org's Sponsors profile is enabled at https://github.com/sponsors/Fundaments-Work.
-github: [Fundaments-Work]
+# Buy Me Momo. This renders a working Sponsor button today, unlike a
+# `github: [Fundaments-Work]` entry, which stays inert until the org's GitHub
+# Sponsors profile is enabled.
+#
+# Canonical source of truth: Fundaments-Work/content > support.json
+# (channel id `buyMeMomo`). `pnpm check:content` fails if this URL drifts from
+# it. To change the link, change it in the content repo first.
+custom: ['https://buymemomo.com/usefundaments']

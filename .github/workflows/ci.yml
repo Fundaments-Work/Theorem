@@ -7,6 +7,23 @@ on:
     branches: [main, master]
 
 jobs:
+  content-check:
+    # Guards the cross-repo contract: a Buy Me Momo URL here must match
+    # Fundaments-Work/content. No checkout of that repo needed - the script
+    # falls back to raw.githubusercontent.
+    name: Content Sync Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Check content sync
+        run: node scripts/check-content.mjs
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest

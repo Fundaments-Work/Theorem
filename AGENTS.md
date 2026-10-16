@@ -29,6 +29,7 @@ The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upst
 | Typecheck | `pnpm typecheck` |
 | Tests | `pnpm test` |
 | Single test | `pnpm test tests/some.test.ts` |
+| Content sync check | `pnpm check:content` |
 | Rust fmt | `cd src-tauri && cargo fmt` |
 | Rust lint | `cd src-tauri && cargo clippy` |
 | Rust check | `cd src-tauri && cargo check` |
@@ -42,6 +43,7 @@ Run all that apply:
 
 - TypeScript: `pnpm typecheck` — zero errors
 - Vitest: `pnpm test` — all unit and integration tests must pass
+- Content: `pnpm check:content` — no Buy Me Momo URL here has drifted from `Fundaments-Work/content`
 - Rust (if any `.rs` changed): `cd src-tauri && cargo fmt && cargo clippy && cargo check` — fmt must produce no diff, clippy zero warnings
 - Rust touching Android-only code or dependencies: `cargo clippy --target aarch64-linux-android` (CI runs it; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers locally)
 
@@ -292,6 +294,51 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full PR process. TL;DR:
 ### Release Workflow
 
 See the [Release](#release) section above. CI (`release.yml`) auto-builds and publishes on tag push.
+
+## Cross-repo contracts
+
+Two other repos hold facts this repo depends on. Both are **read-only** from
+here: change them in the source repo, never here.
+
+### `Fundaments-Work/content` — shared facts
+
+Machine-readable facts that more than one product must agree on. One
+`support.json` today; a product registry later.
+
+- **Canonical home of the Buy Me Momo URL**: `support.json`, channel `buyMeMomo`.
+- This repo keeps the literal in `src/core/lib/support-prompt.ts` (the support
+  nudge) and `.github/FUNDING.yml` (the Sponsor button). Both are deliberate
+  literals — an Obsidian-style manifest and a compiled bundle cannot depend on
+  a sibling repo at build time without real fragility in the release pipeline.
+- `pnpm check:content` compares every Buy Me Momo URL here against the canonical
+  one and fails on drift. CI runs it in the `content-check` job.
+- **To change the link: change `content/support.json` first**, push it, then
+  update the literals here. Fixing only this repo leaves three other repos
+  advertising a dead URL.
+- The check needs the content repo or the network. It resolves a sibling
+  checkout (`../content`), then `--from <path>` / `CONTENT_DIR`, then
+  `raw.githubusercontent`. It is a script rather than a vitest case on purpose:
+  `pnpm test` stays hermetic and offline-capable.
+
+### `Fundaments-Work/design-system` — visual language
+
+The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
+
+- **The shipped code wins.** `tokens.md` states it directly: where the document
+  and a shipped codebase disagree, the codebase is authoritative and the
+  document is the bug. This repo's `src/core/styles/design-tokens.css` and
+  `src/core/lib/design-tokens.ts` are the reference implementation.
+- Nothing imports `design-system/` programmatically. Adoption is by hand, and
+  that is the drift risk: when a token changes in a product, check whether
+  `tokens.md` now disagrees and fix the document.
+- Non-negotiable rules, per `tokens.md` and the bundle README: one dark base
+  (`#141416`), corner radius `0` on every element, DM Sans/DM Mono at 300/400
+  only, hierarchy from size and colour rather than extra weights, and one accent
+  per product — stone `#c8b89a` for Theorem.
+- The packaged React kit in `ds-bundle/` (TheoremUI) is produced by
+  `.ds-sync/`, whose re-sync is agent-driven through DesignSync and emits
+  `.resync-verdict.json`. **Verdict schema v2 is a CI contract: additive changes
+  only.**
 
 ## CSS conventions
 
