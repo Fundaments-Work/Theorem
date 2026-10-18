@@ -34,14 +34,14 @@ export function SeriesGroupHeader({
     return (
         <div className="flex items-center gap-2.5 min-w-0 border-b border-[var(--color-border)] pb-2">
             <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
-            <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-primary)] truncate">
+            <h2 className="text-sm text-[color:var(--color-text-primary)] truncate">
                 {seriesName}
             </h2>
             <span className="text-xs text-[color:var(--color-text-muted)] shrink-0">
                 ({group.length} {group.length === 1 ? "vol." : "vols."})
             </span>
             {isAllCompleted ? (
-                <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[var(--color-accent)] text-[var(--color-accent-contrast)] shrink-0">
+                <span className="px-2 py-0.5 text-[10px] bg-[var(--color-accent)] text-[var(--color-accent-contrast)] shrink-0">
                     Completed
                 </span>
             ) : (

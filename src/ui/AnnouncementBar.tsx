@@ -41,7 +41,7 @@ export function AnnouncementBody({ body }: { body: string }) {
                                 e.preventDefault();
                                 void openExternalUrl(seg.href);
                             }}
-                            className="underline underline-offset-2 hover:opacity-80 transition-opacity font-medium"
+                            className="underline underline-offset-2 hover:opacity-80 transition-opacity"
                         >
                             {seg.value}
                         </a>
@@ -53,7 +53,7 @@ export function AnnouncementBody({ body }: { body: string }) {
                     <span key={i}>
                         {inlineNodes.map((node, j) =>
                             node.bold ? (
-                                <strong key={j} className="font-semibold text-[color:var(--color-text-primary)]">
+                                <strong key={j} className="text-[color:var(--color-text-primary)]">
                                     {node.value}
                                 </strong>
                             ) : (
@@ -188,14 +188,14 @@ export function AnnouncementBar({ className, announcement: overrideAnnouncement,
                             <div className="flex items-center gap-2 shrink-0">
                                 <span
                                     className={cn(
-                                        "px-1.5 py-0.5 rounded-[3px] text-[10px] font-semibold tracking-wider uppercase border select-none shrink-0 leading-none",
+                                        "px-1.5 py-0.5 text-[10px] border select-none shrink-0 leading-none",
                                         badge.styles
                                     )}
                                 >
                                     {badge.label}
                                 </span>
                                 {active.title && (
-                                    <span className="font-semibold text-[13px] sm:text-xs text-[color:var(--color-text-primary)]">
+                                    <span className="text-[13px] sm:text-xs text-[color:var(--color-text-primary)]">
                                         {active.title}
                                     </span>
                                 )}
@@ -223,7 +223,7 @@ export function AnnouncementBar({ className, announcement: overrideAnnouncement,
                                 type="button"
                                 onClick={() => void openExternalUrl(active.link!)}
                                 className={cn(
-                                    "inline-flex items-center gap-1.5 px-2.5 py-1 sm:py-0.5 rounded-sm text-[11px] font-semibold tracking-wide border transition-colors shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]",
+                                    "inline-flex items-center gap-1.5 px-2.5 py-1 sm:py-0.5 text-[11px] border transition-colors shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]",
                                     ctaButtonStyles()
                                 )}
                             >
@@ -240,7 +240,7 @@ export function AnnouncementBar({ className, announcement: overrideAnnouncement,
                     onClick={handleDismiss}
                     aria-label="Dismiss announcement"
                     title="Dismiss announcement"
-                    className="absolute right-2.5 sm:right-5 lg:right-7 top-2 sm:top-1/2 sm:-translate-y-1/2 p-1.5 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] rounded-xs transition-colors shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+                    className="absolute right-2.5 sm:right-5 lg:right-7 top-2 sm:top-1/2 sm:-translate-y-1/2 p-1.5 text-[color:var(--color-text-secondary)] transition-colors shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] hover:text-[color:var(--color-accent)]"
                 >
                     <X className="w-3.5 h-3.5" />
                 </button>

@@ -67,7 +67,7 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave, collections = [], i
                 <ModalBody>
                     <div className="space-y-4">
                         <div>
-                            <label htmlFor="shelf-parent" className="block text-sm font-medium mb-1.5">Parent shelf</label>
+                            <label htmlFor="shelf-parent"className="block text-sm mb-1.5">Parent shelf</label>
                             <select id="shelf-parent" className="ui-input" value={parentId} onChange={e => setParentId(e.target.value)}>
                                 <option value="">None (top-level shelf)</option>
                                 {collections.filter(c => canSetShelfParent(collections, shelf?.id || "", c.id)).map(c => (
@@ -76,7 +76,7 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave, collections = [], i
                             </select>
                         </div>
                         <div>
-                            <label htmlFor="shelf-name" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                            <label htmlFor="shelf-name"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Name
                             </label>
                             <input
@@ -91,7 +91,7 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave, collections = [], i
                             />
                         </div>
                         <div>
-                            <label htmlFor="shelf-description" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                            <label htmlFor="shelf-description"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Description <span className="text-[color:var(--color-text-muted)] font-normal">(optional)</span>
                             </label>
                             <textarea

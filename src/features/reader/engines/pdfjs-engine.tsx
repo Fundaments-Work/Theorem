@@ -3236,7 +3236,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                             <div className="mb-4 flex h-14 w-14 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[color:var(--color-error)]">
                                 <AlertCircle className="h-6 w-6" />
                             </div>
-                            <h3 className="mb-2 text-base font-bold text-[color:var(--color-text-primary)]">
+                            <h3 className="mb-2 text-base text-[color:var(--color-text-primary)]">
                                 Failed to load PDF
                             </h3>
                             <p className="mx-auto w-full max-w-[22rem] break-words text-sm text-[color:var(--color-text-secondary)] text-center leading-relaxed">
@@ -3290,7 +3290,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                     <div
                         data-no-viewport-tap
                         className={cn(
-                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-1.5rem)] px-2.5 py-1.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] shadow-lg flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
+                            "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-1.5rem)] px-2.5 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] flex items-center gap-1.5 transition-[transform,opacity] duration-150 ease-out select-none",
                             showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
                         )}
                     >
@@ -3306,7 +3306,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                 }
                             }}
                             disabled={currentPage <= 1}
-                            className="shrink-0 p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                            className="shrink-0 p-1 text-[color:var(--color-text-primary)] disabled:opacity-30 disabled:pointer-events-none transition-colors hover:text-[color:var(--color-accent)]"
                             title="Previous page"
                             aria-label="Previous page"
                         >
@@ -3314,7 +3314,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                         </button>
                         {/* Only this span may shrink: the arrows and the page
                             count must never be squeezed out of a narrow viewport. */}
-                        <span className="min-w-0 shrink truncate font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5">
+                        <span className="min-w-0 shrink truncate text-[color:var(--color-text-primary)] tabular-nums px-0.5">
                             {presentationMode === 'two-page' ? (
                                 (() => {
                                     const spreadStart = currentPage % 2 === 1 ? currentPage : currentPage - 1;
@@ -3337,7 +3337,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                                 }
                             }}
                             disabled={currentPage >= totalPages}
-                            className="shrink-0 p-1 rounded-full text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                            className="shrink-0 p-1 text-[color:var(--color-text-primary)] disabled:opacity-30 disabled:pointer-events-none transition-colors hover:text-[color:var(--color-accent)]"
                             title="Next page"
                             aria-label="Next page"
                         >

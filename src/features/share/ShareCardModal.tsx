@@ -135,11 +135,11 @@ export function ShareCardModal(props: ShareCardModalProps) {
                 {/* Real-time Live Scaled Preview Container */}
                 <div
                     ref={containerRef}
-                    className="flex-1 flex items-center justify-center bg-[var(--color-surface-muted)] border border-[var(--color-border)] p-4 relative min-h-[320px] max-h-[50vh] md:max-h-[460px] overflow-hidden rounded-md"
+                    className="flex-1 flex items-center justify-center bg-[var(--color-surface-muted)] border border-[var(--color-border)] p-4 relative min-h-[320px] max-h-[50vh] md:max-h-[460px] overflow-hidden"
                 >
                     {isGenerating && (
                         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-surface)]/80 backdrop-blur-sm">
-                            <div className="flex items-center gap-2 font-sans text-sm text-[var(--color-text-primary)] font-medium">
+                            <div className="flex items-center gap-2 font-sans text-sm text-[var(--color-text-primary)]">
                                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-accent)]" />
                                 Exporting high-res image...
                             </div>
@@ -189,7 +189,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
                 {/* Sidebar Options */}
                 <div className="w-full md:w-56 flex flex-col gap-5 shrink-0 justify-center">
                     <div>
-                        <h3 className="text-[11px] uppercase tracking-wider font-semibold text-[color:var(--color-text-secondary)] mb-2.5">
+                        <h3 className="text-[11px] text-[color:var(--color-text-secondary)] mb-2.5">
                             Format
                         </h3>
                         <div className="grid grid-cols-2 md:grid-cols-1 gap-1.5">
@@ -206,7 +206,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
                     </div>
 
                     <div>
-                        <h3 className="text-[11px] uppercase tracking-wider font-semibold text-[color:var(--color-text-secondary)] mb-2.5">
+                        <h3 className="text-[11px] text-[color:var(--color-text-secondary)] mb-2.5">
                             Theme
                         </h3>
                         <div className="grid grid-cols-2 md:grid-cols-1 gap-1.5">
@@ -224,7 +224,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
 
                     {kind === "annotation" && annotation?.noteContent && (
                         <div>
-                            <h3 className="text-[11px] uppercase tracking-wider font-semibold text-[color:var(--color-text-secondary)] mb-2.5">
+                            <h3 className="text-[11px] text-[color:var(--color-text-secondary)] mb-2.5">
                                 Options
                             </h3>
                             <label className="flex items-center gap-2 cursor-pointer text-xs font-sans text-[color:var(--color-text-primary)]">
@@ -232,7 +232,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
                                     type="checkbox"
                                     checked={showNote}
                                     onChange={(e) => setShowNote(e.target.checked)}
-                                    className="w-4 h-4 rounded"
+                                    className="w-4 h-4"
                                 />
                                 Include my note
                             </label>
@@ -243,7 +243,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
 
             <ModalFooter>
                 {toast && (
-                    <div className={`absolute bottom-full left-0 right-0 mb-2 flex items-center justify-center gap-1.5 text-xs py-2 rounded bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg ${toast.type === "success" ? "text-[var(--color-success,#22c55e)]" : "text-[var(--color-error)]"}`}>
+                    <div className={`absolute bottom-full left-0 right-0 mb-2 flex items-center justify-center gap-1.5 text-xs py-2 bg-[var(--color-surface)] border border-[var(--color-border)] ${toast.type === "success" ? "text-[var(--color-success,#22c55e)]" : "text-[var(--color-error)]"}`}>
                         {toast.type === "success" ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
                         {toast.message}
                     </div>

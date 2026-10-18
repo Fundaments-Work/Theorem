@@ -14,7 +14,7 @@ export function SourceFolderBrowser({ index, selected, onSelect }: {
     return (
         <nav aria-label="Source folders" className="my-4 space-y-2 text-sm">
             <label className="flex items-center gap-3">
-                <span className="font-medium">Source folders</span>
+                <span className="">Source folders</span>
                 <select className="ui-input min-w-0 flex-1" value={selected?.root ?? ""}
                     onChange={(event) => onSelect(event.target.value ? { root: event.target.value, path: "" } : null)}>
                     <option value="">All library books</option>

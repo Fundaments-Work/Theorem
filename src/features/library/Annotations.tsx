@@ -81,7 +81,7 @@ function EmptyAnnotations({ type }: { type: "all" | "highlights" | "notes" }) {
             <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
                 <Icon className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
-            <h2 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 {titles[type]}
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
@@ -522,14 +522,14 @@ export function AnnotationsPage() {
             />
 
             {currentBookId && (
-                <div className="mb-8 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px] font-medium">
+                <div className="mb-8 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px]">
                     <span className="text-[color:var(--color-text-secondary)]">
                         Showing annotations for:
                     </span>
                     <span className="text-[color:var(--color-text-primary)]">{selectedBookTitle}</span>
                     <button
                         onClick={() => setRoute("annotations")}
-                        className="ml-auto border border-[var(--color-border)] px-2 py-1 text-[11px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                        className="ml-auto border border-[var(--color-border)] px-2 py-1 text-[11px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
                     >
                         Clear
                     </button>
@@ -544,7 +544,7 @@ export function AnnotationsPage() {
                             key={tab.id}
                             onClick={() => setActiveFilter(tab.id)}
                             className={cn(
-                                "border border-[var(--color-border)] px-3 py-2 font-sans text-xs font-medium transition-colors",
+                                "border border-[var(--color-border)] px-3 py-2 font-sans text-xs transition-colors",
                                 activeFilter === tab.id
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                                     : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
@@ -560,7 +560,7 @@ export function AnnotationsPage() {
                     <button
                         onClick={() => setViewMode(viewMode === "list" ? "cards" : "list")}
                         className={cn(
-                            "border border-[var(--color-border)] px-3 py-2 font-sans text-xs font-medium transition-colors",
+                            "border border-[var(--color-border)] px-3 py-2 font-sans text-xs transition-colors",
                             viewMode === "cards"
                                 ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                                 : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
@@ -626,7 +626,7 @@ export function AnnotationsPage() {
                                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedVocabTerm(term); }}
                             >
                                 <div className="flex items-center justify-between gap-2">
-                                    <span className="text-sm font-medium text-[color:var(--color-text-primary)] truncate">{term.term}</span>
+                                    <span className="text-sm text-[color:var(--color-text-primary)] truncate">{term.term}</span>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); deleteVocabularyTerm(term.id); setSelectedVocabTerm(null); }}
                                         className="shrink-0 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors"
@@ -636,7 +636,7 @@ export function AnnotationsPage() {
                                     </button>
                                 </div>
                                 {term.meanings[0]?.partOfSpeech && (
-                                    <span className="text-[10px] uppercase tracking-wider text-[color:var(--color-text-muted)]">{term.meanings[0].partOfSpeech}</span>
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.meanings[0].partOfSpeech}</span>
                                 )}
                                 <p className="text-xs leading-relaxed text-[color:var(--color-text-secondary)] line-clamp-2">
                                     {(() => {
@@ -645,7 +645,7 @@ export function AnnotationsPage() {
                                     })()}
                                 </p>
                                 {term.language && (
-                                    <span className="text-[10px] text-[color:var(--color-text-muted)] uppercase tracking-wider">{term.language}</span>
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.language}</span>
                                 )}
                             </div>
                         ))}
@@ -669,11 +669,11 @@ export function AnnotationsPage() {
                             <>
                                 <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-1">
                                     <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
-                                        <span className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider whitespace-nowrap">
+                                        <span className="text-[10px] text-[color:var(--color-text-muted)] whitespace-nowrap">
                                             Deck {groupIndex + 1} of {annotationGroups.length}
                                         </span>
                                         <span className="text-[color:var(--color-border)] hidden sm:inline shrink-0">|</span>
-                                        <span className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider truncate min-w-0">
+                                        <span className="text-[10px] text-[color:var(--color-text-muted)] truncate min-w-0">
                                             {annotationGroups[groupIndex].title}
                                         </span>
                                     </div>
@@ -686,7 +686,7 @@ export function AnnotationsPage() {
                                                 }
                                             }}
                                             disabled={groupIndex === 0}
-                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider disabled:opacity-30 transition-colors touch-manipulation"
+                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] disabled:opacity-30 transition-colors touch-manipulation"
                                             aria-label={annotationGroups[groupIndex].isArticle ? "Previous article" : "Previous book"}
                                         >
                                             <ChevronsLeft className="w-3.5 h-3.5 sm:hidden" />
@@ -700,7 +700,7 @@ export function AnnotationsPage() {
                                                 }
                                             }}
                                             disabled={groupIndex >= annotationGroups.length - 1}
-                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider disabled:opacity-30 transition-colors touch-manipulation"
+                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] disabled:opacity-30 transition-colors touch-manipulation"
                                             aria-label={annotationGroups[groupIndex].isArticle ? "Next article" : "Next book"}
                                         >
                                             <span className="hidden sm:inline">Next {annotationGroups[groupIndex].isArticle ? "Article" : "Book"} →</span>
@@ -722,7 +722,7 @@ export function AnnotationsPage() {
                                             onTouchEnd={handleCardTouchEnd}
                                         >
                                             <div className="px-4 sm:px-8 pt-4 sm:pt-8 pb-3 sm:pb-4 border-b border-[var(--color-border-subtle)] flex items-center justify-between min-h-0">
-                                                <div className="flex items-center gap-2 text-[11px] text-[color:var(--color-text-secondary)] font-medium min-w-0">
+                                                <div className="flex items-center gap-2 text-[11px] text-[color:var(--color-text-secondary)] min-w-0">
                                                     {ann.color && (
                                                         <span className="w-2.5 h-2.5 shrink-0 border border-[var(--color-border)]" style={{ backgroundColor: HIGHLIGHT_SOLID_COLORS[ann.color] }} />
                                                     )}
@@ -777,7 +777,7 @@ export function AnnotationsPage() {
                                                             <button
                                                                 key={i}
                                                                 onClick={() => setCardIndex(i)}
-                                                                className="rounded-full border-0 p-0 transition-[transform,background-color] duration-200 touch-manipulation"
+                                                                className="border-0 p-0 transition-[transform,background-color] duration-200 touch-manipulation"
                                                                 style={{
                                                                     width: i === cardIndex ? '10px' : '6px',
                                                                     height: i === cardIndex ? '10px' : '6px',
@@ -808,13 +808,13 @@ export function AnnotationsPage() {
                                             </div>
 
                                             <div className="px-4 sm:px-8 py-2 border-t border-[var(--color-border-subtle)] flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-                                                <span className="text-[10px] font-medium text-[color:var(--color-text-muted)] tracking-wider uppercase whitespace-nowrap">
+                                                <span className="text-[10px] text-[color:var(--color-text-muted)] whitespace-nowrap">
                                                     {cardIndex + 1}/{group.annotations.length}
                                                     <span className="hidden sm:inline"> in this {isArticle ? "article" : "book"}</span>
                                                 </span>
                                                 <button
                                                     onClick={() => { handleEdit(ann.id); }}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider transition-colors touch-manipulation"
+                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation"
                                                     aria-label="Edit"
                                                 >
                                                     <Pencil className="w-3 h-3 sm:hidden" />
@@ -822,7 +822,7 @@ export function AnnotationsPage() {
                                                 </button>
                                                 <button
                                                     onClick={() => handleGoToSource(ann.bookId, ann.location)}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] uppercase tracking-wider transition-colors touch-manipulation"
+                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation"
                                                     aria-label={isArticle ? "Open article" : "Open book"}
                                                 >
                                                     {isArticle ? <BookOpenText className="w-3 h-3 sm:hidden" /> : <BookOpen className="w-3 h-3 sm:hidden" />}
@@ -830,7 +830,7 @@ export function AnnotationsPage() {
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(ann.id)}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-[color:var(--color-error)] hover:text-[color:var(--color-error)] uppercase tracking-wider transition-colors touch-manipulation"
+                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-error)] hover:text-[color:var(--color-error)] transition-colors touch-manipulation"
                                                     aria-label="Delete"
                                                 >
                                                     <Trash2 className="w-3 h-3 sm:hidden" />
@@ -900,18 +900,18 @@ export function AnnotationsPage() {
                                 <div key={`${meaning.provider}-${idx}`}>
                                     <div className="flex items-center gap-3 mb-3">
                                         {meaning.partOfSpeech && (
-                                            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-2 py-0.5">
+                                            <span className="text-[10px] text-[var(--color-accent)] bg-[var(--color-accent)]/10 px-2 py-0.5">
                                                 {meaning.partOfSpeech}
                                             </span>
                                         )}
-                                        <span className="text-[9px] uppercase text-[var(--color-text-muted)] tracking-wider font-medium">
+                                        <span className="text-[9px] text-[var(--color-text-muted)]">
                                             {meaning.provider}
                                         </span>
                                     </div>
                                     <ul className="space-y-2">
                                         {meaning.definitions.slice(0, 5).map((def, i) => (
                                             <li key={`${i}-${def.slice(0, 40)}`} className="flex gap-2.5 text-sm text-[var(--color-text-primary)] leading-relaxed">
-                                                <span className="shrink-0 mt-2 w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] opacity-40" />
+                                                <span className="shrink-0 mt-2 w-1.5 h-1.5 bg-[var(--color-accent)] opacity-40" />
                                                 {isHtml(def) ? (
                                                     <div className="dict-definition min-w-0 break-words" dangerouslySetInnerHTML={sanitizeHtmlForDisplay(def)} />
                                                 ) : (
@@ -925,7 +925,7 @@ export function AnnotationsPage() {
                             <hr className="border-[var(--color-border-subtle)]" />
                             <button
                                 onClick={() => { deleteVocabularyTerm(selectedVocabTerm.id); setSelectedVocabTerm(null); }}
-                                className="ui-btn-danger py-2.5 px-5 text-[11px] font-bold uppercase tracking-wider"
+                                className="ui-btn-danger py-2.5 px-5 text-[11px]"
                             >
                                 <Trash2 className="w-4 h-4" />
                                 Delete this term

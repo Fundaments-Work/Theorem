@@ -215,7 +215,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                         setIsPlaying(false);
                         onClose();
                     }}
-                    className="flex items-center justify-center w-9 h-9 rounded-md text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] cursor-pointer transition-colors"
+                    className="flex items-center justify-center w-9 h-9 text-[color:var(--color-text-secondary)] cursor-pointer transition-colors hover:text-[color:var(--color-accent)]"
                     aria-label="Close Speed Reader (Esc)"
                     title="Close (Esc)"
                 >
@@ -223,11 +223,11 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                 </button>
 
                 <div className="flex items-center gap-3 sm:gap-4">
-                    <span className="text-xs font-mono font-medium text-[color:var(--color-text-muted)] tracking-wider">
+                    <span className="text-xs font-mono text-[color:var(--color-text-muted)]">
                         {currentIndex + 1} <span className="opacity-40">/</span> {wordCount}
                     </span>
-                    <div className="w-24 sm:w-36 h-1 overflow-hidden bg-[var(--color-surface-muted)] rounded-full border border-[var(--color-border)]">
-                        <div className="h-full bg-[var(--color-accent)] transition-[width] duration-150 ease-out rounded-full" style={{ width: `${progress}%` }} />
+                    <div className="w-24 sm:w-36 h-1 overflow-hidden bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
+                        <div className="h-full bg-[var(--color-accent)] transition-[width] duration-150 ease-out"style={{ width: `${progress}%` }} />
                     </div>
                 </div>
 
@@ -235,7 +235,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                     <button
                         onClick={() => setShowContext(!showContext)}
                         className={cn(
-                            "flex items-center justify-center w-9 h-9 rounded-md transition-colors cursor-pointer",
+                            "flex items-center justify-center w-9 h-9 transition-colors cursor-pointer",
                             showContext
                                 ? "text-[color:var(--color-accent)] bg-[var(--color-surface-muted)]"
                                 : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
@@ -248,7 +248,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
 
                     <button
                         onClick={() => setIsFullscreen(!isFullscreen)}
-                        className="flex items-center justify-center w-9 h-9 rounded-md text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] cursor-pointer transition-colors"
+                        className="flex items-center justify-center w-9 h-9 text-[color:var(--color-text-secondary)] cursor-pointer transition-colors hover:text-[color:var(--color-accent)]"
                         aria-label="Fullscreen (F)"
                         title="Fullscreen (F)"
                     >
@@ -262,17 +262,17 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                 <div className="w-full max-w-3xl flex flex-col gap-6 my-auto" style={{ width: "100%", maxWidth: "48rem" }}>
                     {/* Hero-Sized Spritz-Style Optimal Recognition Point (ORP) Box */}
                     <div className="w-full flex flex-col items-center justify-center" style={{ width: "100%" }}>
-                        <div className="relative w-full py-8 sm:py-12 md:py-16 px-4 border-2 border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg rounded-xl flex items-center justify-center" style={{ width: "100%" }}>
+                        <div className="relative w-full py-8 sm:py-12 md:py-16 px-4 border-2 border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center"style={{ width: "100%" }}>
                             {/* Top and Bottom Center Focus Reticles */}
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-4 sm:h-5 bg-[var(--color-accent)] rounded-b-md shadow-sm" />
-                            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1.5 h-4 sm:h-5 bg-[var(--color-accent)] rounded-t-md shadow-sm" />
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-4 sm:h-5 bg-[var(--color-accent)]" />
+                            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1.5 h-4 sm:h-5 bg-[var(--color-accent)]" />
 
                             {/* Centered Word with 50/50 Fixed Center Line Alignment */}
-                            <div className="flex items-center justify-center w-full font-sans select-none text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight" style={{ width: "100%" }}>
+                            <div className="flex items-center justify-center w-full font-sans select-none text-4xl sm:text-6xl md:text-7xl lg:text-8xl"style={{ width: "100%" }}>
                                 <div className="flex-1 text-right text-[color:var(--color-text-primary)] whitespace-nowrap overflow-hidden pr-1">
                                     {prefix}
                                 </div>
-                                <div className="shrink-0 text-[color:var(--color-accent)] font-black px-1 scale-105">
+                                <div className="shrink-0 text-[color:var(--color-accent)] px-1 scale-105">
                                     {focal || (currentWord ? "" : "—")}
                                 </div>
                                 <div className="flex-1 text-left text-[color:var(--color-text-primary)] whitespace-nowrap overflow-hidden pl-1">
@@ -281,8 +281,8 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                             </div>
                         </div>
 
-                        <div className="mt-3 flex items-center gap-2 text-xs tracking-[0.25em] uppercase font-bold text-[color:var(--color-text-muted)] font-mono">
-                            <span className={cn("inline-block w-2 h-2 rounded-full", isPlaying ? "bg-[var(--color-accent)] animate-pulse" : "bg-[var(--color-text-muted)]")} />
+                        <div className="mt-3 flex items-center gap-2 text-xs text-[color:var(--color-text-muted)] font-mono">
+                            <span className={cn("inline-block w-2 h-2", isPlaying ? "bg-[var(--color-accent)] animate-pulse" : "bg-[var(--color-text-muted)]")} />
                             <span>{isPlaying ? "Reading" : "Paused"}</span>
                         </div>
                     </div>
@@ -291,7 +291,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                     {showContext && (
                         <div
                             ref={contextScrollRef}
-                            className="w-full h-48 sm:h-60 md:h-72 overflow-y-auto px-5 sm:px-8 py-4 sm:py-6 bg-[var(--color-surface)] border-2 border-[var(--color-border)] rounded-xl text-base sm:text-lg md:text-xl leading-relaxed sm:leading-loose custom-scrollbar shadow-md select-text transition-[border-color,box-shadow] duration-300 ease-out"
+                            className="w-full h-48 sm:h-60 md:h-72 overflow-y-auto px-5 sm:px-8 py-4 sm:py-6 bg-[var(--color-surface)] border-2 border-[var(--color-border)] text-base sm:text-lg md:text-xl leading-relaxed sm:leading-loose custom-scrollbar select-text transition-[border-color,box-shadow] duration-300 ease-out"
                             style={{ width: "100%" }}
                         >
                             <div className="flex flex-wrap gap-x-2 gap-y-2">
@@ -305,12 +305,12 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                                             ref={isCurrent ? activeWordRef : null}
                                             onClick={() => handleWordClick(idx)}
                                             className={cn(
-                                                "cursor-pointer rounded-md transition-[color,background-color,transform,box-shadow] duration-150 ease-out",
+                                                "cursor-pointer transition-[color,background-color,transform,box-shadow] duration-150 ease-out",
                                                 isCurrent
-                                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] font-black px-2.5 py-1 shadow-md ring-2 ring-[var(--color-accent)]/50 scale-110 inline-block mx-1"
+                                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] px-2.5 py-1 ring-2 ring-[var(--color-accent)]/50 scale-110 inline-block mx-1"
                                                     : isPast
                                                     ? "text-[color:var(--color-text-muted)] opacity-50 hover:opacity-90"
-                                                    : "text-[color:var(--color-text-primary)] hover:text-[color:var(--color-accent)] font-medium"
+                                                    : "text-[color:var(--color-text-primary)] hover:text-[color:var(--color-accent)]"
                                             )}
                                         >
                                             {w}
@@ -328,20 +328,20 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                 <div className="flex items-center justify-center gap-3 sm:gap-6 flex-wrap">
                     <button
                         onClick={() => setWpm((w) => Math.max(50, w - 25))}
-                        className="flex items-center justify-center min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] text-base font-bold border border-[var(--color-border)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] cursor-pointer transition-colors rounded-md"
+                        className="flex items-center justify-center min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] text-base text-[color:var(--color-text-secondary)] cursor-pointer transition-colors hover:text-[color:var(--color-accent)]"
                         title="Decrease Speed"
                     >
                         −
                     </button>
 
                     <div className="flex items-center gap-1.5 min-w-[4.5rem] justify-center font-mono">
-                        <span className="text-base sm:text-lg font-bold text-[color:var(--color-text-primary)]">{wpm}</span>
-                        <span className="text-[10px] sm:text-xs tracking-[0.05em] uppercase text-[color:var(--color-text-muted)]">wpm</span>
+                        <span className="text-base sm:text-lg text-[color:var(--color-text-primary)]">{wpm}</span>
+                        <span className="text-[10px] sm:text-xs text-[color:var(--color-text-muted)]">wpm</span>
                     </div>
 
                     <button
                         onClick={() => setWpm((w) => Math.min(2000, w + 25))}
-                        className="flex items-center justify-center min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] text-base font-bold border border-[var(--color-border)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] cursor-pointer transition-colors rounded-md"
+                        className="flex items-center justify-center min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] text-base text-[color:var(--color-text-secondary)] cursor-pointer transition-colors hover:text-[color:var(--color-accent)]"
                         title="Increase Speed"
                     >
                         +
@@ -349,7 +349,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
 
                     <button
                         onClick={() => setIsPlaying(!isPlaying)}
-                        className="flex items-center justify-center min-h-[46px] min-w-[46px] sm:min-h-[50px] sm:min-w-[50px] rounded-full transition-transform active:scale-95 bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] cursor-pointer shadow-lg"
+                        className="flex items-center justify-center min-h-[46px] min-w-[46px] sm:min-h-[50px] sm:min-w-[50px] transition-transform active:scale-95 bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] cursor-pointer"
                         aria-label={isPlaying ? "Pause" : "Play"}
                     >
                         {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
@@ -369,7 +369,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
                     </div>
                 </div>
 
-                <div className="flex items-center justify-center gap-2 sm:gap-4 text-[10px] sm:text-xs tracking-[0.08em] uppercase text-[color:var(--color-text-muted)] font-mono flex-wrap">
+                <div className="flex items-center justify-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-[color:var(--color-text-muted)] font-mono flex-wrap">
                     <span>Space (Play/Pause)</span>
                     <span>·</span>
                     <span>↑↓ (WPM)</span>

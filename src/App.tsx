@@ -156,10 +156,6 @@ function App() {
                 if (searchInput) { searchInput.focus(); searchInput.select(); }
             }},
             
-            { label: "Toggle sidebar",      keys: "Ctrl+B", category: "App",        handler: () => {
-                useUIStore.getState().toggleSidebar();
-            }},
-            
             { label: "Select all",          keys: "Ctrl+A", category: "Library",    handler: () => {
                 const route = useUIStore.getState().currentRoute;
                 if (route !== "library" && route !== "shelves" && route !== "bookmarks") return;

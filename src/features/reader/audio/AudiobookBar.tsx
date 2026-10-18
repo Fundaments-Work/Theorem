@@ -196,7 +196,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
             style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + env(safe-area-inset-bottom, 0px))" }}
         >
             <div className="mx-auto max-w-2xl px-3">
-                <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-3 pt-2 pb-2 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                <div className="border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-3 pt-2 pb-2 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                     {/* Row 1: chapter / time / actions */}
                     <div className="flex items-center gap-2 min-w-0">
                         <ListMusic className="w-3.5 h-3.5 text-[color:var(--color-accent)] shrink-0" />
@@ -206,7 +206,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             className="min-w-0 flex-1 text-left"
                             title={audioTrack.chapters.length > 0 ? "Jump to chapter" : undefined}
                         >
-                            <span className="block text-[11px] font-medium text-[color:var(--color-text-primary)] truncate">
+                            <span className="block text-[11px] text-[color:var(--color-text-primary)] truncate">
                                 {currentChapter ? currentChapter.title : "Audiobook"}
                             </span>
                         </button>
@@ -217,7 +217,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             <button
                                 onClick={() => setSleepMenuOpen(v => !v)}
                                 className={cn(
-                                    "flex items-center justify-center w-7 h-7 rounded-full transition-colors",
+                                    "flex items-center justify-center w-7 h-7 transition-colors",
                                     sleepDeadline !== null
                                         ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
                                         : "text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
@@ -230,11 +230,11 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             {sleepMenuOpen && (
                                 <>
                                     <div className="fixed inset-0 z-[141]" onClick={() => setSleepMenuOpen(false)} />
-                                    <div className="absolute bottom-9 right-0 z-[142] w-32 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                                    <div className="absolute bottom-9 right-0 z-[142] w-32 border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                                         {sleepDeadline !== null && (
                                             <button
                                                 onClick={() => { setSleepDeadline(null); setSleepMenuOpen(false); }}
-                                                className="w-full rounded-md px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)]"
+                                                className="w-full px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)]"
                                             >
                                                 Off
                                             </button>
@@ -246,7 +246,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                                     setSleepDeadline(Date.now() + min * 60_000);
                                                     setSleepMenuOpen(false);
                                                 }}
-                                                className="w-full rounded-md px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)]"
+                                                className="w-full px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)]"
                                             >
                                                 {min} min
                                             </button>
@@ -258,7 +258,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                                 setSleepMenuOpen(false);
                                             }}
                                             disabled={audioTrack.chapters.length === 0}
-                                            className="w-full rounded-md px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)] disabled:opacity-40"
+                                            className="w-full px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)] disabled:opacity-40"
                                         >
                                             End of chapter
                                         </button>
@@ -268,7 +268,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                         </div>
                         <button
                             onClick={close}
-                            className="flex items-center justify-center w-7 h-7 rounded-full text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] hover:text-[color:var(--color-error)] transition-colors shrink-0"
+                            className="flex items-center justify-center w-7 h-7 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-error)] transition-colors shrink-0"
                             title="Close player"
                             aria-label="Close player"
                         >
@@ -289,13 +289,13 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             seek(((e.clientX - rect.left) / rect.width) * duration);
                         }}
                     >
-                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-[var(--color-surface-muted)]" />
+                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--color-surface-muted)]" />
                         <div
-                            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-[var(--color-accent)]"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--color-accent)]"
                             style={{ width: `${progressPct}%` }}
                         />
                         <div
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[var(--color-accent)]"
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-[var(--color-accent)]"
                             style={{ left: `${progressPct}%` }}
                         />
                     </div>
@@ -304,7 +304,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                     <div className="mt-1 flex items-center justify-center gap-2">
                         <button
                             onClick={() => skip(-SKIP_SECONDS)}
-                            className="flex items-center justify-center w-8 h-8 rounded-full text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] transition-colors"
+                            className="flex items-center justify-center w-8 h-8 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
                             title={`Back ${SKIP_SECONDS}s`}
                             aria-label={`Back ${SKIP_SECONDS} seconds`}
                         >
@@ -314,7 +314,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             onClick={togglePlay}
                             disabled={!ready}
                             className={cn(
-                                "flex items-center justify-center w-10 h-10 rounded-full transition-colors",
+                                "flex items-center justify-center w-10 h-10 transition-colors",
                                 "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]",
                                 "hover:bg-[var(--color-accent-hover)] active:scale-90",
                                 "disabled:opacity-40 disabled:cursor-not-allowed",
@@ -326,7 +326,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                         </button>
                         <button
                             onClick={() => skip(SKIP_SECONDS)}
-                            className="flex items-center justify-center w-8 h-8 rounded-full text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] transition-colors"
+                            className="flex items-center justify-center w-8 h-8 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
                             title={`Forward ${SKIP_SECONDS}s`}
                             aria-label={`Forward ${SKIP_SECONDS} seconds`}
                         >
@@ -338,7 +338,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                     key={s}
                                     onClick={() => changeSpeed(s)}
                                     className={cn(
-                                        "px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors",
+                                        "px-1.5 py-0.5 text-[10px] transition-colors",
                                         speed === s
                                             ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
                                             : "text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
@@ -356,7 +356,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
             {chapterMenuOpen && audioTrack.chapters.length > 0 && (
                 <>
                     <div className="fixed inset-0 z-[141]" onClick={() => setChapterMenuOpen(false)} />
-                    <div className="absolute right-3 bottom-[calc(100%+8px)] z-[142] w-72 max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                    <div className="absolute right-3 bottom-[calc(100%+8px)] z-[142] w-72 max-h-72 overflow-y-auto border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                         {audioTrack.chapters.map((ch) => {
                             const active = currentChapter?.id === ch.id;
                             return (
@@ -364,7 +364,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                     key={ch.id}
                                     onClick={() => { seek(ch.startSec + 0.05); setChapterMenuOpen(false); }}
                                     className={cn(
-                                        "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors",
+                                        "w-full flex items-center gap-2 px-2 py-1.5 text-left text-[11px] transition-colors",
                                         active
                                             ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
                                             : "text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)]",

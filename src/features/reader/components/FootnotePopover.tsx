@@ -108,17 +108,17 @@ export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverPr
             <div
                 ref={popoverRef}
                 className={cn(
-                    "relative flex flex-col bg-[var(--color-surface)] border border-[var(--color-border)] shadow-2xl overflow-hidden",
-                    isMobileDevice ? "rounded-t-2xl max-h-[60vh]" : "rounded-xl max-h-[420px]"
+                    "relative flex flex-col bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden",
+                    isMobileDevice ?"max-h-[60vh]" :"max-h-[420px]"
                 )}
             >
                 {/* Header */}
                 <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] select-none">
                     <div className="flex items-center gap-2 min-w-0">
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-accent)] shrink-0">
+                        <div className="flex h-5 w-5 items-center justify-center text-[color:var(--color-accent)] shrink-0">
                             <Compass className="h-3 w-3" />
                         </div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[color:var(--color-text-primary)] truncate">
+                        <span className="text-[11px] text-[color:var(--color-text-primary)] truncate">
                             {footnote.title || "Theorem Lens"}
                         </span>
                     </div>
@@ -163,7 +163,7 @@ export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverPr
                     {footnote.html ? (
                         <div
                             dangerouslySetInnerHTML={{ __html: footnote.html }}
-                            className="[&_a]:text-[color:var(--color-accent)] [&_a]:underline space-y-1.5 [&_img]:max-h-48 [&_img]:rounded [&_img]:mx-auto"
+                            className="[&_a]:text-[color:var(--color-accent)] [&_a]:underline space-y-1.5 [&_img]:max-h-48 [&_img]: [&_img]:mx-auto"
                         />
                     ) : (
                         <p className="whitespace-pre-line">{footnote.text}</p>

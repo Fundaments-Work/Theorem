@@ -31,7 +31,7 @@ export function SeriesGroupContinue({
             {nextUnreadBook && (
                 <button
                     onClick={() => onContinue(nextUnreadBook)}
-                    className="ui-btn px-3 py-2 sm:px-2.5 sm:py-1 text-xs font-bold border flex items-center gap-1.5 min-h-11 sm:min-h-0 hover:bg-[var(--color-surface-muted)] touch-manipulation"
+                    className="ui-btn px-3 py-2 sm:px-2.5 sm:py-1 text-xs border flex items-center gap-1.5 min-h-11 sm:min-h-0 hover:bg-[var(--color-surface-muted)] touch-manipulation"
                     title={`Continue reading ${nextUnreadBook.title}`}
                     aria-label={`Continue reading ${nextUnreadBook.title}`}
                 >

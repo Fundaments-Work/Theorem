@@ -52,7 +52,7 @@ function EmptyShelves({ onCreate }: { onCreate: () => void }) {
             <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
                 <FolderOpen className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
-            <h2 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 No Shelves Yet
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
@@ -78,7 +78,7 @@ function EmptyShelfDetail({ shelfName, onAddBooks }: { shelfName: string; onAddB
             <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
                 <BookOpen className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
-            <h2 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 "{shelfName}" is Empty
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
@@ -122,7 +122,7 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
                             {displayBooks.map((book, i) => (
                                 <div
                                     key={book.id}
-                                    className="relative overflow-hidden shadow-sm bg-[var(--color-surface)] h-full w-full"
+                                    className="relative overflow-hidden bg-[var(--color-surface)] h-full w-full"
                                     style={{
                                         transform: `translateY(${i % 2 === 1 ? "6px" : "0"})`,
                                     }}
@@ -135,9 +135,9 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
                                             loading="lazy"
                                         />
                                     ) : (
-                                        <div className="w-full h-full bg-[#0e0e11] border border-[#27272a] flex flex-col items-center justify-center p-1.5 text-center">
-                                            <BookOpen className="w-4 h-4 text-zinc-500 mb-0.5 shrink-0" />
-                                            <span className="text-[8px] font-serif font-bold text-zinc-300 line-clamp-2 leading-tight">
+                                        <div className="w-full h-full bg-[var(--color-surface)] border border-[var(--color-border)] flex flex-col items-center justify-center p-1.5 text-center">
+                                            <BookOpen className="w-4 h-4 text-[color:var(--color-text-muted)] mb-0.5 shrink-0" />
+                                            <span className="text-[8px] font-serif text-[color:var(--color-text-secondary)] line-clamp-2 leading-tight">
                                                 {book.title}
                                             </span>
                                         </div>
@@ -165,7 +165,7 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
                 <div className="flex items-center gap-3">
                     
                     <div
-                        className="w-10 h-10 flex items-center justify-center text-sm font-semibold flex-shrink-0 shadow-sm"
+                        className="w-10 h-10 flex items-center justify-center text-sm flex-shrink-0"
                         style={{
                             backgroundColor: getShelfColor(shelf.id, shelf.name).bg,
                             color: getShelfColor(shelf.id, shelf.name).text,
@@ -176,7 +176,7 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
 
                     <div className="flex-1 min-w-0 overflow-hidden">
                         <button onClick={onClick} className="text-left w-full">
-                            <h3 className="font-semibold text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
+                            <h3 className="text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
                                 {shelf.name}
                             </h3>
                         </button>
@@ -194,7 +194,7 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
                                 setMenuUpward(spaceBelow < 130);
                                 setShowMenu(!showMenu);
                             }}
-                            className="p-1.5 text-[color:var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                            className="p-1.5 text-[color:var(--color-text-muted)] sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:text-[color:var(--color-accent)]"
                             aria-label={`Actions for ${shelf.name}`}
                         >
                             <MoreVertical className="w-4 h-4" />
@@ -207,7 +207,7 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
                                 />
                                 <div
                                     className={cn(
-                                        "absolute right-0 w-36 border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg z-20 py-1",
+                                        "absolute right-0 w-36 border border-[var(--color-border)] bg-[var(--color-surface)] z-20 py-1",
                                         menuUpward ? "bottom-full mb-1" : "top-full mt-1",
                                     )}
                                 >
@@ -600,13 +600,13 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             onClick={onBack}
                             aria-label="Back to shelves"
                             title="Back to shelves"
-                            className="inline-flex items-center justify-center shrink-0 h-11 w-11 sm:h-10 sm:w-10 -ml-1 text-[color:var(--color-text-primary)] transition-colors duration-200 ease-out hover:bg-[var(--color-surface-muted)] touch-manipulation"
+                            className="inline-flex items-center justify-center shrink-0 h-11 w-11 sm:h-10 sm:w-10 -ml-1 text-[color:var(--color-text-primary)] transition-colors duration-200 ease-out touch-manipulation hover:text-[color:var(--color-accent)]"
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
                         
                         <div
-                            className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-sm font-semibold shrink-0 shadow-sm"
+                            className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-sm shrink-0"
                             style={{
                                 backgroundColor: getShelfColor(shelf.id, shelf.name).bg,
                                 color: getShelfColor(shelf.id, shelf.name).text,
@@ -615,7 +615,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             {getShelfInitials(shelf.name)}
                         </div>
                         <div className="min-w-0">
-                            <h1 className="m-0 font-sans text-xl font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl truncate">
+                            <h1 className="m-0 font-sans text-xl leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl truncate">
                                 {shelf.name}
                             </h1>
                             <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)]">
@@ -696,9 +696,9 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
-                        <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">No documents match criteria</p>
+                        <p className="text-[color:var(--color-text-muted)] text-xs">No documents match criteria</p>
                         {searchQuery && (
-                            <button onClick={() => useUIStore.getState().setSearchQuery("")} className="mt-4 text-[10px] font-black uppercase text-[color:var(--color-accent)] hover:underline tracking-tighter">
+                            <button onClick={() => useUIStore.getState().setSearchQuery("")} className="mt-4 text-[10px] text-[color:var(--color-accent)] hover:underline tracking-tighter">
                                 [ RESET SEARCH ]
                             </button>
                         )}
@@ -777,7 +777,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                                 {standalone.length > 0 && (
                                     <div>
                                         <div className="flex items-center gap-3 mb-4">
-                                            <h2 className="text-sm font-bold uppercase tracking-widest text-[color:var(--color-text-muted)]">
+                                            <h2 className="text-sm text-[color:var(--color-text-muted)]">
                                                 Standalone
                                             </h2>
                                             <div className="flex-1 border-t border-[var(--color-border)]" />
@@ -879,12 +879,12 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             )}
             {isSelecting && selectedBooks.length > 0 && (
                 <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
-                    <span className="text-sm font-bold text-[color:var(--color-text-primary)] mr-2">
+                    <span className="text-sm text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>
                     <button
                         onClick={handleSelectAll}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                        className="ui-btn px-3 py-1.5 text-xs border-2"
                     >
                         <CheckCheck className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Select All</span>
@@ -893,14 +893,14 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         disabled={!!shelf.smartRules}
                         title={shelf.smartRules ? "Membership is managed by this shelf's rules" : undefined}
                         onClick={handleRemoveSelectedFromShelf}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                        className="ui-btn px-3 py-1.5 text-xs border-2"
                     >
                         <BookMarked className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Remove from Shelf</span>
                     </button>
                     <button
                         onClick={() => { setAddToShelfBookId(null); setIsAddToShelfModalOpen(true); }}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                        className="ui-btn px-3 py-1.5 text-xs border-2"
                     >
                         <Plus className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Add to Shelf</span>
@@ -908,7 +908,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     {allSelectedCompleted ? (
                         <button
                             onClick={handleBatchMarkUnread}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                            className="ui-btn px-3 py-1.5 text-xs border-2"
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">Mark Unread</span>
@@ -916,7 +916,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     ) : (
                         <button
                             onClick={handleBatchMarkRead}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                            className="ui-btn px-3 py-1.5 text-xs border-2"
                         >
                             <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
                             <span className="hidden sm:inline">Mark Read</span>
@@ -924,7 +924,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     )}
                     <button
                         onClick={handleOpenSeriesModalForSelection}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase"
+                        className="ui-btn px-3 py-1.5 text-xs border-2"
                     >
                         <Layers className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Set Series</span>
@@ -932,7 +932,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     <div className="h-5 w-px bg-[var(--color-border)]" />
                     <button
                         onClick={() => setBatchDeleteIds([...selectedBooks])}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase bg-[var(--color-error)]/10 text-[color:var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
+                        className="ui-btn px-3 py-1.5 text-xs border-2 bg-[var(--color-error)]/10 text-[color:var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
                     >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Delete</span>
@@ -942,7 +942,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             clearSelection();
                             setIsSelecting(false);
                         }}
-                        className="ui-btn-primary px-3 py-1.5 text-xs font-bold border-2 uppercase ml-auto"
+                        className="ui-btn-primary px-3 py-1.5 text-xs border-2 ml-auto"
                         title="Done selecting"
                     >
                         <span>Done</span>
@@ -1174,7 +1174,7 @@ export function ShelvesPage() {
                             <EmptyShelves onCreate={handleCreateShelf} />
                         ) : filteredShelves.length === 0 ? (
                             <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
-                                <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">
+                                <p className="text-[color:var(--color-text-muted)] text-xs">
                                     No shelves found matching your search.
                                 </p>
                             </div>

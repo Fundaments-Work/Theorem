@@ -141,7 +141,7 @@ export function NoteEditor({
         >
             
             <div className="flex items-center justify-between mb-3">
-                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[color:var(--color-text-primary)]">
+                <span className="font-mono text-[11px] text-[color:var(--color-text-primary)]">
                     {initialNote ? 'Edit Note' : 'Add Note'}
                 </span>
                 <button
@@ -182,14 +182,14 @@ export function NoteEditor({
             />
 
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--color-border)]">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">
+                <span className="font-mono text-[10px] text-[color:var(--color-text-muted)]">
                     Ctrl+Enter to save
                 </span>
                 <button
                     onClick={handleSave}
                     className={cn(
                         "flex items-center gap-1.5 border border-[var(--color-accent)]",
-                        "px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.1em]",
+                        "px-3 py-1.5 font-mono text-[10px]",
                         
                         "bg-[var(--color-accent)]",
                         "text-[color:var(--color-accent-contrast)]",

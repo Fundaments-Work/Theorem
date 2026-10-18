@@ -73,7 +73,7 @@ function Section({ title, description, icon, children }: SectionProps) {
         <section className="bg-[var(--color-surface)]">
             <div className="border-b border-[var(--color-border-subtle)] px-5 py-3">
                 {icon && <span className="sr-only">{icon}</span>}
-                <h2 className="font-sans text-[12px] font-semibold text-[color:var(--color-text-primary)]">
+                <h2 className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                     {title}
                 </h2>
                 {description && (
@@ -98,7 +98,7 @@ function SettingRow({ label, description, htmlFor, children }: SettingRowProps) 
     return (
         <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div className="w-full sm:flex-1 sm:pr-4">
-                <label htmlFor={htmlFor} className="font-sans text-[12px] font-semibold text-[color:var(--color-text-primary)]">
+                <label htmlFor={htmlFor} className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                     {label}
                 </label>
                 {description && (
@@ -128,7 +128,7 @@ function Toggle({
             <button
                 onClick={() => onChange(true)}
                 className={cn(
-                    "px-3 py-2 font-sans text-[11px] font-medium",
+                    "px-3 py-2 font-sans text-[11px]",
                     checked
                         ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                         : "text-[color:var(--color-text-secondary)]"
@@ -139,7 +139,7 @@ function Toggle({
             <button
                 onClick={() => onChange(false)}
                 className={cn(
-                    "border-l border-[var(--color-border)] px-3 py-2 font-sans text-[11px] font-medium",
+                    "border-l border-[var(--color-border)] px-3 py-2 font-sans text-[11px]",
                     !checked
                         ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                         : "text-[color:var(--color-text-secondary)]"
@@ -167,7 +167,7 @@ function ButtonSelect<T extends string>({
                     key={opt.value}
                     onClick={() => onChange(opt.value)}
                     className={cn(
-                        "border border-[var(--color-border)] px-3 py-2 font-sans text-[11px] font-medium transition-colors",
+                        "border border-[var(--color-border)] px-3 py-2 font-sans text-[11px] transition-colors",
                         value === opt.value
                             ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                             : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
@@ -207,7 +207,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                         <div className="flex items-center gap-3">
                             <BookOpen className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
-                                <p className="font-medium text-sm text-[color:var(--color-text-primary)]">Books</p>
+                                <p className="text-sm text-[color:var(--color-text-primary)]">Books</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
                                     {downloadedBooks.length} {downloadedBooks.length === 1 ? "book" : "books"}
                                     {syncOnlyCount > 0 && <> • {syncOnlyCount} sync-only</>}
@@ -219,7 +219,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                                 )}
                             </div>
                         </div>
-                        <span className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                        <span className="text-sm text-[color:var(--color-text-primary)]">
                             {formatFileSize(totalStorage)}
                         </span>
                     </div>
@@ -228,7 +228,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                         <div className="flex items-center gap-3">
                             <FolderOpen className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
-                                <p className="font-medium text-sm text-[color:var(--color-text-primary)]">Highlights & Notes</p>
+                                <p className="text-sm text-[color:var(--color-text-primary)]">Highlights & Notes</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
                                     {annotations.length} {annotations.length === 1 ? "annotation" : "annotations"}
                                 </p>
@@ -240,13 +240,13 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                         <div className="flex items-center gap-3">
                             <Rss className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
-                                <p className="font-medium text-sm text-[color:var(--color-text-primary)]">RSS Articles</p>
+                                <p className="text-sm text-[color:var(--color-text-primary)]">RSS Articles</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
                                     {rssStats.articleCount} {rssStats.articleCount === 1 ? "article" : "articles"} cached
                                 </p>
                             </div>
                         </div>
-                        <span className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                        <span className="text-sm text-[color:var(--color-text-primary)]">
                             {formatFileSize(rssStats.totalSize)}
                         </span>
                     </div>
@@ -255,7 +255,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                         <div className="flex items-center gap-3">
                             <Languages className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
-                                <p className="font-medium text-sm text-[color:var(--color-text-primary)]">Offline Dictionaries</p>
+                                <p className="text-sm text-[color:var(--color-text-primary)]">Offline Dictionaries</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
                                     {installedDictionaries.length > 0
                                         ? `${installedDictionaries.length} installed`
@@ -263,7 +263,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                                 </p>
                             </div>
                         </div>
-                        <span className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                        <span className="text-sm text-[color:var(--color-text-primary)]">
                             {formatFileSize(offlineDictionarySize)}
                         </span>
                     </div>
@@ -287,7 +287,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                     >
                         <AlertTriangle className="w-5 h-5" />
                         <div className="flex-1">
-                            <p className="font-medium text-sm">Clear All Data</p>
+                            <p className="text-sm">Clear All Data</p>
                             <p className="text-xs opacity-80">
                                 Delete all books, highlights, vocabulary, and settings. This cannot be undone.
                             </p>
@@ -306,7 +306,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                     >
                         <Download className="w-5 h-5" />
                         <div className="flex-1">
-                            <p className="font-medium text-sm">Create Backup File</p>
+                            <p className="text-sm">Create Backup File</p>
                             <p className="text-xs text-[color:var(--color-text-muted)]">
                                 Save a full backup bundle with books, highlights, vocabulary, RSS, and dictionaries
                             </p>
@@ -746,7 +746,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={cn(
-                                    "flex min-w-[10rem] items-center justify-center border border-[var(--color-border)] px-3 py-2.5 font-sans text-[11px] font-medium transition-colors",
+                                    "flex min-w-[10rem] items-center justify-center border border-[var(--color-border)] px-3 py-2.5 font-sans text-[11px] transition-colors",
                                     activeTab === tab.id
                                         ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                                         : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)]"
@@ -764,7 +764,7 @@ export const SettingsPage = memo(function SettingsPage() {
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={cn(
-                                "flex items-center border border-[var(--color-border)] px-4 py-2 font-sans text-[11px] font-medium transition-colors",
+                                "flex items-center border border-[var(--color-border)] px-4 py-2 font-sans text-[11px] transition-colors",
                                 activeTab === tab.id
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                                     : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
@@ -898,7 +898,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         >
                             <div className="flex flex-col gap-2">
                                 <div className="flex items-center gap-1.5">
-                                    {["#2d6a6e", "#5b5b5b", "#9e5a4a", "#3d6b4a", "#6b4a7a", "#4a6b9e", "#1c1c1c", "#9e6b4a"].map((color) => (
+                                    {["#c6f135", "#2d6a6e", "#5b5b5b", "#9e5a4a", "#3d6b4a", "#6b4a7a", "#4a6b9e", "#1c1c1c", "#9e6b4a"].map((color) => (
                                         <button
                                             key={color}
                                             onClick={() => updateSettings({ accentColor: color })}
@@ -928,24 +928,13 @@ export const SettingsPage = memo(function SettingsPage() {
                                                 }
                                             }}
                                             maxLength={6}
-                                            placeholder="2d6a6e"
+                                            placeholder="c6f135"
                                             className="w-20 border-none bg-transparent px-2 py-1 text-[11px] font-mono text-[color:var(--color-text-primary)] outline-none"
                                         />
                                     </div>
                                 </div>
                             </div>
                         </SettingRow>
-
-                        <SettingRow
-                            label="Sidebar Collapsed"
-                            description="Start with the sidebar collapsed"
-                        >
-                            <Toggle
-                                checked={settings.sidebarCollapsed}
-                                onChange={(checked) => updateSettings({ sidebarCollapsed: checked })}
-                            />
-                        </SettingRow>
-
 
                         <SettingRow
                             label="Daily Highlight"
@@ -977,7 +966,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                     onChange={(checked) => updateTtsSettings({ enabled: checked })}
                                 />
                             ) : (
-                                <span className="text-[11px] font-medium text-[color:var(--color-text-muted)]">Off</span>
+                                <span className="text-[11px] text-[color:var(--color-text-muted)]">Off</span>
                             )}
                         </SettingRow>
 
@@ -1102,7 +1091,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         )}
 
                         {dictionaryRemovedName && (
-                            <div className="px-3 py-2 mb-3 text-sm text-[color:var(--color-success,#22c55e)] bg-[color:color-mix(in_srgb,var(--color-success,#22c55e)_8%,transparent)] border border-[color:color-mix(in_srgb,var(--color-success,#22c55e)_24%,transparent)]">
+                            <div className="px-3 py-2 mb-3 text-sm text-[color:var(--color-success)] bg-[color:color-mix(in_srgb,var(--color-success)_8%,transparent)] border border-[color:color-mix(in_srgb,var(--color-success)_24%,transparent)]">
                                 Removed "{dictionaryRemovedName}"
                             </div>
                         )}
@@ -1296,7 +1285,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 label="Export Status"
                                 description="Latest markdown export status"
                             >
-                                <div className="border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 font-sans text-[11px] font-medium text-[color:var(--color-text-primary)]">
+                                <div className="border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 font-sans text-[11px] text-[color:var(--color-text-primary)]">
                                     {vaultSyncStatus === "synced" && "Export complete"}
                                     {vaultSyncStatus === "syncing" && "Exporting..."}
                                     {vaultSyncStatus === "error" && "Export error"}
@@ -1307,13 +1296,13 @@ export const SettingsPage = memo(function SettingsPage() {
                             </SettingRow>
 
                             <details className="border border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-                                <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-[color:var(--color-text-primary)]">
+                                <summary className="cursor-pointer px-3 py-2 text-xs text-[color:var(--color-text-primary)]">
                                     File names
                                 </summary>
                                 <div className="space-y-3 border-t border-[var(--color-border)] p-3">
                                     <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                                         <div>
-                                            <p className="font-sans text-[12px] font-semibold text-[color:var(--color-text-primary)]">
+                                            <p className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                                                 Highlights folder
                                             </p>
                                         </div>
@@ -1331,7 +1320,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                     </div>
                                     <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                                         <div>
-                                            <p className="font-sans text-[12px] font-semibold text-[color:var(--color-text-primary)]">
+                                            <p className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                                                 Vocabulary file
                                             </p>
                                         </div>
@@ -1365,7 +1354,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 const categories = [...new Set(all.map(s => s.category))];
                                 return categories.map(cat => (
                                     <div key={cat}>
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[color:var(--color-text-muted)] mb-2">{cat}</h3>
+                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-2">{cat}</h3>
                                         <div className="space-y-1">
                                             {all.filter(s => s.category === cat).map(s => (
                                                 <div key={s.label} className="flex items-center justify-between py-1.5 px-3 bg-[var(--color-surface-muted)] text-xs">
@@ -1391,27 +1380,27 @@ export const SettingsPage = memo(function SettingsPage() {
                             <div className="grid gap-2">
                                 <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">Version</span>
-                                    <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]">{__APP_VERSION__}</span>
+                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">{__APP_VERSION__}</span>
                                 </div>
                                 {buildInfo && (
                                     <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
                                         <span className="text-[12px] text-[color:var(--color-text-secondary)]">Build</span>
-                                        <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]" title="Source commit this binary was built from">
+                                        <span className="text-[12px] text-[color:var(--color-text-primary)]"title="Source commit this binary was built from">
                                             {buildInfo.gitHash} · {buildInfo.buildDate}
                                         </span>
                                     </div>
                                 )}
                                 <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">License</span>
-                                    <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]">MIT</span>
+                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">MIT</span>
                                 </div>
                                 <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">Author</span>
-                                    <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]">Fundamentals</span>
+                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">Fundamentals</span>
                                 </div>
                                 <div className="flex items-center justify-between py-1.5">
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">Stack</span>
-                                    <span className="text-[12px] font-medium text-[color:var(--color-text-primary)]">React 19 + Tauri 2 + Rust</span>
+                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">React 19 + Tauri 2 + Rust</span>
                                 </div>
                             </div>
                         </div>
@@ -1452,7 +1441,7 @@ export const SettingsPage = memo(function SettingsPage() {
                              {updateInfo ? (
                                  <div className="space-y-2">
                                      <div className="p-3 border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">
-                                         <p className="text-[12px] font-medium">{updateInfo.prerelease ? "Beta" : "Update"} Available: v{updateInfo.version}</p>
+                                         <p className="text-[12px]">{updateInfo.prerelease ? "Beta" : "Update"} Available: v{updateInfo.version}</p>
                                          {updateInfo.body ? (
                                              <p className="text-[11px] text-[color:var(--color-text-secondary)] mt-1">{updateInfo.body}</p>
                                          ) : null}

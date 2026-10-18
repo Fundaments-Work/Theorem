@@ -119,7 +119,7 @@ function FeedListItem({
 
             <div className="flex-1 min-w-0">
                 <p className={cn(
-                    "text-sm font-medium truncate",
+                    "text-sm truncate",
                 )}>
                     {feed.title}
                 </p>
@@ -127,7 +127,7 @@ function FeedListItem({
 
             {feed.unreadCount > 0 && (
                 <span className={cn(
-                    "text-[10px] font-bold px-1.5 py-0.5 flex-shrink-0",
+                    "text-[10px] px-1.5 py-0.5 flex-shrink-0",
                     isSelected
                         ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                         : "bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]",
@@ -220,7 +220,7 @@ function ArticleCard({
         ...(onToggleFavorite ? [{
             id: "toggle-favorite",
             label: article.isFavorite ? "Remove from Favorites" : "Add to Favorites",
-            icon: <Star className={cn("w-4 h-4", article.isFavorite && "fill-current text-amber-500")} />,
+            icon: <Star className={cn("w-4 h-4", article.isFavorite && "fill-current text-[color:var(--color-accent)]")} />,
             onClick: () => onToggleFavorite(article.id),
         }] as ContextMenuItem[] : []),
         ...(article.url ? [{
@@ -267,7 +267,7 @@ function ArticleCard({
                     "group p-4 sm:p-5 border transition-colors duration-200 cursor-pointer",
                     article.isRead
                         ? "border-transparent bg-[var(--color-surface-muted)]/30 opacity-70 hover:opacity-100"
-                        : "border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)]/30 hover:shadow-sm",
+                        : "border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)]/30",
                     "active:scale-[0.99]"
                 )}
             >
@@ -277,14 +277,14 @@ function ArticleCard({
                         
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                             {feedTitle && (
-                                <span className="text-[10px] uppercase font-bold tracking-wider text-[color:var(--color-accent)]">
+                                <span className="text-[10px] text-[color:var(--color-accent)]">
                                     {feedTitle}
                                 </span>
                             )}
                             {dateStr && (
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] font-medium text-[color:var(--color-text-muted)] flex items-center gap-1 uppercase tracking-wide">
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)] flex items-center gap-1">
                                         {dateStr}
                                     </span>
                                 </>
@@ -292,7 +292,7 @@ function ArticleCard({
                             {article.progress != null && article.progress > 0 && (
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] font-mono font-semibold text-[color:var(--color-accent)]">
+                                    <span className="text-[10px] font-mono text-[color:var(--color-accent)]">
                                         {formatProgress(article.progress)} read
                                     </span>
                                 </>
@@ -300,7 +300,7 @@ function ArticleCard({
                             {article.isSaved && (
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] font-medium text-[color:var(--color-accent)] flex items-center gap-1 uppercase tracking-wide">
+                                    <span className="text-[10px] text-[color:var(--color-accent)] flex items-center gap-1">
                                         <BookmarkCheck className="w-3 h-3" />
                                         Saved
                                     </span>
@@ -309,7 +309,7 @@ function ArticleCard({
                             {article.isFavorite && (
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] font-medium text-amber-500 flex items-center gap-1 uppercase tracking-wide">
+                                    <span className="text-[10px] text-[color:var(--color-accent)] flex items-center gap-1">
                                         <Star className="w-3 h-3 fill-current" />
                                         Favorite
                                     </span>
@@ -318,7 +318,7 @@ function ArticleCard({
                             {article.isRead && (!article.progress || article.progress >= 0.95) && (
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wide">
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">
                                         Read
                                     </span>
                                 </>
@@ -326,7 +326,7 @@ function ArticleCard({
                         </div>
 
                         <h3 className={cn(
-                            "text-base font-semibold line-clamp-2 mb-2 leading-tight",
+                            "text-base line-clamp-2 mb-2 leading-tight",
                             article.isRead
                                 ? "text-[color:var(--color-text-secondary)]"
                                 : "text-[color:var(--color-text-primary)]",
@@ -336,13 +336,13 @@ function ArticleCard({
 
                         {summaryHtml && (
                             <div
-                                className="text-sm text-[color:var(--color-text-muted)] line-clamp-2 leading-relaxed [&_p]:inline [&_a]:text-[color:var(--color-accent)] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_img]:hidden [&_figure]:hidden"
+                                className="text-sm text-[color:var(--color-text-muted)] line-clamp-2 leading-relaxed [&_p]:inline [&_a]:text-[color:var(--color-accent)] [&_a]:underline [&_strong]: [&_em]:italic [&_img]:hidden [&_figure]:hidden"
                                 dangerouslySetInnerHTML={sanitizeHtmlForDisplay(summaryHtml)}
                             />
                         )}
 
                         {article.progress != null && article.progress > 0 && article.progress < 0.95 && (
-                            <div className="w-full bg-[var(--color-surface-muted)] h-1 rounded-full overflow-hidden mt-3 max-w-xs">
+                            <div className="w-full bg-[var(--color-surface-muted)] h-1 overflow-hidden mt-3 max-w-xs">
                                 <div
                                     className="bg-[var(--color-accent)] h-full transition-[width] duration-300"
                                     style={{ width: `${Math.round(article.progress * 100)}%` }}
@@ -358,7 +358,7 @@ function ArticleCard({
                                         e.stopPropagation();
                                         void openExternalUrl(article.url);
                                     }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] rounded transition-colors"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                                     title="Open original website in browser"
                                 >
                                     <ExternalLink className="w-3.5 h-3.5" />
@@ -374,9 +374,9 @@ function ArticleCard({
                                         onToggleSaved(article.id);
                                     }}
                                     className={cn(
-                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors",
                                         article.isSaved
-                                            ? "text-[color:var(--color-accent)] bg-[var(--color-accent)]/10 font-bold"
+                                            ? "text-[color:var(--color-accent)] bg-[var(--color-accent)]/10"
                                             : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
                                     )}
                                     title={article.isSaved ? "Saved for offline reading" : "Save for offline"}
@@ -394,9 +394,9 @@ function ArticleCard({
                                         onToggleFavorite(article.id);
                                     }}
                                     className={cn(
-                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors",
+                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors",
                                         article.isFavorite
-                                            ? "text-amber-500 bg-amber-500/10 font-bold"
+                                            ? "text-[color:var(--color-accent)] bg-[color:color-mix(in_srgb,var(--color-accent)_10%,transparent)]"
                                             : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
                                     )}
                                     title={article.isFavorite ? "Remove favorite" : "Add to favorites"}
@@ -432,7 +432,7 @@ function EmptyFeeds({ onAddFeed }: { onAddFeed: () => void }) {
             <div className="mb-5 inline-flex h-16 w-16 items-center justify-center border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]">
                 <Rss className="w-6 h-6" />
             </div>
-            <h2 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 Your Feed Reader
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
@@ -442,8 +442,8 @@ function EmptyFeeds({ onAddFeed }: { onAddFeed: () => void }) {
                 onClick={onAddFeed}
                 className={cn(
                     "min-w-[10.5rem] whitespace-nowrap flex items-center gap-2 px-6 py-2.5",
-                    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] text-sm font-medium",
-                    "hover:opacity-90 transition-opacity shadow-sm",
+                    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] text-sm",
+                    "hover:opacity-90 transition-opacity",
                 )}
             >
                 <Plus className="w-4 h-4" />
@@ -459,7 +459,7 @@ function EmptyArticles({ feedTitle }: { feedTitle?: string }) {
             <div className="mb-5 inline-flex h-16 w-16 items-center justify-center border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]">
                 <LayoutTemplate className="w-6 h-6" />
             </div>
-            <h3 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h3 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 No Articles Yet
             </h3>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] text-sm leading-relaxed">
@@ -717,12 +717,12 @@ export function FeedsPage() {
             )}>
                 
                 <div className="px-4 pt-8 pb-4 flex items-center justify-between">
-                    <h2 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                    <h2 className="text-xs text-[color:var(--color-text-muted)]">
                         Subscriptions
                     </h2>
                     <button
                         onClick={() => setIsAddModalOpen(true)}
-                        className="p-1.5 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        className="p-1.5 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
                         title="Add Feed"
                     >
                         <Plus className="w-4 h-4" />
@@ -757,7 +757,7 @@ export function FeedsPage() {
                                                 className={cn(
                                                     "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
                                                     selectedFeedId === null
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
                                                         : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
                                                 )}
                                             >
@@ -770,7 +770,7 @@ export function FeedsPage() {
                                                     )}>
                                                         <LayoutTemplate className="w-4 h-4" />
                                                     </div>
-                                                    <span className="text-sm font-medium">All Articles</span>
+                                                    <span className="text-sm">All Articles</span>
                                                 </div>
                                                 <span className="text-[10px] font-mono text-[color:var(--color-text-muted)]">{articles.length}</span>
                                             </button>
@@ -780,7 +780,7 @@ export function FeedsPage() {
                                                 className={cn(
                                                     "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
                                                     selectedFeedId === "__saved__"
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
                                                         : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
                                                 )}
                                             >
@@ -788,10 +788,10 @@ export function FeedsPage() {
                                                     <div className="w-6 h-6 flex items-center justify-center">
                                                         <Bookmark className={cn("w-4 h-4", selectedFeedId === "__saved__" ? "fill-current text-[color:var(--color-accent)]" : "text-[color:var(--color-text-muted)]")} />
                                                     </div>
-                                                    <span className="text-sm font-medium">Saved Offline</span>
+                                                    <span className="text-sm">Saved Offline</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-[var(--color-accent)]/15 text-[color:var(--color-accent)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-accent)]/15 text-[color:var(--color-accent)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -802,18 +802,18 @@ export function FeedsPage() {
                                                 className={cn(
                                                     "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
                                                     selectedFeedId === "__favorites__"
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
                                                         : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-6 h-6 flex items-center justify-center">
-                                                        <Star className={cn("w-4 h-4 text-amber-500", selectedFeedId === "__favorites__" && "fill-current")} />
+                                                        <Star className={cn("w-4 h-4 text-[color:var(--color-accent)]", selectedFeedId === "__favorites__" && "fill-current")} />
                                                     </div>
-                                                    <span className="text-sm font-medium">Favorites</span>
+                                                    <span className="text-sm">Favorites</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-amber-500/15 text-amber-500">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[color:color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-[color:var(--color-accent)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -824,7 +824,7 @@ export function FeedsPage() {
                                                 className={cn(
                                                     "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
                                                     selectedFeedId === "__unread__"
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] font-semibold"
+                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
                                                         : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
                                                 )}
                                             >
@@ -832,10 +832,10 @@ export function FeedsPage() {
                                                     <div className="w-6 h-6 flex items-center justify-center">
                                                         <EyeOff className="w-4 h-4 text-[color:var(--color-text-muted)]" />
                                                     </div>
-                                                    <span className="text-sm font-medium">Unread</span>
+                                                    <span className="text-sm">Unread</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -873,13 +873,13 @@ export function FeedsPage() {
                         
                         <button
                             onClick={handleBackToFeeds}
-                            className="md:hidden -ml-2 p-1.5 shrink-0 text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
+                            className="md:hidden -ml-2 p-1.5 shrink-0 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)]"
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
 
                         <div className="min-w-0">
-                            <h1 className="m-0 font-sans text-xl sm:text-[1.45rem] md:text-[1.6rem] font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] truncate">
+                            <h1 className="m-0 font-sans text-xl sm:text-[1.45rem] md:text-[1.6rem] leading-[1.1] text-[color:var(--color-text-primary)] truncate">
                                 {headerTitle}
                             </h1>
                             <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)] truncate">
@@ -963,10 +963,10 @@ export function FeedsPage() {
 
             {/* Error Toast */}
             {error && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 bg-[var(--color-error)] text-[color:var(--color-text-inverse)] text-sm font-medium shadow-xl animate-fade-in-up">
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 bg-[var(--color-error)] text-[color:var(--color-text-inverse)] text-sm animate-fade-in-up">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
                     <span>{error}</span>
-                    <button onClick={() => setError(undefined)} className="ml-2 p-0.5 hover:bg-white/20">✕</button>
+                    <button onClick={() => setError(undefined)} className="ml-2 p-0.5 hover:text-[color:var(--color-accent)]">✕</button>
                 </div>
             )}
 

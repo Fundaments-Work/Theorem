@@ -2729,16 +2729,16 @@ const BookReaderPage = memo(function BookReaderPage() {
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
                     </div>
-                    <h2 className="w-full break-words text-balance text-xl font-semibold text-[color:var(--color-text-primary)] mb-2">
+                    <h2 className="w-full break-words text-balance text-xl text-[color:var(--color-text-primary)] mb-2">
                         Downloading Book
                     </h2>
                     <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-secondary)] mb-6 leading-relaxed">
                         This book was synced from another device. Downloading from paired device...
                     </p>
                     <div className="w-full max-w-xs mb-2">
-                        <div className="h-2 bg-[var(--color-surface-muted)] rounded-full overflow-hidden">
+                        <div className="h-2 bg-[var(--color-surface-muted)] overflow-hidden">
                             <div
-                                className="h-full bg-[var(--color-accent)] rounded-full transition-[width] duration-300"
+                                className="h-full bg-[var(--color-accent)] transition-[width] duration-300"
                                 style={{ width: `${hasProgress ? Math.max(pct, 2) : 60}%` }}
                             />
                         </div>
@@ -2777,7 +2777,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                             </svg>
                         )}
                     </div>
-                    <h2 className="w-full break-words text-balance text-xl font-semibold text-[color:var(--color-text-primary)] mb-2">
+                    <h2 className="w-full break-words text-balance text-xl text-[color:var(--color-text-primary)] mb-2">
                         {isSyncedWithoutFile ? 'Book Not Yet Transferred' : isDownloadTimeout ? 'Book Unavailable' : 'Failed to Load Book'}
                     </h2>
                     <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-secondary)] mb-8 leading-relaxed">
@@ -2815,7 +2815,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                     </div>
-                    <h2 className="w-full break-words text-balance text-xl font-semibold text-[color:var(--color-text-primary)] mb-2">
+                    <h2 className="w-full break-words text-balance text-xl text-[color:var(--color-text-primary)] mb-2">
                         Book File Not Available
                     </h2>
                     <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-secondary)] mb-8 leading-relaxed">
@@ -2990,7 +2990,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         className={cn(
                             "fixed bottom-6 z-[100]",
                             isMobileViewport ? "left-4" : "left-8",
-                            "flex items-center justify-center w-11 h-11 shadow-lg transition-[transform,opacity] duration-150 ease-out",
+                            "flex items-center justify-center w-11 h-11 transition-[transform,opacity] duration-150 ease-out",
                             "bg-[var(--color-surface)] text-[color:var(--color-text-primary)] border border-[var(--color-border)]",
                             "hover:bg-[var(--color-surface-muted)]",
                             (shouldShowReaderChrome || pdfAnnotationMode !== 'none') ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0 pointer-events-none"

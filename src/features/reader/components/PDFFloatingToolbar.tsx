@@ -71,7 +71,7 @@ export function PDFFloatingToolbar({
                     isOpen ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
                 )}
             >
-                <div className="flex flex-col gap-2 p-2 border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+                <div className="flex flex-col gap-2 p-2 border border-[var(--color-border)] bg-[var(--color-surface)]">
                     <div className="grid grid-cols-4 gap-1.5" role="toolbar" aria-label="Annotation tools">
                         {TOOLS.map(({ mode, label, title, Icon }) => {
                             const active = annotationMode === mode;
@@ -81,7 +81,7 @@ export function PDFFloatingToolbar({
                                     type="button"
                                     onClick={() => onAnnotationModeChange(active ? 'none' : mode)}
                                     className={cn(
-                                        "flex h-9 w-9 items-center justify-center border transition-colors duration-150",
+                                        "flex h-9 w-9 items-center justify-center transition-colors duration-150",
                                         active
                                             ? "border-[var(--color-text-primary)] bg-[var(--color-text-primary)] text-[color:var(--color-surface)]"
                                             : "border-[var(--color-border)] text-[color:var(--color-text-primary)] hover:border-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
@@ -124,7 +124,7 @@ export function PDFFloatingToolbar({
                 type="button"
                 onClick={toggleOpen}
                 className={cn(
-                    "pointer-events-auto flex h-11 w-11 items-center justify-center border shadow-lg transition-colors duration-150",
+                    "pointer-events-auto flex h-11 w-11 items-center justify-center transition-colors duration-150",
                     isOpen
                         ? "border-[var(--color-text-primary)] bg-[var(--color-text-primary)] text-[color:var(--color-surface)]"
                         : "border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"

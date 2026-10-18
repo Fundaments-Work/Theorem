@@ -51,7 +51,7 @@ function highlightExcerpt(excerpt: string, query: string, matchCase = false, who
         const queryRegex = new RegExp(`(${pattern})`, flags);
         return safeExcerpt.replace(
             queryRegex,
-            '<span class="bg-[var(--color-accent)]/20 text-[color:var(--color-accent)] font-bold">$1</span>',
+            '<span class="bg-[var(--color-accent)]/20 text-[color:var(--color-accent)]">$1</span>',
         );
     } catch {
         return safeExcerpt;
@@ -270,9 +270,9 @@ export function ReaderSearch({
                 <div className="reader-panel-header px-4 pt-4 pb-3">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <h2 className="text-sm font-semibold text-[color:var(--color-text-primary)]">Search</h2>
+                            <h2 className="text-sm text-[color:var(--color-text-primary)]">Search</h2>
                             {results.length > 0 && (
-                                <span className="text-xs text-[color:var(--color-text-secondary)] font-mono bg-[var(--color-surface-muted)] px-1.5 py-0.5 rounded">
+                                <span className="text-xs text-[color:var(--color-text-secondary)] font-mono bg-[var(--color-surface-muted)] px-1.5 py-0.5">
                                     {activeMatchIndex >= 0 ? `${activeMatchIndex + 1} / ${results.length}` : `${results.length}`}
                                 </span>
                             )}
@@ -283,7 +283,7 @@ export function ReaderSearch({
                                     <button
                                         type="button"
                                         onClick={goToPrevMatch}
-                                        className="reader-chip w-7 h-7 inline-flex items-center justify-center transition-colors hover:bg-[var(--color-surface-muted)]"
+                                        className="reader-chip w-7 h-7 inline-flex items-center justify-center transition-colors hover:text-[color:var(--color-accent)]"
                                         aria-label="Previous match (Shift+Enter / Shift+F3)"
                                         title="Previous match (Shift+Enter / Shift+F3)"
                                     >
@@ -292,7 +292,7 @@ export function ReaderSearch({
                                     <button
                                         type="button"
                                         onClick={goToNextMatch}
-                                        className="reader-chip w-7 h-7 inline-flex items-center justify-center transition-colors hover:bg-[var(--color-surface-muted)]"
+                                        className="reader-chip w-7 h-7 inline-flex items-center justify-center transition-colors hover:text-[color:var(--color-accent)]"
                                         aria-label="Next match (Enter / F3)"
                                         title="Next match (Enter / F3)"
                                     >
@@ -327,7 +327,7 @@ export function ReaderSearch({
                                 <button
                                     type="button"
                                     onClick={handleClear}
-                                    className="p-1 hover:bg-[var(--color-surface-muted)] transition-colors text-[color:var(--color-text-muted)]"
+                                    className="p-1 transition-colors text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)]"
                                     title="Clear search"
                                 >
                                     <X className="w-3.5 h-3.5" />
@@ -337,7 +337,7 @@ export function ReaderSearch({
                                 type="button"
                                 onClick={() => setMatchCase(prev => !prev)}
                                 className={cn(
-                                    "p-1 rounded transition-colors text-xs font-semibold",
+                                    "p-1 transition-colors text-xs",
                                     matchCase
                                         ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                                         : "text-[color:var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
@@ -351,7 +351,7 @@ export function ReaderSearch({
                                 type="button"
                                 onClick={() => setWholeWord(prev => !prev)}
                                 className={cn(
-                                    "p-1 rounded transition-colors text-xs font-semibold",
+                                    "p-1 transition-colors text-xs",
                                     wholeWord
                                         ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                                         : "text-[color:var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
@@ -378,7 +378,7 @@ export function ReaderSearch({
                     {!query && !isSearching && results.length === 0 && (
                         <div className="w-full flex flex-col items-center justify-center py-12 px-6 text-center opacity-50">
                             <Search className="w-8 h-8 mb-3" />
-                            <p className="w-full max-w-[15rem] text-xs font-medium leading-relaxed">Find words, names or phrases</p>
+                            <p className="w-full max-w-[15rem] text-xs leading-relaxed">Find words, names or phrases</p>
                         </div>
                     )}
 
@@ -391,7 +391,7 @@ export function ReaderSearch({
 
                     {query && !isSearching && results.length === 0 && (
                         <div className="w-full flex flex-col items-center justify-center py-12 px-6 text-center opacity-70">
-                            <h3 className="text-sm font-semibold mb-1">No results found</h3>
+                            <h3 className="text-sm mb-1">No results found</h3>
                             <p className="w-full max-w-[15rem] text-xs text-[color:var(--color-text-muted)] leading-relaxed">Try a different search term</p>
                         </div>
                     )}
@@ -417,7 +417,7 @@ export function ReaderSearch({
                                             __html: highlightExcerpt(result.excerpt, query, matchCase, wholeWord),
                                         }}
                                     />
-                                    <div className="flex items-center gap-1.5 text-[var(--font-size-3xs)] text-[color:var(--color-accent)] font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="flex items-center gap-1.5 text-[var(--font-size-3xs)] text-[color:var(--color-accent)] opacity-0 group-hover:opacity-100 transition-opacity">
                                         <span>Jump to match</span>
                                         <ChevronRight className="w-3 h-3" />
                                     </div>
@@ -429,7 +429,7 @@ export function ReaderSearch({
 
                 {results.length > 0 && (
                     <div className="reader-panel-footer p-3 bg-[var(--color-background)] flex items-center justify-between">
-                        <p className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-widest">
+                        <p className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)]">
                             {activeMatchIndex >= 0 ? `Match ${activeMatchIndex + 1} of ${results.length}` : `${results.length} ${results.length === 1 ? 'Result' : 'Results'} found`}
                         </p>
                         <div className="flex items-center gap-1 sm:hidden">

@@ -55,7 +55,7 @@ function Section({
                     {icon}
                 </div>
                 <div>
-                    <h3 className="font-semibold text-[color:var(--color-text-primary)]">
+                    <h3 className="text-[color:var(--color-text-primary)]">
                         {title}
                     </h3>
                     {description && (
@@ -88,7 +88,7 @@ function Card({
         >
             {label && (
                 <div className="px-4 py-2.5 border-b border-[var(--color-border)]">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                    <p className="text-[11px] text-[color:var(--color-text-muted)]">
                         {label}
                     </p>
                 </div>
@@ -102,15 +102,15 @@ function StatusBadge({ status }: { status: string }) {
     const styles: Record<string, string> = {
         idle: "bg-[color:color-mix(in_srgb,var(--color-text-muted)_15%,transparent)] text-[color:var(--color-text-muted)]",
         hosting:
-            "bg-[color:color-mix(in_srgb,var(--color-success,#22c55e)_15%,transparent)] text-[color:var(--color-success,#22c55e)]",
+            "bg-[color:color-mix(in_srgb,var(--color-success)_15%,transparent)] text-[color:var(--color-success)]",
         syncing:
             "bg-[color:color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-[color:var(--color-accent)]",
         synced:
-            "bg-[color:color-mix(in_srgb,var(--color-success,#22c55e)_15%,transparent)] text-[color:var(--color-success,#22c55e)]",
+            "bg-[color:color-mix(in_srgb,var(--color-success)_15%,transparent)] text-[color:var(--color-success)]",
         error:
             "bg-[color:color-mix(in_srgb,var(--color-error)_15%,transparent)] text-[color:var(--color-error)]",
         pairing:
-            "bg-[color:color-mix(in_srgb,var(--color-warning,#f59e0b)_15%,transparent)] text-[color:var(--color-warning,#f59e0b)]",
+            "bg-[color:color-mix(in_srgb,var(--color-warning)_15%,transparent)] text-[color:var(--color-warning)]",
         connecting:
             "bg-[color:color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-[color:var(--color-accent)]",
     };
@@ -118,7 +118,7 @@ function StatusBadge({ status }: { status: string }) {
     return (
         <span
             className={cn(
-                "inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+                "inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px]",
                 styles[status] || styles.idle,
             )}
         >
@@ -138,7 +138,7 @@ function ReceiverDot({ active }: { active: boolean }) {
             className={cn(
                 "inline-block w-2 h-2 shrink-0",
                 active
-                    ? "bg-[var(--color-success,#22c55e)]"
+                    ? "bg-[var(--color-success)]"
                     : "bg-[var(--color-text-muted)] opacity-40",
             )}
             style={{ borderRadius: "50%" }}
@@ -488,9 +488,9 @@ export function DeviceSyncSection() {
                 </div>
             )}
             {successMessage && (
-                <div className="flex items-center gap-2 p-3 border border-[color:color-mix(in_srgb,var(--color-success,#22c55e)_30%,transparent)] bg-[color:color-mix(in_srgb,var(--color-success,#22c55e)_8%,transparent)]">
-                    <Check className="w-4 h-4 text-[color:var(--color-success,#22c55e)] shrink-0" />
-                    <span className="text-sm text-[color:var(--color-success,#22c55e)]">
+                <div className="flex items-center gap-2 p-3 border border-[color:color-mix(in_srgb,var(--color-success)_30%,transparent)] bg-[color:color-mix(in_srgb,var(--color-success)_8%,transparent)]">
+                    <Check className="w-4 h-4 text-[color:var(--color-success)] shrink-0" />
+                    <span className="text-sm text-[color:var(--color-success)]">
                         {successMessage}
                     </span>
                 </div>
@@ -514,7 +514,7 @@ export function DeviceSyncSection() {
                         <div className="flex items-center gap-3">
                             <Monitor className="w-5 h-5 text-[color:var(--color-text-muted)] shrink-0" />
                             <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm text-[color:var(--color-text-primary)] truncate">
+                                <p className="text-sm text-[color:var(--color-text-primary)] truncate">
                                     {identity.deviceName || "This Device"}
                                 </p>
                                 <p className="text-[11px] text-[color:var(--color-text-muted)] font-mono truncate">
@@ -558,7 +558,7 @@ export function DeviceSyncSection() {
                 <div className="p-4">
                     <div className="flex items-center justify-between">
                         <div>
-                            <p className="font-medium text-sm text-[color:var(--color-text-primary)]">
+                            <p className="text-sm text-[color:var(--color-text-primary)]">
                                 Auto-sync
                             </p>
                             <p className="text-xs text-[color:var(--color-text-muted)] mt-0.5">
@@ -576,7 +576,7 @@ export function DeviceSyncSection() {
                                 });
                             }}
                             className={cn(
-                                "px-3 py-1.5 text-[11px] font-medium border transition-colors shrink-0",
+                                "px-3 py-1.5 text-[11px] border transition-colors shrink-0",
                                 deviceSyncSettings.autoSyncEnabled
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
                                     : "text-[color:var(--color-text-secondary)] border-[var(--color-border)]",
@@ -603,7 +603,7 @@ export function DeviceSyncSection() {
                     >
                         <QrCode className="w-5 h-5 text-[color:var(--color-accent)] shrink-0" />
                         <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm">Show Pairing QR</p>
+                            <p className="text-sm">Show Pairing QR</p>
                             <p className="text-xs text-[color:var(--color-text-muted)]">
                                 Display a code for the other device to scan
                             </p>
@@ -630,7 +630,7 @@ export function DeviceSyncSection() {
                         >
                             <ScanLine className="w-5 h-5 text-[color:var(--color-accent)] shrink-0" />
                             <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm">Scan QR Code</p>
+                                <p className="text-sm">Scan QR Code</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
                                     Use your camera to scan another device&apos;s code
                                 </p>
@@ -679,7 +679,7 @@ export function DeviceSyncSection() {
                     )}
 
                     <div className="p-4 space-y-2">
-                        <p className="text-xs font-medium text-[color:var(--color-text-muted)]">
+                        <p className="text-xs text-[color:var(--color-text-muted)]">
                             Or enter a pairing code manually
                         </p>
                         <div className="flex gap-2">
@@ -707,7 +707,7 @@ export function DeviceSyncSection() {
                                 disabled={!pairingCode.trim() || isPairing}
                                 className={cn(
                                     "inline-flex items-center justify-center gap-2 px-4 min-h-[2.75rem] min-w-[2.75rem]",
-                                    "bg-[var(--color-accent)] text-white text-sm font-medium",
+                                    "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] text-sm",
                                     "hover:opacity-90 transition-opacity",
                                     "disabled:opacity-40 disabled:cursor-not-allowed",
                                 )}
@@ -738,7 +738,7 @@ export function DeviceSyncSection() {
                                     <div className="flex items-center gap-3">
                                         <Smartphone className="w-5 h-5 text-[color:var(--color-text-muted)] shrink-0" />
                                         <div className="flex-1 min-w-0">
-                                            <p className="font-medium text-sm text-[color:var(--color-text-primary)] truncate">
+                                            <p className="text-sm text-[color:var(--color-text-primary)] truncate">
                                                 {device.deviceName ||
                                                     device.deviceId}
                                             </p>
@@ -777,7 +777,7 @@ export function DeviceSyncSection() {
                                             className={cn(
                                                 "inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[2.75rem]",
                                                 "border border-[var(--color-border)]",
-                                                "text-sm font-medium text-[color:var(--color-text-secondary)]",
+                                                "text-sm text-[color:var(--color-text-secondary)]",
                                                 "hover:text-[color:var(--color-accent)] hover:border-[color:color-mix(in_srgb,var(--color-accent)_40%,var(--color-border))]",
                                                 "transition-colors",
                                                 "disabled:opacity-40 disabled:cursor-not-allowed",
@@ -802,7 +802,7 @@ export function DeviceSyncSection() {
                                                 className={cn(
                                                     "inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[2.75rem]",
                                                     "border border-[var(--color-border)]",
-                                                    "text-sm font-medium text-[color:var(--color-text-secondary)]",
+                                                    "text-sm text-[color:var(--color-text-secondary)]",
                                                     "hover:text-[color:var(--color-error)] hover:border-[color:color-mix(in_srgb,var(--color-error)_40%,var(--color-border))]",
                                                     "transition-colors",
                                                     "sm:w-auto",
@@ -819,7 +819,7 @@ export function DeviceSyncSection() {
                                             className={cn(
                                                 "inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[2.75rem]",
                                                 "border border-[var(--color-border)]",
-                                                "text-sm font-medium text-[color:var(--color-text-secondary)]",
+                                                "text-sm text-[color:var(--color-text-secondary)]",
                                                 "hover:text-[color:var(--color-error)] hover:border-[color:color-mix(in_srgb,var(--color-error)_40%,var(--color-border))]",
                                                 "transition-colors",
                                                 "disabled:opacity-40 disabled:cursor-not-allowed",

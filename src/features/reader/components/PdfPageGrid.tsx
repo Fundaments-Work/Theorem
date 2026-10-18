@@ -50,7 +50,7 @@ const Thumbnail = memo(function Thumbnail({ store, pageNumber, label, isCurrent,
             >
                 {url && <img src={url} alt="" draggable={false} className="max-h-full max-w-full object-contain" />}
             </div>
-            <span className={cn("text-xs tabular-nums", isCurrent ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-muted)]")}>
+            <span className={cn("text-xs tabular-nums", isCurrent ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]")}>
                 {label}
             </span>
         </button>

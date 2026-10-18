@@ -50,7 +50,7 @@ export function AddFeedModal({ isOpen, onClose, onSubmit, isLoading, error }: Ad
                             <Rss className="w-5 h-5 text-[color:var(--color-accent)]" />
                         </div>
                         <div>
-                            <h2 className="text-lg font-semibold text-[color:var(--color-text-primary)]">
+                            <h2 className="text-lg text-[color:var(--color-text-primary)]">
                                 Add Feed
                             </h2>
                             <p className="text-xs text-[color:var(--color-text-muted)]">
@@ -61,7 +61,7 @@ export function AddFeedModal({ isOpen, onClose, onSubmit, isLoading, error }: Ad
 
                     <div className="space-y-3">
                         <div>
-                            <label htmlFor="feed-url" className="block text-xs text-[color:var(--color-text-muted)] uppercase mb-1.5">
+                            <label htmlFor="feed-url" className="block text-xs text-[color:var(--color-text-muted)] mb-1.5">
                                 Feed URL
                             </label>
                             <input

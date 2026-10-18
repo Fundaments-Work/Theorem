@@ -393,7 +393,7 @@ export const BookCard = memo(function BookCard({
                             isSelected
                                 ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
                                 : "border-[var(--color-border)]",
-                            "transition-colors duration-300 group-hover:shadow-lg group-hover:-translate-y-1 cursor-pointer"
+                            "transition-colors duration-300 group-hover:-translate-y-1 cursor-pointer"
                         )}
                     >
                         <TheoremBookCover
@@ -404,10 +404,10 @@ export const BookCard = memo(function BookCard({
 
                         {isSelecting && (
                             <div aria-hidden="true" className={cn(
-                                "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200",
+                                "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center transition-all duration-200",
                                 "ring-1",
                                 isSelected
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100 shadow-md"
+                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100"
                                     : "bg-black/40 text-white ring-white/70 scale-90"
                             )}>
                                 {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -435,17 +435,17 @@ export const BookCard = memo(function BookCard({
                         </div>
 
                         {book.syncedWithoutFile && !isSelecting && (
-                            <div className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center text-white rounded-sm pointer-events-none z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
+                            <div className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center text-white pointer-events-none z-10"style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
                                 <CloudOff className="w-3 h-3" />
                             </div>
                         )}
                     </div>
 
                     <div className="px-0.5">
-                        <h3 className="font-bold text-[11px] uppercase tracking-wide text-[color:var(--color-text-primary)] line-clamp-3 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words">
+                        <h3 className="text-[11px] text-[color:var(--color-text-primary)] line-clamp-3 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words">
                             <HighlightMatch text={book.title} indices={titleHighlightIndices} />
                         </h3>
-                        <p className="text-[10px] font-medium text-[color:var(--color-text-secondary)] line-clamp-2 opacity-60 uppercase tracking-tight">
+                        <p className="text-[10px] text-[color:var(--color-text-secondary)] line-clamp-2 opacity-60">
                             <HighlightMatch text={normalizeAuthor(book.author) || "Unknown Author"} indices={authorHighlightIndices} />
                         </p>
                     </div>
@@ -493,10 +493,10 @@ export const BookCard = memo(function BookCard({
                         />
                         {isSelecting && (
                             <div aria-hidden="true" className={cn(
-                                "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200",
+                                "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-all duration-200",
                                 "ring-1",
                                 isSelected
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100 shadow-md"
+                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100"
                                     : "bg-black/40 text-white ring-white/70 scale-90"
                             )}>
                                 {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -505,7 +505,7 @@ export const BookCard = memo(function BookCard({
                     </div>
 
                     <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-sm text-[color:var(--color-text-primary)] line-clamp-2 break-words">
+                        <h3 className="text-sm text-[color:var(--color-text-primary)] line-clamp-2 break-words">
                             <HighlightMatch text={book.title} indices={titleHighlightIndices} />
                         </h3>
                         <p className="text-xs text-[color:var(--color-text-secondary)] line-clamp-1">
@@ -561,7 +561,7 @@ export const BookCard = memo(function BookCard({
             <div
                 onClick={handleCardClick}
                 className={cn(
-                    "group relative aspect-[2/3] bg-[var(--color-surface-muted)] overflow-hidden border hover:shadow-lg transition-colors duration-200 w-full cursor-pointer select-none",
+                    "group relative aspect-[2/3] bg-[var(--color-surface-muted)] overflow-hidden border transition-colors duration-200 w-full cursor-pointer select-none",
                     isSelected
                         ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
                         : "border-[var(--color-border)]"
@@ -587,10 +587,10 @@ export const BookCard = memo(function BookCard({
 
                 {isSelecting && (
                     <div aria-hidden="true" className={cn(
-                        "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200",
+                        "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-all duration-200",
                         "ring-1",
                         isSelected
-                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100 shadow-md"
+                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100"
                             : "bg-black/40 text-white ring-white/70 scale-90"
                     )}>
                         {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -618,7 +618,7 @@ export const BookCard = memo(function BookCard({
                 </div>
 
                 {book.syncedWithoutFile && !isSelecting && (
-                    <div className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center text-white rounded-sm pointer-events-none z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
+                    <div className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center text-white pointer-events-none z-10"style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
                         <CloudOff className="w-2.5 h-2.5" />
                     </div>
                 )}
@@ -661,7 +661,7 @@ function EmptyLibrary({
             <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
                 <BookOpen className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
-            <h2 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 No books yet
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
@@ -732,7 +732,7 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
             <ModalBody className="p-0">
                 <div className="p-6">
                     <div className="flex items-start gap-4">
-                        <div className="w-24 h-36 shrink-0 overflow-hidden shadow-md">
+                        <div className="w-24 h-36 shrink-0 overflow-hidden">
                             <TheoremBookCover
                                 title={book.title}
                                 author={book.author}
@@ -740,7 +740,7 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                             />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <h2 className="text-lg font-semibold text-[color:var(--color-text-primary)] line-clamp-2">
+                            <h2 className="text-lg text-[color:var(--color-text-primary)] line-clamp-2">
                                 {book.title}
                             </h2>
                             <p className="text-sm text-[color:var(--color-text-secondary)] mt-1">
@@ -765,8 +765,8 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                     <div className="mt-6 space-y-3">
                         {book.series && (
                             <div className="p-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Series</p>
-                                <p className="text-sm font-semibold text-[color:var(--color-text-primary)] mt-0.5">
+                                <p className="text-xs text-[color:var(--color-text-muted)]">Series</p>
+                                <p className="text-sm text-[color:var(--color-text-primary)] mt-0.5">
                                     {book.series}
                                     {book.seriesIndex !== undefined ? ` • Volume ${book.seriesIndex}` : ""}
                                 </p>
@@ -774,7 +774,7 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                         )}
                         {book.description && (
                             <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Description</p>
+                                <p className="text-xs text-[color:var(--color-text-muted)]">Description</p>
                                 <div
                                     className="text-sm text-[color:var(--color-text-secondary)] mt-1 [&_a]:text-[var(--color-accent)] [&_a]:underline prose prose-sm max-w-none"
                                     dangerouslySetInnerHTML={{ __html: sanitizeHtml(book.description) }}
@@ -784,56 +784,56 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                         <div className="grid grid-cols-2 gap-3">
                             {book.publisher && (
                                 <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Publisher</p>
+                                    <p className="text-xs text-[color:var(--color-text-muted)]">Publisher</p>
                                     <p className="text-sm text-[color:var(--color-text-secondary)]">{book.publisher}</p>
                                 </div>
                             )}
                             {book.publishedDate && (
                                 <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Published</p>
+                                    <p className="text-xs text-[color:var(--color-text-muted)]">Published</p>
                                     <p className="text-sm text-[color:var(--color-text-secondary)]">{book.publishedDate}</p>
                                 </div>
                             )}
                             {book.language && (
                                 <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Language</p>
+                                    <p className="text-xs text-[color:var(--color-text-muted)]">Language</p>
                                     <p className="text-sm text-[color:var(--color-text-secondary)]">{book.language}</p>
                                 </div>
                             )}
                             {book.isbn && (
                                 <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)] uppercase">ISBN</p>
+                                    <p className="text-xs text-[color:var(--color-text-muted)]">ISBN</p>
                                     <p className="text-sm text-[color:var(--color-text-secondary)]">{book.isbn}</p>
                                 </div>
                             )}
                             <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Format</p>
-                                <p className="text-sm text-[color:var(--color-text-secondary)] uppercase">{FORMAT_DISPLAY_NAMES[book.format] || book.format}</p>
+                                <p className="text-xs text-[color:var(--color-text-muted)]">Format</p>
+                                <p className="text-sm text-[color:var(--color-text-secondary)]">{FORMAT_DISPLAY_NAMES[book.format] || book.format}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Size</p>
+                                <p className="text-xs text-[color:var(--color-text-muted)]">Size</p>
                                 <p className="text-sm text-[color:var(--color-text-secondary)]">{formatFileSize(book.fileSize)}</p>
                             </div>
                             <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Added</p>
+                                <p className="text-xs text-[color:var(--color-text-muted)]">Added</p>
                                 <p className="text-sm text-[color:var(--color-text-secondary)]">{formatRelativeDate(book.addedAt instanceof Date ? book.addedAt : new Date(book.addedAt))}</p>
                             </div>
                             {book.lastReadAt && (
                                 <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Last Read</p>
+                                    <p className="text-xs text-[color:var(--color-text-muted)]">Last Read</p>
                                     <p className="text-sm text-[color:var(--color-text-secondary)]">{book.lastReadAt ? formatRelativeDate(book.lastReadAt instanceof Date ? book.lastReadAt : new Date(book.lastReadAt)) : "Never"}</p>
                                 </div>
                             )}
                         </div>
                         {book.progress > 0 && (
                             <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase">Progress</p>
+                                <p className="text-xs text-[color:var(--color-text-muted)]">Progress</p>
                                 <p className="text-sm text-[color:var(--color-text-secondary)]">{formatProgress(book.progress)}</p>
                             </div>
                         )}
                         {book.tags.length > 0 && (
                             <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] uppercase mb-1">Tags</p>
+                                <p className="text-xs text-[color:var(--color-text-muted)] mb-1">Tags</p>
                                 <div className="flex flex-wrap gap-1">
                                     {book.tags.map((tag: string) => (
                                         <span
@@ -856,7 +856,7 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
                             onClose();
                             onEdit(book);
                         }}
-                        className="ui-btn px-3 py-1.5 text-xs font-bold uppercase"
+                        className="ui-btn px-3 py-1.5 text-xs"
                     >
                         <Pencil className="w-3.5 h-3.5" />
                         Edit
@@ -933,7 +933,7 @@ export function AddToShelfModal({
                 <FolderOpen className="w-4 h-4 shrink-0 text-[color:var(--color-text-muted)]" />
                 <div className="flex-1 min-w-0">
                     <p className={cn(
-                        "text-sm font-medium truncate",
+                        "text-sm truncate",
                         isMember
                             ? "text-[color:var(--color-accent)]"
                             : "text-[color:var(--color-text-primary)]"
@@ -955,7 +955,7 @@ export function AddToShelfModal({
         <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={true}>
             <ModalBody className="p-0">
                 <div className="p-4 sm:p-6">
-                    <h2 className="text-base sm:text-lg font-semibold text-[color:var(--color-text-primary)] mb-3">
+                    <h2 className="text-base sm:text-lg text-[color:var(--color-text-primary)] mb-3">
                         {currentShelfIds && currentShelfIds.size > 0 ? "Shelves" : "Add to Shelf"}
                     </h2>
 
@@ -985,7 +985,7 @@ export function AddToShelfModal({
                     )}
 
                     <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
-                        <p className="text-[11px] text-[color:var(--color-text-muted)] uppercase mb-2">Create New Shelf</p>
+                        <p className="text-[11px] text-[color:var(--color-text-muted)] mb-2">Create New Shelf</p>
                         <div className="flex gap-2">
                             <input
                                 type="text"
@@ -1070,7 +1070,7 @@ export function RenameBookModal({
                 <ModalHeader title="Rename Book" onClose={onClose} showCloseButton={true} />
                 <ModalBody>
                     <div>
-                        <label htmlFor="rename-title" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                        <label htmlFor="rename-title"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                             Title
                         </label>
                         <input
@@ -1155,7 +1155,7 @@ const DailyHighlightBanner = memo(function DailyHighlightBanner({
     return (
         <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">
             <div className="flex-1 min-w-0 cursor-pointer" onClick={handleNavigate} title="Click to view highlight in reader">
-                <div className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider mb-1.5">
+                <div className="text-[10px] text-[color:var(--color-text-muted)] mb-1.5">
                     From your highlights
                 </div>
                 <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5 hover:underline">
@@ -2155,7 +2155,7 @@ export function LibraryPage() {
                             setShowFavoritesOnly(false);
                             setShowUnshelvedOnly(false);
                         }}
-                        className="text-xs font-medium text-[color:var(--color-accent)] hover:underline"
+                        className="text-xs text-[color:var(--color-accent)] hover:underline"
                     >
                         Clear filter
                     </button>
@@ -2179,7 +2179,7 @@ export function LibraryPage() {
                         aria-label={isSelecting ? "Exit selection mode" : "Select books"}
                     >
                         {isSelecting ? <X className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
-                        <span className="hidden sm:inline font-bold text-xs uppercase">{isSelecting ? "Done" : "Select"}</span>
+                        <span className="hidden sm:inline text-xs">{isSelecting ? "Done" : "Select"}</span>
                     </button>
 
                     <button
@@ -2200,7 +2200,7 @@ export function LibraryPage() {
                             title="Scan Folder"
                         >
                             {isScanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
-                            <span className="hidden sm:inline font-bold text-xs uppercase">Scan</span>
+                            <span className="hidden sm:inline text-xs">Scan</span>
                         </button>
                     )}
 
@@ -2214,7 +2214,7 @@ export function LibraryPage() {
                         )}
                     >
                         <Filter className="w-4 h-4" />
-                        <span className="hidden sm:inline font-black tracking-tight uppercase text-xs">Filter</span>
+                        <span className="hidden sm:inline text-xs">Filter</span>
                         <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300", showFilterDropdown && "rotate-180")} />
                     </button>
                 </div>
@@ -2231,11 +2231,11 @@ export function LibraryPage() {
                 >
                     {/* Top Row: Selection Status, Controls, and Done in the same line */}
                     <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
-                        <span className="text-sm font-bold text-[color:var(--color-text-primary)] shrink-0 mr-1">
+                        <span className="text-sm text-[color:var(--color-text-primary)] shrink-0 mr-1">
                             {selectedBooks.length} of {sortedBooks.length} selected
                         </span>
                         <button
-                            className="ui-btn px-2.5 py-1 text-xs font-semibold whitespace-nowrap shrink-0"
+                            className="ui-btn px-2.5 py-1 text-xs whitespace-nowrap shrink-0"
                             onClick={selectAll}
                             disabled={!selectionReady || sortedBooks.length === 0 || allSelected}
                             title="Select all filtered books"
@@ -2257,7 +2257,7 @@ export function LibraryPage() {
                             </span>
                         )}
                         <button
-                            className="ui-btn-primary px-3 py-1 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                            className="ui-btn-primary px-3 py-1 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
                             onClick={() => {
                                 clearSelection();
                                 setIsSelecting(false);
@@ -2277,7 +2277,7 @@ export function LibraryPage() {
                                 onClick={handleBatchMarkUnread}
                                 aria-label="Mark selected as unread"
                                 disabled={!selectionReady || selectedBooks.length === 0}
-                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                                className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                             >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Mark Unread</span>
@@ -2287,7 +2287,7 @@ export function LibraryPage() {
                                 onClick={handleBatchMarkRead}
                                 aria-label="Mark selected as read"
                                 disabled={!selectionReady || selectedBooks.length === 0}
-                                className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                                className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                             >
                                 <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
                                 <span>Mark Read</span>
@@ -2297,7 +2297,7 @@ export function LibraryPage() {
                             onClick={handleBatchAddToShelf}
                             aria-label="Add selected to shelf"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <BookMarked className="w-3.5 h-3.5" />
                             <span>Add to Shelf</span>
@@ -2306,7 +2306,7 @@ export function LibraryPage() {
                             onClick={() => setIsSeriesModalOpen(true)}
                             aria-label="Assign series"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <Layers className="w-3.5 h-3.5" />
                             <span>Series</span>
@@ -2315,7 +2315,7 @@ export function LibraryPage() {
                             onClick={handleBatchExport}
                             aria-label="Export selected books"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <Download className="w-3.5 h-3.5" />
                             <span>Export</span>
@@ -2327,7 +2327,7 @@ export function LibraryPage() {
                             onClick={handleBatchDelete}
                             aria-label="Delete selected books"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn-danger px-3 py-1.5 text-xs font-bold border-2 uppercase flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                            className="ui-btn-danger px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Delete</span>
@@ -2347,7 +2347,7 @@ export function LibraryPage() {
                             <div className="grid grid-cols-1 divide-y divide-[var(--color-border)]">
                                 
                                 <div className="p-4">
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[color:var(--color-text-muted)] mb-3">Sort By</h3>
+                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Sort By</h3>
                                     <div className="grid grid-cols-2 gap-1">
                                         {[
                                             { id: "title", label: "Title" },
@@ -2359,7 +2359,7 @@ export function LibraryPage() {
                                                 key={option.id}
                                                 onClick={() => updateSettings({ librarySortBy: option.id as LibrarySortBy })}
                                                 className={cn(
-                                                    "flex items-center justify-between px-3 py-2 text-xs font-bold transition-colors border",
+                                                    "flex items-center justify-between px-3 py-2 text-xs transition-colors border",
                                                     settings.librarySortBy === option.id
                                                         ? FILTER_CHIP_SELECTED
                                                         : FILTER_CHIP_UNSELECTED
@@ -2373,7 +2373,7 @@ export function LibraryPage() {
                                 </div>
 
                                 <div className="p-4">
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[color:var(--color-text-muted)] mb-3">Status</h3>
+                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Status</h3>
                                     <div className="grid grid-cols-4 gap-1">
                                         {([
                                             { id: "all", label: "All" },
@@ -2385,7 +2385,7 @@ export function LibraryPage() {
                                                 key={option.id}
                                                 onClick={() => setStatusFilter(option.id as LibraryStatusFilter)}
                                                 className={cn(
-                                                    "px-2 py-2 text-[10px] font-bold border transition-colors",
+                                                    "px-2 py-2 text-[10px] border transition-colors",
                                                     statusFilter === option.id
                                                         ? FILTER_CHIP_SELECTED
                                                         : FILTER_CHIP_UNSELECTED
@@ -2399,14 +2399,14 @@ export function LibraryPage() {
 
                                 <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
                                     <div className="p-4">
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[color:var(--color-text-muted)] mb-3">Order</h3>
+                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Order</h3>
                                         <div className="flex flex-col gap-1">
                                             {["asc", "desc"].map((id) => (
                                                 <button
                                                     key={id}
                                                     onClick={() => updateSettings({ librarySortOrder: id as LibrarySortOrder })}
                                                     className={cn(
-                                                        "px-3 py-2 text-[10px] font-bold border transition-colors",
+                                                        "px-3 py-2 text-[10px] border transition-colors",
                                                         settings.librarySortOrder === id ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
                                                     )}
                                                 >
@@ -2416,7 +2416,7 @@ export function LibraryPage() {
                                         </div>
                                     </div>
                                     <div className="p-4">
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[color:var(--color-text-muted)] mb-3">Quick</h3>
+                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Quick</h3>
                                         <div className="flex flex-col gap-1">
                                             <button
                                                 onClick={() => {
@@ -2424,7 +2424,7 @@ export function LibraryPage() {
                                                     if (!showFavoritesOnly) setShowUnshelvedOnly(false);
                                                 }}
                                                 className={cn(
-                                                    "px-3 py-2 text-[10px] font-bold border transition-colors",
+                                                    "px-3 py-2 text-[10px] border transition-colors",
                                                     showFavoritesOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
                                                 )}
                                             >
@@ -2436,7 +2436,7 @@ export function LibraryPage() {
                                                     if (!showUnshelvedOnly) setShowFavoritesOnly(false);
                                                 }}
                                                 className={cn(
-                                                    "px-3 py-2 text-[10px] font-bold border transition-colors",
+                                                    "px-3 py-2 text-[10px] border transition-colors",
                                                     showUnshelvedOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
                                                 )}
                                             >
@@ -2444,7 +2444,7 @@ export function LibraryPage() {
                                             </button>
                                             <button
                                                 onClick={() => updateSettings({ librarySortBy: "lastRead", librarySortOrder: "desc" })}
-                                                className={cn("px-3 py-2 text-[10px] font-bold border transition-colors", FILTER_CHIP_UNSELECTED)}
+                                                className={cn("px-3 py-2 text-[10px] border transition-colors", FILTER_CHIP_UNSELECTED)}
                                             >
                                                 Recent
                                             </button>
@@ -2464,9 +2464,9 @@ export function LibraryPage() {
                         />
                         {sortedBooks.length === 0 ? (
                             <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
-                                <p className="text-[color:var(--color-text-muted)] font-bold uppercase text-xs tracking-widest">No documents match criteria</p>
+                                <p className="text-[color:var(--color-text-muted)] text-xs">No documents match criteria</p>
                                 {searchQuery && (
-                                    <button onClick={() => useUIStore.getState().setSearchQuery("")} className="mt-4 text-[10px] font-black uppercase text-[color:var(--color-accent)] hover:underline tracking-tighter">
+                                    <button onClick={() => useUIStore.getState().setSearchQuery("")} className="mt-4 text-[10px] text-[color:var(--color-accent)] hover:underline tracking-tighter">
                                         [ RESET SEARCH ]
                                     </button>
                                 )}
@@ -2539,10 +2539,10 @@ export function LibraryPage() {
                 {showFilterDropdown && (
                     <>
                         <div className="hidden md:block fixed inset-0 z-30" onClick={() => setShowFilterDropdown(false)} />
-                        <aside className="hidden md:block w-72 absolute right-0 top-0 z-40 border-2 border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl animate-in slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto [content-visibility:auto] overscroll-contain">
+                        <aside className="hidden md:block w-72 absolute right-0 top-0 z-40 border-2 border-[var(--color-border)] bg-[var(--color-surface)] animate-in slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto [content-visibility:auto] overscroll-contain">
                             <div className="divide-y-2 divide-[var(--color-border)]">
                                 <div className="p-4">
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[color:var(--color-text-muted)] mb-3">Sort</h3>
+                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Sort</h3>
                                     <div className="grid grid-cols-2 gap-1">
                                         {[
                                             { id: "title", label: "Title" },
@@ -2554,7 +2554,7 @@ export function LibraryPage() {
                                                 key={option.id}
                                                 onClick={() => updateSettings({ librarySortBy: option.id as LibrarySortBy })}
                                                 className={cn(
-                                                    "px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
+                                                    "px-2.5 py-1.5 text-[10px] border transition-colors",
                                                     settings.librarySortBy === option.id
                                                         ? FILTER_CHIP_SELECTED
                                                         : FILTER_CHIP_UNSELECTED_ON_SURFACE
@@ -2566,7 +2566,7 @@ export function LibraryPage() {
                                     </div>
                                 </div>
                                 <div className="p-4">
-                                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[color:var(--color-text-muted)] mb-3">Status</h3>
+                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Status</h3>
                                     <div className="grid grid-cols-4 gap-1">
                                         {([
                                             { id: "all", label: "All" },
@@ -2578,7 +2578,7 @@ export function LibraryPage() {
                                                 key={option.id}
                                                 onClick={() => setStatusFilter(option.id as LibraryStatusFilter)}
                                                 className={cn(
-                                                    "px-2 py-1.5 text-[10px] font-bold border transition-colors",
+                                                    "px-2 py-1.5 text-[10px] border transition-colors",
                                                     statusFilter === option.id
                                                         ? FILTER_CHIP_SELECTED
                                                         : FILTER_CHIP_UNSELECTED_ON_SURFACE
@@ -2591,14 +2591,14 @@ export function LibraryPage() {
                                 </div>
                                 <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
                                     <div className="p-4">
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[color:var(--color-text-muted)] mb-3">Order</h3>
+                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Order</h3>
                                         <div className="flex flex-col gap-1">
                                             {["asc", "desc"].map((id) => (
                                                 <button
                                                     key={id}
                                                     onClick={() => updateSettings({ librarySortOrder: id as LibrarySortOrder })}
                                                     className={cn(
-                                                        "px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
+                                                        "px-2.5 py-1.5 text-[10px] border transition-colors",
                                                         settings.librarySortOrder === id
                                                             ? FILTER_CHIP_SELECTED
                                                             : FILTER_CHIP_UNSELECTED_ON_SURFACE
@@ -2610,7 +2610,7 @@ export function LibraryPage() {
                                         </div>
                                     </div>
                                     <div className="p-4">
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-[color:var(--color-text-muted)] mb-3">Quick</h3>
+                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Quick</h3>
                                         <div className="flex flex-col gap-1">
                                             <button
                                                 onClick={() => {
@@ -2618,7 +2618,7 @@ export function LibraryPage() {
                                                     if (!showFavoritesOnly) setShowUnshelvedOnly(false);
                                                 }}
                                                 className={cn(
-                                                    "w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
+                                                    "w-full px-2.5 py-1.5 text-[10px] border transition-colors",
                                                     showFavoritesOnly
                                                         ? FILTER_CHIP_SELECTED
                                                         : FILTER_CHIP_UNSELECTED_ON_SURFACE
@@ -2632,7 +2632,7 @@ export function LibraryPage() {
                                                     if (!showUnshelvedOnly) setShowFavoritesOnly(false);
                                                 }}
                                                 className={cn(
-                                                    "w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors",
+                                                    "w-full px-2.5 py-1.5 text-[10px] border transition-colors",
                                                     showUnshelvedOnly
                                                         ? FILTER_CHIP_SELECTED
                                                         : FILTER_CHIP_UNSELECTED_ON_SURFACE
@@ -2642,7 +2642,7 @@ export function LibraryPage() {
                                             </button>
                                             <button
                                                 onClick={() => updateSettings({ librarySortBy: "lastRead", librarySortOrder: "desc" })}
-                                                className={cn("w-full px-2.5 py-1.5 text-[10px] font-bold border transition-colors", FILTER_CHIP_UNSELECTED_ON_SURFACE)}
+                                                className={cn("w-full px-2.5 py-1.5 text-[10px] border transition-colors", FILTER_CHIP_UNSELECTED_ON_SURFACE)}
                                             >
                                                 Recent
                                             </button>

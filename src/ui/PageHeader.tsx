@@ -10,7 +10,7 @@ export function PageHeader({ title, description, children }: PageHeaderProps) {
     return (
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-                <h1 className="m-0 font-sans text-xl font-semibold uppercase tracking-[0.12em] leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl">
+                <h1 className="m-0 font-sans text-xl leading-[1.1] text-[color:var(--color-text-primary)] sm:text-2xl">
                     {title}
                 </h1>
                 {description && (

@@ -422,7 +422,7 @@ describe("PDF bottom page pill stays readable when space is tight", () => {
         // `max-w-[45vw]` was far wider than the pill's own max-width, so the
         // label never actually truncated and the row overflowed instead.
         expect(engineSource).toContain(
-            'className="min-w-0 shrink truncate font-medium text-[color:var(--color-text-primary)] tabular-nums px-0.5"',
+            'className="min-w-0 shrink truncate text-[color:var(--color-text-primary)] tabular-nums px-0.5"',
         );
         expect(engineSource).not.toContain("max-w-[45vw]");
     });

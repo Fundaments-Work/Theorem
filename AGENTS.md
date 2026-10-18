@@ -331,14 +331,14 @@ The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
 - Nothing imports `design-system/` programmatically. Adoption is by hand, and
   that is the drift risk: when a token changes in a product, check whether
   `tokens.md` now disagrees and fix the document.
-- Non-negotiable rules, per `tokens.md` and the bundle README: one dark base
-  (`#141416`), corner radius `0` on every element, DM Sans/DM Mono at 300/400
-  only, hierarchy from size and colour rather than extra weights, and one accent
-  per product — stone `#c8b89a` for Theorem.
-- The packaged React kit in `ds-bundle/` (TheoremUI) is produced by
-  `.ds-sync/`, whose re-sync is agent-driven through DesignSync and emits
-  `.resync-verdict.json`. **Verdict schema v2 is a CI contract: additive changes
-  only.**
+- Non-negotiable rules, per `tokens.md`: one dark base (`#141416`), corner radius
+  `0` on every element, DM Sans/DM Mono at 300/400 only, hierarchy from size and
+  colour rather than extra weights, and one accent for the whole lab: acid lime
+  `#c6f135`. Theorem has no design system of its own. The only thing it keeps
+  from the old one is the reader's serif for book content, which is content
+  typography, not interface.
+- Hover on an icon button is the accent colour, never a background. The sidebar is
+  a fixed 48px rail with no collapse control; the open item carries a lime edge.
 
 ## CSS conventions
 
