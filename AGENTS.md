@@ -338,7 +338,7 @@ The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
   from the old one is the reader's serif for book content, which is content
   typography, not interface.
 - Hover on an icon button is the accent colour, never a background. The sidebar is
-  a fixed 48px rail with no collapse control; the open item carries a lime edge.
+  a fixed 48px rail with no collapse control; the open item is lime with a lime edge.
 
 ## CSS conventions
 

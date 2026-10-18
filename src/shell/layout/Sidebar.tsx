@@ -98,7 +98,7 @@ export const Sidebar = memo(function Sidebar({ isMobile, onClose }: SidebarProps
                 onClick={onClick}
                 className={cn(
                     "group relative flex h-12 w-12 shrink-0 items-center justify-center",
-                    isActive ? "text-[color:var(--color-text-primary)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
+                    isActive ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
                 )}
                 aria-label={label}
                 aria-current={isActive ? "page" : undefined}
@@ -170,7 +170,7 @@ export const Sidebar = memo(function Sidebar({ isMobile, onClose }: SidebarProps
                                     onClick={() => select(item.id)}
                                     className={cn(
                                         "relative flex w-full items-center gap-4 px-6 py-4 text-[13px]",
-                                        isActive ? "text-[color:var(--color-text-primary)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
+                                        isActive ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
                                     )}
                                     aria-current={isActive ? "page" : undefined}
                                 >
@@ -203,7 +203,7 @@ export const Sidebar = memo(function Sidebar({ isMobile, onClose }: SidebarProps
                     onClick={() => { setRoute("settings"); onClose?.(); }}
                     className={cn(
                         "flex items-center gap-4 text-[13px]",
-                        currentRoute === "settings" ? "text-[color:var(--color-text-primary)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
+                        currentRoute === "settings" ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
                     )}
                 >
                     <Settings className="h-4 w-4" />
