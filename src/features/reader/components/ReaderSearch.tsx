@@ -339,7 +339,7 @@ export function ReaderSearch({
                                 className={cn(
                                     "p-1 transition-colors text-xs",
                                     matchCase
-                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                        ? "ui-selected"
                                         : "text-[color:var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
                                 )}
                                 title="Match Case (Alt+C)"
@@ -353,7 +353,7 @@ export function ReaderSearch({
                                 className={cn(
                                     "p-1 transition-colors text-xs",
                                     wholeWord
-                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                        ? "ui-selected"
                                         : "text-[color:var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
                                 )}
                                 title="Match Whole Word (Alt+W)"

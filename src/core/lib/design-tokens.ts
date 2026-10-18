@@ -87,9 +87,9 @@ const READER_THEME_CSS_VARS: Record<ThemeColorSlot, string> = {
 
 const FALLBACK_THEME_COLORS: Record<ReaderTheme, Record<ThemeColorSlot, string>> = {
     light: {
-        bg: "#faf9f7",
-        fg: "#1c1c1c",
-        link: "#1c1c1c",
+        bg: "#ffffff",
+        fg: "#1a1a1a",
+        link: "#1a1a1a",
     },
     sepia: {
         bg: "#f4ecd8",
@@ -97,9 +97,9 @@ const FALLBACK_THEME_COLORS: Record<ReaderTheme, Record<ThemeColorSlot, string>>
         link: "#3d3025",
     },
     dark: {
-        bg: "#141416",
-        fg: "#e8e6e1",
-        link: "#e8e6e1",
+        bg: "#000000",
+        fg: "#ffffff",
+        link: "#ffffff",
     },
 };
 

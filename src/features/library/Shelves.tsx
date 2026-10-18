@@ -643,7 +643,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             className={cn(
                                 TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
                                 shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
-                                isSelecting && "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                                isSelecting && "ui-selected"
                             )}
                             title={isSelecting ? "Cancel Selection" : "Select Books"}
                         >
@@ -666,7 +666,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             className={cn(
                                 TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
                                 shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
-                                shelf.groupBySeries && "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                                shelf.groupBySeries && "ui-selected"
                             )}
                             title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
                         >

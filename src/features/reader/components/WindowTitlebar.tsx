@@ -398,10 +398,10 @@ export function WindowTitlebar({
                 />
 
                 {showDesktopWindowControls && (
-                    <div className="hidden lg:flex items-center gap-1 ml-2 pl-2 border-l border-[var(--color-border)]">
-                        <button onClick={handleMinimize} className={cn(ICON_BUTTON_CLASS, "text-[color:var(--color-text-primary)]")} aria-label="Minimize"><Minus className="w-5 h-5" /></button>
-                        <button onClick={handleMaximize} className={cn(ICON_BUTTON_CLASS, "text-[color:var(--color-text-primary)]")} aria-label={isMaximized ? "Restore" : "Maximize"}><Maximize2 className="w-5 h-5" /></button>
-                        <button onClick={handleClose} className={cn(ICON_BUTTON_CLASS, "text-[color:var(--color-text-primary)] hover:text-[color:var(--color-error)]")} aria-label="Close"><X className="w-5 h-5" /></button>
+                    <div className="hidden lg:flex items-center ml-3 pl-3 border-l border-[var(--color-border)]">
+                        <button onClick={handleMinimize} className={cn(ICON_BUTTON_CLASS, "!w-11 text-[color:var(--color-text-primary)]")} aria-label="Minimize"><Minus className="w-4 h-4" /></button>
+                        <button onClick={handleMaximize} className={cn(ICON_BUTTON_CLASS, "!w-11 text-[color:var(--color-text-primary)]")} aria-label={isMaximized ? "Restore" : "Maximize"}><Maximize2 className="w-4 h-4" /></button>
+                        <button onClick={handleClose} className={cn(ICON_BUTTON_CLASS, "!w-11 text-[color:var(--color-text-primary)] hover:text-[color:var(--color-error)]")} aria-label="Close"><X className="w-4 h-4" /></button>
                     </div>
                 )}
             </div>

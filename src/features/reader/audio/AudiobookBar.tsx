@@ -219,7 +219,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                 className={cn(
                                     "flex items-center justify-center w-7 h-7 transition-colors",
                                     sleepDeadline !== null
-                                        ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                        ? "ui-selected"
                                         : "text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                 )}
                                 title="Sleep timer"
@@ -340,7 +340,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                     className={cn(
                                         "px-1.5 py-0.5 text-[10px] transition-colors",
                                         speed === s
-                                            ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                            ? "ui-selected"
                                             : "text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                     )}
                                 >

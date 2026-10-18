@@ -129,7 +129,7 @@ function FeedListItem({
                 <span className={cn(
                     "text-[10px] px-1.5 py-0.5 flex-shrink-0",
                     isSelected
-                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                        ? "ui-selected"
                         : "bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]",
                 )}>
                     {feed.unreadCount}

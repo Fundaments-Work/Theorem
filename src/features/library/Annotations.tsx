@@ -546,7 +546,7 @@ export function AnnotationsPage() {
                             className={cn(
                                 "border border-[var(--color-border)] px-3 py-2 font-sans text-xs transition-colors",
                                 activeFilter === tab.id
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                    ? "ui-selected"
                                     : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
                             )}
                         >
@@ -562,7 +562,7 @@ export function AnnotationsPage() {
                         className={cn(
                             "border border-[var(--color-border)] px-3 py-2 font-sans text-xs transition-colors",
                             viewMode === "cards"
-                                ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                ? "ui-selected"
                                 : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
                         )}
                         aria-label={viewMode === "list" ? "Card view" : "List view"}

@@ -27,7 +27,7 @@ interface AppTitlebarProps {
 const TITLEBAR_ICON_BUTTON =
     "ui-icon-btn !h-9 !w-9";
 const TITLEBAR_WINDOW_BUTTON =
-    "inline-flex h-8 w-8 items-center justify-center p-0 text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]";
+    "inline-flex h-9 w-11 items-center justify-center p-0 text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]";
 const TITLEBAR_CLOSE_BUTTON = `${TITLEBAR_WINDOW_BUTTON} hover:text-[color:var(--color-error)]`;
 const TITLEBAR_SEARCH_INPUT =
     "ui-input bg-[var(--color-surface)] pl-[calc(var(--control-padding-x)+var(--icon-size-sm)+var(--spacing-md))]";
@@ -399,7 +399,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                     </button>
 
                     {showDesktopWindowControls && (
-                        <div className="hidden sm:flex items-center gap-1 ml-1.5 pl-2.5 border-l border-[var(--color-border)]">
+                        <div className="hidden sm:flex items-center ml-3 pl-3 border-l border-[var(--color-border)]">
                             <button
                                 onClick={handleMinimize}
                                 className={TITLEBAR_WINDOW_BUTTON}

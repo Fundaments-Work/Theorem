@@ -324,8 +324,8 @@ export function ReaderSettings({
                                                     className="h-20 flex items-center justify-center"
                                                     data-theme={theme.id}
                                                     style={{
-                                                        backgroundColor: theme.id === 'dark' ? '#141416' : theme.id === 'sepia' ? '#f4ecd8' : '#faf9f7',
-                                                        color: theme.id === 'dark' ? '#e8e6e1' : theme.id === 'sepia' ? '#3d3025' : '#1c1c1c',
+                                                        backgroundColor: theme.id === 'dark' ? '#1a1a1a' : theme.id === 'sepia' ? '#fbf3e0' : '#ffffff',
+                                                        color: theme.id === 'dark' ? '#e5e5e5' : theme.id === 'sepia' ? '#5f4b32' : '#1a1a1a',
                                                     }}
                                                 >
                                                     <div className="flex flex-col items-center gap-1.5 opacity-70">

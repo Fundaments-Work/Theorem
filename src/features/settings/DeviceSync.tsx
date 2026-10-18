@@ -578,7 +578,7 @@ export function DeviceSyncSection() {
                             className={cn(
                                 "px-3 py-1.5 text-[11px] border transition-colors shrink-0",
                                 deviceSyncSettings.autoSyncEnabled
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]"
+                                    ? "ui-selected"
                                     : "text-[color:var(--color-text-secondary)] border-[var(--color-border)]",
                             )}
                         >

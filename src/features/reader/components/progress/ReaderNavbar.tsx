@@ -363,7 +363,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                         className={cn(
                                             "flex items-center justify-center w-7 h-7 transition-colors active:scale-90",
                                             voiceMenuOpen
-                                                ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                ? "ui-selected"
                                                 : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                         )}
                                         title="Voice & speed"
@@ -387,7 +387,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                                                     className={cn(
                                                                         "h-7 text-[10px] transition-colors",
                                                                         activeVoice === v
-                                                                            ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                            ? "ui-selected"
                                                                             : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                                                     )}
                                                                 >
@@ -406,7 +406,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                                             className={cn(
                                                                 "flex-1 h-7 text-[10px] transition-colors",
                                                                 ttsSpeed === s
-                                                                    ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                    ? "ui-selected"
                                                                     : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                                             )}
                                                         >

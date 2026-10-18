@@ -37,9 +37,9 @@
     --color-panel-muted: var(--color-surface-muted);
 
     
-    --reader-bg: var(--reader-bg-override, #faf9f7);
-    --reader-fg: var(--reader-fg-override, #1c1c1c);
-    --reader-link: var(--reader-link-override, #1c1c1c);
+    --reader-bg: var(--reader-bg-override, #ffffff);
+    --reader-fg: var(--reader-fg-override, #1a1a1a);
+    --reader-link: var(--reader-link-override, #1a1a1a);
     --reader-font-size: 18px;
     --reader-line-height: 1.6;
     --reader-margin-x: 10%;
@@ -265,13 +265,18 @@
     --app-focus-ring: color-mix(in srgb, #4d6a00 58%, transparent);
     --app-overlay-subtle: color-mix(in srgb, #000000 8%, transparent);
     --app-overlay-medium: color-mix(in srgb, #000000 14%, transparent);
+    /* Declared here as well so a light reader inside the dark app does not inherit lime. */
+    --reader-accent-override: #4d6a00;
+    --reader-accent-ink-override: #ffffff;
     color-scheme: light;
 }
 
 :root {
-    --reader-bg-override: #faf9f7;
-    --reader-fg-override: #1c1c1c;
-    --reader-link-override: #1c1c1c;
+    --reader-bg-override: #ffffff;
+    --reader-fg-override: #1a1a1a;
+    --reader-link-override: #1a1a1a;
+    /* Chrome accent inside the reader: the page palette is untouched, but toolbars,
+       hover and focus use the lab accent, set in olive where lime fails on the page. */
     --reader-accent-override: #4d6a00;
     --reader-accent-ink-override: #ffffff;
 }
@@ -285,9 +290,9 @@
 }
 
 .theme-dark {
-    --reader-bg-override: #141416;
-    --reader-fg-override: #e8e6e1;
-    --reader-link-override: #e8e6e1;
+    --reader-bg-override: #000000;
+    --reader-fg-override: #ffffff;
+    --reader-link-override: #ffffff;
     --reader-accent-override: #c6f135;
     --reader-accent-ink-override: #293500;
 }
@@ -301,10 +306,8 @@
     --color-surface-variant: color-mix(in srgb, var(--reader-fg) 12%, var(--reader-bg));
     --color-surface-hover: color-mix(in srgb, var(--reader-fg) 14%, var(--reader-bg));
     --color-text-primary: var(--reader-fg);
-    --color-text-secondary: color-mix(in srgb, var(--reader-fg) 80%, var(--reader-bg));
-    --color-text-muted: color-mix(in srgb, var(--reader-fg) 74%, var(--reader-bg));
-    --color-text-disabled: color-mix(in srgb, var(--reader-fg) 45%, var(--reader-bg));
-    --color-border-strong: color-mix(in srgb, var(--reader-fg) 52%, var(--reader-bg));
+    --color-text-secondary: color-mix(in srgb, var(--reader-fg) 62%, var(--reader-bg));
+    --color-text-muted: color-mix(in srgb, var(--reader-fg) 50%, var(--reader-bg));
     --color-border: color-mix(in srgb, var(--reader-fg) 20%, var(--reader-bg));
     --color-border-subtle: color-mix(in srgb, var(--reader-fg) 14%, var(--reader-bg));
     --color-accent: var(--reader-accent-override);
@@ -478,26 +481,18 @@
     color: var(--color-text-primary);
 }
 
+/* Selected is a tonal step with a 2px accent rule, never a lime fill: the accent is
+   one signal per frame and marks where you are. */
+.ui-selected,
 .ui-chip-btn[data-active="true"],
 .ui-chip-btn[aria-pressed="true"],
 .ui-chip-btn[aria-selected="true"],
 .ui-tab-btn[data-active="true"],
 .ui-tab-btn[aria-pressed="true"],
 .ui-tab-btn[aria-selected="true"] {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--color-accent-contrast);
-}
-
-.ui-chip-btn[data-active="true"]:hover,
-.ui-chip-btn[aria-pressed="true"]:hover,
-.ui-chip-btn[aria-selected="true"]:hover,
-.ui-tab-btn[data-active="true"]:hover,
-.ui-tab-btn[aria-pressed="true"]:hover,
-.ui-tab-btn[aria-selected="true"]:hover {
-    border-color: var(--color-accent-hover);
-    background: var(--color-accent-hover);
-    color: var(--color-accent-contrast);
+    background: linear-gradient(var(--color-accent), var(--color-accent)) bottom / 100% 2px no-repeat, var(--color-surface-variant);
+    border-color: var(--color-border);
+    color: var(--color-text-primary);
 }
 
 .ui-icon-btn[data-active="true"],
@@ -616,6 +611,7 @@
 }
 
 .ui-bottom-nav-btn {
+    position: relative;
     display: flex;
     width: 100%;
     min-height: var(--layout-bottom-nav-height);
@@ -628,11 +624,21 @@
 }
 
 .ui-bottom-nav-btn:active {
-    background: var(--color-surface-muted);
+    color: var(--color-accent);
 }
 
+/* The open item is marked by a 2px accent rule on its top edge, like the desktop rail's
+   left edge: one signal, never a fill. */
 .ui-bottom-nav-btn[data-active="true"] {
-    color: var(--color-accent);
+    color: var(--color-text-primary);
+}
+
+.ui-bottom-nav-btn[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: var(--color-accent);
 }
 
 .ui-bottom-nav-pill {
@@ -644,16 +650,10 @@
     transition: background-color var(--transition-normal), border-color var(--transition-normal);
 }
 
-.ui-bottom-nav-btn[data-active="true"] .ui-bottom-nav-pill {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--color-accent-contrast);
-}
-
 .ui-bottom-nav-label {
     font-size: var(--font-size-3xs);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: var(--letter-spacing-wider);
+    font-weight: var(--font-weight-regular);
+    letter-spacing: var(--tracking-body);
 }
 
 

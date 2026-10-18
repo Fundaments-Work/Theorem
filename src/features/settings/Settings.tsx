@@ -130,7 +130,7 @@ function Toggle({
                 className={cn(
                     "px-3 py-2 font-sans text-[11px]",
                     checked
-                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                        ? "ui-selected"
                         : "text-[color:var(--color-text-secondary)]"
                 )}
             >
@@ -141,7 +141,7 @@ function Toggle({
                 className={cn(
                     "border-l border-[var(--color-border)] px-3 py-2 font-sans text-[11px]",
                     !checked
-                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                        ? "ui-selected"
                         : "text-[color:var(--color-text-secondary)]"
                 )}
             >
@@ -169,7 +169,7 @@ function ButtonSelect<T extends string>({
                     className={cn(
                         "border border-[var(--color-border)] px-3 py-2 font-sans text-[11px] transition-colors",
                         value === opt.value
-                            ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                            ? "ui-selected"
                             : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
                     )}
                 >
@@ -748,7 +748,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 className={cn(
                                     "flex min-w-[10rem] items-center justify-center border border-[var(--color-border)] px-3 py-2.5 font-sans text-[11px] transition-colors",
                                     activeTab === tab.id
-                                        ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                        ? "ui-selected"
                                         : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)]"
                                 )}
                             >
@@ -766,7 +766,7 @@ export const SettingsPage = memo(function SettingsPage() {
                             className={cn(
                                 "flex items-center border border-[var(--color-border)] px-4 py-2 font-sans text-[11px] transition-colors",
                                 activeTab === tab.id
-                                    ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                                    ? "ui-selected"
                                     : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
                             )}
                         >
