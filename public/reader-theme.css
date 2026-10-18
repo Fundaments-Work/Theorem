@@ -11,8 +11,8 @@
 
 :root {
   /* Core User Settings - Set by Reader Engine */
-  --USER__backgroundColor: #faf9f7;
-  --USER__textColor: #1c1c1c;
+  --USER__backgroundColor: #ffffff;
+  --USER__textColor: #1a1a1a;
   --USER__fontFamily: Georgia, serif;
   --USER__fontSize: 100%;
   --USER__lineHeight: 1.6;
@@ -378,8 +378,7 @@ math, maction, annotation, annotation-xml {
    Automatic adjustments based on background color
    ========================================================================== */
 
-/* When background is dark (#141416, #1a1a1a or black) */
-:root[style*="--USER__backgroundColor: #141416"],
+/* When background is dark (#1a1a1a or black) */
 :root[style*="--USER__backgroundColor: #1a1a1a"],
 :root[style*="--USER__backgroundColor: #000000"] {
   --USER__borderColor: rgba(255, 255, 255, 0.2);
@@ -388,7 +387,6 @@ math, maction, annotation, annotation-xml {
 }
 
 /* Image brightness in dark mode */
-:root[style*="--USER__backgroundColor: #141416"] img,
 :root[style*="--USER__backgroundColor: #1a1a1a"] img,
 :root[style*="--USER__backgroundColor: #000000"] img {
   opacity: 0.85 !important;
