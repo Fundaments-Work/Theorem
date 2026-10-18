@@ -163,6 +163,10 @@ On desktop, a multithreaded Rust batch ingestion pipeline (`rayon` + `quick-xml`
 
 Folder imports can **preserve the original folder hierarchy** with a built-in source-folder browser (breadcrumbs, filtering), or flatten on import. **Nested sub-shelves** organize large libraries one level deep. **Smart shelves** auto-populate from native filter rules — author, series, tag, category, format, reading status, favorite — with AND/OR logic, recomputed as the library changes. **Book series** carry a series name and fractional volume index (`2.5` supported), read from EPUB metadata or `ComicInfo.xml`; shelves can group by series with combined progress, and finishing a volume surfaces the next unread one. **Bulk selection** selects every book matching the current filters (not just visible rows), clears on filter changes, and offers dynamic read/unread toggles with 1-click Undo.
 
+<p align="center">
+  <img src="./Screenshots/shelves-overview.png" alt="Theorem shelves: custom shelves with cover collages for organizing a large ebook library" width="820">
+</p>
+
 ### Comics
 CBZ and **CBR** open natively everywhere — the RAR container is decoded in pure Rust (`rars`) straight into a stored ZIP, so no external `unrar` binary is needed on any platform including Android. A **continuous vertical strip** mode renders comics as one touch-responsive scrolling column with bounded image loading, eliminating page turns for webtoons.
 
