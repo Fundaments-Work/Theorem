@@ -29,7 +29,7 @@ interface ReaderToolbarProps {
 }
 
 const READER_BUTTON_CLASS =
-    "inline-flex h-10 w-10 items-center justify-center border border-transparent bg-transparent text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)] data-[active=true]:border-[var(--color-accent)] data-[active=true]:bg-[var(--color-accent)] data-[active=true]:text-[color:var(--color-accent-contrast)] data-[active=true]:hover:border-[var(--color-accent-hover)] data-[active=true]:hover:bg-[var(--color-accent-hover)]";
+    "inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)] data-[active=true]:text-[color:var(--color-accent)]";
 
 export function ReaderToolbar({
     metadata,
@@ -84,12 +84,12 @@ export function ReaderToolbar({
             </div>
 
             <div className="flex-1 mx-4 text-center overflow-hidden">
-                <h1 className="truncate text-sm font-medium text-[color:var(--color-text-primary)]">
+                <h1 className="truncate text-sm text-[color:var(--color-text-primary)]">
                     {metadata?.title || 'Loading...'}
                 </h1>
                 <div className="flex items-center justify-center gap-2">
                     {currentChapter ? (
-                        <span className="text-[color:var(--color-accent)] text-xs font-medium truncate">
+                        <span className="text-[color:var(--color-accent)] text-xs truncate">
                             {currentChapter}
                         </span>
                     ) : metadata?.author ? (
@@ -155,7 +155,7 @@ export function ReaderToolbar({
                     title="Reading Settings"
                     aria-label="Reading Settings"
                 >
-                    <span className="text-base font-serif font-bold">Aa</span>
+                    <span className="text-base font-serif">Aa</span>
                 </button>
 
                 {!isMobile() && onToggleFullscreen && (

@@ -120,7 +120,7 @@ describe("BookCard selection interaction", () => {
     });
 
     it.each(["grid", "list", "compact"] as const)(
-        "renders the circular selector in %s view when selecting",
+        "renders the selector in %s view when selecting",
         (viewMode) => {
             renderCard(container, {
                 book: makeBook(),
@@ -129,7 +129,7 @@ describe("BookCard selection interaction", () => {
                 isSelected: true,
                 onToggleSelect: noop,
             });
-            const selector = container.querySelector(".rounded-full.transition-all");
+            const selector = container.querySelector(".h-5.w-5.transition-all");
             expect(selector).not.toBeNull();
         },
     );
@@ -142,6 +142,6 @@ describe("BookCard selection interaction", () => {
             isSelected: false,
             onToggleSelect: noop,
         });
-        expect(container.querySelector(".rounded-full.transition-all")).toBeNull();
+        expect(container.querySelector(".h-5.w-5.transition-all")).toBeNull();
     });
 });

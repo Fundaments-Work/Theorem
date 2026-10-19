@@ -1,6 +1,6 @@
 --- view.js
 +++ view.js
-@@ -27,19 +27,116 @@
+@@ -27,19 +27,172 @@
      type === 'application/x-zip-compressed-fb2'
      || name.endsWith('.fb2.zip') || name.endsWith('.fbz')
  
@@ -29,9 +29,22 @@
 +                const buffer = await file.arrayBuffer();
 +                const worker = window.__THEOREM_CORE_WORKER__;
 +                const { entries } = await worker.initEpub(buffer);
-+                const sizeMap = new Map(entries.map(e => [e.filename, e.uncompressedSize]));
-+                const resolve = name => typeof name !== 'string' ? null
-+                    : sizeMap.has(name) ? name : name.replace(/^\//, '');
++                const sizeMap = new Map();
++                for (const e of entries) {
++                    sizeMap.set(e.filename, e.uncompressedSize);
++                    const clean = e.filename.replace(/^\.?\//, '');
++                    if (!sizeMap.has(clean)) sizeMap.set(clean, e.uncompressedSize);
++                    if (!sizeMap.has('./' + clean)) sizeMap.set('./' + clean, e.uncompressedSize);
++                }
++                const resolve = name => {
++                    if (typeof name !== 'string') return null;
++                    if (sizeMap.has(name)) return name;
++                    const clean = name.replace(/^\.?\//, '');
++                    if (sizeMap.has(clean)) return clean;
++                    if (sizeMap.has('./' + clean)) return './' + clean;
++                    if (sizeMap.has('/' + clean)) return '/' + clean;
++                    return clean;
++                };
 +                const loadText = name => worker.readEpubText(resolve(name) || name);
 +                const loadBlob = (name, type) =>
 +                    worker.readEpubEntry(resolve(name) || name).then(buf => buf ? new Blob([buf], type ? { type } : undefined) : null);
@@ -50,12 +63,27 @@
 +        configure({ useWebWorkers: false })
 +        const reader = new ZipReader(new BlobReader(file))
 +        const entries = await reader.getEntries()
-+        const map = new Map(entries.map(e => [e.filename, e]))
-+        const loadText = name =>
-+            map.has(name) ? map.get(name).getData(new TextWriter()) : null
-+        const loadBlob = (name, type) =>
-+            map.has(name) ? map.get(name).getData(new BlobWriter(type)) : null
-+        const getSize = name => map.get(name)?.uncompressedSize ?? 0
++        const map = new Map()
++        for (const e of entries) {
++            map.set(e.filename, e)
++            const clean = e.filename.replace(/^\.?\//, '')
++            if (!map.has(clean)) map.set(clean, e)
++            if (!map.has('./' + clean)) map.set('./' + clean, e)
++        }
++        const getEntry = name => {
++            if (typeof name !== 'string') return null
++            const clean = name.replace(/^\.?\//, '')
++            return map.get(name) ?? map.get(clean) ?? map.get('./' + clean) ?? map.get('/' + clean) ?? null
++        }
++        const loadText = name => {
++            const entry = getEntry(name)
++            return entry ? entry.getData(new TextWriter()) : null
++        }
++        const loadBlob = (name, type) => {
++            const entry = getEntry(name)
++            return entry ? entry.getData(new BlobWriter(type)) : null
++        }
++        const getSize = name => getEntry(name)?.uncompressedSize ?? 0
 +        return { entries, loadText, loadBlob, getSize }
 +    }
 +
@@ -64,14 +92,25 @@
 +    if (prefetch?.readEntry && sizes) {
 +        const readEntry = prefetch.readEntry
 +        // Rust also tries percent-decoded and case-insensitive names.
-+        const resolve = name => typeof name !== 'string' ? null
-+            : sizes.has(name) ? name : name.replace(/^\//, '')
++        const resolve = name => {
++            if (typeof name !== 'string') return null
++            if (sizes.has(name)) return name
++            const clean = name.replace(/^\.?\//, '')
++            if (sizes.has(clean)) return clean
++            if (sizes.has('./' + clean)) return './' + clean
++            if (sizes.has('/' + clean)) return '/' + clean
++            return clean
++        }
 +        const entries = [...sizes.keys()].sort()
 +            .map(filename => ({ filename, uncompressedSize: sizes.get(filename) }))
 +        const loadText = name => {
 +            const key = resolve(name)
 +            if (key == null) return null
-+            const cached = textCache?.get(key) ?? textCache?.get(name)
++            const clean = typeof name === 'string' ? name.replace(/^\.?\//, '') : null
++            const cached = (clean ? textCache?.get(clean) : undefined)
++                ?? textCache?.get(key)
++                ?? (clean ? textCache?.get('./' + clean) : undefined)
++                ?? textCache?.get(name)
 +            if (cached !== undefined) return cached
 +            return readEntry(key).then(buffer => buffer ? new TextDecoder().decode(buffer) : null)
 +        }
@@ -82,7 +121,11 @@
 +        }
 +        const getSize = name => {
 +            const key = resolve(name)
-+            return (key != null ? sizes.get(key) : undefined) ?? 0
++            const clean = typeof name === 'string' ? name.replace(/^\.?\//, '') : null
++            return (key != null ? sizes.get(key) : undefined)
++                ?? (clean ? sizes.get(clean) : undefined)
++                ?? (clean ? sizes.get('./' + clean) : undefined)
++                ?? 0
 +        }
 +        return { entries, loadText, loadBlob, getSize, toc }
 +    }
@@ -96,41 +139,54 @@
 +                configure({ useWebWorkers: false })
 +                const reader = new ZipReader(new BlobReader(file))
 +                const entries = await reader.getEntries()
-+                const map = new Map(entries.map(e => [e.filename, e]))
-+                return { entries, map, TextWriter, BlobWriter }
++                const map = new Map()
++                for (const e of entries) {
++                    map.set(e.filename, e)
++                    const clean = e.filename.replace(/^\.?\//, '')
++                    if (!map.has(clean)) map.set(clean, e)
++                    if (!map.has('./' + clean)) map.set('./' + clean, e)
++                }
++                const getEntry = name => {
++                    if (typeof name !== 'string') return null
++                    const clean = name.replace(/^\.?\//, '')
++                    return map.get(name) ?? map.get(clean) ?? map.get('./' + clean) ?? map.get('/' + clean) ?? null
++                }
++                return { entries, map, getEntry, TextWriter, BlobWriter }
 +            })()
 +        }
 +        return _lazyZip
 +    }
 +
 +    const loadText = name => {
-+        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
-+        const cached = textCache.get(name) ?? (cleanName ? textCache.get(cleanName) : undefined)
++        const cleanName = typeof name === 'string' ? name.replace(/^\.?\//, '') : name
++        const cached = textCache?.get(name)
++            ?? (cleanName ? (textCache?.get(cleanName) ?? textCache?.get('./' + cleanName)) : undefined)
 +        if (cached !== undefined) return cached
-+        return getLazyZip().then(({ map, TextWriter }) => {
-+            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
++        return getLazyZip().then(({ getEntry, TextWriter }) => {
++            const entry = getEntry(name)
 +            return entry ? entry.getData(new TextWriter()) : null
 +        })
 +    }
 +
 +    const loadBlob = (name, type) => {
-+        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
-+        return getLazyZip().then(({ map, BlobWriter }) => {
-+            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
++        return getLazyZip().then(({ getEntry, BlobWriter }) => {
++            const entry = getEntry(name)
 +            return entry ? entry.getData(new BlobWriter(type)) : null
 +        })
 +    }
 +
 +    const getSize = name => {
-+        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
-+        return sizes.get(name) ?? (cleanName ? sizes.get(cleanName) : undefined) ?? 0
++        const cleanName = typeof name === 'string' ? name.replace(/^\.?\//, '') : name
++        return sizes?.get(name)
++            ?? (cleanName ? (sizes?.get(cleanName) ?? sizes?.get('./' + cleanName)) : undefined)
++            ?? 0
 +    }
 +
 +    return { loadText, loadBlob, getSize, getLazyZip, toc }
  }
  
  const getFileEntries = async entry => entry.isFile ? entry
-@@ -76,7 +173,7 @@
+@@ -76,7 +229,7 @@
      return new File([await res.blob()], new URL(res.url).pathname)
  }
  
@@ -139,7 +195,7 @@
      if (typeof file === 'string') file = await fetchFile(file)
      let book
      if (file.isDirectory) {
-@@ -86,14 +183,14 @@
+@@ -86,14 +239,14 @@
      }
      else if (!file.size) throw new NotFoundError('File not found')
      else if (await isZip(file)) {
@@ -157,7 +213,7 @@
              const entry = entries.find(entry => entry.filename.endsWith('.fb2'))
              const blob = await loader.loadBlob((entry ?? entries[0]).filename)
              book = await makeFB2(blob)
-@@ -101,6 +198,9 @@
+@@ -101,6 +254,9 @@
          else {
              const { EPUB } = await import('./epub.js')
              book = await new EPUB(loader).init()
@@ -167,7 +223,7 @@
          }
      }
      else if (await isPDF(file)) {
-@@ -110,7 +210,7 @@
+@@ -110,7 +266,7 @@
      else {
          const { isMOBI, MOBI } = await import('./mobi.js')
          if (await isMOBI(file)) {
@@ -176,7 +232,7 @@
              book = await new MOBI({ unzlib: fflate.unzlibSync }).open(file)
          }
          else if (isFB2(file)) {
-@@ -133,7 +233,7 @@
+@@ -133,7 +289,7 @@
          this.#state = state
          if (this.#state.hidden) this.hide()
          this.#el.addEventListener('mousemove', ({ screenX, screenY }) => {
@@ -185,7 +241,7 @@
              if (screenX === this.#state.x && screenY === this.#state.y) return
              this.#state.x = screenX, this.#state.y = screenY
              this.show()
-@@ -210,6 +310,56 @@
+@@ -210,6 +366,56 @@
      }
  }
  
@@ -242,7 +298,7 @@
  export class View extends HTMLElement {
      #root = this.attachShadow({ mode: 'closed' })
      #sectionProgress
-@@ -254,6 +404,8 @@
+@@ -254,6 +460,8 @@
          if (this.isFixedLayout) {
              await import('./fixed-layout.js')
              this.renderer = document.createElement('foliate-fxl')
@@ -251,7 +307,7 @@
          } else {
              await import('./paginator.js')
              this.renderer = document.createElement('foliate-paginator')
-@@ -276,7 +428,7 @@
+@@ -276,7 +484,7 @@
                  this.renderer.goTo(resolved)
                      .then(() => {
                          const { doc } = this.renderer.getContents()
@@ -260,7 +316,7 @@
                          const el = resolved.anchor(doc)
                          el.classList.add(activeClass)
                          if (playbackActiveClass) el.ownerDocument
-@@ -337,7 +489,7 @@
+@@ -337,7 +545,7 @@
          this.#emit('relocate', this.lastLocation)
      }
      #onLoad({ doc, index }) {
@@ -269,7 +325,7 @@
          doc.documentElement.lang ||= this.language.canonical ?? ''
          if (!this.language.isCJK)
              doc.documentElement.dir ||= this.language.direction ?? ''
-@@ -350,17 +502,74 @@
+@@ -350,17 +558,74 @@
      #handleLinks(doc, index) {
          const { book } = this
          const section = book.sections[index]
@@ -347,7 +403,7 @@
                  .then(x => x ? this.goTo(href) : null)
                  .catch(e => console.error(e))
          })
-@@ -388,9 +597,25 @@
+@@ -388,9 +653,25 @@
              const { overlayer, doc } = obj
              overlayer.remove(value)
              if (!remove) {
@@ -376,7 +432,7 @@
              }
          }
          const label = this.#tocProgress.getProgress(index)?.label ?? ''
-@@ -405,7 +630,40 @@
+@@ -405,7 +686,40 @@
      }
      #createOverlayer({ doc, index }) {
          const overlayer = new Overlayer()
@@ -417,7 +473,7 @@
              const [value, range] = overlayer.hitTest(e)
              if (value && !value.startsWith(SEARCH_PREFIX)) {
                  this.#emit('show-annotation', { value, index, range })
-@@ -423,9 +681,17 @@
+@@ -423,9 +737,17 @@
          const resolved = await this.goTo(value)
          if (resolved) {
              const { index, anchor } = resolved

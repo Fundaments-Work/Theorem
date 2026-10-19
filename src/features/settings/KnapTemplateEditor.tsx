@@ -130,9 +130,9 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
     };
 
     return (
-        <div className="mt-3 space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+        <div className="mt-3 space-y-3 border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2">
-                <span className="text-xs font-semibold text-[color:var(--color-text-primary)]">
+                <span className="text-xs text-[color:var(--color-text-primary)]">
                     Knap Markdown Template (Sandboxed AST)
                 </span>
                 <div className="flex items-center gap-2">
@@ -157,7 +157,7 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
 
             {/* Quick insert tokens */}
             <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                <span className="text-[10px] text-[color:var(--color-text-muted)]">
                     Insert:
                 </span>
                 {INSERT_VARIABLES.map(({ label, token }) => (
@@ -165,7 +165,7 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
                         key={token}
                         type="button"
                         onClick={() => handleInsertToken(token)}
-                        className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[color:var(--color-text-primary)]"
+                        className="border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[color:var(--color-text-primary)]"
                         title={`Insert ${token}`}
                     >
                         {label}
@@ -181,15 +181,15 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
                     onChange={(e) => onChange(e.target.value)}
                     rows={10}
                     spellCheck={false}
-                    className="w-full resize-y rounded border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 font-mono text-xs leading-relaxed text-[color:var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
+                    className="w-full resize-y border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 font-mono text-xs leading-relaxed text-[color:var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"
                     placeholder="Enter Knap markdown template..."
                 />
             </div>
 
             {/* Syntax validation feedback */}
             {!validation.valid ? (
-                <div className="rounded border border-red-500/20 bg-red-500/10 p-2 text-xs text-red-500">
-                    <div className="flex items-center gap-1.5 font-medium">
+                <div className="border border-[color:color-mix(in_srgb,var(--color-error)_20%,transparent)] bg-[color:color-mix(in_srgb,var(--color-error)_10%,transparent)] p-2 text-xs text-[color:var(--color-error)]">
+                    <div className="flex items-center gap-1.5">
                         <AlertCircle className="h-3.5 w-3.5" />
                         Template Syntax Errors:
                     </div>
@@ -200,7 +200,7 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
                     </ul>
                 </div>
             ) : (
-                <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <div className="flex items-center gap-1 text-[11px] text-[color:var(--color-success)]">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Valid Knap template syntax
                 </div>
@@ -208,14 +208,14 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
 
             {/* Live Preview */}
             {showPreview && (
-                <div className="mt-2 space-y-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
-                    <div className="flex items-center justify-between text-[11px] font-medium text-[color:var(--color-text-muted)]">
+                <div className="mt-2 space-y-1 border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
+                    <div className="flex items-center justify-between text-[11px] text-[color:var(--color-text-muted)]">
                         <span>Live Preview ({sampleData.title})</span>
                         {previewErrors.length > 0 && (
-                            <span className="text-red-500">Render warnings present</span>
+                            <span className="text-[color:var(--color-error)]">Render warnings present</span>
                         )}
                     </div>
-                    <pre className="max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-surface-muted)] p-2 font-mono text-[11px] leading-relaxed text-[color:var(--color-text-primary)]">
+                    <pre className="max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap bg-[var(--color-surface-muted)] p-2 font-mono text-[11px] leading-relaxed text-[color:var(--color-text-primary)]">
                         {previewContent || "_No output generated_"}
                     </pre>
                 </div>

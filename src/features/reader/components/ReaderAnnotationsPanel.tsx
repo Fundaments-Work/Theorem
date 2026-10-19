@@ -23,7 +23,7 @@ interface ReaderAnnotationsPanelProps {
 type TabType = 'bookmarks' | 'highlights';
 
 const TAB_BUTTON_CLASS =
-    "border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)] data-[active=true]:border-[var(--color-accent)] data-[active=true]:bg-[var(--color-accent)] data-[active=true]:text-[color:var(--color-accent-contrast)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[color:var(--color-focus-ring)] focus-visible:outline-offset-2 flex w-full min-h-10 items-center justify-between px-3 py-2 text-xs font-medium transition-colors";
+    "border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:text-[color:var(--color-accent)] data-[active=true]:border-[var(--color-accent)] data-[active=true]:bg-[var(--color-accent)] data-[active=true]:text-[color:var(--color-accent-contrast)] cursor-pointer focus-visible:outline-2 focus-visible:outline-[color:var(--color-focus-ring)] focus-visible:outline-offset-2 flex w-full min-h-10 items-center justify-between px-3 py-2 text-xs transition-colors";
 
 export function ReaderAnnotationsPanel({
     bookId,
@@ -103,16 +103,16 @@ export function ReaderAnnotationsPanel({
     };
 
     const renderContextMenu = (annotation: Annotation) => (
-        <div className="absolute right-0 top-full z-20 mt-1 w-40 border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
+        <div className="absolute right-0 top-full z-20 mt-1 w-40 border border-[var(--color-border)] bg-[var(--color-surface)] py-1">
             <button
                 onClick={(e) => { e.stopPropagation(); handleEdit(annotation.id); closeMenu(); }}
-                className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] touch-manipulation"
+                className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] touch-manipulation"
             >
                 <Pencil className="w-3.5 h-3.5" /> Edit note
             </button>
             <button
                 onClick={(e) => { e.stopPropagation(); handleShare(annotation.id); }}
-                className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] touch-manipulation"
+                className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] touch-manipulation"
             >
                 <Share2 className="w-3.5 h-3.5" /> Share
             </button>
@@ -123,7 +123,7 @@ export function ReaderAnnotationsPanel({
                     onDelete?.(annotation.id);
                     closeMenu();
                 }}
-                className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-error)] hover:bg-[var(--color-surface-muted)] touch-manipulation"
+                className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] text-[color:var(--color-error)] hover:bg-[var(--color-surface-muted)] touch-manipulation"
             >
                 <Trash2 className="w-3.5 h-3.5" /> Delete
             </button>
@@ -142,7 +142,7 @@ export function ReaderAnnotationsPanel({
             <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
                     <Bookmark className="w-4 h-4 text-[color:var(--color-accent)] flex-shrink-0" />
-                    <span className="text-[var(--font-size-caption)] font-medium text-[color:var(--color-text-primary)] truncate">
+                    <span className="text-[var(--font-size-caption)] text-[color:var(--color-text-primary)] truncate">
                         {bookmark.selectedText || 'Bookmark'}
                     </span>
                 </div>
@@ -152,7 +152,7 @@ export function ReaderAnnotationsPanel({
                             e.stopPropagation();
                             setMenuId(menuId === bookmark.id ? null : bookmark.id);
                         }}
-                        className="border border-[var(--color-border)] p-1.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation"
+                        className="p-1.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation"
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>
@@ -170,7 +170,7 @@ export function ReaderAnnotationsPanel({
                     )}
                 </div>
             </div>
-            <div className="flex items-center justify-between pl-6 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-secondary)]">
+            <div className="flex items-center justify-between pl-6 font-mono text-[10px] text-[color:var(--color-text-secondary)]">
                 <span>{format(new Date(bookmark.createdAt), 'MMM d, yyyy')}</span>
                 <div className="flex items-center gap-1 text-[color:var(--color-accent)] transition-opacity">
                     <span>Jump to</span>
@@ -231,7 +231,7 @@ export function ReaderAnnotationsPanel({
                             e.stopPropagation();
                             setMenuId(menuId === highlight.id ? null : highlight.id);
                         }}
-                        className="border border-[var(--color-border)] p-1.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation"
+                        className="p-1.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation"
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>
@@ -249,7 +249,7 @@ export function ReaderAnnotationsPanel({
                     )}
                 </div>
             </div>
-            <div className="flex items-center justify-between pl-6 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-secondary)]">
+            <div className="flex items-center justify-between pl-6 font-mono text-[10px] text-[color:var(--color-text-secondary)]">
                 <span>{format(new Date(highlight.createdAt), 'MMM d, yyyy')}</span>
                 <div className="flex items-center gap-1 text-[color:var(--color-accent)] transition-opacity">
                     <span>Jump to</span>
@@ -269,7 +269,7 @@ export function ReaderAnnotationsPanel({
             <div className="w-12 h-12 bg-[var(--color-background)] flex items-center justify-center mb-4 text-[color:var(--color-text-muted)]">
                 <Bookmark className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-semibold text-[color:var(--color-text-primary)] mb-1">No bookmarks yet</h3>
+            <h3 className="text-sm text-[color:var(--color-text-primary)] mb-1">No bookmarks yet</h3>
             <p className="w-full max-w-[17rem] text-xs text-[color:var(--color-text-muted)] leading-relaxed">
                 Click the bookmark button in the toolbar to save your current page.
             </p>
@@ -279,7 +279,7 @@ export function ReaderAnnotationsPanel({
             <div className="w-12 h-12 bg-[var(--color-background)] flex items-center justify-center mb-4 text-[color:var(--color-text-muted)]">
                 <Highlighter className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-semibold text-[color:var(--color-text-primary)] mb-1">No highlights yet</h3>
+            <h3 className="text-sm text-[color:var(--color-text-primary)] mb-1">No highlights yet</h3>
             <p className="w-full max-w-[17rem] text-xs text-[color:var(--color-text-muted)] leading-relaxed">
                 Select text and choose a color to highlight important passages.
             </p>
@@ -294,10 +294,10 @@ export function ReaderAnnotationsPanel({
                 
                 <div className="reader-panel-header flex flex-col">
                     <div className="flex items-center justify-between p-4">
-                        <h2 className="text-sm font-semibold text-[color:var(--color-text-primary)]">Annotations</h2>
+                        <h2 className="text-sm text-[color:var(--color-text-primary)]">Annotations</h2>
                         <button
                             onClick={onClose}
-                            className="inline-flex h-9 w-9 items-center justify-center border border-[color:var(--color-border-subtle)] bg-transparent text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color,opacity] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)] data-[active=true]:border-[var(--color-accent)] data-[active=true]:bg-[var(--color-accent)] data-[active=true]:text-[color:var(--color-accent-contrast)] focus-visible:outline-2 focus-visible:outline-[color:var(--color-focus-ring)] focus-visible:outline-offset-2 w-8 h-8"
+                            className="inline-flex h-9 w-9 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)] data-[active=true]:text-[color:var(--color-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--color-focus-ring)] focus-visible:outline-offset-2 w-8 h-8"
                             aria-label="Close annotations"
                         >
                             <X className="w-4 h-4" />

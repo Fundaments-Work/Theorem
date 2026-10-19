@@ -61,7 +61,7 @@ export function DiscoverBookCard({
             )}
         >
             {/* Book Cover Container */}
-            <div className="relative aspect-[2/3] bg-[var(--color-surface-muted)] mb-2.5 overflow-hidden border border-[var(--color-border)] transition-[transform,box-shadow] duration-300 ease-out group-hover:shadow-lg group-hover:-translate-y-1">
+            <div className="relative aspect-[2/3] bg-[var(--color-surface-muted)] mb-2.5 overflow-hidden border border-[var(--color-border)] transition-[transform,box-shadow] duration-300 ease-out group-hover:-translate-y-1">
                 <TheoremBookCover
                     title={entry.title}
                     author={entry.author}
@@ -73,10 +73,10 @@ export function DiscoverBookCard({
                     onClick={handleGet}
                     disabled={isDownloading}
                     className={cn(
-                        "absolute bottom-2 right-2 z-20 flex items-center justify-center rounded-sm transition-[color,background-color,border-color,transform,box-shadow] duration-200 ease-out shadow-md",
+                        "absolute bottom-2 right-2 z-20 flex items-center justify-center transition-[color,background-color,border-color,transform,box-shadow] duration-200 ease-out",
                         isBookInLibrary
-                            ? "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] font-bold border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]"
-                            : "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] font-bold border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] active:scale-95"
+                            ? "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]"
+                            : "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] active:scale-95"
                     )}
                     title={isBookInLibrary ? "In Library" : "Add to Library"}
                 >
@@ -98,10 +98,10 @@ export function DiscoverBookCard({
 
             {/* Title & Author */}
             <div className="px-0.5 min-w-0">
-                <h3 className="font-bold text-[11px] uppercase tracking-wide text-[color:var(--color-text-primary)] line-clamp-2 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words">
+                <h3 className="text-[11px] text-[color:var(--color-text-primary)] line-clamp-2 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words">
                     {entry.title}
                 </h3>
-                <p className="text-[10px] font-medium text-[color:var(--color-text-secondary)] line-clamp-1 opacity-60 uppercase tracking-tight">
+                <p className="text-[10px] text-[color:var(--color-text-secondary)] line-clamp-1 opacity-60">
                     {normalizeAuthor(entry.author) || "Public Domain"}
                 </p>
             </div>

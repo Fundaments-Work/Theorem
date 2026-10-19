@@ -1,9 +1,9 @@
-
 interface TheoremLogoProps {
     className?: string;
     size?: number;
 }
 
+/** The official Theorem mark, on the 24-unit grid. Same path as the brand kit's `theorem-logo.svg`. */
 export function TheoremLogo({ className, size = 32 }: TheoremLogoProps) {
     return (
         <svg
@@ -16,19 +16,10 @@ export function TheoremLogo({ className, size = 32 }: TheoremLogoProps) {
             aria-hidden="true"
             focusable="false"
         >
-            <rect
-                x="0"
-                y="0"
-                width="3"
-                height="24"
+            <path
+                d="M 4 4 H 20 V 8 L 14 8 V 16 H 18 V 20 H 14 L 10 20 V 8 L 4 8 V 4 Z M 10 16 H 14 V 20 H 10 V 16 Z"
                 fill="currentColor"
-            />
-            <rect
-                x="0"
-                y="10.5"
-                width="15"
-                height="3"
-                fill="currentColor"
+                fillRule="evenodd"
             />
         </svg>
     );

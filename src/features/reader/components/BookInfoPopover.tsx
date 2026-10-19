@@ -51,14 +51,14 @@ export function BookInfoPopover({
                 
                 <div className="reader-panel-header flex items-center justify-between p-4 sm:p-5">
                     <div className="flex items-center gap-2.5">
-                        <div className="border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-1.5 text-[color:var(--color-accent)]">
+                        <div className="p-1.5 text-[color:var(--color-accent)]">
                             <Info className="w-4 h-4" />
                         </div>
-                        <h2 className="text-sm font-semibold text-[color:var(--color-text-primary)]">Book Information</h2>
+                        <h2 className="text-sm text-[color:var(--color-text-primary)]">Book Information</h2>
                     </div>
                     <button
                         onClick={onClose}
-                        className="inline-flex h-9 w-9 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
+                        className="inline-flex h-9 w-9 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]"
                     >
                         <X className="w-4 h-4" />
                     </button>
@@ -79,7 +79,7 @@ export function BookInfoPopover({
                             </div>
                         )}
                         <div className="flex-1 overflow-hidden">
-                            <h3 className="text-sm font-bold text-[color:var(--color-text-primary)] line-clamp-2 mb-1">
+                            <h3 className="text-sm text-[color:var(--color-text-primary)] line-clamp-2 mb-1">
                                 {metadata.title}
                             </h3>
                             <p className="text-xs text-[color:var(--color-text-secondary)] line-clamp-1">
@@ -91,11 +91,11 @@ export function BookInfoPopover({
                     <div className="space-y-4">
                         {sections.map(({ label, value, Icon }, idx) => (
                             <div key={idx} className="flex flex-col gap-1.5">
-                                <span className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)] flex items-center gap-1.5">
                                     <Icon className="w-4 h-4" />
                                     {label}
                                 </span>
-                                <span className="text-xs text-[color:var(--color-text-primary)] font-medium leading-relaxed">
+                                <span className="text-xs text-[color:var(--color-text-primary)] leading-relaxed">
                                     {value}
                                 </span>
                             </div>
@@ -104,11 +104,11 @@ export function BookInfoPopover({
 
                     {metadata.series && (
                         <div className="flex flex-col gap-1.5 pt-2 border-t border-[var(--color-border-subtle)]">
-                            <span className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)] flex items-center gap-1.5">
                                 <BookOpen className="w-4 h-4" />
                                 Series
                             </span>
-                            <span className="text-xs text-[color:var(--color-text-primary)] font-medium leading-relaxed">
+                            <span className="text-xs text-[color:var(--color-text-primary)] leading-relaxed">
                                 {metadata.series}
                                 {metadata.seriesIndex != null && (
                                     <span className="ml-2 text-[color:var(--color-text-muted)]">
@@ -122,7 +122,7 @@ export function BookInfoPopover({
 
                     {metadata.attachments && metadata.attachments.length > 0 && (
                         <div className="space-y-2 pt-2 border-t border-[var(--color-border-subtle)]">
-                            <span className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)] flex items-center gap-1.5">
                                 <Paperclip className="w-4 h-4" />
                                 Attachments ({metadata.attachments.length})
                             </span>
@@ -130,7 +130,7 @@ export function BookInfoPopover({
                                 {metadata.attachments.map((file) => (
                                     <li key={file.key} className="flex items-center gap-2">
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-[color:var(--color-text-primary)] font-medium truncate" title={file.name}>{file.name}</p>
+                                            <p className="text-xs text-[color:var(--color-text-primary)] truncate"title={file.name}>{file.name}</p>
                                             <p className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)] truncate">
                                                 {[file.size !== undefined ? formatAttachmentSize(file.size) : "", file.description ?? ""].filter(Boolean).join(" · ")}
                                             </p>
@@ -141,7 +141,7 @@ export function BookInfoPopover({
                                                 onClick={() => onSaveAttachment(file.key)}
                                                 aria-label={`Save ${file.name}`}
                                                 title="Save"
-                                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
+                                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]"
                                             >
                                                 <Download className="w-4 h-4" />
                                             </button>
@@ -154,7 +154,7 @@ export function BookInfoPopover({
 
                     {metadata.description && (
                         <div className="space-y-2 pt-2 border-t border-[var(--color-border-subtle)]">
-                            <span className="text-[var(--font-size-3xs)] font-bold text-[color:var(--color-text-muted)] uppercase tracking-wider">
+                            <span className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)]">
                                 Description
                             </span>
                             <p className="text-xs text-[color:var(--color-text-secondary)] leading-relaxed italic line-clamp-[8]">

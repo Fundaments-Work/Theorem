@@ -236,10 +236,10 @@ export function DiscoverPage() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-5">
                     <div>
                         <div className="flex items-center gap-2.5">
-                            <h1 className="text-2xl font-bold tracking-tight text-[color:var(--color-text-primary)]">
+                            <h1 className="text-2xl text-[color:var(--color-text-primary)]">
                                 Discover
                             </h1>
-                            <span className="px-2 py-0.5 border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[10px] font-mono uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                            <span className="px-2 py-0.5 border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[10px] font-mono text-[color:var(--color-text-muted)]">
                                 75,000+ Titles
                             </span>
                         </div>
@@ -281,7 +281,7 @@ export function DiscoverPage() {
                         <button
                             onClick={() => loadDiscoverFeed(true)}
                             disabled={isRefreshing || isLoading || isPending}
-                            className="h-8 w-8 inline-flex items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors shrink-0 disabled:opacity-50"
+                            className="h-8 w-8 inline-flex items-center justify-center text-[color:var(--color-text-secondary)] transition-colors shrink-0 disabled:opacity-50 hover:text-[color:var(--color-accent)]"
                             title="Refresh Discover catalog"
                             aria-label="Refresh catalog"
                         >
@@ -290,7 +290,7 @@ export function DiscoverPage() {
 
                         <button
                             onClick={() => setIsAddSourceOpen(true)}
-                            className="h-8 px-3 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors shrink-0 flex items-center gap-1.5"
+                            className="h-8 px-3 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors shrink-0 flex items-center gap-1.5"
                         >
                             <Plus className="h-3.5 w-3.5" />
                             <span className="hidden sm:inline">Add Source</span>
@@ -308,7 +308,7 @@ export function DiscoverPage() {
                         <div className="mb-4 flex h-14 w-14 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)]">
                             <Globe className="h-6 w-6 text-[color:var(--color-text-muted)] stroke-1" />
                         </div>
-                        <h2 className="mb-2 text-base font-bold text-[color:var(--color-text-primary)]">
+                        <h2 className="mb-2 text-base text-[color:var(--color-text-primary)]">
                             Could not connect to online libraries
                         </h2>
                         <p className="mx-auto w-full max-w-[22rem] break-words text-sm text-[color:var(--color-text-muted)] mb-6 leading-relaxed">
@@ -316,7 +316,7 @@ export function DiscoverPage() {
                         </p>
                         <button
                             onClick={() => loadDiscoverFeed(true)}
-                            className="px-5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-bold text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            className="px-5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                         >
                             Try Again
                         </button>
@@ -325,7 +325,7 @@ export function DiscoverPage() {
                     /* Virtualized Search Results Grid */
                     <div className="space-y-4 animate-fade-in">
                         <div className="flex items-center justify-between">
-                            <h2 className="text-sm font-bold text-[color:var(--color-text-primary)]">
+                            <h2 className="text-sm text-[color:var(--color-text-primary)]">
                                 Search Results for "{searchQuery}"
                             </h2>
                             <span className="text-xs text-[color:var(--color-text-muted)]">
@@ -385,7 +385,7 @@ export function DiscoverPage() {
                         <div className="mb-4 flex h-14 w-14 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)]">
                             <Search className="h-6 w-6 text-[color:var(--color-text-muted)] stroke-1" />
                         </div>
-                        <h2 className="mb-2 text-base font-bold text-[color:var(--color-text-primary)]">
+                        <h2 className="mb-2 text-base text-[color:var(--color-text-primary)]">
                             No books found for &ldquo;{searchQuery}&rdquo;
                         </h2>
                         <p className="mx-auto w-full max-w-[22rem] break-words text-sm text-[color:var(--color-text-muted)] mb-6 leading-relaxed">
@@ -396,7 +396,7 @@ export function DiscoverPage() {
                                 setSearchQuery("");
                                 startTransition(() => setSearchResults([]));
                             }}
-                            className="px-5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-bold text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            className="px-5 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                         >
                             Clear Search
                         </button>
@@ -408,10 +408,10 @@ export function DiscoverPage() {
                         {heroBook && (
                             <div
                                 onClick={() => setSelectedBook(heroBook)}
-                                className="relative overflow-hidden border border-[var(--color-border)] bg-gradient-to-br from-[var(--color-surface)] via-[var(--color-surface-muted)] to-[var(--color-surface)] p-6 sm:p-8 cursor-pointer group shadow-sm hover:shadow-md transition-[box-shadow,border-color] duration-200 ease-out"
+                                className="relative overflow-hidden border border-[var(--color-border)] bg-gradient-to-br from-[var(--color-surface)] via-[var(--color-surface-muted)] to-[var(--color-surface)] p-6 sm:p-8 cursor-pointer group transition-[box-shadow,border-color] duration-200 ease-out"
                             >
                                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
-                                    <div className="aspect-[2/3] w-32 sm:w-40 shrink-0 overflow-hidden border border-[var(--color-border)] shadow-lg group-hover:scale-105 transition-transform duration-300">
+                                    <div className="aspect-[2/3] w-32 sm:w-40 shrink-0 overflow-hidden border border-[var(--color-border)] group-hover:scale-105 transition-transform duration-300">
                                         <TheoremBookCover
                                             title={heroBook.title}
                                             author={heroBook.author}
@@ -422,14 +422,14 @@ export function DiscoverPage() {
 
                                     <div className="flex flex-col justify-between space-y-4 text-center sm:text-left min-w-0 flex-1">
                                         <div className="space-y-2">
-                                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] text-[10px] font-bold uppercase tracking-wider text-[color:var(--color-accent)]">
+                                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] text-[10px] text-[color:var(--color-accent)]">
                                                 <Sparkles className="h-3 w-3" />
                                                 <span>Featured Classic</span>
                                             </div>
-                                            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[color:var(--color-text-primary)]">
+                                            <h2 className="text-xl sm:text-2xl text-[color:var(--color-text-primary)]">
                                                 {heroBook.title}
                                             </h2>
-                                            <p className="text-xs font-semibold text-[color:var(--color-text-secondary)]">
+                                            <p className="text-xs text-[color:var(--color-text-secondary)]">
                                                 {heroBook.author || "Public Domain"}
                                             </p>
                                             {heroBook.summary && (
@@ -445,7 +445,7 @@ export function DiscoverPage() {
                                                     e.stopPropagation();
                                                     setSelectedBook(heroBook);
                                                 }}
-                                                className="px-5 py-2.5 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs font-bold hover:opacity-90 transition-opacity"
+                                                className="px-5 py-2.5 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs hover:opacity-90 transition-opacity"
                                             >
                                                 View Book
                                             </button>
@@ -478,7 +478,7 @@ export function DiscoverPage() {
                         <ModalHeader title="Add Library Source" onClose={() => setIsAddSourceOpen(false)} />
                         <ModalBody className="space-y-4">
                             <div>
-                                <label className="block text-xs font-semibold text-[color:var(--color-text-secondary)] mb-1.5">
+                                <label className="block text-xs text-[color:var(--color-text-secondary)] mb-1.5">
                                     Source Name
                                 </label>
                                 <input
@@ -491,7 +491,7 @@ export function DiscoverPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-[color:var(--color-text-secondary)] mb-1.5">
+                                <label className="block text-xs text-[color:var(--color-text-secondary)] mb-1.5">
                                     OPDS / Feed URL
                                 </label>
                                 <input
@@ -508,13 +508,13 @@ export function DiscoverPage() {
                             <button
                                 type="button"
                                 onClick={() => setIsAddSourceOpen(false)}
-                                className="px-4 py-2 border border-[var(--color-border)] text-xs font-semibold text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
+                                className="px-4 py-2 border border-[var(--color-border)] text-xs text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
                             >
                                 Cancel
                             </button>
                             <button
                                 type="submit"
-                                className="px-4 py-2 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs font-bold hover:opacity-90"
+                                className="px-4 py-2 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs hover:opacity-90"
                             >
                                 Add Source
                             </button>

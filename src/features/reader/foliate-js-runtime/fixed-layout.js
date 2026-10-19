@@ -4,21 +4,25 @@ const parseViewport = str => str
     ?.map(x => x.split('=').map(x => x.trim()))
 
 const getViewport = (doc, viewport) => {
-    
-    if (doc.documentElement.localName === 'svg') {
+    if (!doc) {
+        if (typeof viewport === 'string') return parseViewport(viewport)
+        if (viewport?.width && viewport.height) return viewport
+        return { width: 1000, height: 2000 }
+    }
+    if (doc.documentElement?.localName === 'svg') {
         const [, , width, height] = doc.documentElement
             .getAttribute('viewBox')?.split(/\s/) ?? []
         return { width, height }
     }
 
-    const meta = parseViewport(doc.querySelector('meta[name="viewport"]')
+    const meta = parseViewport(doc.querySelector?.('meta[name="viewport"]')
         ?.getAttribute('content'))
     if (meta) return Object.fromEntries(meta)
 
     if (typeof viewport === 'string') return parseViewport(viewport)
     if (viewport?.width && viewport.height) return viewport
 
-    const img = doc.querySelector('img')
+    const img = doc.querySelector?.('img')
     if (img) return { width: img.naturalWidth, height: img.naturalHeight }
 
     console.warn(new Error('Missing viewport properties'))
@@ -92,7 +96,7 @@ export class FixedLayout extends HTMLElement {
                 // before getViewport() reads them. Without this, CBZ comics and
                 // fixed-layout EPUBs without a <meta viewport> fall back to the
                 // dummy 1000×2000 box, distorting all aspect ratios.
-                const img = doc.querySelector('img')
+                const img = doc?.querySelector?.('img')
                 if (img && !img.complete) {
                     await img.decode().catch(() => {})
                 }

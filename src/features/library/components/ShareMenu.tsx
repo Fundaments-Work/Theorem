@@ -47,14 +47,14 @@ export function ShareMenu({ annotation, book, onClose }: ShareMenuProps) {
                 )}
                 <button
                     onClick={() => setShowStudio(true)}
-                    className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                    className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
                 >
                     <Image className="w-3.5 h-3.5" />
                     Share as Image
                 </button>
                 <button
                     onClick={handleShareOnX}
-                    className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                    className="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
                 >
                     <ExternalLink className="w-3.5 h-3.5" />
                     Share on X

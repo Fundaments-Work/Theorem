@@ -1,8 +1,6 @@
 # Theorem — Design Language
 
-**This file is a pointer.** The design system now lives in one place:
-
-**<https://github.com/Fundaments-Work/design-system>**
+**Theorem has no design language of its own.** It uses the Fundaments.work design system unchanged.
 
 | What | Where |
 |---|---|
@@ -16,22 +14,13 @@ The shipped implementation is authoritative over any prose:
 - `src/core/styles/design-tokens.css` — token declarations
 - `src/core/lib/design-tokens.ts` — runtime theming and accent maths
 
-Where the code and a document disagree, the code wins and the document
-is the bug. That rule is what retired the three copies of this file.
+Where the code and a document disagree, the code wins and the document is the bug.
 
----
+## What is Theorem-specific
 
-## What Theorem keeps
+Nothing in the interface. Two things are content, not chrome:
 
-Theorem is a product in the system, not its author. It inherits the
-shared dark base unchanged and chooses two things:
+- **Reader serif** (EB Garamond) for book text inside the reading view
+- **Highlight colours** — six fixed meanings, defined in the system's tokens
 
-- **Accent** — Stone `#c8b89a`, reading progress only
-- **Mark** — the turnstile, on the 24-unit grid, radius 0
-
-Its light theme (`#faf9f7` / `#1c1c1c` / `#d4d3ce`) survives as a
-theme override inside the system, not as a rival brand.
-
----
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Theorem's own mark is the turnstile, on the 24-unit grid, radius 0.

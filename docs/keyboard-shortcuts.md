@@ -12,7 +12,6 @@
 | `Ctrl+7` | Go to Bookmarks |
 | `Ctrl+,` | Go to Settings |
 | `Ctrl+F` | Focus search bar |
-| `Ctrl+B` | Toggle sidebar |
 | `Ctrl+A` | Toggle select mode (Library/Shelves/Bookmarks) — currently a no-op; targets a missing `data-action="toggle-select-mode"` element |
 | `Shift+?` | Show shortcuts help modal |
 | `Escape` | Handled per-component (Theorem Lens, editors, fullscreen), not globally |

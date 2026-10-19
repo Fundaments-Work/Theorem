@@ -706,7 +706,7 @@ export function PDFAnnotationLayer({
                             key={annotation.id}
                             type="button"
                             title={noteText || "Note"}
-                            className="absolute border shadow-sm flex items-center justify-center"
+                            className="absolute border flex items-center justify-center"
                             style={{
                                 left: `${left}px`,
                                 top: `${top}px`,
@@ -726,7 +726,7 @@ export function PDFAnnotationLayer({
                                 }
                             }}
                         >
-                            <span className="text-[var(--font-size-4xs)] leading-none font-semibold">T</span>
+                            <span className="text-[var(--font-size-4xs)] leading-none">T</span>
                         </button>
                     );
                 }
@@ -736,7 +736,7 @@ export function PDFAnnotationLayer({
 
             {textNoteEditor && noteEditorPosition && (
                 <div
-                    className="absolute border shadow-lg z-30 p-4"
+                    className="absolute border z-30 p-4"
                     style={{
                         left: `${noteEditorPosition.left}px`,
                         top: `${noteEditorPosition.top}px`,
@@ -786,7 +786,7 @@ export function PDFAnnotationLayer({
                     <div className="mt-3 flex items-center justify-end gap-2">
                         <button
                             type="button"
-                            className="px-3 py-1.5 text-[11px] font-medium border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            className="px-3 py-1.5 text-[11px] border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] transition-colors"
                             style={{
                                 color: "var(--color-text-secondary)",
                                 borderRadius: "var(--radius-sm, 4px)",
@@ -797,7 +797,7 @@ export function PDFAnnotationLayer({
                         </button>
                         <button
                             type="button"
-                            className="px-3 py-1.5 text-[11px] font-medium bg-[var(--color-accent)] text-[var(--color-accent-contrast)] hover:opacity-90 transition-opacity"
+                            className="px-3 py-1.5 text-[11px] bg-[var(--color-accent)] text-[var(--color-accent-contrast)] hover:opacity-90 transition-opacity"
                             style={{
                                 borderRadius: "var(--radius-sm, 4px)",
                             }}

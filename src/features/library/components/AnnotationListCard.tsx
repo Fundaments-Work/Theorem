@@ -117,7 +117,7 @@ export const AnnotationListCard = memo(function AnnotationListCard({
             <div className="flex h-[44px] items-start justify-between mb-4">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                        <span className="font-sans text-[11px] font-semibold text-[color:var(--color-text-secondary)]">
+                        <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
                             {typeLabel}
                         </span>
                         <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
@@ -143,7 +143,7 @@ export const AnnotationListCard = memo(function AnnotationListCard({
                         aria-label="Actions"
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
-                        className="border border-[var(--color-border)] p-1.5 text-[color:var(--color-text-muted)] transition-opacity hover:text-[color:var(--color-text-primary)]"
+                        className="p-1.5 text-[color:var(--color-text-muted)] transition-opacity hover:text-[color:var(--color-text-primary)]"
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>
@@ -158,7 +158,7 @@ export const AnnotationListCard = memo(function AnnotationListCard({
                                         item.onSelect();
                                     }}
                                     className={cn(
-                                        "w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] font-medium hover:bg-[var(--color-surface-muted)]",
+                                        "w-full whitespace-nowrap px-3 py-2 text-left font-sans text-[11px] hover:bg-[var(--color-surface-muted)]",
                                         item.danger
                                             ? "text-[color:var(--color-error)]"
                                             : "text-[color:var(--color-text-primary)]",
@@ -204,7 +204,7 @@ export const AnnotationListCard = memo(function AnnotationListCard({
                 <button
                     onClick={() => onToggleExpanded(id)}
                     aria-expanded={layout.expanded}
-                    className="mt-3 h-[20px] font-sans text-[11px] font-medium leading-[20px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:underline"
+                    className="mt-3 h-[20px] font-sans text-[11px] leading-[20px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:underline"
                 >
                     {layout.expanded ? "Show less" : "Show more"}
                 </button>

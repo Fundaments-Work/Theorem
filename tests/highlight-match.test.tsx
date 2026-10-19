@@ -37,10 +37,10 @@ describe("HighlightMatch component", () => {
         const spans = container.querySelectorAll("span > span");
         expect(spans.length).toBe(4); // D (match), u, n (match), e
         expect(spans[0].textContent).toBe("D");
-        expect(spans[0].className).toContain("font-bold text-[color:var(--color-accent)]");
+        expect(spans[0].className).toContain("text-[color:var(--color-accent)]");
         expect(spans[1].textContent).toBe("u");
         expect(spans[2].textContent).toBe("n");
-        expect(spans[2].className).toContain("font-bold text-[color:var(--color-accent)]");
+        expect(spans[2].className).toContain("text-[color:var(--color-accent)]");
         expect(spans[3].textContent).toBe("e");
     });
 
@@ -54,7 +54,7 @@ describe("HighlightMatch component", () => {
         const spans = container.querySelectorAll("span > span");
         expect(spans.length).toBe(2); // "Du" (match), "ne"
         expect(spans[0].textContent).toBe("Du");
-        expect(spans[0].className).toContain("font-bold");
+        expect(spans[0].className).toContain("text-[color:var(--color-accent)]");
         expect(spans[1].textContent).toBe("ne");
     });
 
@@ -68,6 +68,6 @@ describe("HighlightMatch component", () => {
         expect(container.textContent).toBe("Les Misérables");
         const spans = container.querySelectorAll("span > span");
         expect(spans[1].textContent).toBe("M");
-        expect(spans[1].className).toContain("font-bold");
+        expect(spans[1].className).toContain("text-[color:var(--color-accent)]");
     });
 });

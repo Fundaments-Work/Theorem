@@ -35,7 +35,7 @@ export function EditNoteModal({ isOpen, content, onClose, onSave }: EditNoteModa
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="lg" showCloseButton={true}>
             <ModalBody>
-                <h3 className="text-lg font-semibold text-[color:var(--color-text-primary)] mb-4">
+                <h3 className="text-lg text-[color:var(--color-text-primary)] mb-4">
                     Edit Note
                 </h3>
                 <textarea

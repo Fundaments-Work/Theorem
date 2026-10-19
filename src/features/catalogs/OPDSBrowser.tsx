@@ -73,7 +73,7 @@ function FeedPager({
     onNext: () => void;
 }) {
     const buttonClass =
-        "px-4 py-2 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none";
+        "px-4 py-2 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none";
     return (
         <nav
             aria-label="Catalog pages"
@@ -116,16 +116,16 @@ function CatalogSkeleton() {
                 {Array.from({ length: 3 }, (_, i) => (
                     <div
                         key={i}
-                        className="h-14 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] animate-pulse"
+                        className="h-14 border border-[var(--color-border)] bg-[var(--color-surface-muted)] animate-pulse"
                     />
                 ))}
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                 {Array.from({ length: 18 }, (_, i) => (
                     <div key={i} className="flex flex-col">
-                        <div className="aspect-[2/3] w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] animate-pulse" />
-                        <div className="mt-2 h-3 w-4/5 rounded bg-[var(--color-surface-muted)] animate-pulse" />
-                        <div className="mt-1.5 h-2.5 w-3/5 rounded bg-[var(--color-surface-muted)] animate-pulse" />
+                        <div className="aspect-[2/3] w-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] animate-pulse" />
+                        <div className="mt-2 h-3 w-4/5 bg-[var(--color-surface-muted)] animate-pulse" />
+                        <div className="mt-1.5 h-2.5 w-3/5 bg-[var(--color-surface-muted)] animate-pulse" />
                     </div>
                 ))}
             </div>
@@ -528,7 +528,7 @@ export function OPDSBrowserPage() {
             {/* Header & Catalog Tabs */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-5">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-[color:var(--color-text-primary)]">
+                    <h1 className="text-2xl text-[color:var(--color-text-primary)]">
                         Catalogs
                     </h1>
                     <p className="text-xs text-[color:var(--color-text-muted)] mt-1">
@@ -545,7 +545,7 @@ export function OPDSBrowserPage() {
                                 <button
                                     onClick={() => setActiveCatalog(catalog.id)}
                                     className={cn(
-                                        "px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5",
+                                        "px-3.5 py-1.5 text-xs transition-colors flex items-center gap-1.5",
                                         isActive
                                             ? "bg-[var(--color-text-primary)] text-[var(--color-background)]"
                                             : "bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-border)] hover:text-[color:var(--color-text-primary)]"
@@ -561,7 +561,7 @@ export function OPDSBrowserPage() {
                                             removeCatalog(catalog.id);
                                             toast.success("Catalog removed");
                                         }}
-                                        className="hidden group-hover:flex absolute -top-1 -right-1 h-4 w-4 bg-zinc-800 text-white rounded-full items-center justify-center text-[9px] hover:bg-red-600"
+                                        className="hidden group-hover:flex absolute -top-1 -right-1 h-4 w-4 bg-[var(--color-surface-elevated)] text-[color:var(--color-text-primary)] items-center justify-center text-[9px] hover:text-[color:var(--color-accent)]"
                                         title="Remove catalog"
                                     >
                                         <X className="h-2.5 w-2.5" />
@@ -573,7 +573,7 @@ export function OPDSBrowserPage() {
 
                     <button
                         onClick={() => setIsAddModalOpen(true)}
-                        className="px-3 py-1.5 rounded-full border border-dashed border-[var(--color-border)] text-xs font-medium text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:border-[var(--color-text-secondary)] flex items-center gap-1 shrink-0"
+                        className="px-3 py-1.5 border border-dashed border-[var(--color-border)] text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:border-[var(--color-text-secondary)] flex items-center gap-1 shrink-0"
                     >
                         <Plus className="h-3 w-3" />
                         <span>Add Library</span>
@@ -587,13 +587,13 @@ export function OPDSBrowserPage() {
                     {feedHistory.length > 0 && (
                         <button
                             onClick={navigateBack}
-                            className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors shrink-0"
+                            className="p-1.5 text-[color:var(--color-text-primary)] transition-colors shrink-0 hover:text-[color:var(--color-accent)]"
                             aria-label="Back"
                         >
                             <ArrowLeft className="h-4 w-4" />
                         </button>
                     )}
-                    <h2 className="text-sm font-semibold text-[color:var(--color-text-primary)] truncate">
+                    <h2 className="text-sm text-[color:var(--color-text-primary)] truncate">
                         {feed?.title || activeCatalog?.title || "Catalog"}
                     </h2>
                 </div>
@@ -608,7 +608,7 @@ export function OPDSBrowserPage() {
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search books or authors…"
                         aria-label="Search this catalog"
-                        className="w-full h-8 pl-8 pr-14 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[color:var(--color-text-primary)] placeholder-[color:var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent)] transition-colors"
+                        className="w-full h-8 pl-8 pr-14 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] placeholder-[color:var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent)] transition-colors"
                     />
                     {isSearching ? (
                         <RefreshCw className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[color:var(--color-text-muted)] animate-spin" />
@@ -638,7 +638,7 @@ export function OPDSBrowserPage() {
                                 onClick={() => setSortOrder(order.id)}
                                 aria-pressed={sortOrder === order.id}
                                 className={cn(
-                                    "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap",
+                                    "px-2.5 py-1 text-[10px] border transition-colors whitespace-nowrap",
                                     sortOrder === order.id
                                         ? FILTER_CHIP_SELECTED
                                         : FILTER_CHIP_UNSELECTED_ON_SURFACE,
@@ -657,7 +657,7 @@ export function OPDSBrowserPage() {
                                     onClick={() => setLanguageFilter(null)}
                                     aria-pressed={languageFilter === null}
                                     className={cn(
-                                        "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap uppercase",
+                                        "px-2.5 py-1 text-[10px] border transition-colors whitespace-nowrap",
                                         languageFilter === null
                                             ? FILTER_CHIP_SELECTED
                                             : FILTER_CHIP_UNSELECTED_ON_SURFACE,
@@ -675,7 +675,7 @@ export function OPDSBrowserPage() {
                                         }
                                         aria-pressed={languageFilter === language}
                                         className={cn(
-                                            "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap uppercase",
+                                            "px-2.5 py-1 text-[10px] border transition-colors whitespace-nowrap",
                                             languageFilter === language
                                                 ? FILTER_CHIP_SELECTED
                                                 : FILTER_CHIP_UNSELECTED_ON_SURFACE,
@@ -696,7 +696,7 @@ export function OPDSBrowserPage() {
                                     onClick={() => setFormatFilter(null)}
                                     aria-pressed={formatFilter === null}
                                     className={cn(
-                                        "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap",
+                                        "px-2.5 py-1 text-[10px] border transition-colors whitespace-nowrap",
                                         formatFilter === null
                                             ? FILTER_CHIP_SELECTED
                                             : FILTER_CHIP_UNSELECTED_ON_SURFACE,
@@ -714,7 +714,7 @@ export function OPDSBrowserPage() {
                                         }
                                         aria-pressed={formatFilter === format}
                                         className={cn(
-                                            "px-2.5 py-1 text-[10px] font-bold border transition-colors whitespace-nowrap",
+                                            "px-2.5 py-1 text-[10px] border transition-colors whitespace-nowrap",
                                             formatFilter === format
                                                 ? FILTER_CHIP_SELECTED
                                                 : FILTER_CHIP_UNSELECTED_ON_SURFACE,
@@ -733,7 +733,7 @@ export function OPDSBrowserPage() {
                                 setLanguageFilter(null);
                                 setFormatFilter(null);
                             }}
-                            className="px-2.5 py-1 text-[10px] font-bold border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors whitespace-nowrap"
+                            className="px-2.5 py-1 text-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] transition-colors whitespace-nowrap"
                         >
                             Clear filters
                         </button>
@@ -745,12 +745,12 @@ export function OPDSBrowserPage() {
             {isLoading ? (
                 <CatalogSkeleton />
             ) : error ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 bg-[var(--color-surface-muted)] rounded-xl border border-[var(--color-border)] p-6">
+                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)] p-6">
                     <Globe className="h-8 w-8 text-[color:var(--color-text-muted)]" />
                     <p className="text-xs text-[color:var(--color-text-muted)] max-w-sm">{error}</p>
                     <button
                         onClick={() => targetUrl && void loadFeed(targetUrl)}
-                        className="mt-2 px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-semibold rounded-md hover:bg-[var(--color-surface-muted)] flex items-center gap-1.5"
+                        className="mt-2 px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] text-xs hover:bg-[var(--color-surface-muted)] flex items-center gap-1.5"
                     >
                         <RefreshCw className="h-3 w-3" />
                         <span>Try Again</span>
@@ -768,14 +768,14 @@ export function OPDSBrowserPage() {
                                         onClick={() => {
                                             if (entry.navUrl) navigateToFeed(entry.navUrl);
                                         }}
-                                        className="flex items-center justify-between p-3.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-left transition-colors group"
+                                        className="flex items-center justify-between p-3.5 border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-left transition-colors group"
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <div className="h-8 w-8 rounded bg-[var(--color-surface-muted)] flex items-center justify-center shrink-0 group-hover:bg-[var(--color-border)]">
+                                            <div className="h-8 w-8 bg-[var(--color-surface-muted)] flex items-center justify-center shrink-0 group-hover:bg-[var(--color-border)]">
                                                 <Folder className="h-4 w-4 text-[color:var(--color-text-secondary)]" />
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="text-xs font-semibold text-[color:var(--color-text-primary)] truncate">
+                                                <div className="text-xs text-[color:var(--color-text-primary)] truncate">
                                                     {entry.title}
                                                 </div>
                                                 {entry.summary && (
@@ -796,7 +796,7 @@ export function OPDSBrowserPage() {
                     {visibleBookEntries.length > 0 ? (
                         <div>
                             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                                <h3 className="text-xs font-semibold text-[color:var(--color-text-secondary)]">
+                                <h3 className="text-xs text-[color:var(--color-text-secondary)]">
                                     {trimmedQuery
                                         ? `Results for “${trimmedQuery}”`
                                         : "Books"}
@@ -804,7 +804,7 @@ export function OPDSBrowserPage() {
                                 <div className="flex items-baseline gap-3">
                                     {searchSource === "local" && trimmedQuery && (
                                         <span
-                                            className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider"
+                                            className="text-[10px] text-[color:var(--color-text-muted)]"
                                             title={
                                                 feed?.searchUrlTemplate
                                                     ? "This catalog's search endpoint is unavailable — matching the titles on this page."
@@ -889,7 +889,7 @@ export function OPDSBrowserPage() {
                     ) : trimmedQuery ? (
                         <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
                             <Search className="h-8 w-8 text-[color:var(--color-text-muted)]" />
-                            <p className="text-xs font-medium text-[color:var(--color-text-secondary)]">
+                            <p className="text-xs text-[color:var(--color-text-secondary)]">
                                 No results for &ldquo;{trimmedQuery}&rdquo;
                             </p>
                             {searchSource === "local" && (
@@ -900,7 +900,7 @@ export function OPDSBrowserPage() {
                             )}
                             <button
                                 onClick={clearSearch}
-                                className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                                className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                             >
                                 Clear search
                             </button>
@@ -908,7 +908,7 @@ export function OPDSBrowserPage() {
                     ) : hasActiveFilters && bookEntries.length > 0 ? (
                         <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
                             <FileText className="h-8 w-8 text-[color:var(--color-text-muted)]" />
-                            <p className="text-xs font-medium text-[color:var(--color-text-secondary)]">
+                            <p className="text-xs text-[color:var(--color-text-secondary)]">
                                 No titles match these filters.
                             </p>
                             <button
@@ -916,7 +916,7 @@ export function OPDSBrowserPage() {
                                     setLanguageFilter(null);
                                     setFormatFilter(null);
                                 }}
-                                className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold rounded-md text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                                className="mt-1 px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-surface)] text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
                             >
                                 Clear filters
                             </button>
@@ -924,7 +924,7 @@ export function OPDSBrowserPage() {
                     ) : navigationEntries.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
                             <BookOpen className="h-8 w-8 text-[color:var(--color-text-muted)]" />
-                            <p className="text-xs font-medium text-[color:var(--color-text-secondary)]">No books found in this catalog.</p>
+                            <p className="text-xs text-[color:var(--color-text-secondary)]">No books found in this catalog.</p>
                         </div>
                     )}
                 </div>
@@ -939,7 +939,7 @@ export function OPDSBrowserPage() {
                             <div className="flex flex-col sm:flex-row gap-4">
                                 {/* Always rendered: a coverless entry gets the same clothbound fallback the
                                     grid shows, rather than the modal losing its image column. */}
-                                    <div className="aspect-[2/3] w-24 shrink-0 overflow-hidden rounded border border-[var(--color-border)]">
+                                    <div className="aspect-[2/3] w-24 shrink-0 overflow-hidden border border-[var(--color-border)]">
                                         <TheoremBookCover
                                             title={selectedEntry.title}
                                             author={selectedEntry.author}
@@ -947,8 +947,8 @@ export function OPDSBrowserPage() {
                                         />
                                     </div>
                                 <div className="flex flex-col gap-1 min-w-0">
-                                    <h4 className="text-sm font-bold text-[color:var(--color-text-primary)]">{selectedEntry.title}</h4>
-                                    <p className="text-xs text-[color:var(--color-text-secondary)] font-medium">{selectedEntry.author || "Public Domain"}</p>
+                                    <h4 className="text-sm text-[color:var(--color-text-primary)]">{selectedEntry.title}</h4>
+                                    <p className="text-xs text-[color:var(--color-text-secondary)]">{selectedEntry.author || "Public Domain"}</p>
                                     {selectedEntry.publisher && (
                                         <p className="text-[11px] text-[color:var(--color-text-muted)]">Source: {selectedEntry.publisher}</p>
                                     )}
@@ -965,7 +965,7 @@ export function OPDSBrowserPage() {
                         <ModalFooter>
                             <button
                                 onClick={() => setSelectedEntry(null)}
-                                className="px-4 py-2 border border-[var(--color-border)] text-xs font-semibold text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] rounded"
+                                className="px-4 py-2 border border-[var(--color-border)] text-xs text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
                             >
                                 Close
                             </button>
@@ -975,7 +975,7 @@ export function OPDSBrowserPage() {
                                         void handleDownload(selectedEntry);
                                         setSelectedEntry(null);
                                     }}
-                                    className="px-4 py-2 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs font-bold rounded hover:opacity-90 flex items-center gap-1.5"
+                                    className="px-4 py-2 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs hover:opacity-90 flex items-center gap-1.5"
                                 >
                                     <Download className="h-3 w-3" />
                                     <span>Add to Library</span>
@@ -992,7 +992,7 @@ export function OPDSBrowserPage() {
                     <ModalHeader title="Add Custom Library" onClose={() => setIsAddModalOpen(false)} />
                     <ModalBody className="space-y-4">
                         <div>
-                            <label className="block text-xs font-medium text-[color:var(--color-text-secondary)] mb-1.5">
+                            <label className="block text-xs text-[color:var(--color-text-secondary)] mb-1.5">
                                 Library Name
                             </label>
                             <input
@@ -1000,12 +1000,12 @@ export function OPDSBrowserPage() {
                                 value={newCatalogTitle}
                                 onChange={(e) => setNewCatalogTitle(e.target.value)}
                                 placeholder="e.g. My Calibre Server"
-                                className="w-full h-9 bg-[var(--color-surface)] border border-[var(--color-border)] px-3 text-xs text-[color:var(--color-text-primary)] rounded focus:outline-none focus:border-[var(--color-accent)]"
+                                className="w-full h-9 bg-[var(--color-surface)] border border-[var(--color-border)] px-3 text-xs text-[color:var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
                                 required
                             />
                         </div>
                         <div>
-                            <label className="block text-xs font-medium text-[color:var(--color-text-secondary)] mb-1.5">
+                            <label className="block text-xs text-[color:var(--color-text-secondary)] mb-1.5">
                                 Catalog URL
                             </label>
                             <input
@@ -1013,7 +1013,7 @@ export function OPDSBrowserPage() {
                                 value={newCatalogUrl}
                                 onChange={(e) => setNewCatalogUrl(e.target.value)}
                                 placeholder="http://192.168.1.100:8080/opds"
-                                className="w-full h-9 bg-[var(--color-surface)] border border-[var(--color-border)] px-3 text-xs text-[color:var(--color-text-primary)] rounded focus:outline-none focus:border-[var(--color-accent)]"
+                                className="w-full h-9 bg-[var(--color-surface)] border border-[var(--color-border)] px-3 text-xs text-[color:var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
                                 required
                             />
                         </div>
@@ -1022,13 +1022,13 @@ export function OPDSBrowserPage() {
                         <button
                             type="button"
                             onClick={() => setIsAddModalOpen(false)}
-                            className="px-4 py-2 border border-[var(--color-border)] text-xs font-medium text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)] rounded"
+                            className="px-4 py-2 border border-[var(--color-border)] text-xs text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-muted)]"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            className="px-4 py-2 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs font-bold rounded hover:opacity-90"
+                            className="px-4 py-2 bg-[var(--color-text-primary)] text-[var(--color-background)] text-xs hover:opacity-90"
                         >
                             Add Library
                         </button>

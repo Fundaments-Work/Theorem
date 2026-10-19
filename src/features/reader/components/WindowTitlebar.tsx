@@ -55,7 +55,7 @@ interface WindowTitlebarProps {
     pdfControls?: any;
 }
 
-const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 shrink-0 items-center justify-center border border-transparent bg-transparent p-0 text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]";
+const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 shrink-0 items-center justify-center p-0 text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]";
 const ICON_BUTTON_ACTIVE_CLASS = "border-[var(--color-text-primary)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-primary)]";
 const ICON_BUTTON_INACTIVE_CLASS = "border-transparent text-[color:var(--color-text-secondary)]";
 
@@ -117,7 +117,7 @@ function MobileMenu({ isOpen, onClose, items, triggerRef: _triggerRef }: MenuPro
                 }}
             />
             <div
-                className="absolute right-2 top-full mt-1.5 z-[161] min-w-[13rem] max-w-[calc(100vw-1rem)] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl shadow-xl py-1 overflow-hidden transition-[opacity,transform] duration-200 ease-out"
+                className="absolute right-2 top-full mt-1.5 z-[161] min-w-[13rem] max-w-[calc(100vw-1rem)] border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl py-1 overflow-hidden transition-[opacity,transform] duration-200 ease-out"
             >
                 {items.map((item, index) => (
                     <button
@@ -131,7 +131,7 @@ function MobileMenu({ isOpen, onClose, items, triggerRef: _triggerRef }: MenuPro
                         className={cn(
                             "flex w-full items-center gap-3 px-3.5 py-2.5 text-xs text-left transition-colors text-[color:var(--color-text-primary)]",
                             item.active
-                                ? "bg-[var(--color-surface-muted)] font-medium text-[color:var(--color-accent)]"
+                                ? "bg-[var(--color-surface-muted)] text-[color:var(--color-accent)]"
                                 : "hover:bg-[var(--color-surface-muted)]",
                             item.disabled && "opacity-50 cursor-not-allowed",
                             item.mobileOnly && "sm:hidden"
@@ -315,14 +315,14 @@ export function WindowTitlebar({
                     <div className="flex-1 min-w-0 text-left overflow-hidden pr-1 sm:pr-2">
                         <h1
                             data-tauri-drag-region={undefined}
-                            className="text-xs sm:text-sm font-bold truncate leading-tight text-[color:var(--color-text-primary)]"
+                            className="text-xs sm:text-sm truncate leading-tight text-[color:var(--color-text-primary)]"
                             title={metadata?.title}
                         >
                             {metadata?.title || "Loading..."}
                         </h1>
                         {formatLocation() && (
                             <div
-                                className="text-[10px] sm:text-[11px] truncate font-mono font-medium mt-0.5 leading-tight text-[color:var(--color-text-secondary)]"
+                                className="text-[10px] sm:text-[11px] truncate font-mono mt-0.5 leading-tight text-[color:var(--color-text-secondary)]"
                             >
                                 {formatLocation()}
                             </div>
@@ -398,10 +398,10 @@ export function WindowTitlebar({
                 />
 
                 {showDesktopWindowControls && (
-                    <div className="hidden lg:flex items-center gap-1 ml-2 pl-2 border-l border-[var(--color-border)]">
-                        <button onClick={handleMinimize} className={cn(ICON_BUTTON_CLASS, "text-[color:var(--color-text-primary)]")} aria-label="Minimize"><Minus className="w-5 h-5" /></button>
-                        <button onClick={handleMaximize} className={cn(ICON_BUTTON_CLASS, "text-[color:var(--color-text-primary)]")} aria-label={isMaximized ? "Restore" : "Maximize"}><Maximize2 className="w-5 h-5" /></button>
-                        <button onClick={handleClose} className={cn(ICON_BUTTON_CLASS, "text-[color:var(--color-text-primary)] hover:bg-[color:color-mix(in_srgb,var(--color-error)_14%,transparent)] hover:text-[color:var(--color-error)]")} aria-label="Close"><X className="w-5 h-5" /></button>
+                    <div className="hidden lg:flex items-center ml-3 pl-3 border-l border-[var(--color-border)]">
+                        <button onClick={handleMinimize} className={cn(ICON_BUTTON_CLASS, "!w-11 text-[color:var(--color-text-primary)]")} aria-label="Minimize"><Minus className="w-4 h-4" /></button>
+                        <button onClick={handleMaximize} className={cn(ICON_BUTTON_CLASS, "!w-11 text-[color:var(--color-text-primary)]")} aria-label={isMaximized ? "Restore" : "Maximize"}><Maximize2 className="w-4 h-4" /></button>
+                        <button onClick={handleClose} className={cn(ICON_BUTTON_CLASS, "!w-11 text-[color:var(--color-text-primary)] hover:text-[color:var(--color-error)]")} aria-label="Close"><X className="w-4 h-4" /></button>
                     </div>
                 )}
             </div>

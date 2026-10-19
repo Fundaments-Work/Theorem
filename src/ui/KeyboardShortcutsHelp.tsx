@@ -31,7 +31,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
                 <div className="space-y-6">
                     {groupedShortcuts.map(([category, shortcuts]) => (
                         <div key={category}>
-                            <h3 className="text-xs font-black uppercase tracking-wider text-[color:var(--color-text-muted)] mb-2">
+                            <h3 className="text-xs text-[color:var(--color-text-muted)] mb-2">
                                 {category}
                             </h3>
                             <div className="divide-y divide-[var(--color-border)]">

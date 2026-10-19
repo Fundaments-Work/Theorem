@@ -29,6 +29,7 @@ The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upst
 | Typecheck | `pnpm typecheck` |
 | Tests | `pnpm test` |
 | Single test | `pnpm test tests/some.test.ts` |
+| Content sync check | `pnpm check:content` |
 | Rust fmt | `cd src-tauri && cargo fmt` |
 | Rust lint | `cd src-tauri && cargo clippy` |
 | Rust check | `cd src-tauri && cargo check` |
@@ -42,6 +43,7 @@ Run all that apply:
 
 - TypeScript: `pnpm typecheck` — zero errors
 - Vitest: `pnpm test` — all unit and integration tests must pass
+- Content: `pnpm check:content` — no Buy Me Momo URL here has drifted from `Fundaments-Work/content`
 - Rust (if any `.rs` changed): `cd src-tauri && cargo fmt && cargo clippy && cargo check` — fmt must produce no diff, clippy zero warnings
 - Rust touching Android-only code or dependencies: `cargo clippy --target aarch64-linux-android` (CI runs it; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers locally)
 
@@ -118,7 +120,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 **Companion Audiobooks**: attach human-narrated audio to any book. `src-tauri/src/audiobook.rs` (`extract_audiobook_metadata`) parses `.m4b/.m4a/.mp3` duration, tags, cover and chapters (M4B chapters via a hand-rolled QuickTime chapter-track walker — no crate exposes them). Optional `Book.audioTrack` (`BookAudioTrack` in types) lives in the library store and syncs; attach/detach via the library context menu. Playback: `src/features/reader/audio/AudiobookBar.tsx` (HTMLAudioElement via asset protocol, chapters, speed, sleep timer, mediaSession, position auto-save). Generation: `src-tauri/src/audiobook_gen.rs` (`generate_audiobook`, desktop only) narrates EPUB sections through Supertonic and encodes one Ogg Opus per book (36kbps mono, hand-rolled Ogg muxer + `audiopus`/libopus static) with chapter marks, then attaches it as the book's `audioTrack` (format `opus`). Docs: `docs/audiobook.md`.
 
-179 `#[tauri::command]` attributes (161 distinct command names; some have desktop/mobile `cfg` variants) across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (31 SQLite commands), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion, SIMD cover extraction, series metadata), `cbr.rs` (native CBR/RAR→CBZ comic archive parsing via `rars`), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), `audio_player.rs` (native rodio playback, desktop-only), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
+182 `#[tauri::command]` attributes (163 distinct command names registered in `generate_handler!`; some have desktop/mobile `cfg` variants, and `offload_commands.rs` re-exposes blocking commands as async wrappers) across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (SQLite persistence, surfaced through `offload_commands.rs`), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion, SIMD cover extraction, series metadata), `cbr.rs` (native CBR/RAR→CBZ comic archive parsing via `rars`), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), `audio_player.rs` (native rodio playback, desktop-only), `smart_shelves.rs` + `vault_export.rs` (rule evaluation and Rayon vault export), `fuzzy_search.rs` + `stemmer.rs` (SIMD ranking and lemmatization), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
 
 ## Persistence
 
@@ -169,7 +171,7 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 
 2. **Run full local quality gates**:
    - TypeScript: `pnpm typecheck` — zero errors
-   - Vitest: `pnpm test` — all suites must pass (currently 79 files / 758 tests)
+   - Vitest: `pnpm test` — all suites must pass (currently 114 files / 1046 tests)
    - Production bundle: `pnpm build` — verifies bundle, WebAssembly modules, and PDF.js assets
    - Rust: `cd src-tauri && cargo fmt --check && cargo clippy && cargo check` — zero warnings/errors
    - Foliate runtime: `pnpm foliate:check` — clean pass
@@ -292,6 +294,51 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full PR process. TL;DR:
 ### Release Workflow
 
 See the [Release](#release) section above. CI (`release.yml`) auto-builds and publishes on tag push.
+
+## Cross-repo contracts
+
+Two other repos hold facts this repo depends on. Both are **read-only** from
+here: change them in the source repo, never here.
+
+### `Fundaments-Work/content` — shared facts
+
+Machine-readable facts that more than one product must agree on. One
+`support.json` today; a product registry later.
+
+- **Canonical home of the Buy Me Momo URL**: `support.json`, channel `buyMeMomo`.
+- This repo keeps the literal in `src/core/lib/support-prompt.ts` (the support
+  nudge) and `.github/FUNDING.yml` (the Sponsor button). Both are deliberate
+  literals — an Obsidian-style manifest and a compiled bundle cannot depend on
+  a sibling repo at build time without real fragility in the release pipeline.
+- `pnpm check:content` compares every Buy Me Momo URL here against the canonical
+  one and fails on drift. CI runs it in the `content-check` job.
+- **To change the link: change `content/support.json` first**, push it, then
+  update the literals here. Fixing only this repo leaves three other repos
+  advertising a dead URL.
+- The check needs the content repo or the network. It resolves a sibling
+  checkout (`../content`), then `--from <path>` / `CONTENT_DIR`, then
+  `raw.githubusercontent`. It is a script rather than a vitest case on purpose:
+  `pnpm test` stays hermetic and offline-capable.
+
+### `Fundaments-Work/design-system` — visual language
+
+The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
+
+- **The shipped code wins.** `tokens.md` states it directly: where the document
+  and a shipped codebase disagree, the codebase is authoritative and the
+  document is the bug. This repo's `src/core/styles/design-tokens.css` and
+  `src/core/lib/design-tokens.ts` are the reference implementation.
+- Nothing imports `design-system/` programmatically. Adoption is by hand, and
+  that is the drift risk: when a token changes in a product, check whether
+  `tokens.md` now disagrees and fix the document.
+- Non-negotiable rules, per `tokens.md`: one dark base (`#141416`), corner radius
+  `0` on every element, DM Sans/DM Mono at 300/400 only, hierarchy from size and
+  colour rather than extra weights, and one accent for the whole lab: acid lime
+  `#c6f135`. Theorem has no design system of its own. The only thing it keeps
+  from the old one is the reader's serif for book content, which is content
+  typography, not interface.
+- Hover on an icon button is the accent colour, never a background. The sidebar is
+  a fixed 48px rail with no collapse control; the open item is lime with a lime edge.
 
 ## CSS conventions
 

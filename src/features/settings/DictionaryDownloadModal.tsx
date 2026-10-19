@@ -177,11 +177,11 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
                             >
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2">
-                                        <p className="font-semibold text-sm text-[color:var(--color-text-primary)]">
+                                        <p className="text-sm text-[color:var(--color-text-primary)]">
                                             {dict.name}
                                         </p>
                                         {dict.badge && (
-                                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]">
+                                            <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]">
                                                 {dict.badge}
                                             </span>
                                         )}
@@ -206,7 +206,7 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
                                         </div>
                                         <button
                                             onClick={handleCancel}
-                                            className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--color-surface-muted)] transition-colors touch-manipulation"
+                                            className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-error)] transition-colors touch-manipulation"
                                             title="Cancel download"
                                         >
                                             <X className="w-4 h-4" />
@@ -217,7 +217,7 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
                                         onClick={() => handleDownload(dict)}
                                         disabled={activeDownload !== null || isInstalled}
                                         className={cn(
-                                            "inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold shrink-0 border transition-[color,background-color,border-color,opacity,transform] duration-150 ease-out touch-manipulation whitespace-nowrap",
+                                            "inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs shrink-0 border transition-[color,background-color,border-color,opacity,transform] duration-150 ease-out touch-manipulation whitespace-nowrap",
                                             "w-full sm:w-auto",
                                             isInstalled
                                                 ? "border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)] cursor-default opacity-80"

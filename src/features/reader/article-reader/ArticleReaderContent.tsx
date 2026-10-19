@@ -248,7 +248,7 @@ export function ArticleReaderContent({
                 onMouseUp={handleMouseUp}
             >
                 <header className="mb-10 pb-6 border-b border-[var(--color-border-subtle)]">
-                    <div className="mb-4 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-[color:var(--color-text-secondary)]">
+                    <div className="mb-4 flex flex-wrap items-center gap-2 font-mono text-[10px] text-[color:var(--color-text-secondary)]">
                         {feedTitle && (
                             <span className="border border-[var(--color-border)] px-2 py-1 text-[color:var(--color-text-primary)]">
                                 {feedTitle}
@@ -275,7 +275,7 @@ export function ArticleReaderContent({
                     </div>
 
                     <h1
-                        className="font-serif font-semibold leading-tight tracking-tight"
+                        className="font-serif leading-tight"
                         style={{
                             fontSize: `${fontSize * 1.5}px`,
                             lineHeight: 1.2,
@@ -285,7 +285,7 @@ export function ArticleReaderContent({
                     </h1>
 
                     {article.author && (
-                        <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.08em] text-[color:var(--color-text-secondary)]">
+                        <p className="mt-3 font-mono text-[11px] text-[color:var(--color-text-secondary)]">
                             {article.author}
                         </p>
                     )}
@@ -307,9 +307,9 @@ export function ArticleReaderContent({
                     className={cn(
                         "rss-article-content max-w-none",
                         "[&_p]:my-4",
-                        "[&_h1]:mt-8 [&_h1]:mb-4 [&_h1]:text-[1.9em] [&_h1]:font-semibold [&_h1]:leading-tight",
-                        "[&_h2]:mt-7 [&_h2]:mb-3 [&_h2]:text-[1.45em] [&_h2]:font-semibold [&_h2]:leading-tight",
-                        "[&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-[1.2em] [&_h3]:font-semibold",
+                        "[&_h1]:mt-8 [&_h1]:mb-4 [&_h1]:text-[1.9em] [&_h1]: [&_h1]:leading-tight",
+                        "[&_h2]:mt-7 [&_h2]:mb-3 [&_h2]:text-[1.45em] [&_h2]: [&_h2]:leading-tight",
+                        "[&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-[1.2em] [&_h3]:",
                         "[&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6",
                         "[&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6",
                         "[&_li]:my-1",

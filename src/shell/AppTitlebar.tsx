@@ -27,8 +27,8 @@ interface AppTitlebarProps {
 const TITLEBAR_ICON_BUTTON =
     "ui-icon-btn !h-9 !w-9";
 const TITLEBAR_WINDOW_BUTTON =
-    "inline-flex h-8 w-8 items-center justify-center border border-transparent bg-transparent p-0 text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]";
-const TITLEBAR_CLOSE_BUTTON = `${TITLEBAR_WINDOW_BUTTON} hover:bg-[color:color-mix(in_srgb,var(--color-error)_14%,transparent)] hover:text-[color:var(--color-error)]`;
+    "inline-flex h-9 w-11 items-center justify-center p-0 text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]";
+const TITLEBAR_CLOSE_BUTTON = `${TITLEBAR_WINDOW_BUTTON} hover:text-[color:var(--color-error)]`;
 const TITLEBAR_SEARCH_INPUT =
     "ui-input bg-[var(--color-surface)] pl-[calc(var(--control-padding-x)+var(--icon-size-sm)+var(--spacing-md))]";
 
@@ -260,7 +260,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                         </div>
                     </button>
 
-                    <h1 className="hidden sm:block font-sans text-sm font-semibold text-[color:var(--color-text-primary)] truncate">
+                    <h1 className="hidden sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
                         {getPageTitle()}
                     </h1>
                 </div>
@@ -288,7 +288,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 <button
                                     type="button"
                                     onClick={() => useUIStore.getState().clearSearch()}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors"
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-[var(--color-text-dim)] transition-colors hover:text-[color:var(--color-accent)]"
                                     aria-label="Clear search"
                                 >
                                     ×
@@ -371,11 +371,11 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 <ArrowDownUp className="w-5 h-5" />
                                 <span
                                     className={cn(
-                                        "absolute -bottom-px -right-px w-2.5 h-2.5 rounded-full ring-2 ring-[var(--color-surface)] transition-colors duration-300",
-                                        deviceSyncStatus === "idle" && "bg-gray-400",
-                                        deviceSyncStatus === "syncing" && "bg-amber-400 animate-pulse",
-                                        deviceSyncStatus === "synced" && "bg-green-500",
-                                        deviceSyncStatus === "error" && "bg-red-500",
+                                        "absolute -bottom-px -right-px w-2.5 h-2.5 ring-2 ring-[var(--color-surface)] transition-colors duration-300",
+                                        deviceSyncStatus === "idle" && "bg-[var(--color-text-muted)]",
+                                        deviceSyncStatus === "syncing" && "bg-[var(--color-warning)] animate-pulse",
+                                        deviceSyncStatus === "synced" && "bg-[var(--color-success)]",
+                                        deviceSyncStatus === "error" && "bg-[var(--color-error)]",
                                     )}
                                 />
                             </span>
@@ -399,7 +399,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                     </button>
 
                     {showDesktopWindowControls && (
-                        <div className="hidden sm:flex items-center gap-1 ml-1.5 pl-2.5 border-l border-[var(--color-border)]">
+                        <div className="hidden sm:flex items-center ml-3 pl-3 border-l border-[var(--color-border)]">
                             <button
                                 onClick={handleMinimize}
                                 className={TITLEBAR_WINDOW_BUTTON}

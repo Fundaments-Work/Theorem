@@ -447,7 +447,6 @@ export type AppRoute = "library" | "reader" | "vocabulary" | "settings" | "annot
 export interface UIState {
     currentRoute: AppRoute;
     currentBookId?: string;
-    sidebarOpen: boolean;
     readerToolbarVisible: boolean;
     searchQuery: string;
     searchCommittedQuery: string;

@@ -221,18 +221,18 @@ export function ReaderSettings({
                         <span className="inline-flex h-10 w-10 items-center justify-center bg-[var(--color-surface-muted)]">
                             <Settings2 className="w-4 h-4 text-[color:var(--color-text-secondary)]" />
                         </span>
-                        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[color:var(--color-text-primary)]">Settings</span>
+                        <span className="text-[11px] text-[color:var(--color-text-primary)]">Settings</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handleReset}
-                            className="relative px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
+                            className="relative px-2.5 py-1.5 text-[10px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
                         >
                             Reset
                         </button>
                         <button
                             onClick={onClose}
-                            className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors hover:text-[color:var(--color-accent)]"
                             aria-label="Close settings"
                         >
                             <X className="w-4 h-4" />
@@ -246,7 +246,7 @@ export function ReaderSettings({
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className="flex-1 relative py-2 text-[10px] font-bold uppercase tracking-[0.08em] transition-colors text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] data-[active]:text-[color:var(--color-text-primary)]"
+                                className="flex-1 relative py-2 text-[10px] transition-colors text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] data-[active]:text-[color:var(--color-text-primary)]"
                                 data-active={activeTab === tab.id}
                                 aria-pressed={activeTab === tab.id}
                             >
@@ -267,7 +267,7 @@ export function ReaderSettings({
                         <div className="space-y-5">
                             <div>
                                 <div className="flex items-center justify-between mb-3">
-                                    <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Brightness</span>
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">Brightness</span>
                                     <span className="[font-variant-numeric:tabular-nums] text-[11px] text-[color:var(--color-text-primary)]">
                                         {brightnessSlider.value}%
                                     </span>
@@ -275,7 +275,7 @@ export function ReaderSettings({
                                 <div className="flex items-center gap-2.5">
                                     <button
                                         onClick={brightnessSlider.decrement}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Decrease brightness"
                                         disabled={!brightnessSlider.canDecrement}
                                     >
@@ -294,7 +294,7 @@ export function ReaderSettings({
                                     />
                                     <button
                                         onClick={brightnessSlider.increment}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Increase brightness"
                                         disabled={!brightnessSlider.canIncrement}
                                     >
@@ -304,7 +304,7 @@ export function ReaderSettings({
                             </div>
 
                             <div>
-                                <span className="block mb-3 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Theme</span>
+                                <span className="block mb-3 text-[10px] text-[color:var(--color-text-muted)]">Theme</span>
                                 <div className="grid grid-cols-3 gap-2">
                                     {THEMES.map((theme) => {
                                         const active = settings.theme === theme.id;
@@ -330,7 +330,7 @@ export function ReaderSettings({
                                                 >
                                                     <div className="flex flex-col items-center gap-1.5 opacity-70">
                                                         <span className="block text-lg leading-none">Aa</span>
-                                                        <span className="block text-[8px] leading-none uppercase tracking-[0.15em]">{theme.label}</span>
+                                                        <span className="block text-[8px] leading-none">{theme.label}</span>
                                                     </div>
                                                 </div>
                                                 {active && (
@@ -349,7 +349,7 @@ export function ReaderSettings({
                     {activeTab === "typography" && (
                         <div className="space-y-4.5">
                             <div>
-                                <span className="block mb-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Font</span>
+                                <span className="block mb-2.5 text-[10px] text-[color:var(--color-text-muted)]">Font</span>
                                 <div className="grid grid-cols-2 gap-1.5">
                                     {FONTS.map((font) => {
                                         const active = settings.fontFamily === font.id;
@@ -366,7 +366,7 @@ export function ReaderSettings({
                                                 aria-pressed={active}
                                                 style={{ fontFamily: font.family }}
                                             >
-                                                <span className="block text-sm font-medium">{font.label}</span>
+                                                <span className="block text-sm">{font.label}</span>
                                                 <span className="mt-0.5 block text-[10px] text-[color:var(--color-text-muted)]">Aa Bb Cc</span>
                                             </button>
                                         );
@@ -380,13 +380,13 @@ export function ReaderSettings({
 
                             <div>
                                 <div className="flex items-center justify-between mb-3">
-                                    <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Size</span>
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">Size</span>
                                     <span className="[font-variant-numeric:tabular-nums] text-[11px] text-[color:var(--color-text-primary)]">{fontSizeSlider.value}</span>
                                 </div>
                                 <div className="flex items-center gap-2.5">
                                     <button
                                         onClick={fontSizeSlider.decrement}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Decrease font size"
                                         disabled={!fontSizeSlider.canDecrement}
                                     >
@@ -405,7 +405,7 @@ export function ReaderSettings({
                                     />
                                     <button
                                         onClick={fontSizeSlider.increment}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Increase font size"
                                         disabled={!fontSizeSlider.canIncrement}
                                     >
@@ -416,7 +416,7 @@ export function ReaderSettings({
 
                             <button
                                 onClick={() => setShowAdvancedType((prev) => !prev)}
-                                className="w-full py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
+                                className="w-full py-2 text-[10px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
                             >
                                 {showAdvancedType ? "– Less options" : "+ More options"}
                             </button>
@@ -425,7 +425,7 @@ export function ReaderSettings({
                                 <div className="animate-fade-in space-y-4 pt-4 border-t border-[var(--color-border)]">
                                     <div>
                                         <div className="flex items-center justify-between mb-3">
-                                            <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Line spacing</span>
+                                            <span className="text-[10px] text-[color:var(--color-text-muted)]">Line spacing</span>
                                             <span className="[font-variant-numeric:tabular-nums] text-[11px] text-[color:var(--color-text-primary)]">{lineHeightSlider.value.toFixed(1)}</span>
                                         </div>
                                         <input
@@ -442,7 +442,7 @@ export function ReaderSettings({
                                     </div>
 
                                     <div>
-                                        <span className="block mb-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Alignment</span>
+                                        <span className="block mb-2.5 text-[10px] text-[color:var(--color-text-muted)]">Alignment</span>
                                         <div className="grid grid-cols-3 gap-1.5">
                                             {ALIGN_OPTIONS.map(({ id, label, icon: Icon }) => (
                                                 <button
@@ -458,7 +458,7 @@ export function ReaderSettings({
                                                 >
                                                     <span className="flex flex-col items-center gap-1">
                                                         <Icon className="w-4 h-4" />
-                                                        <span className="text-[10px] font-medium">{label}</span>
+                                                        <span className="text-[10px]">{label}</span>
                                                     </span>
                                                 </button>
                                             ))}
@@ -473,13 +473,13 @@ export function ReaderSettings({
                         <div className="space-y-5 pt-1">
                             <div>
                                 <div className="flex items-center justify-between mb-3">
-                                    <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Zoom level</span>
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">Zoom level</span>
                                     <span className="[font-variant-numeric:tabular-nums] text-[11px] text-[color:var(--color-text-primary)]">{zoomSlider.value}%</span>
                                 </div>
                                 <div className="flex items-center gap-2.5">
                                     <button
                                         onClick={zoomSlider.decrement}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Decrease zoom"
                                         disabled={!zoomSlider.canDecrement}
                                     >
@@ -498,7 +498,7 @@ export function ReaderSettings({
                                     />
                                     <button
                                         onClick={zoomSlider.increment}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Increase zoom"
                                         disabled={!zoomSlider.canIncrement}
                                     >
@@ -508,7 +508,7 @@ export function ReaderSettings({
                             </div>
 
                             <div>
-                                <span className="block mb-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Presets</span>
+                                <span className="block mb-2.5 text-[10px] text-[color:var(--color-text-muted)]">Presets</span>
                                 <div className="grid grid-cols-2 gap-1.5">
                                     {[
                                         { id: "actual", label: "100%", value: 100 },
@@ -520,7 +520,7 @@ export function ReaderSettings({
                                             key={preset.id}
                                             onClick={() => onUpdate({ zoom: preset.value })}
                                             className={cn(
-                                                "py-2.5 text-center border text-[11px] font-medium transition-colors",
+                                                "py-2.5 text-center border text-[11px] transition-colors",
                                                 settings.zoom === preset.value
                                                     ? "border-[var(--color-text-primary)]"
                                                     : "border-[var(--color-border)] hover:border-[var(--color-text-muted)]"
@@ -542,7 +542,7 @@ export function ReaderSettings({
                     {activeTab === "layout" && (
                         <div className="space-y-5 pt-1">
                             <div>
-                                <span className="block mb-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Mode</span>
+                                <span className="block mb-2.5 text-[10px] text-[color:var(--color-text-muted)]">Mode</span>
                                 <div className="grid grid-cols-2 gap-1.5">
                                     {FLOW_OPTIONS.map(({ id, label, icon: Icon }) => {
                                         const disabled = isFixed && format !== "cbr" && format !== "cbz" && id === "scroll";
@@ -564,7 +564,7 @@ export function ReaderSettings({
                                             >
                                                 <span className="flex flex-col items-center gap-2">
                                                     <Icon className="w-5 h-5" />
-                                                    <span className="text-[11px] font-medium">{label}</span>
+                                                    <span className="text-[11px]">{label}</span>
                                                 </span>
                                             </button>
                                         );
@@ -574,13 +574,13 @@ export function ReaderSettings({
 
                             <div>
                                 <div className="flex items-center justify-between mb-3">
-                                    <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--color-text-muted)]">Zoom</span>
+                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">Zoom</span>
                                     <span className="[font-variant-numeric:tabular-nums] text-[11px] text-[color:var(--color-text-primary)]">{zoomSlider.value}%</span>
                                 </div>
                                 <div className="flex items-center gap-2.5">
                                     <button
                                         onClick={zoomSlider.decrement}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Decrease zoom"
                                         disabled={!zoomSlider.canDecrement}
                                     >
@@ -599,7 +599,7 @@ export function ReaderSettings({
                                     />
                                     <button
                                         onClick={zoomSlider.increment}
-                                        className="inline-flex h-10 w-10 items-center justify-center border border-[var(--color-border)] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors disabled:opacity-30"
+                                        className="inline-flex h-10 w-10 items-center justify-center text-[color:var(--color-text-muted)] transition-colors disabled:opacity-30 hover:text-[color:var(--color-accent)]"
                                         aria-label="Increase zoom"
                                         disabled={!zoomSlider.canIncrement}
                                     >
