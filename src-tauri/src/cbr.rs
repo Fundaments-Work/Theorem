@@ -39,7 +39,7 @@ fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
             if meta.is_directory {
                 return Ok(Box::new(std::io::sink()));
             }
-            let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+            let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
             shared
                 .lock()

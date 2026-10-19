@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
-use zip::ZipArchive;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeBookRecord {
@@ -135,7 +134,8 @@ pub(crate) struct ParsedMetadata {
 /// Extract metadata & cover from an EPUB file using streaming XML
 fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open EPUB: {e}"))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid EPUB ZIP: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Invalid EPUB ZIP: {e}"))?;
 
     // 1. Locate rootfile from META-INF/container.xml
     let mut opf_path = String::new();
@@ -150,8 +150,9 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
         // Fallback: search for any .opf file in the archive
         for i in 0..archive.len() {
             if let Ok(entry) = archive.by_index(i) {
-                if entry.name().ends_with(".opf") {
-                    opf_path = entry.name().to_string();
+                let Ok(name) = entry.name() else { continue };
+                if name.ends_with(".opf") {
+                    opf_path = name.to_string();
                     break;
                 }
             }
@@ -227,14 +228,15 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
         let mut candidate_cover_name = None;
         for i in 0..archive.len() {
             if let Ok(entry) = archive.by_index(i) {
-                let lower = entry.name().to_lowercase();
+                let Ok(name) = entry.name() else { continue };
+                let lower = name.to_lowercase();
                 if (lower.ends_with(".jpg")
                     || lower.ends_with(".jpeg")
                     || lower.ends_with(".png")
                     || lower.ends_with(".webp"))
                     && (lower.contains("cover") || lower.contains("thumb"))
                 {
-                    candidate_cover_name = Some(entry.name().to_string());
+                    candidate_cover_name = Some(name.to_string());
                     break;
                 }
             }
@@ -267,7 +269,8 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
 /// Extract metadata & cover from a CBZ comic archive
 pub(crate) fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open CBZ: {e}"))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid CBZ ZIP: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Invalid CBZ ZIP: {e}"))?;
 
     let (mut title, author) = parse_title_author_from_filename(path);
     let mut cover_data_url = None;
@@ -300,13 +303,14 @@ pub(crate) fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
     let mut image_names = Vec::new();
     for i in 0..archive.len() {
         if let Ok(entry) = archive.by_index(i) {
-            let lower = entry.name().to_lowercase();
+            let Ok(name) = entry.name() else { continue };
+            let lower = name.to_lowercase();
             if lower.ends_with(".jpg")
                 || lower.ends_with(".jpeg")
                 || lower.ends_with(".png")
                 || lower.ends_with(".webp")
             {
-                image_names.push(entry.name().to_string());
+                image_names.push(name.to_string());
             }
         }
     }
@@ -877,7 +881,7 @@ mod tests {
         {
             let file = std::fs::File::create(&cbz_path).unwrap();
             let mut zip = zip::ZipWriter::new(file);
-            let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+            let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
 
             zip.start_file("ComicInfo.xml", options).unwrap();

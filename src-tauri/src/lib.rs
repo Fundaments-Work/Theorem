@@ -39,6 +39,7 @@ pub mod text_normalizer;
 mod tts_linux;
 pub mod tts_model;
 pub mod vault_export;
+mod zip_util;
 
 use reqwest::blocking::Client;
 use serde::Serialize;
@@ -2194,8 +2195,8 @@ type StardictParts = (Vec<u8>, Vec<u8>, Vec<u8>, Option<Vec<u8>>);
 
 fn extract_stardict_parts_from_zip(data: &[u8]) -> Result<StardictParts, String> {
     let reader = std::io::Cursor::new(data);
-    let mut archive =
-        zip::ZipArchive::new(reader).map_err(|e| format!("ZIP parsing failed: {e}"))?;
+    let mut archive = crate::zip_util::open_zip_archive(reader)
+        .map_err(|e| format!("ZIP parsing failed: {e}"))?;
 
     let mut ifo_bytes: Option<Vec<u8>> = None;
     let mut idx_bytes: Option<Vec<u8>> = None;
@@ -2206,7 +2207,10 @@ fn extract_stardict_parts_from_zip(data: &[u8]) -> Result<StardictParts, String>
         let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("ZIP entry error: {e}"))?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|e| format!("ZIP entry name error: {e}"))?
+            .into_owned();
         let mut data = Vec::new();
         std::io::Read::read_to_end(&mut entry, &mut data)
             .map_err(|e| format!("Failed to read ZIP entry '{name}': {e}"))?;
