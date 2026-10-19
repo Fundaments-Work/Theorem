@@ -224,7 +224,8 @@ fn rewrite_zip(
     add_cover_entry: Option<(String, &[u8])>,
 ) -> Result<Vec<u8>, String> {
     let reader = Cursor::new(input);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(reader).map_err(|e| format!("Not a valid zip: {e}"))?;
 
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::FileOptions::<()>::default()
@@ -313,7 +314,8 @@ fn rewrite_epub_bytes(
     cover: Option<&[u8]>,
 ) -> Result<Vec<u8>, String> {
     let reader = Cursor::new(input);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(reader).map_err(|e| format!("Not a valid zip: {e}"))?;
 
     if archive.by_name("META-INF/encryption.xml").is_ok() {
         return Err("Encrypted EPUBs cannot be rewritten.".to_string());

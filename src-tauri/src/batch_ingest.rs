@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
-use zip::ZipArchive;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeBookRecord {
@@ -135,7 +134,8 @@ pub(crate) struct ParsedMetadata {
 /// Extract metadata & cover from an EPUB file using streaming XML
 fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open EPUB: {e}"))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid EPUB ZIP: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Invalid EPUB ZIP: {e}"))?;
 
     // 1. Locate rootfile from META-INF/container.xml
     let mut opf_path = String::new();
@@ -269,7 +269,8 @@ fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
 /// Extract metadata & cover from a CBZ comic archive
 pub(crate) fn parse_cbz_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open CBZ: {e}"))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid CBZ ZIP: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Invalid CBZ ZIP: {e}"))?;
 
     let (mut title, author) = parse_title_author_from_filename(path);
     let mut cover_data_url = None;

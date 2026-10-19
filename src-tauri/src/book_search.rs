@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use zip::ZipArchive;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeSearchMatch {
@@ -129,7 +128,8 @@ pub fn search_epub_spine(
     }
 
     let file = File::open(path).map_err(|e| format!("Cannot open EPUB: {e}"))?;
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid EPUB zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Invalid EPUB zip: {e}"))?;
 
     // 1. Locate container.xml -> OPF
     let mut opf_path = String::new();

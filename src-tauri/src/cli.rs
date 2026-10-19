@@ -2785,7 +2785,7 @@ fn run_read_cfi(output: &Output, app: &tauri::AppHandle, book_id: &str, cfi: &st
         let file = std::fs::File::open(&path)
             .map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
         let mut archive =
-            zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+            crate::zip_util::open_zip_archive(file).map_err(|e| format!("Not a valid zip: {e}"))?;
         let opf_path = crate::epub_parser::read_rootfile_path_inner(&mut archive)
             .ok_or("Missing OPF rootfile in META-INF/container.xml")?;
         let opf = crate::epub_parser::read_zip_entry_inner(&mut archive, &opf_path)
@@ -2856,7 +2856,8 @@ pub(crate) fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String
 
     let file =
         std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Not a valid zip: {e}"))?;
 
     let opf_path = crate::epub_parser::read_rootfile_path_inner(&mut archive)
         .ok_or("Missing OPF rootfile in META-INF/container.xml")?;
@@ -2884,7 +2885,8 @@ pub(crate) fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String
 pub(crate) fn epub_chapter_count(path: &PathBuf) -> Result<usize, String> {
     let file =
         std::fs::File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Not a valid zip: {e}"))?;
     let opf_path = crate::epub_parser::read_rootfile_path_inner(&mut archive)
         .ok_or("Missing OPF rootfile in META-INF/container.xml")?;
     let opf = crate::epub_parser::read_zip_entry_inner(&mut archive, &opf_path)

@@ -706,7 +706,8 @@ fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Stri
     let file_path =
         resolve_book_path(app, path).ok_or_else(|| format!("file not found: {path}"))?;
     let file = File::open(&file_path).map_err(|e| format!("Cannot open {path}: {e}"))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Not a valid zip: {e}"))?;
 
     let mut sizes: HashMap<String, u64> = HashMap::with_capacity(archive.len());
     for i in 0..archive.len() {
@@ -1159,7 +1160,7 @@ mod tests {
                 continue;
             }
             let file = file.unwrap();
-            let archive_res = zip::ZipArchive::new(file);
+            let archive_res = crate::zip_util::open_zip_archive(file);
             if archive_res.is_err() {
                 continue; // might be PDF or non-zip
             }
