@@ -111,5 +111,10 @@
         "vite": "^8.3.4",
         "vite-plugin-static-copy": "^4.1.1",
         "vitest": "^5.0.4"
+    },
+    "pnpm": {
+        "overrides": {
+            "source-map-js": "1.2.2"
+        }
     }
 }
