@@ -1,18 +1,32 @@
 name: CodeQL Advanced
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # CodeQL is deliberately not part of the per-push PR loop: the Rust analysis
+  # alone takes 8-11 minutes, which dominated PR feedback time.
+  #
+  # Policy:
+  #   - weekly full scan of main, so newly published queries still run
+  #   - full scan on demand before a release or after a security-sensitive change
+  #   - post-merge scan when dependencies, workflows, or capabilities change
   schedule:
-    # Weekly scan of main so newly published queries still run on a quiet week.
     - cron: "23 4 * * 1"
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/codeql/**"
+      - ".github/dependabot.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/tauri.conf.json"
+      - "src-tauri/capabilities/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
