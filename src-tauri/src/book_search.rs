@@ -144,8 +144,9 @@ pub fn search_epub_spine(
         // Fallback: search for .opf in archive
         for i in 0..archive.len() {
             if let Ok(entry) = archive.by_index(i) {
-                if entry.name().ends_with(".opf") {
-                    opf_path = entry.name().to_string();
+                let Ok(name) = entry.name() else { continue };
+                if name.ends_with(".opf") {
+                    opf_path = name.to_string();
                     break;
                 }
             }

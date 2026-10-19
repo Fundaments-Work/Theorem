@@ -235,7 +235,10 @@ fn rewrite_zip(
             let entry = archive
                 .by_index(i)
                 .map_err(|e| format!("Failed to read zip entry {i}: {e}"))?;
-            (normalize_entry_name(entry.name()), entry.is_dir())
+            let name = entry
+                .name()
+                .map_err(|e| format!("Failed to read zip entry name {i}: {e}"))?;
+            (normalize_entry_name(&name), entry.is_dir())
         };
 
         let target_opf = normalize_entry_name(opf_path);

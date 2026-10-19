@@ -90,12 +90,15 @@ fn find_entry<R: std::io::Read + std::io::Seek>(
     if let Some(index) = archive.index_for_name(&decoded) {
         return Some(index);
     }
-    archive.file_names().position(|candidate| {
-        candidate
-            .trim_start_matches('/')
-            .trim_start_matches("./")
-            .eq_ignore_ascii_case(&decoded)
-    })
+    archive
+        .file_names()
+        .filter_map(|candidate| candidate.ok())
+        .position(|candidate| {
+            candidate
+                .trim_start_matches('/')
+                .trim_start_matches("./")
+                .eq_ignore_ascii_case(&decoded)
+        })
 }
 
 /// Decompressed bytes of one entry, or `Ok(None)` when the entry is absent.
