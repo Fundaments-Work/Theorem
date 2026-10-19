@@ -66,4 +66,43 @@ describe("ArticleExtractorService", () => {
         expect(extracted?.content).not.toContain("<script>");
         expect(extracted?.content).not.toContain("onerror");
     });
+
+    it("drops script URLs and keeps resolvable links and image data URIs", async () => {
+        const hostileHtml = `
+            <html>
+            <body>
+                <article>
+                    <h1>Hostile Feed</h1>
+                    <p>
+                        <a href="javascript:alert(1)">ja</a>
+                        <a href="vbscript:msgbox(1)">vb</a>
+                        <a href="data:text/html,<script>alert(1)</script>">da</a>
+                        <a href="/relative/page">rel</a>
+                        <a href="mailto:ada@example.com">mail</a>
+                    </p>
+                    <p>
+                        <img src="javascript:alert(1)" alt="js">
+                        <img src="data:text/html,<script>alert(1)</script>" alt="da">
+                        <img src="data:image/png;base64,AAAA" alt="ok">
+                        <img src="//cdn.example.com/pic.png" alt="cdn">
+                    </p>
+                </article>
+            </body>
+            </html>
+        `;
+
+        const extracted = await ArticleExtractorService.extractFromHtml(
+            hostileHtml,
+            "https://example.com/posts/1",
+        );
+        expect(extracted).not.toBeNull();
+        const content = extracted!.content;
+        expect(content).not.toMatch(/javascript:/i);
+        expect(content).not.toMatch(/vbscript:/i);
+        expect(content).not.toMatch(/data:text\/html/i);
+        expect(content).toContain('href="https://example.com/relative/page"');
+        expect(content).toContain('href="mailto:ada@example.com"');
+        expect(content).toContain('src="data:image/png;base64,AAAA"');
+        expect(content).toContain('src="https://cdn.example.com/pic.png"');
+    });
 });

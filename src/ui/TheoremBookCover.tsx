@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "../core/lib/utils";
+import { isSafeImageUrl } from "../core/lib/url-safety";
 
 export interface TheoremBookCoverProps {
     title: string;
@@ -24,13 +25,18 @@ export function TheoremBookCover({
         coverUrl.startsWith("data:image/png;base64") &&
         coverUrl.length < 5000;
 
-    const hasValidImage = Boolean(coverUrl && !isTinyPlaceholderIcon && !imageError);
+    // Only render image sources with a known-safe scheme; catalogs and book
+    // metadata can hand us anything. Unsafe URLs fall back to the drawn cover.
+    const imageSrc =
+        typeof coverUrl === "string" && isSafeImageUrl(coverUrl) && !isTinyPlaceholderIcon && !imageError
+            ? coverUrl
+            : null;
 
-    if (hasValidImage) {
+    if (imageSrc) {
         return (
             <div className={cn("relative aspect-[2/3] w-full overflow-hidden bg-[var(--color-surface-muted)]", className)}>
                 <img
-                    src={coverUrl!}
+                    src={imageSrc}
                     alt={title}
                     loading="lazy"
                     onError={() => setImageError(true)}

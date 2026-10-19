@@ -5,6 +5,7 @@ import type { XMLParser } from 'fast-xml-parser';
 import { isTauri } from '../lib/env';
 import { invoke } from '@tauri-apps/api/core';
 import { needsMarkdownRender, renderMarkdownBatch } from '../lib/article-markdown';
+import { isSafeLinkUrl } from '../lib/url-safety';
 
 interface ParsedFeed {
     title: string;
@@ -88,14 +89,19 @@ function parseOptionalDate(value: unknown): Date | undefined {
     return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-function resolveAbsoluteUrl(value: string, baseUrl: string): string {
-    if (!value || value.startsWith('data:') || value.startsWith('javascript:')) {
-        return value;
+/**
+ * Resolves a candidate feed URL against its page base. Unsupported schemes
+ * (`javascript:`, `vbscript:`, `data:`, …) are dropped rather than returned,
+ * so a page cannot smuggle a script URL into the feed list.
+ */
+export function resolveAbsoluteUrl(value: string, baseUrl: string): string {
+    if (!isSafeLinkUrl(value)) {
+        return '';
     }
     try {
         return new URL(value, baseUrl).href;
     } catch {
-        return value;
+        return '';
     }
 }
 
@@ -187,7 +193,10 @@ function extractFeedUrlsFromHtml(htmlText: string, baseUrl?: string): string[] {
     for (const link of Array.from(feedLinks)) {
         const href = link.getAttribute('href');
         if (href) {
-            urls.push(baseUrl ? resolveAbsoluteUrl(href, baseUrl) : href);
+            const resolved = baseUrl ? resolveAbsoluteUrl(href, baseUrl) : (isSafeLinkUrl(href) ? href : '');
+            if (resolved) {
+                urls.push(resolved);
+            }
         }
     }
 
@@ -197,7 +206,10 @@ function extractFeedUrlsFromHtml(htmlText: string, baseUrl?: string): string[] {
         for (const a of Array.from(anchors)) {
             const href = a.getAttribute('href');
             if (href && feedPattern.test(href)) {
-                urls.push(baseUrl ? resolveAbsoluteUrl(href, baseUrl) : href);
+                const resolved = baseUrl ? resolveAbsoluteUrl(href, baseUrl) : (isSafeLinkUrl(href) ? href : '');
+                if (resolved) {
+                    urls.push(resolved);
+                }
             }
         }
     }

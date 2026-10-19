@@ -9,6 +9,7 @@ import {
     FILTER_CHIP_UNSELECTED_ON_SURFACE,
 } from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
+import { sanitizeHtml } from "../../core/lib/sanitize";
 import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
 import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncremental, pickAndImportBooksIncremental, scanFolderForBooks } from "../../core/lib/import";
 import { pickLibraryFolderMobile, scanLibraryFolderMobile } from "../../core/lib/mobile-folder-scan";
@@ -101,14 +102,6 @@ function normalizeMetadataText(value: string | undefined): string {
 
 function isBookMarkedRead(book: Book): boolean {
     return !!book.completedAt;
-}
-
-function sanitizeHtml(html: string): string {
-    return html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/on\w+\s*=\s*"[^"]*"/gi, "")
-        .replace(/on\w+\s*=\s*'[^']*'/gi, "");
 }
 
 
