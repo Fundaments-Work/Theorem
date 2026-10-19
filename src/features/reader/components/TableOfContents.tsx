@@ -108,10 +108,10 @@ const TocItemComponent = memo(function TocItemComponent({ item, depth, onNavigat
                 <span 
                     className={cn(
                         "flex-1 truncate text-sm leading-relaxed",
-                        depth === 0 && "font-medium text-[var(--color-text-primary)]",
+                        depth === 0 &&"text-[var(--color-text-primary)]",
                         depth === 1 && "text-[var(--color-text-primary)]",
                         depth >= 2 && "text-[var(--color-text-secondary)] text-xs",
-                        isActive && "text-[var(--color-accent)] font-medium"
+                        isActive && "text-[var(--color-accent)]"
                     )}
                 >
                     {item.label}
@@ -191,7 +191,7 @@ export function TableOfContents({
                     "flex flex-col overflow-hidden",
                     "bg-[var(--color-surface)]",
                     "border-r border-[var(--color-border)]",
-                    "shadow-2xl shadow-black/10",
+                    "shadow-black/10",
                     
                     visible ? "flex" : "hidden",
                     
@@ -203,11 +203,11 @@ export function TableOfContents({
                     <div className="flex items-center justify-between px-5 py-4">
                         
                         <div className="flex items-center gap-4">
-                            <div className="flex h-10 w-10 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)]">
+                            <div className="flex h-10 w-10 items-center justify-center">
                                 <List className="w-5 h-5 text-[var(--color-text-primary)]" />
                             </div>
                             <div>
-                                <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--color-text-primary)]">
+                                <h2 className="text-sm text-[var(--color-text-primary)]">
                                     {isPdf ? "Navigation" : "Contents"}
                                 </h2>
                                 <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
@@ -245,7 +245,7 @@ export function TableOfContents({
                                     aria-selected={selected}
                                     onClick={() => setTab(id)}
                                     className={cn(
-                                        "py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors duration-200",
+                                        "py-2.5 text-xs transition-colors duration-200",
                                         selected
                                             ? "text-[var(--color-accent)] shadow-[inset_0_-2px_0_var(--color-accent)]"
                                             : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]",
@@ -276,7 +276,7 @@ export function TableOfContents({
                             <div className="mb-6 flex h-20 w-20 items-center justify-center border-2 border-[var(--color-border)] bg-[var(--color-surface-muted)]">
                                 <List className="w-8 h-8 text-[var(--color-text-muted)]" />
                             </div>
-                            <h3 className="text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                            <h3 className="text-sm text-[var(--color-text-primary)] mb-2">
                                 {isPdf ? "No Outline Available" : "No Contents"}
                             </h3>
                             <p className="text-xs text-[var(--color-text-muted)] max-w-[240px] leading-relaxed">
@@ -304,7 +304,7 @@ export function TableOfContents({
 
                 <footer className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface-muted)] px-5 py-3">
                     <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-                        <span className="font-medium">
+                        <span className="">
                             {isPdf ? "PDF Outline" : "Document Map"}
                         </span>
                         <span>

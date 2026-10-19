@@ -267,7 +267,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
         const pct = Math.round(fraction * 100);
         return (
             <div className="text-center">
-                <div className="font-medium">{pct}%</div>
+                <div className="">{pct}%</div>
                 {hoveredSectionLabel && (
                     <div className="text-[color:var(--color-text-muted)] text-xs max-w-[var(--layout-tooltip-max-width)] truncate">
                         {hoveredSectionLabel}
@@ -294,7 +294,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
             <div className="flex items-center gap-1.5">
                 <button
                     onClick={onToggleToc}
-                    className="flex items-center justify-center p-1 -ml-1 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] transition-colors h-7 w-7 rounded-md"
+                    className="flex items-center justify-center p-1 -ml-1 text-[color:var(--color-text-secondary)] transition-colors h-7 w-7 hover:text-[color:var(--color-accent)]"
                     aria-label="Table of Contents"
                 >
                     <List size={16} />
@@ -314,7 +314,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                 {[0, 1, 2].map((i) => (
                                     <div
                                         key={i}
-                                        className="w-[2.5px] rounded-full bg-[var(--color-accent)]"
+                                        className="w-[2.5px] bg-[var(--color-accent)]"
                                         style={{
                                             animation: `tts-bar-bounce 0.6s ease-in-out ${i * 0.12}s infinite alternate`,
                                             height: `${50 + i * 25}%`,
@@ -339,7 +339,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             ) : onGenerateAudiobook && (
                                 <button
                                     onClick={onGenerateAudiobook}
-                                    className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] hover:text-[color:var(--color-accent)] active:scale-90 transition-colors"
+                                    className="flex items-center justify-center w-7 h-7 text-[var(--color-text-secondary)] active:scale-90 transition-colors hover:text-[color:var(--color-accent)]"
                                     title="Save narration as an audiobook (Ogg Opus)"
                                     aria-label="Generate audiobook"
                                 >
@@ -349,7 +349,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             {showNeuralInstall && onOpenNeuralSettings && (
                                 <button
                                     onClick={onOpenNeuralSettings}
-                                    className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] hover:text-[color:var(--color-accent)] active:scale-90 transition-colors"
+                                    className="flex items-center justify-center w-7 h-7 text-[var(--color-text-secondary)] active:scale-90 transition-colors hover:text-[color:var(--color-accent)]"
                                     title="Install Neural Voice for natural offline reading"
                                     aria-label="Install Neural Voice"
                                 >
@@ -361,9 +361,9 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                     <button
                                         onClick={() => setVoiceMenuOpen(v => !v)}
                                         className={cn(
-                                            "flex items-center justify-center w-7 h-7 rounded-full transition-colors active:scale-90",
+                                            "flex items-center justify-center w-7 h-7 transition-colors active:scale-90",
                                             voiceMenuOpen
-                                                ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                ? "ui-selected"
                                                 : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                         )}
                                         title="Voice & speed"
@@ -374,10 +374,10 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                     {voiceMenuOpen && (
                                         <>
                                             <div className="fixed inset-0 z-[141]" onClick={() => setVoiceMenuOpen(false)} />
-                                            <div className="absolute bottom-9 right-0 z-[142] w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                                            <div className="absolute bottom-9 right-0 z-[142] w-56 border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                                                 {neuralReady && onTtsVoiceChange && (
                                                     <>
-                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mb-1.5">Voice</div>
+                                                        <div className="text-[10px] text-[var(--color-text-muted)] mb-1.5">Voice</div>
                                                         <div className="grid grid-cols-5 gap-1">
                                                             {NEURAL_VOICES.map((v) => (
                                                                 <button
@@ -385,9 +385,9 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                                                     title={NEURAL_VOICE_LABELS[v]}
                                                                     onClick={() => onTtsVoiceChange(v)}
                                                                     className={cn(
-                                                                        "h-7 rounded-md text-[10px] font-medium transition-colors",
+                                                                        "h-7 text-[10px] transition-colors",
                                                                         activeVoice === v
-                                                                            ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                            ? "ui-selected"
                                                                             : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                                                     )}
                                                                 >
@@ -397,16 +397,16 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                                         </div>
                                                     </>
                                                 )}
-                                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] mt-2.5 mb-1.5">Speed</div>
+                                                <div className="text-[10px] text-[var(--color-text-muted)] mt-2.5 mb-1.5">Speed</div>
                                                 <div className="flex gap-1">
                                                     {[0.75, 1, 1.25, 1.5].map((s) => (
                                                         <button
                                                             key={s}
                                                             onClick={() => onTtsSpeedChange?.(s)}
                                                             className={cn(
-                                                                "flex-1 h-7 rounded-md text-[10px] font-medium transition-colors",
+                                                                "flex-1 h-7 text-[10px] transition-colors",
                                                                 ttsSpeed === s
-                                                                    ? "bg-[var(--color-accent)] text-[var(--color-accent-contrast)]"
+                                                                    ? "ui-selected"
                                                                     : "bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                                             )}
                                                         >
@@ -422,19 +422,19 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             {ttsState === 'playing' ? (
                                 <>
                                     <button onClick={onTtsPause}
-                                        className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-surface-muted)] text-[var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)] active:scale-90 transition-colors"
+                                        className="flex items-center justify-center w-7 h-7 text-[var(--color-text-primary)] active:scale-90 transition-colors hover:text-[color:var(--color-accent)]"
                                         aria-label="Pause">
                                         <Pause className="w-3 h-3 fill-current" />
                                     </button>
                                     <button onClick={onTtsStop}
-                                        className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-surface-muted)] text-[var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)] hover:text-[var(--color-error)] active:scale-90 transition-colors"
+                                        className="flex items-center justify-center w-7 h-7 text-[var(--color-text-secondary)] hover:text-[var(--color-error)] active:scale-90 transition-colors"
                                         aria-label="Stop">
                                         <Square className="w-3 h-3 fill-current" />
                                     </button>
                                 </>
                             ) : (
                                 <button onClick={onTtsPlay} disabled={ttsState === 'loading'}
-                                    className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--color-accent)] text-[var(--color-accent-contrast)] hover:bg-[var(--color-accent-hover)] active:scale-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                    className="flex items-center justify-center w-7 h-7 bg-[var(--color-accent)] text-[var(--color-accent-contrast)] hover:bg-[var(--color-accent-hover)] active:scale-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                     aria-label="Play">
                                     <Play className="w-3 h-3 fill-current" />
                                 </button>
@@ -453,7 +453,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             {timeRemaining?.combined && (
                                 <span className="hidden sm:inline text-[var(--color-text-muted)]">{timeRemaining.combined}</span>
                             )}
-                            <span className="font-medium text-[var(--color-text-primary)] font-mono text-[11px] sm:text-xs">
+                            <span className="text-[var(--color-text-primary)] font-mono text-[11px] sm:text-xs">
                                 {progressText}
                             </span>
                         </div>
@@ -476,7 +476,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                     onPointerLeave={handlePointerLeave}
                 >
                     
-                    <div className="absolute inset-x-0 h-[3px] bg-[var(--color-surface-variant)] overflow-hidden rounded-full">
+                    <div className="absolute inset-x-0 h-[3px] bg-[var(--color-surface-variant)] overflow-hidden">
                         
                         <div
                             className={cn(
@@ -492,9 +492,9 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                     <div
                         className={cn(
                             "absolute top-1/2 -translate-y-1/2 -translate-x-1/2",
-                            "w-2.5 h-2.5 rounded-full",
+                            "w-2.5 h-2.5",
                             "bg-[var(--color-accent)]",
-                            "border border-[var(--color-surface)] shadow-sm",
+                            "border border-[var(--color-surface)]",
                             isDragging ? "scale-125" : "transition-transform",
                             "pointer-events-none"
                         )}
@@ -513,7 +513,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                             className={cn(
                                 "absolute bottom-full mb-2 -translate-x-1/2",
                                 "px-2 py-1",
-                                "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md shadow-md",
+                                "bg-[var(--color-surface)] border border-[var(--color-border)]",
                                 "text-xs",
                                 "pointer-events-none z-50",
                                 "whitespace-nowrap"

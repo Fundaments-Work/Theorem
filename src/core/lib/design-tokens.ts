@@ -14,7 +14,8 @@ interface RgbColor {
     b: number;
 }
 
-export const DEFAULT_ACCENT_COLOR = "#000000";
+/** Fundaments.work accent: acid lime. One accent for every product in the system. */
+export const DEFAULT_ACCENT_COLOR = "#c6f135";
 
 const APP_THEME_COLORS: Record<string, Record<string, string>> = {
     light: {
@@ -25,11 +26,13 @@ const APP_THEME_COLORS: Record<string, Record<string, string>> = {
         "--app-surface-variant": "#e0dfda",
         "--app-surface-hover": "#d9d8d3",
         "--app-text-primary": "#1c1c1c",
-        "--app-text-secondary": "#6b6b6b",
-        "--app-text-muted": "#9c9c9c",
+        "--app-text-secondary": "#5c5c5c",
+        "--app-text-muted": "#666666",
+        "--app-text-disabled": "#9c9c9c",
         "--app-text-inverse": "#ffffff",
         "--app-border": "#d4d3ce",
         "--app-border-subtle": "#e2e1dd",
+        "--app-border-strong": "#8c8c88",
     },
     dark: {
         "--app-bg": "#141416",
@@ -39,11 +42,13 @@ const APP_THEME_COLORS: Record<string, Record<string, string>> = {
         "--app-surface-variant": "#3d3d42",
         "--app-surface-hover": "#454549",
         "--app-text-primary": "#e8e6e1",
-        "--app-text-secondary": "#9a9a9a",
-        "--app-text-muted": "#7a7a7a",
+        "--app-text-secondary": "#a0a0a0",
+        "--app-text-muted": "#929292",
+        "--app-text-disabled": "#7a7a7a",
         "--app-text-inverse": "#141416",
         "--app-border": "#3d3d42",
         "--app-border-subtle": "#323236",
+        "--app-border-strong": "#6a6a70",
     },
 };
 

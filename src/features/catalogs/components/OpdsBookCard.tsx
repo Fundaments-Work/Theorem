@@ -42,7 +42,7 @@ export const OpdsBookCard = memo(function OpdsBookCard({
             className="group flex flex-col text-left w-full select-none cursor-pointer"
         >
             {/* Cover Container */}
-            <div className="relative aspect-[2/3] w-full overflow-hidden border border-[var(--color-border)] transition-[transform,box-shadow] duration-300 ease-out group-hover:shadow-lg group-hover:-translate-y-1">
+            <div className="relative aspect-[2/3] w-full overflow-hidden border border-[var(--color-border)] transition-[transform,box-shadow] duration-300 ease-out group-hover:-translate-y-1">
                 <TheoremBookCover
                     title={entry.title}
                     author={normalizeAuthor(entry.author)}
@@ -58,8 +58,8 @@ export const OpdsBookCard = memo(function OpdsBookCard({
                         }}
                         disabled={isDownloading}
                         className={cn(
-                            "absolute bottom-2 right-2 z-20 flex items-center justify-center rounded-sm transition-[color,background-color,border-color,transform,box-shadow] duration-200 ease-out shadow-md",
-                            "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] font-bold border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] active:scale-95",
+                            "absolute bottom-2 right-2 z-20 flex items-center justify-center transition-[color,background-color,border-color,transform,box-shadow] duration-200 ease-out",
+                            "h-6 px-2 bg-[var(--color-surface)] text-[color:var(--color-text-primary)] text-[9px] border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] active:scale-95",
                             isDownloading && "opacity-60",
                         )}
                         title="Add to Library"
@@ -88,13 +88,13 @@ export const OpdsBookCard = memo(function OpdsBookCard({
             <div className="mt-2.5 px-0.5 min-w-0">
                 <h3
                     data-opds-card-title=""
-                    className="font-bold text-[11px] leading-[14px] uppercase tracking-wide text-[color:var(--color-text-primary)] line-clamp-2 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words"
+                    className="text-[11px] leading-[14px] text-[color:var(--color-text-primary)] line-clamp-2 mb-0.5 transition-colors group-hover:text-[color:var(--color-accent)] break-words"
                 >
                     {entry.title}
                 </h3>
                 <p
                     data-opds-card-author=""
-                    className="text-[10px] leading-[13px] font-medium text-[color:var(--color-text-secondary)] line-clamp-1 opacity-60 uppercase tracking-tight"
+                    className="text-[10px] leading-[13px] text-[color:var(--color-text-secondary)] line-clamp-1 opacity-60"
                 >
                     {normalizeAuthor(entry.author) || "Public Domain"}
                 </p>

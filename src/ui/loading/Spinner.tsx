@@ -23,7 +23,7 @@ export function Spinner({ size = "md", tone = "default", className, label = "Loa
         <span role="status" aria-label={label} className="inline-flex items-center justify-center">
             <span
                 className={cn(
-                    "rounded-full animate-spin",
+                    " animate-spin",
                     SPINNER_SIZES[size],
                     SPINNER_TONES[tone],
                     className,

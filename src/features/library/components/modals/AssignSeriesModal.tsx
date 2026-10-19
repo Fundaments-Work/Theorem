@@ -146,7 +146,7 @@ export function AssignSeriesModal({
                                 <Layers className="w-5 h-5" />
                             </div>
                             <div>
-                                <h2 className="text-base font-bold text-[color:var(--color-text-primary)]">
+                                <h2 className="text-base text-[color:var(--color-text-primary)]">
                                     Set Book Series
                                 </h2>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
@@ -158,7 +158,7 @@ export function AssignSeriesModal({
                         <div>
                             <label
                                 htmlFor="series-name-input"
-                                className="block text-xs font-bold uppercase tracking-wider text-[color:var(--color-text-secondary)] mb-1.5"
+                                className="block text-xs text-[color:var(--color-text-secondary)] mb-1.5"
                             >
                                 Series Name
                             </label>
@@ -169,7 +169,7 @@ export function AssignSeriesModal({
                                 value={seriesName}
                                 onChange={(e) => setSeriesName(e.target.value)}
                                 placeholder="e.g. Dune, The Dark Tower, Foundation"
-                                className="ui-input w-full font-medium"
+                                className="ui-input w-full"
                                 autoFocus={!mobile}
                             />
                             <datalist id="existing-series-list">
@@ -181,14 +181,14 @@ export function AssignSeriesModal({
 
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-bold uppercase tracking-wider text-[color:var(--color-text-secondary)] flex items-center gap-1.5">
+                                <span className="text-xs text-[color:var(--color-text-secondary)] flex items-center gap-1.5">
                                     <Hash className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
                                     Volumes & Reading Order
                                 </span>
                                 <button
                                     type="button"
                                     onClick={handleAutoNumber}
-                                    className="ui-btn px-2 py-1 text-[11px] font-bold border flex items-center gap-1 hover:bg-[var(--color-surface-muted)]"
+                                    className="ui-btn px-2 py-1 text-[11px] border flex items-center gap-1 hover:bg-[var(--color-surface-muted)]"
                                     title="Auto-number volumes sequentially 1..N"
                                 >
                                     <ArrowUpDown className="w-3 h-3" />
@@ -203,7 +203,7 @@ export function AssignSeriesModal({
                                         className="flex items-center justify-between p-2.5 gap-3 hover:bg-[var(--color-surface-muted)]/60 transition-colors"
                                     >
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-xs font-semibold text-[color:var(--color-text-primary)] truncate">
+                                            <p className="text-xs text-[color:var(--color-text-primary)] truncate">
                                                 {entry.title}
                                             </p>
                                             {entry.author && (
@@ -215,7 +215,7 @@ export function AssignSeriesModal({
                                         <div className="flex items-center gap-2 shrink-0">
                                             <label
                                                 htmlFor={`vol-${entry.bookId}`}
-                                                className="text-[10px] uppercase font-bold text-[color:var(--color-text-muted)]"
+                                                className="text-[10px] text-[color:var(--color-text-muted)]"
                                             >
                                                 Vol.
                                             </label>
@@ -243,7 +243,7 @@ export function AssignSeriesModal({
                         <button
                             type="button"
                             onClick={handleClearSeries}
-                            className="ui-btn px-3 py-2.5 text-xs font-bold border w-full sm:w-auto border-[var(--color-error)]/30 text-[color:var(--color-error)] hover:bg-[var(--color-error)]/10 flex items-center justify-center gap-1.5 touch-manipulation"
+                            className="ui-btn px-3 py-2.5 text-xs border w-full sm:w-auto border-[var(--color-error)]/30 text-[color:var(--color-error)] hover:bg-[var(--color-error)]/10 flex items-center justify-center gap-1.5 touch-manipulation"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             Remove from Series

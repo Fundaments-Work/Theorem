@@ -132,7 +132,7 @@ function FormatsIllustration() {
                         textAnchor="middle"
                         fill="var(--color-text-primary)"
                         fontSize="10"
-                        fontWeight="700"
+                        fontWeight="400"
                         fontFamily="var(--font-sans)"
                         letterSpacing="0.1em"
                     >
@@ -156,7 +156,7 @@ function FormatsIllustration() {
                 textAnchor="middle"
                 fill="var(--color-surface)"
                 fontSize="9"
-                fontWeight="700"
+                fontWeight="400"
                 fontFamily="var(--font-sans)"
                 letterSpacing="0.12em"
             >
@@ -223,7 +223,7 @@ function VaultIllustration() {
                 textAnchor="middle"
                 fill="var(--color-text-secondary)"
                 fontSize="8"
-                fontWeight="600"
+                fontWeight="400"
                 fontFamily="var(--font-sans)"
                 letterSpacing="0.08em"
             >
@@ -337,7 +337,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     <div className="flex justify-end px-6 pt-4 md:pt-5">
                         <button
                             onClick={handleSkip}
-                            className="text-[11px] tracking-[0.08em] font-bold text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
+                            className="text-[11px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
                         >
                             Skip
                         </button>
@@ -360,12 +360,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                         <span className="text-[color:var(--color-text-primary)]">
                             {step.icon}
                         </span>
-                        <h1 className="text-[18px] md:text-[22px] font-bold tracking-[0.02em] text-[color:var(--color-text-primary)] leading-tight">
+                        <h1 className="text-[18px] md:text-[22px] text-[color:var(--color-text-primary)] leading-tight">
                             {step.title}
                         </h1>
                     </div>
 
-                    <p className="text-[13px] tracking-[0.04em] font-semibold text-[color:var(--color-text-secondary)] mb-4 text-center">
+                    <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-4 text-center">
                         {step.subtitle}
                     </p>
 
@@ -402,7 +402,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                             )}
                         >
                             <ArrowLeft className="h-3.5 w-3.5" />
-                            <span className="text-[11px] tracking-[0.08em] font-bold">
+                            <span className="text-[11px]">
                                 Back
                             </span>
                         </button>
@@ -411,7 +411,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                             onClick={handleNext}
                             className="ui-btn-primary flex items-center gap-2 px-6"
                         >
-                            <span className="text-[11px] tracking-[0.08em] font-bold">
+                            <span className="text-[11px]">
                                 {isLast ? "Get Started" : "Next"}
                             </span>
                             {!isLast && <ArrowRight className="h-3.5 w-3.5" />}

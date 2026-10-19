@@ -29,7 +29,7 @@ export class ErrorBoundary extends Component<Props, State> {
             return (
                 <div className="min-h-screen flex items-center justify-center bg-[var(--color-background)] p-8">
                     <div className="border border-[var(--color-border)] bg-[var(--color-surface)] w-full max-w-4xl p-8">
-                        <h1 className="text-2xl font-bold text-[color:var(--color-error)] mb-4">
+                        <h1 className="text-2xl text-[color:var(--color-error)] mb-4">
                             Application Error
                         </h1>
                         <p className="text-[color:var(--color-text-secondary)] mb-4">
@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         )}
                         {this.state.errorInfo?.componentStack && (
                             <div className="mb-4">
-                                <p className="font-semibold mb-2 text-[color:var(--color-text-primary)]">Component Stack:</p>
+                                <p className="mb-2 text-[color:var(--color-text-primary)]">Component Stack:</p>
                                 <pre className="bg-[var(--color-surface-muted)] text-[color:var(--color-warning)] p-4 overflow-auto text-xs max-h-[var(--layout-error-component-stack-max-height)]">
                                     {this.state.errorInfo.componentStack}
                                 </pre>

@@ -10,12 +10,44 @@
     width: 32px;
     height: 32px;
     border: 3px solid var(--color-border, #334155);
-    border-top-color: var(--color-accent, #6366f1);
-    border-radius: 50%;
+    border-top-color: var(--color-accent, #c6f135);
+    border-radius: 0;
     animation: theorem-loader-spin 0.8s linear infinite !important;
 }
 @keyframes theorem-loader-spin {
     to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@font-face {
+    font-family: 'DM Sans';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/fonts/dm-sans-latin-300-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'DM Sans';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/dm-sans-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'DM Mono';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/fonts/dm-mono-latin-300-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'DM Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/dm-mono-latin-400-normal.woff2') format('woff2');
 }
 
 @font-face {
@@ -39,7 +71,6 @@
 
 
 html {
-    color-scheme: light;
     font-family: var(--font-sans);
     font-size: var(--font-size-md);
     line-height: var(--line-height-normal);
@@ -71,9 +102,22 @@ body {
 }
 
 body {
+    letter-spacing: var(--tracking-body);
     background: var(--color-background);
     color: var(--color-text-primary);
     font-family: var(--font-sans);
+}
+
+/* Display and headline: Sans 300, tracking tightens as size grows. */
+h1 {
+    font-weight: 300;
+    letter-spacing: var(--tracking-display);
+}
+
+h2,
+h3 {
+    font-weight: 300;
+    letter-spacing: var(--tracking-headline);
 }
 
 a {
@@ -98,10 +142,6 @@ button {
 
 .uppercase {
     text-transform: none !important;
-}
-
-:where(.font-mono):not(code):not(pre):not(kbd):not(samp) {
-    font-family: var(--font-sans) !important;
 }
 
 button:disabled {
@@ -141,7 +181,7 @@ mark.article-temp-selection {
     display: inline;
     color: inherit;
     padding: 0.05em 0;
-    border-radius: 2px;
+    border-radius: 0;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
     cursor: pointer;
@@ -302,7 +342,7 @@ mark.article-temp-selection:hover {
     align-items: center;
     justify-content: center;
     color: var(--color-text-secondary);
-    font-weight: 500;
+    font-weight: 400;
     text-align: center;
     padding: 1rem;
     border: 1px solid var(--color-border);
@@ -590,21 +630,12 @@ foliate-view * {
 }
 
 [data-reading-mode] .reader-chip {
-    border: var(--border-width-interactive) solid var(--color-border);
-    background: var(--color-surface);
     color: var(--color-text-secondary);
-    transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+    transition: color var(--transition-fast);
 }
 
-[data-reading-mode] .reader-chip:hover {
-    background: var(--color-surface-muted);
-    border-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-border));
-    color: var(--color-text-primary);
-}
-
+[data-reading-mode] .reader-chip:hover,
 [data-reading-mode] .reader-chip[data-active="true"] {
-    background: var(--color-accent-light);
-    border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
     color: var(--color-accent);
 }
 
@@ -614,5 +645,4 @@ foliate-view * {
 
 [data-reading-mode] .reader-danger-action:hover {
     color: var(--color-error);
-    background: color-mix(in srgb, var(--color-error) 14%, transparent);
 }

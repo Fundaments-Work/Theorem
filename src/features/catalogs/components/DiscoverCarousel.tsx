@@ -28,7 +28,7 @@ export function DiscoverCarousel({
             {/* Section Header with Title, Subtitle, and Arrows */}
             <div className="flex items-end justify-between">
                 <div>
-                    <h2 className="text-base font-bold tracking-tight text-[color:var(--color-text-primary)]">
+                    <h2 className="text-base text-[color:var(--color-text-primary)]">
                         {section.title}
                     </h2>
                     {section.subtitle && (
@@ -41,14 +41,14 @@ export function DiscoverCarousel({
                 <div className="hidden sm:flex items-center gap-1 shrink-0">
                     <button
                         onClick={() => scroll("left")}
-                        className="h-7 w-7 inline-flex items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        className="h-7 w-7 inline-flex items-center justify-center text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
                         aria-label="Scroll left"
                     >
                         <ChevronLeft className="h-4 w-4" />
                     </button>
                     <button
                         onClick={() => scroll("right")}
-                        className="h-7 w-7 inline-flex items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                        className="h-7 w-7 inline-flex items-center justify-center text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
                         aria-label="Scroll right"
                     >
                         <ChevronRight className="h-4 w-4" />

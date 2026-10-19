@@ -25,7 +25,7 @@ function EmptyBookmarks() {
             <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
                 <Bookmark className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
-            <h2 className="w-full break-words text-balance text-lg font-medium text-[color:var(--color-text-primary)] mb-2">
+            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 No Bookmarks Yet
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">

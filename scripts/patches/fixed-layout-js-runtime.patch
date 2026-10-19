@@ -1,6 +1,6 @@
 --- fixed-layout.js
 +++ fixed-layout.js
-@@ -1,30 +1,26 @@
+@@ -1,30 +1,30 @@
  const parseViewport = str => str
 -    ?.split(/[,;\s]/) // NOTE: technically, only the comma is valid
 +    ?.split(/[,;\s]/) 
@@ -9,15 +9,21 @@
  
  const getViewport = (doc, viewport) => {
 -    // use `viewBox` for SVG
-+    
-     if (doc.documentElement.localName === 'svg') {
+-    if (doc.documentElement.localName === 'svg') {
++    if (!doc) {
++        if (typeof viewport === 'string') return parseViewport(viewport)
++        if (viewport?.width && viewport.height) return viewport
++        return { width: 1000, height: 2000 }
++    }
++    if (doc.documentElement?.localName === 'svg') {
          const [, , width, height] = doc.documentElement
              .getAttribute('viewBox')?.split(/\s/) ?? []
          return { width, height }
      }
  
 -    // get `viewport` `meta` element
-     const meta = parseViewport(doc.querySelector('meta[name="viewport"]')
+-    const meta = parseViewport(doc.querySelector('meta[name="viewport"]')
++    const meta = parseViewport(doc.querySelector?.('meta[name="viewport"]')
          ?.getAttribute('content'))
      if (meta) return Object.fromEntries(meta)
  
@@ -26,14 +32,15 @@
      if (viewport?.width && viewport.height) return viewport
  
 -    // if no viewport (possibly with image directly in spine), get image size
-     const img = doc.querySelector('img')
+-    const img = doc.querySelector('img')
++    const img = doc.querySelector?.('img')
      if (img) return { width: img.naturalWidth, height: img.naturalHeight }
  
 -    // just show *something*, i guess...
      console.warn(new Error('Missing viewport properties'))
      return { width: 1000, height: 2000 }
  }
-@@ -81,17 +77,26 @@
+@@ -81,17 +81,26 @@
              display: 'none',
              overflow: 'hidden',
          })
@@ -55,7 +62,7 @@
 +                // before getViewport() reads them. Without this, CBZ comics and
 +                // fixed-layout EPUBs without a <meta viewport> fall back to the
 +                // dummy 1000×2000 box, distorting all aspect ratios.
-+                const img = doc.querySelector('img')
++                const img = doc?.querySelector?.('img')
 +                if (img && !img.complete) {
 +                    await img.decode().catch(() => {})
 +                }
@@ -63,7 +70,7 @@
                  const { width, height } = getViewport(doc, this.defaultViewport)
                  resolve({
                      element, iframe,
-@@ -268,17 +273,28 @@
+@@ -268,17 +277,28 @@
              this.#render(side)
              return
          }
@@ -92,7 +99,7 @@
              const left = { index: indexL, src: srcL }
              const right = { index: indexR, src: srcR }
              await this.#showSpread({ left, right, side })
-@@ -287,7 +303,7 @@
+@@ -287,7 +307,7 @@
      }
      async select(target) {
          await this.goTo(target)
@@ -101,7 +108,7 @@
      }
      async goTo(target) {
          const { book } = this
-@@ -308,11 +324,16 @@
+@@ -308,11 +328,16 @@
      getContents() {
          return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
              doc: frame.contentDocument,

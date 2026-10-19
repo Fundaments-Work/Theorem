@@ -160,6 +160,7 @@ const selectionIsBackward = sel => {
 }
 
 const setSelectionTo = (target, collapse) => {
+    if (!target) return
     let range
     if (target.startContainer) range = target.cloneRange()
     else if (target.nodeType) {
@@ -167,7 +168,7 @@ const setSelectionTo = (target, collapse) => {
         range.selectNode(target)
     }
     if (range) {
-        const sel = range.startContainer.ownerDocument.defaultView.getSelection()
+        const sel = range.startContainer?.ownerDocument?.defaultView?.getSelection?.()
         if (sel) {
             sel.removeAllRanges()
             if (collapse === -1) range.collapse(true)
@@ -178,22 +179,26 @@ const setSelectionTo = (target, collapse) => {
 }
 
 const getDirection = doc => {
-    const { defaultView } = doc
-    const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
+    const { defaultView } = doc ?? {}
+    const el = doc?.body ?? doc?.documentElement
+    if (!el || !defaultView) return { vertical: false, rtl: false }
+    const { writingMode, direction } = defaultView.getComputedStyle(el)
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
-    const rtl = doc.body.dir === 'rtl'
+    const rtl = el.dir === 'rtl'
         || direction === 'rtl'
-        || doc.documentElement.dir === 'rtl'
+        || doc.documentElement?.dir === 'rtl'
     return { vertical, rtl }
 }
 
 const getBackground = doc => {
-    const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
-    return bodyStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
-        && bodyStyle.backgroundImage === 'none'
-        ? doc.defaultView.getComputedStyle(doc.documentElement).background
-        : bodyStyle.background
+    const el = doc?.body ?? doc?.documentElement
+    if (!el || !doc?.defaultView) return 'transparent'
+    const style = doc.defaultView.getComputedStyle(el)
+    return style.backgroundColor === 'rgba(0, 0, 0, 0)'
+        && style.backgroundImage === 'none'
+        ? (doc.documentElement ? doc.defaultView.getComputedStyle(doc.documentElement).background : 'transparent')
+        : style.background
 }
 
 const makeMarginals = (length, part) => Array.from({ length }, () => {
@@ -270,7 +275,11 @@ class View {
                 this.#vertical = vertical
                 this.#rtl = rtl
 
-                this.#contentRange.selectNodeContents(doc.body)
+                const el = doc?.body ?? doc?.documentElement
+                if (el) {
+                    this.#contentRange.selectNodeContents(el)
+                    this.#observer.observe(el)
+                }
 
                 void this.container.offsetWidth
 
@@ -279,8 +288,7 @@ class View {
                 this.#iframe.style.display = 'block'
                 this.#iframe.style.visibility = 'visible'
                 this.render(layout)
-                this.#observer.observe(doc.body)
-                doc.fonts.ready.then(() => this.expand())
+                doc?.fonts?.ready?.then(() => this.expand())
                 resolve()
             }, { once: true })
             this.#iframe.src = src
@@ -613,7 +621,9 @@ export class Paginator extends HTMLElement {
         this.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
         this.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
         this.addEventListener('touchend', this.#onTouchEnd.bind(this))
-        this.addEventListener('load', ({ detail: { doc } }) => {
+        this.addEventListener('load', ({ detail }) => {
+            const doc = detail?.doc
+            if (!doc) return
             doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
             doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
             doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
@@ -628,14 +638,21 @@ export class Paginator extends HTMLElement {
                 else setSelectionTo(this.#anchor, -1)
             }
         })
-        this.addEventListener('load', ({ detail: { doc } }) => {
+        this.addEventListener('load', ({ detail }) => {
+            const doc = detail?.doc
+            if (!doc) return
             let isPointerSelecting = false
             doc.addEventListener('pointerdown', () => isPointerSelecting = true)
             doc.addEventListener('pointerup', () => isPointerSelecting = false)
             doc.addEventListener('pointercancel', () => isPointerSelecting = false)
             let isKeyboardSelecting = false
-            doc.addEventListener('keydown', () => isKeyboardSelecting = true)
-            doc.addEventListener('keyup', () => isKeyboardSelecting = false)
+            doc.addEventListener('keydown', e => {
+                if (e.shiftKey) isKeyboardSelecting = true
+                else isKeyboardSelecting = false
+            })
+            doc.addEventListener('keyup', e => {
+                if (!e.shiftKey) isKeyboardSelecting = false
+            })
             
             const checkPointerSelection = debounce((range, sel) => {
                 if (!sel?.rangeCount) return
@@ -658,7 +675,7 @@ export class Paginator extends HTMLElement {
                     const range = this.#lastVisibleRange
                     if (range) checkPointerSelection(range, sel)
                 }
-                else if (isKeyboardSelecting) {
+                else if (isKeyboardSelecting && !sel.isCollapsed) {
                     const range = this.#lastVisibleRange
                     if (!range) return
                     const selRange = sel.getRangeAt(0).cloneRange()
@@ -710,17 +727,48 @@ export class Paginator extends HTMLElement {
             if (detail.type !== 'text/css') return
             const w = innerWidth
             const h = innerHeight
-            detail.data = Promise.resolve(detail.data).then(data => data
-                
-                .replace(/(?<=[{\s;])-epub-/gi, '')
-                
-                .replace(/(\d*\.?\d+)vw/gi, (_, d) => parseFloat(d) * w / 100 + 'px')
-                .replace(/(\d*\.?\d+)vh/gi, (_, d) => parseFloat(d) * h / 100 + 'px')
-                
-                .replace(/page-break-(after|before|inside)\s*:/gi, (_, x) =>
-                    `-webkit-column-break-${x}:`)
-                .replace(/break-(after|before|inside)\s*:\s*(avoid-)?page/gi, (_, x, y) =>
-                    `break-${x}: ${y ?? ''}column`))
+            detail.data = Promise.resolve(detail.data).then(async data => {
+                if (data == null) return data
+                let str = data
+                if (typeof str !== 'string') {
+                    if (typeof str?.text === 'function') {
+                        try {
+                            str = await str.text()
+                        } catch {
+                            return data
+                        }
+                    } else if (ArrayBuffer.isView(str)) {
+                        try {
+                            str = new TextDecoder().decode(str)
+                        } catch {
+                            return data
+                        }
+                    } else if (str instanceof ArrayBuffer || Object.prototype.toString.call(str) === '[object ArrayBuffer]') {
+                        try {
+                            str = new TextDecoder().decode(new Uint8Array(str))
+                        } catch {
+                            return data
+                        }
+                    } else {
+                        return data
+                    }
+                }
+                if (typeof str !== 'string') return data
+                return str
+                    // some books use the -epub- prefix for writing-mode
+                    .replace(/(?<=[{\s;])-epub-/gi, '')
+                    // replace vw/vh with px
+                    .replace(/(\d*\.?\d+)vw/gi, (_, d) => parseFloat(d) * w / 100 + 'px')
+                    .replace(/(\d*\.?\d+)vh/gi, (_, d) => parseFloat(d) * h / 100 + 'px')
+                    // WebKit column break compatibility
+                    .replace(/page-break-(after|before|inside)\s*:/gi, (_, x) =>
+                        `-webkit-column-break-${x}:`)
+                    .replace(/break-(after|before|inside)\s*:\s*(avoid-)?page/gi, (_, x, y) =>
+                        `break-${x}: ${y ?? ''}column`)
+            }).catch(e => {
+                console.warn(new Error(`Failed to transform CSS for ${detail.name}`, { cause: e }))
+                return ''
+            })
         })
     }
     #createView() {
@@ -1374,19 +1422,22 @@ export class Paginator extends HTMLElement {
             $style.textContent = style
         } else $style.textContent = styles
 
-        requestAnimationFrame(() =>
-            this.#background.style.background = getBackground(this.#view.document))
+        requestAnimationFrame(() => {
+            if (this.#view?.document) {
+                this.#background.style.background = getBackground(this.#view.document)
+            }
+        })
 
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        this.#view?.document?.fonts?.ready?.then(() => this.#view?.expand?.())
     }
     focusView() {
-        this.#view.document.defaultView.focus()
+        this.#view?.document?.defaultView?.focus?.()
     }
     destroy() {
         this.#observer.unobserve(this)
-        this.#view.destroy()
+        this.#view?.destroy?.()
         this.#view = null
-        this.sections[this.#index]?.unload?.()
+        this.sections?.[this.#index]?.unload?.()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
     }
 }

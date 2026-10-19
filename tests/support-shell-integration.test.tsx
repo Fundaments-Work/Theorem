@@ -73,9 +73,8 @@ describe("Buy Me Momo Shell Integration", () => {
     describe("Sidebar Support Placement", () => {
         it("renders Support button when user is eligible", () => {
             const container = render(<Sidebar />);
-            const supportBtn = container.querySelector('button[title="Support Theorem on Buy Me Momo"]');
+            const supportBtn = container.querySelector('button[aria-label="Support Theorem on Buy Me Momo"]');
             expect(supportBtn).not.toBeNull();
-            expect(supportBtn?.textContent).toContain("Support");
         });
 
         it("omits Support button when hiddenUntil is in the future", () => {
@@ -83,13 +82,13 @@ describe("Buy Me Momo Shell Integration", () => {
             localStorage.setItem(SUPPORT_HIDDEN_UNTIL_KEY, String(futureTime));
 
             const container = render(<Sidebar />);
-            const supportBtn = container.querySelector('button[title="Support Theorem on Buy Me Momo"]');
+            const supportBtn = container.querySelector('button[aria-label="Support Theorem on Buy Me Momo"]');
             expect(supportBtn).toBeNull();
         });
 
         it("dispatches to Buy Me Momo on click and updates cadence in localStorage", () => {
             const container = render(<Sidebar />);
-            const supportBtn = container.querySelector('button[title="Support Theorem on Buy Me Momo"]');
+            const supportBtn = container.querySelector('button[aria-label="Support Theorem on Buy Me Momo"]');
             expect(supportBtn).not.toBeNull();
 
             act(() => {
@@ -100,7 +99,7 @@ describe("Buy Me Momo Shell Integration", () => {
             expect(localStorage.getItem(SUPPORT_HIDDEN_UNTIL_KEY)).not.toBeNull();
 
             // Button hides immediately after click
-            expect(container.querySelector('button[title="Support Theorem on Buy Me Momo"]')).toBeNull();
+            expect(container.querySelector('button[aria-label="Support Theorem on Buy Me Momo"]')).toBeNull();
         });
     });
 

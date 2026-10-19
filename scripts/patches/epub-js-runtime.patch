@@ -195,7 +195,7 @@
          if ($itemref && $itemref.nodeName !== 'idref') {
              top.at(-1).id = null
              $itemref = CFI.toElement(this.opf, top)
-@@ -713,13 +698,12 @@
+@@ -713,32 +698,36 @@
          this.loadBlob = loadBlob
          this.manifest = resources.manifest
          this.assets = resources.manifest
@@ -210,8 +210,35 @@
 +        Object.defineProperty(detail, 'name', { value: href }) 
          const event = new CustomEvent('data', { detail })
          this.eventTarget.dispatchEvent(event)
-         const newData = await event.detail.data
-@@ -738,7 +722,6 @@
+-        const newData = await event.detail.data
+-        const newType = await event.detail.type
+-        const url = URL.createObjectURL(new Blob([newData], { type: newType }))
+-        this.#cache.set(href, url)
+-        this.#refCount.set(href, 1)
+-        if (parent) {
+-            const childList = this.#children.get(parent)
+-            if (childList) childList.push(href)
+-            else this.#children.set(parent, [href])
++        try {
++            const newData = await event.detail.data
++            const newType = await event.detail.type
++            const blobData = newData == null ? [] : [newData]
++            const url = URL.createObjectURL(new Blob(blobData, { type: newType }))
++            this.#cache.set(href, url)
++            this.#refCount.set(href, 1)
++            if (parent) {
++                const childList = this.#children.get(parent)
++                if (childList) childList.push(href)
++                else this.#children.set(parent, [href])
++            }
++            return url
++        } catch (e) {
++            console.warn(new Error(`Failed to load resource ${href}`, { cause: e }))
++            return ''
+         }
+-        return url
+     }
+     ref(href, parent) {
          const childList = this.#children.get(parent)
          if (!childList?.includes(href)) {
              this.#refCount.set(href, this.#refCount.get(href) + 1)
@@ -219,7 +246,7 @@
              if (childList) childList.push(href)
              else this.#children.set(parent, [href])
          }
-@@ -747,19 +730,17 @@
+@@ -747,19 +736,17 @@
      unref(href) {
          if (!this.#refCount.has(href)) return
          const count = this.#refCount.get(href) - 1
@@ -241,7 +268,7 @@
      async loadItem(item, parents = []) {
          if (!item) return null
          const { href, mediaType } = item
-@@ -776,18 +757,43 @@
+@@ -776,18 +763,48 @@
  
          const shouldReplace =
              (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
@@ -272,9 +299,14 @@
 +        if (!item) {
 +            try {
 +                const cleanPath = path.split('#')[0].split('?')[0]
++                const ext = cleanPath.split('.').pop()?.toLowerCase()
++                if (ext === 'css') {
++                    const synthesizedItem = { href: cleanPath, mediaType: 'text/css' }
++                    const url = await this.loadItem(synthesizedItem, parents.concat(base))
++                    if (url) return url
++                }
 +                const blob = await this.loadBlob(cleanPath)
 +                if (blob) {
-+                    const ext = cleanPath.split('.').pop()?.toLowerCase()
 +                    const mediaType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
 +                        : ext === 'png' ? 'image/png'
 +                        : ext === 'gif' ? 'image/gif'
@@ -290,7 +322,7 @@
          return this.loadItem(item, parents.concat(base))
      }
      async loadReplaced(item, parents = []) {
-@@ -801,27 +807,16 @@
+@@ -801,27 +818,16 @@
          }
          if (!str) return null
  
@@ -320,7 +352,7 @@
              if ([MIME.XHTML, MIME.SVG].includes(item.mediaType)) {
                  let child = doc.firstChild
                  while (child instanceof ProcessingInstruction) {
-@@ -836,29 +831,34 @@
+@@ -836,29 +842,34 @@
                      child = child.nextSibling
                  }
              }
@@ -361,7 +393,7 @@
              const result = new XMLSerializer().serializeToString(doc)
              return this.createURL(href, result, item.mediaType, parent)
          }
-@@ -873,19 +873,19 @@
+@@ -873,19 +884,19 @@
              /url\(\s*["']?([^'"\n]*?)\s*["']?\s*\)/gi,
              (_, url) => this.loadHref(url, href, parents)
                  .then(url => `url("${url}")`))
@@ -385,7 +417,7 @@
              const relative = pathRelative(pathDirname(href), asset.href)
              const relativeEnc = encodeURI(relative)
              const rootRelative = '/' + asset.href
-@@ -934,7 +934,14 @@
+@@ -934,7 +945,14 @@
      #loader
      #encryption
      constructor({ loadText, loadBlob, getSize, sha1 }) {

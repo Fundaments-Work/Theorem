@@ -69,7 +69,7 @@ const defaultTtsSettings: TtsSettings = {
     speed: 1.0,
 };
 
-const DEFAULT_ACCENT_COLOR = "#000000";
+const DEFAULT_ACCENT_COLOR = "#c6f135";
 
 const defaultAppSettings: AppSettings = {
     sidebarCollapsed: false,
@@ -78,7 +78,7 @@ const defaultAppSettings: AppSettings = {
     librarySortOrder: "desc",
     scanFolders: [],
     cacheSize: 500,
-    theme: "system",
+    theme: "dark",
     accentColor: DEFAULT_ACCENT_COLOR,
     readerSettings: defaultReaderSettings,
     vocabulary: defaultVocabularySettings,
@@ -217,7 +217,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: "theorem-settings",
-            version: 12,
+            version: 13,
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
                 (state) => [state.settings, state.stats, state.settingsLastModifiedAt],
@@ -313,6 +313,12 @@ export const useSettingsStore = create<SettingsStore>()(
                             state.settings.deviceSync.syncOnConnect = true;
                         }
                     }
+                }
+
+                // Move users still on the old black default to the Fundaments.work lime.
+                // Anyone who picked an accent keeps it.
+                if (version < 13 && state.settings?.accentColor === "#000000") {
+                    state.settings.accentColor = DEFAULT_ACCENT_COLOR;
                 }
 
                 // "series" was removed from the library sort options; fall back to the

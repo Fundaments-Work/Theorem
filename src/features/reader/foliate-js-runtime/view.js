@@ -39,9 +39,22 @@ const makeZipLoader = async (file, prefetchPromise) => {
                 const buffer = await file.arrayBuffer();
                 const worker = window.__THEOREM_CORE_WORKER__;
                 const { entries } = await worker.initEpub(buffer);
-                const sizeMap = new Map(entries.map(e => [e.filename, e.uncompressedSize]));
-                const resolve = name => typeof name !== 'string' ? null
-                    : sizeMap.has(name) ? name : name.replace(/^\//, '');
+                const sizeMap = new Map();
+                for (const e of entries) {
+                    sizeMap.set(e.filename, e.uncompressedSize);
+                    const clean = e.filename.replace(/^\.?\//, '');
+                    if (!sizeMap.has(clean)) sizeMap.set(clean, e.uncompressedSize);
+                    if (!sizeMap.has('./' + clean)) sizeMap.set('./' + clean, e.uncompressedSize);
+                }
+                const resolve = name => {
+                    if (typeof name !== 'string') return null;
+                    if (sizeMap.has(name)) return name;
+                    const clean = name.replace(/^\.?\//, '');
+                    if (sizeMap.has(clean)) return clean;
+                    if (sizeMap.has('./' + clean)) return './' + clean;
+                    if (sizeMap.has('/' + clean)) return '/' + clean;
+                    return clean;
+                };
                 const loadText = name => worker.readEpubText(resolve(name) || name);
                 const loadBlob = (name, type) =>
                     worker.readEpubEntry(resolve(name) || name).then(buf => buf ? new Blob([buf], type ? { type } : undefined) : null);
@@ -60,12 +73,27 @@ const makeZipLoader = async (file, prefetchPromise) => {
         configure({ useWebWorkers: false })
         const reader = new ZipReader(new BlobReader(file))
         const entries = await reader.getEntries()
-        const map = new Map(entries.map(e => [e.filename, e]))
-        const loadText = name =>
-            map.has(name) ? map.get(name).getData(new TextWriter()) : null
-        const loadBlob = (name, type) =>
-            map.has(name) ? map.get(name).getData(new BlobWriter(type)) : null
-        const getSize = name => map.get(name)?.uncompressedSize ?? 0
+        const map = new Map()
+        for (const e of entries) {
+            map.set(e.filename, e)
+            const clean = e.filename.replace(/^\.?\//, '')
+            if (!map.has(clean)) map.set(clean, e)
+            if (!map.has('./' + clean)) map.set('./' + clean, e)
+        }
+        const getEntry = name => {
+            if (typeof name !== 'string') return null
+            const clean = name.replace(/^\.?\//, '')
+            return map.get(name) ?? map.get(clean) ?? map.get('./' + clean) ?? map.get('/' + clean) ?? null
+        }
+        const loadText = name => {
+            const entry = getEntry(name)
+            return entry ? entry.getData(new TextWriter()) : null
+        }
+        const loadBlob = (name, type) => {
+            const entry = getEntry(name)
+            return entry ? entry.getData(new BlobWriter(type)) : null
+        }
+        const getSize = name => getEntry(name)?.uncompressedSize ?? 0
         return { entries, loadText, loadBlob, getSize }
     }
 
@@ -74,14 +102,25 @@ const makeZipLoader = async (file, prefetchPromise) => {
     if (prefetch?.readEntry && sizes) {
         const readEntry = prefetch.readEntry
         // Rust also tries percent-decoded and case-insensitive names.
-        const resolve = name => typeof name !== 'string' ? null
-            : sizes.has(name) ? name : name.replace(/^\//, '')
+        const resolve = name => {
+            if (typeof name !== 'string') return null
+            if (sizes.has(name)) return name
+            const clean = name.replace(/^\.?\//, '')
+            if (sizes.has(clean)) return clean
+            if (sizes.has('./' + clean)) return './' + clean
+            if (sizes.has('/' + clean)) return '/' + clean
+            return clean
+        }
         const entries = [...sizes.keys()].sort()
             .map(filename => ({ filename, uncompressedSize: sizes.get(filename) }))
         const loadText = name => {
             const key = resolve(name)
             if (key == null) return null
-            const cached = textCache?.get(key) ?? textCache?.get(name)
+            const clean = typeof name === 'string' ? name.replace(/^\.?\//, '') : null
+            const cached = (clean ? textCache?.get(clean) : undefined)
+                ?? textCache?.get(key)
+                ?? (clean ? textCache?.get('./' + clean) : undefined)
+                ?? textCache?.get(name)
             if (cached !== undefined) return cached
             return readEntry(key).then(buffer => buffer ? new TextDecoder().decode(buffer) : null)
         }
@@ -92,7 +131,11 @@ const makeZipLoader = async (file, prefetchPromise) => {
         }
         const getSize = name => {
             const key = resolve(name)
-            return (key != null ? sizes.get(key) : undefined) ?? 0
+            const clean = typeof name === 'string' ? name.replace(/^\.?\//, '') : null
+            return (key != null ? sizes.get(key) : undefined)
+                ?? (clean ? sizes.get(clean) : undefined)
+                ?? (clean ? sizes.get('./' + clean) : undefined)
+                ?? 0
         }
         return { entries, loadText, loadBlob, getSize, toc }
     }
@@ -106,34 +149,47 @@ const makeZipLoader = async (file, prefetchPromise) => {
                 configure({ useWebWorkers: false })
                 const reader = new ZipReader(new BlobReader(file))
                 const entries = await reader.getEntries()
-                const map = new Map(entries.map(e => [e.filename, e]))
-                return { entries, map, TextWriter, BlobWriter }
+                const map = new Map()
+                for (const e of entries) {
+                    map.set(e.filename, e)
+                    const clean = e.filename.replace(/^\.?\//, '')
+                    if (!map.has(clean)) map.set(clean, e)
+                    if (!map.has('./' + clean)) map.set('./' + clean, e)
+                }
+                const getEntry = name => {
+                    if (typeof name !== 'string') return null
+                    const clean = name.replace(/^\.?\//, '')
+                    return map.get(name) ?? map.get(clean) ?? map.get('./' + clean) ?? map.get('/' + clean) ?? null
+                }
+                return { entries, map, getEntry, TextWriter, BlobWriter }
             })()
         }
         return _lazyZip
     }
 
     const loadText = name => {
-        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
-        const cached = textCache.get(name) ?? (cleanName ? textCache.get(cleanName) : undefined)
+        const cleanName = typeof name === 'string' ? name.replace(/^\.?\//, '') : name
+        const cached = textCache?.get(name)
+            ?? (cleanName ? (textCache?.get(cleanName) ?? textCache?.get('./' + cleanName)) : undefined)
         if (cached !== undefined) return cached
-        return getLazyZip().then(({ map, TextWriter }) => {
-            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
+        return getLazyZip().then(({ getEntry, TextWriter }) => {
+            const entry = getEntry(name)
             return entry ? entry.getData(new TextWriter()) : null
         })
     }
 
     const loadBlob = (name, type) => {
-        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
-        return getLazyZip().then(({ map, BlobWriter }) => {
-            const entry = map.get(name) ?? (cleanName ? map.get(cleanName) : undefined)
+        return getLazyZip().then(({ getEntry, BlobWriter }) => {
+            const entry = getEntry(name)
             return entry ? entry.getData(new BlobWriter(type)) : null
         })
     }
 
     const getSize = name => {
-        const cleanName = typeof name === 'string' ? name.replace(/^\//, '') : name
-        return sizes.get(name) ?? (cleanName ? sizes.get(cleanName) : undefined) ?? 0
+        const cleanName = typeof name === 'string' ? name.replace(/^\.?\//, '') : name
+        return sizes?.get(name)
+            ?? (cleanName ? (sizes?.get(cleanName) ?? sizes?.get('./' + cleanName)) : undefined)
+            ?? 0
     }
 
     return { loadText, loadBlob, getSize, getLazyZip, toc }

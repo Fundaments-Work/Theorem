@@ -97,7 +97,7 @@ export const PICKER_PANEL_CLASS = "w-[15.5rem] max-w-[calc(100vw-2rem)] bg-[var(
 export const PICKER_ACTION_BUTTON_CLASS = [
     "flex w-full items-center justify-center",
     "border border-[var(--color-border)] bg-[var(--color-surface)]",
-    "px-3 py-2.5 text-sm font-medium text-[color:var(--color-text-secondary)]",
+    "px-3 py-2.5 text-sm text-[color:var(--color-text-secondary)]",
     "transition-[background-color,border-color,color,opacity] duration-200 ease-out",
     "hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]",
     "disabled:cursor-not-allowed disabled:opacity-[0.45]",
@@ -107,7 +107,7 @@ const PICKER_DANGER_BUTTON_CLASS = [
     "flex w-full items-center justify-center",
     "border border-[color:color-mix(in_srgb,var(--color-error)_24%,var(--color-border))]",
     "bg-[color:color-mix(in_srgb,var(--color-error)_8%,var(--color-surface))]",
-    "px-3 py-2.5 text-sm font-medium text-[color:var(--color-error)]",
+    "px-3 py-2.5 text-sm text-[color:var(--color-error)]",
     "transition-[background-color,border-color,color,opacity] duration-200 ease-out",
     "hover:bg-[color:color-mix(in_srgb,var(--color-error)_14%,var(--color-surface))]",
 ].join(" ");
@@ -440,11 +440,11 @@ export function HighlightColorPicker({
                 {isDictionaryView && dictionary ? (
                     <>
                         <div className="mb-3 border-b border-[var(--color-border)] px-1 pb-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-secondary)]">
+                            <p className="text-xs text-[color:var(--color-text-secondary)]">
                                 Dictionary
                             </p>
                             {dictionary.term ? (
-                                <p className="truncate text-sm font-semibold text-[color:var(--color-text-primary)]">
+                                <p className="truncate text-sm text-[color:var(--color-text-primary)]">
                                     {dictionary.term}
                                 </p>
                             ) : null}
@@ -488,7 +488,7 @@ export function HighlightColorPicker({
                                     )}
                                     {dictionary.result.meanings.slice(0, 3).map((meaning, idx) => (
                                         <div key={`${meaning.provider}-${idx}`} className="space-y-1">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-muted)]">
+                                            <p className="text-xs text-[color:var(--color-text-muted)]">
                                                 {meaning.partOfSpeech || "Meaning"}
                                             </p>
                                             <ul className="space-y-1 text-sm text-[color:var(--color-text-primary)] list-disc pl-4">
@@ -517,7 +517,7 @@ export function HighlightColorPicker({
                             {dictionary.onBack ? (
                                 <button
                                     onClick={dictionary.onBack}
-                                    className="inline-flex items-center gap-1.5 border border-[var(--color-border)] px-3 py-2 text-xs font-medium text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
+                                    className="inline-flex items-center gap-1.5 border border-[var(--color-border)] px-3 py-2 text-xs text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
                                 >
                                     <ArrowLeft className="h-3.5 w-3.5" />
                                     Back
@@ -534,7 +534,7 @@ export function HighlightColorPicker({
                                     || dictionary.canSaveToVocabulary === false
                                 }
                                 className={cn(
-                                    "inline-flex items-center gap-1.5 border px-3 py-2 text-xs font-medium transition-[background-color,border-color,color,opacity] duration-200 ease-out",
+                                    "inline-flex items-center gap-1.5 border px-3 py-2 text-xs transition-[background-color,border-color,color,opacity] duration-200 ease-out",
                                     dictionary.saved
                                         ? "border-[color:color-mix(in_srgb,var(--color-success)_24%,var(--color-border))] bg-[var(--color-success)]/10 text-[color:var(--color-success)]"
                                         : "border-[var(--color-accent)] bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] hover:border-[var(--color-accent-hover)] hover:bg-[var(--color-accent-hover)]",

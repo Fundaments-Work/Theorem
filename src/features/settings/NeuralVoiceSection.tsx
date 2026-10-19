@@ -52,7 +52,7 @@ function Section({ title, description, children }: { title: string; description?
     return (
         <section className="bg-[var(--color-surface)]">
             <div className="border-b border-[var(--color-border-subtle)] px-5 py-3">
-                <h2 className="font-sans text-[12px] font-semibold text-[color:var(--color-text-primary)]">{title}</h2>
+                <h2 className="font-sans text-[12px] text-[color:var(--color-text-primary)]">{title}</h2>
                 {description && (
                     <p className="mt-1 font-sans text-[11px] text-[color:var(--color-text-secondary)]">{description}</p>
                 )}
@@ -66,7 +66,7 @@ function SettingRow({ label, description, children }: { label: string; descripti
     return (
         <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div className="w-full sm:flex-1 sm:pr-4">
-                <span className="font-sans text-[12px] font-semibold text-[color:var(--color-text-primary)]">{label}</span>
+                <span className="font-sans text-[12px] text-[color:var(--color-text-primary)]">{label}</span>
                 {description && (
                     <p className="mt-1 font-sans text-[11px] text-[color:var(--color-text-secondary)]">{description}</p>
                 )}
@@ -214,9 +214,9 @@ function DesktopNeuralVoice() {
                         <span className="truncate font-mono">{downloading.name}</span>
                         <span className="font-mono">{downloading.percent}%</span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-[var(--color-surface-muted)] overflow-hidden">
+                    <div className="h-1.5 bg-[var(--color-surface-muted)] overflow-hidden">
                         <div
-                            className="h-full rounded-full bg-[var(--color-accent)]"
+                            className="h-full bg-[var(--color-accent)]"
                             style={{ width: `${downloading.percent}%` }}
                         />
                     </div>

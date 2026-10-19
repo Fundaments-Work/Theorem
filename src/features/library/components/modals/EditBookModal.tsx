@@ -167,7 +167,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                     )}
 
                     <div className="flex items-start gap-4 mb-5">
-                        <div className="w-20 h-28 shrink-0 overflow-hidden shadow-sm">
+                        <div className="w-20 h-28 shrink-0 overflow-hidden">
                             <TheoremBookCover
                                 title={title || book?.title || "Untitled"}
                                 author={author || book?.author || "Unknown Author"}
@@ -186,7 +186,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 <button
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
-                                    className="ui-btn px-3 py-1.5 text-xs font-bold uppercase"
+                                    className="ui-btn px-3 py-1.5 text-xs"
                                 >
                                     <Upload className="w-3.5 h-3.5" />
                                     Choose Image
@@ -194,7 +194,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 <button
                                     type="button"
                                     onClick={() => setCoverUrlVisible((v) => !v)}
-                                    className="ui-btn px-3 py-1.5 text-xs font-bold uppercase"
+                                    className="ui-btn px-3 py-1.5 text-xs"
                                 >
                                     <LinkIcon className="w-3.5 h-3.5" />
                                     From URL
@@ -204,7 +204,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                         type="button"
                                         onClick={handleRemoveCover}
                                         disabled={removeCover}
-                                        className="ui-btn px-3 py-1.5 text-xs font-bold uppercase text-[var(--color-error)] disabled:opacity-50"
+                                        className="ui-btn px-3 py-1.5 text-xs text-[var(--color-error)] disabled:opacity-50"
                                     >
                                         <Trash2 className="w-3.5 h-3.5" />
                                         Remove
@@ -224,7 +224,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                         type="button"
                                         onClick={handleFetchCoverUrl}
                                         disabled={!coverUrl.trim() || saving}
-                                        className="ui-btn-primary px-3 py-1.5 text-xs font-bold uppercase disabled:opacity-50"
+                                        className="ui-btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
                                     >
                                         Set
                                     </button>
@@ -238,7 +238,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                     <div className="space-y-4">
                         <div>
-                            <label htmlFor="edit-title" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                            <label htmlFor="edit-title"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Title
                             </label>
                             <input
@@ -253,7 +253,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div className="sm:col-span-2">
-                                <label htmlFor="edit-series" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-series"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Series Name
                                 </label>
                                 <input
@@ -266,7 +266,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-series-index" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-series-index"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Volume / Index
                                 </label>
                                 <input
@@ -283,7 +283,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label htmlFor="edit-author" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-author"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Author
                                 </label>
                                 <input
@@ -295,7 +295,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-publisher" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-publisher"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Publisher
                                 </label>
                                 <input
@@ -310,7 +310,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label htmlFor="edit-date" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-date"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Published Date
                                 </label>
                                 <input
@@ -323,7 +323,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-language" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-language"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Language
                                 </label>
                                 <input
@@ -339,7 +339,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label htmlFor="edit-isbn" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-isbn"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     ISBN
                                 </label>
                                 <input
@@ -351,7 +351,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-category" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-category"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Category
                                 </label>
                                 <input
@@ -365,7 +365,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                         </div>
 
                         <div>
-                            <label htmlFor="edit-tags" className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                            <label htmlFor="edit-tags"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Tags
                             </label>
                             <input
@@ -379,7 +379,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                            <label className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Description
                             </label>
                             <textarea
@@ -391,7 +391,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-[color:var(--color-text-primary)] mb-1.5">
+                            <label className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Rating
                             </label>
                             <div className="flex items-center gap-1">

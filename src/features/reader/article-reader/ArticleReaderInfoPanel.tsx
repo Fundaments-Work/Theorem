@@ -23,7 +23,7 @@ export function ArticleReaderInfoPanel({
     return (
         <FloatingPanel visible={visible} className="overflow-hidden">
             <div className="reader-panel-header px-4 pt-4 pb-3 flex items-center justify-between">
-                <h2 className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[color:var(--color-text-primary)]">Article Info</h2>
+                <h2 className="font-mono text-[11px] text-[color:var(--color-text-primary)]">Article Info</h2>
                 <button
                     onClick={onClose}
                     className="reader-chip w-8 h-8 inline-flex items-center justify-center transition-colors hover:opacity-80"
@@ -35,12 +35,12 @@ export function ArticleReaderInfoPanel({
 
             <div className="p-5 space-y-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar [content-visibility:auto] overscroll-contain">
                 <div>
-                    <h3 className="font-serif text-xl font-semibold text-[color:var(--color-text-primary)] leading-tight">
+                    <h3 className="font-serif text-xl text-[color:var(--color-text-primary)] leading-tight">
                         {article.title}
                     </h3>
                 </div>
 
-                <div className="space-y-3 font-mono text-[11px] uppercase tracking-[0.08em]">
+                <div className="space-y-3 font-mono text-[11px]">
                     {article.author && (
                         <div className="flex items-start gap-2 text-[color:var(--color-text-secondary)]">
                             <User className="w-4 h-4 mt-0.5" />
@@ -68,7 +68,7 @@ export function ArticleReaderInfoPanel({
                         type="button"
                         onClick={onToggleSaved}
                         className={cn(
-                            "flex h-10 w-full items-center justify-center gap-2 border font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors",
+                            "flex h-10 w-full items-center justify-center gap-2 border font-mono text-[11px] transition-colors",
                             article.isSaved
                                 ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
                                 : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]"
@@ -85,7 +85,7 @@ export function ArticleReaderInfoPanel({
                         onClick={() => {
                             void openExternalUrl(article.url);
                         }}
-                        className="flex h-10 w-full items-center justify-center gap-2 border border-[var(--color-border)] font-mono text-[11px] font-bold uppercase tracking-[0.1em] transition-colors hover:bg-[var(--color-surface-muted)]"
+                        className="flex h-10 w-full items-center justify-center gap-2 border border-[var(--color-border)] font-mono text-[11px] transition-colors hover:bg-[var(--color-surface-muted)]"
                     >
                         <ExternalLink className="w-4 h-4" />
                         Open Original

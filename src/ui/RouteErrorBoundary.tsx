@@ -48,7 +48,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                         <div className="mb-4 flex h-14 w-14 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] text-[color:var(--color-error)]">
                             <AlertCircle className="h-6 w-6" />
                         </div>
-                        <h2 className="mb-2 text-base font-bold text-[color:var(--color-text-primary)]">
+                        <h2 className="mb-2 text-base text-[color:var(--color-text-primary)]">
                             This page encountered an error
                         </h2>
                         <p className="mx-auto w-full max-w-[22rem] break-words text-sm text-[color:var(--color-text-secondary)] mb-6 leading-relaxed">
@@ -56,7 +56,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                         </p>
                         <button
                             onClick={this.handleRetry}
-                            className="px-5 py-2.5 text-xs font-bold uppercase tracking-wider bg-[var(--color-surface)] text-[color:var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                            className="px-5 py-2.5 text-xs bg-[var(--color-surface)] text-[color:var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] transition-colors"
                         >
                             Try Again
                         </button>

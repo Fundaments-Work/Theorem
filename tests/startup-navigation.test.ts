@@ -1,40 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-const storage = vi.hoisted(() => ({
-    getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn(),
-}));
-vi.mock('../src/core/lib/persist-storage', () => ({
-    deferredJsonStorage: storage,
-    memoizePartialize: (_select: unknown, partialize: unknown) => partialize,
-}));
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useUIStore } from '../src/core/store/uiStore';
 
 beforeEach(() => {
-    vi.clearAllMocks();
-    useUIStore.setState({ currentRoute: 'library', currentBookId: undefined, sidebarOpen: true });
+    useUIStore.setState({ currentRoute: 'library', currentBookId: undefined });
 });
 
 describe('launch navigation', () => {
-    it('migrates an old reader session to the library, retaining sidebar preference', async () => {
-        storage.getItem.mockResolvedValue({ version: 1, state: {
-            currentRoute: 'reader', currentBookId: 'problem-book', sidebarOpen: false,
-        } });
-        await useUIStore.persist.rehydrate();
-        expect(useUIStore.getState().currentRoute).toBe('library');
-        expect(useUIStore.getState().currentBookId).toBeUndefined();
-        expect(useUIStore.getState().sidebarOpen).toBe(false);
+    it('keeps navigation as session state, never persisted', () => {
+        // The sidebar is a fixed rail, so the UI store has nothing worth persisting.
+        // The open book and reader route must not survive a launch.
+        expect((useUIStore as unknown as { persist?: unknown }).persist).toBeUndefined();
     });
-    it('does not persist the open book or reader route', () => {
-        useUIStore.getState().setRoute('reader', 'book', false);
-        expect(storage.setItem).toHaveBeenLastCalledWith('theorem-ui', {
-            version: 2, state: { sidebarOpen: true },
-        });
-    });
-    it('keeps an explicit book-opening action while preferences hydrate', async () => {
-        storage.getItem.mockResolvedValue({ version: 1, state: {
-            currentRoute: 'reader', currentBookId: 'old-book', sidebarOpen: false,
-        } });
+    it('keeps an explicit book-opening action', () => {
         useUIStore.getState().setRoute('reader', 'requested-book', false);
-        await useUIStore.persist.rehydrate();
         expect(useUIStore.getState().currentRoute).toBe('reader');
         expect(useUIStore.getState().currentBookId).toBe('requested-book');
     });

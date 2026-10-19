@@ -15,6 +15,8 @@
     --color-text-inverse: var(--app-text-inverse, #ffffff);
     --color-border: var(--app-border, #e5e5e5);
     --color-border-subtle: var(--app-border-subtle, #e5e5e5);
+    --color-border-strong: var(--app-border-strong, #6a6a70);
+    --color-text-disabled: var(--app-text-disabled, #7a7a7a);
     --color-accent: var(--app-accent, #1a1a1a);
     --color-accent-hover: var(--app-accent-hover, #000000);
     --color-accent-light: var(--app-accent-light, #f4f4f4);
@@ -79,9 +81,9 @@
     --glass-border: rgba(255, 255, 255, 0.1);
 
     
-    --font-sans: "Helvetica Neue", Helvetica, Arial, "Nimbus Sans L", "Liberation Sans", sans-serif;
+    --font-sans: "DM Sans", sans-serif;
     --font-serif: "EB Garamond", "Lora", Georgia, serif;
-    --font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", "Consolas", monospace;
+    --font-mono: "DM Mono", monospace;
     --font-serif-display: "EB Garamond", "Lora", Georgia, serif;
     --font-merriweather: "EB Garamond", "Lora", Georgia, serif;
     --font-size-4xs: 0.5625rem;
@@ -102,11 +104,14 @@
     --line-height-normal: 1.5;
     --line-height-relaxed: 1.625;
     --line-height-loose: 1.75;
+    --tracking-display: -0.03em;
+    --tracking-headline: -0.02em;
+    --tracking-body: -0.01em;
     --font-weight-regular: 400;
-    --font-weight-medium: 500;
-    --font-weight-semibold: 600;
-    --font-weight-bold: 700;
-    --font-weight-black: 800;
+    --font-weight-medium: 400;
+    --font-weight-semibold: 400;
+    --font-weight-bold: 400;
+    --font-weight-black: 400;
     --letter-spacing-tight: -0.01em;
     --letter-spacing-normal: 0;
     --letter-spacing-wide: 0.02em;
@@ -140,11 +145,9 @@
     --layout-content-readable-width: 72ch;
     --layout-content-inline-padding: var(--spacing-xl);
     --layout-content-inline-padding-mobile: var(--spacing-lg);
-    --layout-sidebar-width: 16rem;
-    --layout-sidebar-collapsed-width: 4.5rem;
+    --layout-sidebar-width: 3rem;
     --layout-sidebar-header-height: 2.75rem;
     --layout-sidebar-item-height: 2.75rem;
-    --layout-sidebar-toggle-width: 3rem;
     --layout-header-height: 4rem;
     --layout-titlebar-height: 2.75rem;
     --layout-bottom-nav-height: 4rem;
@@ -202,8 +205,41 @@
 }
 
 
-.theme-light,
-:root {
+:root,
+.theme-dark {
+    --app-bg: #141416;
+    --app-surface: #1c1c20;
+    --app-surface-elevated: #28282c;
+    --app-surface-muted: #353539;
+    --app-surface-variant: #3d3d42;
+    --app-surface-hover: #454549;
+    --app-text-primary: #e8e6e1;
+    --app-text-secondary: #a0a0a0;
+    --app-text-muted: #929292;
+    --app-text-disabled: #7a7a7a;
+    --app-text-inverse: #141416;
+    --app-border: #3d3d42;
+    --app-border-subtle: #323236;
+    --app-border-strong: #6a6a70;
+    --app-accent: #c6f135;
+    --app-accent-hover: #d6ff47;
+    --app-accent-light: color-mix(in srgb, #c6f135 25%, #141416);
+    --app-accent-contrast: #293500;
+    --app-success: #4ade80;
+    --app-warning: #fbbf24;
+    --app-error: #ef5350;
+    --app-info: #8b8b8b;
+    --app-focus-ring: color-mix(in srgb, #c6f135 58%, transparent);
+    --app-overlay-subtle: color-mix(in srgb, #ffffff 8%, transparent);
+    --app-overlay-medium: color-mix(in srgb, #ffffff 14%, transparent);
+    --app-overlay-strong: color-mix(in srgb, #000000 25%, transparent);
+    --app-overlay-strong-hover: color-mix(in srgb, #000000 33%, transparent);
+    color-scheme: dark;
+}
+
+/* Light is a theme inside the system, not a second brand. Lime fails contrast
+   on paper (1.24:1), so the accent here is derived at runtime by applyAppTheme. */
+.theme-light {
     --app-bg: #faf9f7;
     --app-surface: #f4f3f0;
     --app-surface-elevated: #ffffff;
@@ -211,39 +247,54 @@
     --app-surface-variant: #e0dfda;
     --app-surface-hover: #d9d8d3;
     --app-text-primary: #1c1c1c;
-    --app-text-secondary: #6b6b6b;
-    --app-text-muted: #9c9c9c;
+    --app-text-secondary: #5c5c5c;
+    --app-text-muted: #666666;
+    --app-text-disabled: #9c9c9c;
     --app-text-inverse: #ffffff;
     --app-border: #d4d3ce;
     --app-border-subtle: #e2e1dd;
-    --app-accent: #2d6a6e;
-    --app-accent-hover: #25595c;
-    --app-accent-light: color-mix(in srgb, #2d6a6e 15%, #ffffff);
+    --app-border-strong: #8c8c88;
+    --app-accent: #4d6a00;
+    --app-accent-hover: #3f5600;
+    --app-accent-light: color-mix(in srgb, #4d6a00 15%, #ffffff);
     --app-accent-contrast: #ffffff;
-    --app-success: #2d6a6e;
-    --app-warning: #2d6a6e;
+    --app-success: #4d6a00;
+    --app-warning: #4d6a00;
     --app-error: #d32f2f;
     --app-info: #6b6b6b;
-    --app-focus-ring: color-mix(in srgb, #2d6a6e 58%, transparent);
+    --app-focus-ring: color-mix(in srgb, #4d6a00 58%, transparent);
     --app-overlay-subtle: color-mix(in srgb, #000000 8%, transparent);
     --app-overlay-medium: color-mix(in srgb, #000000 14%, transparent);
-    --app-overlay-strong: color-mix(in srgb, #000000 25%, transparent);
-    --app-overlay-strong-hover: color-mix(in srgb, #000000 33%, transparent);
+    /* Declared here as well so a light reader inside the dark app does not inherit lime. */
+    --reader-accent-override: #4d6a00;
+    --reader-accent-ink-override: #ffffff;
+    color-scheme: light;
+}
+
+:root {
     --reader-bg-override: #ffffff;
     --reader-fg-override: #1a1a1a;
     --reader-link-override: #1a1a1a;
+    /* Chrome accent inside the reader: the page palette is untouched, but toolbars,
+       hover and focus use the lab accent, set in olive where lime fails on the page. */
+    --reader-accent-override: #4d6a00;
+    --reader-accent-ink-override: #ffffff;
 }
 
 .theme-sepia {
     --reader-bg-override: #f4ecd8;
     --reader-fg-override: #3d3025;
     --reader-link-override: #3d3025;
+    --reader-accent-override: #4d6a00;
+    --reader-accent-ink-override: #ffffff;
 }
 
 .theme-dark {
     --reader-bg-override: #000000;
     --reader-fg-override: #ffffff;
     --reader-link-override: #ffffff;
+    --reader-accent-override: #c6f135;
+    --reader-accent-ink-override: #293500;
 }
 
 
@@ -259,12 +310,12 @@
     --color-text-muted: color-mix(in srgb, var(--reader-fg) 50%, var(--reader-bg));
     --color-border: color-mix(in srgb, var(--reader-fg) 20%, var(--reader-bg));
     --color-border-subtle: color-mix(in srgb, var(--reader-fg) 14%, var(--reader-bg));
-    --color-accent: var(--reader-link);
-    --color-accent-hover: color-mix(in srgb, var(--reader-link) 85%, var(--reader-bg));
-    --color-accent-light: color-mix(in srgb, var(--reader-link) 16%, var(--reader-bg));
+    --color-accent: var(--reader-accent-override);
+    --color-accent-hover: color-mix(in srgb, var(--reader-accent-override) 85%, var(--reader-fg));
+    --color-accent-light: color-mix(in srgb, var(--reader-accent-override) 16%, var(--reader-bg));
     
-    --color-accent-contrast: var(--reader-bg);
-    --color-focus-ring: color-mix(in srgb, var(--reader-link) 58%, transparent);
+    --color-accent-contrast: var(--reader-accent-ink-override);
+    --color-focus-ring: color-mix(in srgb, var(--reader-accent-override) 58%, transparent);
 }
 
 
@@ -384,20 +435,21 @@
     transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal);
 }
 
+/* An icon button is a bare icon: no box, no fill. Hover and the pressed state
+   are the accent colour, never a background or a border. */
 .ui-icon-btn {
     display: inline-flex;
     width: var(--ui-icon-button-size);
     height: var(--ui-icon-button-size);
     align-items: center;
     justify-content: center;
-    border: var(--border-width-interactive) solid var(--color-border);
-    background: var(--color-surface);
+    border: 0;
+    background: transparent;
     color: var(--color-text-secondary);
 }
 
-.ui-icon-btn:hover {
-    background: var(--color-surface-muted);
-    color: var(--color-text-primary);
+.ui-icon-btn:hover:not(:disabled) {
+    color: var(--color-accent);
 }
 
 .ui-chip-btn {
@@ -429,38 +481,31 @@
     color: var(--color-text-primary);
 }
 
-.ui-icon-btn[data-active="true"],
-.ui-icon-btn[aria-pressed="true"],
-.ui-icon-btn[aria-selected="true"],
+/* Selected is a tonal step with a 2px accent rule, never a lime fill: the accent is
+   one signal per frame and marks where you are. */
+.ui-selected,
 .ui-chip-btn[data-active="true"],
 .ui-chip-btn[aria-pressed="true"],
 .ui-chip-btn[aria-selected="true"],
 .ui-tab-btn[data-active="true"],
 .ui-tab-btn[aria-pressed="true"],
 .ui-tab-btn[aria-selected="true"] {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--color-accent-contrast);
+    background: linear-gradient(var(--color-accent), var(--color-accent)) bottom / 100% 2px no-repeat, var(--color-surface-variant);
+    border-color: var(--color-border);
+    color: var(--color-text-primary);
 }
 
-.ui-icon-btn[data-active="true"]:hover,
-.ui-icon-btn[aria-pressed="true"]:hover,
-.ui-icon-btn[aria-selected="true"]:hover,
-.ui-chip-btn[data-active="true"]:hover,
-.ui-chip-btn[aria-pressed="true"]:hover,
-.ui-chip-btn[aria-selected="true"]:hover,
-.ui-tab-btn[data-active="true"]:hover,
-.ui-tab-btn[aria-pressed="true"]:hover,
-.ui-tab-btn[aria-selected="true"]:hover {
-    border-color: var(--color-accent-hover);
-    background: var(--color-accent-hover);
-    color: var(--color-accent-contrast);
+.ui-icon-btn[data-active="true"],
+.ui-icon-btn[aria-pressed="true"],
+.ui-icon-btn[aria-selected="true"] {
+    color: var(--color-accent);
 }
 
 .ui-input {
     width: 100%;
     min-height: var(--control-height-md);
-    border: var(--border-width-interactive) solid var(--color-border);
+    /* Form-control boundaries must clear 3:1 (WCAG 1.4.11); hairlines are decorative. */
+    border: var(--border-width-interactive) solid var(--color-border-strong);
     background: var(--color-background);
     padding: var(--control-padding-y) var(--control-padding-x);
     font-size: var(--font-size-sm);
@@ -494,7 +539,7 @@
     appearance: none;
     width: 14px;
     height: 14px;
-    border-radius: 50%;
+    border-radius: 0;
     background: var(--color-text-primary);
     border: 2px solid var(--color-surface);
     box-shadow: 0 0 0 1px var(--color-border);
@@ -506,7 +551,7 @@
 .ui-reader-slider::-moz-range-thumb {
     width: 14px;
     height: 14px;
-    border-radius: 50%;
+    border-radius: 0;
     background: var(--color-text-primary);
     border: 2px solid var(--color-surface);
     box-shadow: 0 0 0 1px var(--color-border);
@@ -547,41 +592,10 @@
 }
 
 
-.ui-sidebar-nav-item {
-    position: relative;
-    display: flex;
-    width: 100%;
-    min-height: var(--layout-sidebar-item-height);
-    align-items: center;
-    border-bottom: var(--border-width-interactive) solid var(--color-border-subtle);
-    padding-inline: var(--control-padding-x);
-    background: transparent;
-    font-size: var(--font-size-2xs);
-    font-weight: var(--font-weight-medium);
-    text-align: left;
-    color: var(--color-text-secondary);
-    transition: background-color var(--transition-normal), color var(--transition-normal), border-color var(--transition-normal);
-}
-
-.ui-sidebar-nav-item:hover {
-    background: var(--color-surface-muted);
-    color: var(--color-text-primary);
-}
-
-.ui-sidebar-nav-item[data-active="true"] {
-    border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border-subtle));
-    background: var(--color-accent);
-    color: var(--color-accent-contrast);
-}
-
-.ui-sidebar-nav-item[data-active="true"]::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: color-mix(in srgb, var(--color-accent-contrast) 82%, transparent);
+/* Hover is the signal colour, never a background. Unlayered so it beats the
+   text-* utilities that set the resting colour. */
+.ui-signal-hover:hover:not(:disabled) {
+    color: var(--color-accent);
 }
 
 .ui-bottom-nav {
@@ -597,6 +611,7 @@
 }
 
 .ui-bottom-nav-btn {
+    position: relative;
     display: flex;
     width: 100%;
     min-height: var(--layout-bottom-nav-height);
@@ -609,11 +624,21 @@
 }
 
 .ui-bottom-nav-btn:active {
-    background: var(--color-surface-muted);
+    color: var(--color-accent);
 }
 
+/* The open item is lime, with a 2px accent rule on its top edge like the desktop rail's
+   left edge: one signal, never a fill. */
 .ui-bottom-nav-btn[data-active="true"] {
     color: var(--color-accent);
+}
+
+.ui-bottom-nav-btn[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: var(--color-accent);
 }
 
 .ui-bottom-nav-pill {
@@ -625,16 +650,10 @@
     transition: background-color var(--transition-normal), border-color var(--transition-normal);
 }
 
-.ui-bottom-nav-btn[data-active="true"] .ui-bottom-nav-pill {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--color-accent-contrast);
-}
-
 .ui-bottom-nav-label {
     font-size: var(--font-size-3xs);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: var(--letter-spacing-wider);
+    font-weight: var(--font-weight-regular);
+    letter-spacing: var(--tracking-body);
 }
 
 

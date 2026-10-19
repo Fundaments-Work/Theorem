@@ -14,7 +14,7 @@ export const HighlightMatch = memo(function HighlightMatch({
     indices,
     query,
     className,
-    matchClassName = "font-bold text-[color:var(--color-accent)]",
+    matchClassName = "text-[color:var(--color-accent)]",
 }: HighlightMatchProps) {
     let activeIndices = indices;
     if ((!activeIndices || activeIndices.length === 0) && query && query.trim() && text) {

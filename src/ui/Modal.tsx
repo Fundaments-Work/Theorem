@@ -76,13 +76,13 @@ interface ModalHeaderProps {
 export function ModalHeader({ title, onClose, showCloseButton = true }: ModalHeaderProps) {
     return (
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-4">
-            <Dialog.Title className="text-base font-semibold uppercase tracking-[0.08em] text-[color:var(--color-text-primary)]">
+            <Dialog.Title className="text-base text-[color:var(--color-text-primary)]">
                 {title}
             </Dialog.Title>
             {showCloseButton && onClose && (
                 <Dialog.Close asChild>
                     <button
-                        className="inline-flex h-9 w-9 items-center justify-center border border-[color:var(--color-border-subtle)] bg-transparent text-[color:var(--color-text-secondary)] transition-[background-color,border-color,color,opacity] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:text-[color:var(--color-text-primary)]"
+                        className="inline-flex h-9 w-9 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]"
                         aria-label="Close"
                     >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

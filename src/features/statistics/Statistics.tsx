@@ -39,7 +39,7 @@ function StatCard({ icon, label, value, subtext }: StatCardProps) {
                 </div>
             </div>
             <div className="mt-3 sm:mt-4">
-                <p className="text-xl sm:text-2xl font-bold text-[color:var(--color-text-primary)] truncate">{value}</p>
+                <p className="text-xl sm:text-2xl text-[color:var(--color-text-primary)] truncate">{value}</p>
                 <p className="text-xs sm:text-sm text-[color:var(--color-text-muted)] mt-0.5">{label}</p>
                 {subtext && (
                     <p className="text-xs text-[color:var(--color-text-secondary)] mt-1 sm:mt-2 leading-snug">{subtext}</p>
@@ -66,7 +66,7 @@ function ProgressBar({
         <div className="space-y-2">
             <div className="flex items-center justify-between text-sm gap-2">
                 <span className="text-[color:var(--color-text-secondary)] truncate">{label}</span>
-                <span className="text-[color:var(--color-text-primary)] font-medium shrink-0">
+                <span className="text-[color:var(--color-text-primary)] shrink-0">
                     {current} / {target}{unit ? ` ${unit}` : ""}
                 </span>
             </div>
@@ -105,7 +105,7 @@ const RecentBookCard = memo(function RecentBookCard({ book, onClick }: RecentBoo
             onClick={onClick}
             className="flex items-center gap-3 sm:gap-4 p-3 border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-text-muted)] transition-colors text-left w-full min-w-0"
         >
-            <div className="w-10 h-14 sm:w-12 sm:h-16 shrink-0 overflow-hidden shadow-sm">
+            <div className="w-10 h-14 sm:w-12 sm:h-16 shrink-0 overflow-hidden">
                 <TheoremBookCover
                     title={book.title}
                     author={book.author}
@@ -113,7 +113,7 @@ const RecentBookCard = memo(function RecentBookCard({ book, onClick }: RecentBoo
                 />
             </div>
             <div className="flex-1 min-w-0">
-                <h4 className="font-medium text-sm text-[color:var(--color-text-primary)] truncate">
+                <h4 className="text-sm text-[color:var(--color-text-primary)] truncate">
                     {book.title}
                 </h4>
                 <p className="text-xs text-[color:var(--color-text-secondary)] truncate">
@@ -184,7 +184,7 @@ function ActivityHeatmap({ dailyActivity }: { dailyActivity: DailyReadingActivit
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-[color:var(--color-text-primary)]">Reading Activity</span>
+                <span className="text-sm text-[color:var(--color-text-primary)]">Reading Activity</span>
                 <span className="text-xs text-[color:var(--color-text-muted)]">Last 12 weeks</span>
             </div>
             
@@ -292,7 +292,7 @@ export function StatisticsPage() {
             >
                 <button
                     onClick={() => setShowShareModal(true)}
-                    className="ui-btn flex items-center justify-center gap-2 text-xs font-semibold px-3.5 py-2 w-full sm:w-auto hover:bg-[color:var(--color-surface-muted)] active:scale-95 transition-colors"
+                    className="ui-btn flex items-center justify-center gap-2 text-xs px-3.5 py-2 w-full sm:w-auto hover:bg-[color:var(--color-surface-muted)] active:scale-95 transition-colors"
                 >
                     <Share2 className="w-3.5 h-3.5 text-[color:var(--color-text-secondary)]" />
                     <span>Share Stats</span>
@@ -348,11 +348,11 @@ export function StatisticsPage() {
                         <div className="px-5 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div>
-                                    <div className="text-[10px] font-medium text-[color:var(--color-text-muted)] uppercase tracking-wider">This Week</div>
-                                    <div className="text-2xl font-semibold text-[color:var(--color-text-primary)] mt-1">{formatReadingTime(weekMinutes)}</div>
+                                    <div className="text-[10px] text-[color:var(--color-text-muted)]">This Week</div>
+                                    <div className="text-2xl text-[color:var(--color-text-primary)] mt-1">{formatReadingTime(weekMinutes)}</div>
                                 </div>
                                 {prevMinutes > 0 && (
-                                    <div className={`text-xs font-medium ${change >= 0 ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'}`}>
+                                    <div className={`text-xs ${change >= 0 ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'}`}>
                                         {change >= 0 ? '↑' : '↓'} {Math.abs(change)}%
                                     </div>
                                 )}
@@ -375,7 +375,7 @@ export function StatisticsPage() {
                             <div className="p-2 bg-[var(--color-surface-muted)]">
                                 <Target className="w-5 h-5 text-[color:var(--color-text-primary)]" />
                             </div>
-                            <h2 className="font-semibold text-[color:var(--color-text-primary)]">Reading Goals</h2>
+                            <h2 className="text-[color:var(--color-text-primary)]">Reading Goals</h2>
                         </div>
                         <div className="space-y-5 sm:space-y-6">
                             <div>
@@ -391,7 +391,7 @@ export function StatisticsPage() {
                                             ? "Daily goal completed! 🎉"
                                             : `${Math.max(0, stats.dailyGoal - todayMinutes)} min to reach daily goal`}
                                     </span>
-                                    <span className="font-medium text-[color:var(--color-text-primary)]">
+                                    <span className="text-[color:var(--color-text-primary)]">
                                         {Math.round((todayMinutes / Math.max(1, stats.dailyGoal)) * 100)}%
                                     </span>
                                 </div>
@@ -406,7 +406,7 @@ export function StatisticsPage() {
                                 />
                                 <div className="flex items-center justify-between text-xs text-[color:var(--color-text-muted)] mt-1.5">
                                     <span>{completedBooks} total books finished</span>
-                                    <span className="font-medium text-[color:var(--color-text-primary)]">
+                                    <span className="text-[color:var(--color-text-primary)]">
                                         {Math.round((booksReadThisYear / Math.max(1, stats.yearlyBookGoal)) * 100)}%
                                     </span>
                                 </div>
@@ -421,7 +421,7 @@ export function StatisticsPage() {
                     {recentBooks.length > 0 && (
                         <section>
                             <div className="flex items-center justify-between mb-4">
-                                <h2 className="font-semibold text-[color:var(--color-text-primary)]">Recently Read</h2>
+                                <h2 className="text-[color:var(--color-text-primary)]">Recently Read</h2>
                                 <button
                                     onClick={() => setRoute("library")}
                                     className="text-sm text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] transition-colors flex items-center gap-1"
@@ -450,7 +450,7 @@ export function StatisticsPage() {
                             <div className="p-2 bg-[var(--color-surface-muted)]">
                                 <Highlighter className="w-5 h-5 text-[color:var(--color-text-primary)]" />
                             </div>
-                            <h2 className="font-semibold text-[color:var(--color-text-primary)]">Annotations</h2>
+                            <h2 className="text-[color:var(--color-text-primary)]">Annotations</h2>
                         </div>
                         <div className="space-y-3">
                             {[
@@ -463,7 +463,7 @@ export function StatisticsPage() {
                                         {icon}
                                         <span className="text-sm text-[color:var(--color-text-primary)] truncate">{label}</span>
                                     </div>
-                                    <span className="font-medium text-[color:var(--color-text-primary)] shrink-0 ml-2">{count}</span>
+                                    <span className="text-[color:var(--color-text-primary)] shrink-0 ml-2">{count}</span>
                                 </div>
                             ))}
                         </div>
@@ -475,7 +475,7 @@ export function StatisticsPage() {
                                 <div className="p-2 bg-[var(--color-surface-muted)]">
                                     <Star className="w-5 h-5 text-[color:var(--color-text-primary)]" />
                                 </div>
-                                <h2 className="font-semibold text-[color:var(--color-text-primary)]">Favorites</h2>
+                                <h2 className="text-[color:var(--color-text-primary)]">Favorites</h2>
                             </div>
                             <div className="space-y-3">
                                 {favoriteBooks.map((book) => (
@@ -484,7 +484,7 @@ export function StatisticsPage() {
                                         onClick={() => handleBookClick(book.id)}
                                         className="flex items-center gap-3 w-full text-left group min-w-0"
                                     >
-                                        <div className="w-10 h-14 shrink-0 overflow-hidden shadow-sm">
+                                        <div className="w-10 h-14 shrink-0 overflow-hidden">
                                             <TheoremBookCover
                                                 title={book.title}
                                                 author={book.author}
@@ -492,7 +492,7 @@ export function StatisticsPage() {
                                             />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <h4 className="text-sm font-medium text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
+                                            <h4 className="text-sm text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
                                                 {book.title}
                                             </h4>
                                             <p className="text-xs text-[color:var(--color-text-secondary)] truncate">
@@ -511,7 +511,7 @@ export function StatisticsPage() {
                                 <div className="p-2 bg-[var(--color-surface-muted)]">
                                     <Highlighter className="w-5 h-5 text-[color:var(--color-text-primary)]" />
                                 </div>
-                                <h2 className="font-semibold text-[color:var(--color-text-primary)]">Highlights</h2>
+                                <h2 className="text-[color:var(--color-text-primary)]">Highlights</h2>
                             </div>
                             <div className="space-y-2">
                                 {(["yellow", "green", "blue", "red", "orange", "purple"] as const).map((color) => {
@@ -522,7 +522,7 @@ export function StatisticsPage() {
                                         <div key={color} className="flex items-center gap-2">
                                             <span className="w-3 h-3 border border-[var(--color-border-subtle)]" style={{ backgroundColor: HIGHLIGHT_SOLID_COLORS[color] }} />
                                             <span className="flex-1 text-sm text-[color:var(--color-text-primary)]">{label}</span>
-                                            <span className="text-sm font-medium text-[color:var(--color-text-secondary)]">{count}</span>
+                                            <span className="text-sm text-[color:var(--color-text-secondary)]">{count}</span>
                                         </div>
                                     );
                                 })}
@@ -535,7 +535,7 @@ export function StatisticsPage() {
                             <div className="p-2 bg-[var(--color-surface-muted)]">
                                 <Trophy className="w-5 h-5 text-[color:var(--color-text-primary)]" />
                             </div>
-                            <h2 className="font-semibold text-[color:var(--color-text-primary)]">Achievements</h2>
+                            <h2 className="text-[color:var(--color-text-primary)]">Achievements</h2>
                         </div>
                         <div className="space-y-3">
                             {completedBooks >= 1 && (
@@ -544,7 +544,7 @@ export function StatisticsPage() {
                                         <BookOpen className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
                                     </div>
                                     <div className="min-w-0">
-                                        <p className="text-sm font-medium text-[color:var(--color-text-primary)]">First Book</p>
+                                        <p className="text-sm text-[color:var(--color-text-primary)]">First Book</p>
                                         <p className="text-xs text-[color:var(--color-text-muted)]">Completed your first book</p>
                                     </div>
                                 </div>
@@ -555,7 +555,7 @@ export function StatisticsPage() {
                                         <TrendingUp className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
                                     </div>
                                     <div className="min-w-0">
-                                        <p className="text-sm font-medium text-[color:var(--color-text-primary)]">Bookworm</p>
+                                        <p className="text-sm text-[color:var(--color-text-primary)]">Bookworm</p>
                                         <p className="text-xs text-[color:var(--color-text-muted)]">Completed 5 books</p>
                                     </div>
                                 </div>
@@ -566,7 +566,7 @@ export function StatisticsPage() {
                                         <Flame className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
                                     </div>
                                     <div className="min-w-0">
-                                        <p className="text-sm font-medium text-[color:var(--color-text-primary)]">On Fire</p>
+                                        <p className="text-sm text-[color:var(--color-text-primary)]">On Fire</p>
                                         <p className="text-xs text-[color:var(--color-text-muted)]">7 day reading streak</p>
                                     </div>
                                 </div>
@@ -577,7 +577,7 @@ export function StatisticsPage() {
                                         <Highlighter className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
                                     </div>
                                     <div className="min-w-0">
-                                        <p className="text-sm font-medium text-[color:var(--color-text-primary)]">Highlighter</p>
+                                        <p className="text-sm text-[color:var(--color-text-primary)]">Highlighter</p>
                                         <p className="text-xs text-[color:var(--color-text-muted)]">Created 10 highlights</p>
                                     </div>
                                 </div>

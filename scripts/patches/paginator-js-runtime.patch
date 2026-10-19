@@ -107,7 +107,60 @@
      const startOffset = from.nodeType === 1 ? 0
          : bisectNode(doc, from, (a, b) => {
              const p = mapRect(getBoundingClientRect(a))
-@@ -232,15 +234,20 @@
+@@ -158,6 +160,7 @@
+ }
+ 
+ const setSelectionTo = (target, collapse) => {
++    if (!target) return
+     let range
+     if (target.startContainer) range = target.cloneRange()
+     else if (target.nodeType) {
+@@ -165,7 +168,7 @@
+         range.selectNode(target)
+     }
+     if (range) {
+-        const sel = range.startContainer.ownerDocument.defaultView.getSelection()
++        const sel = range.startContainer?.ownerDocument?.defaultView?.getSelection?.()
+         if (sel) {
+             sel.removeAllRanges()
+             if (collapse === -1) range.collapse(true)
+@@ -176,22 +179,26 @@
+ }
+ 
+ const getDirection = doc => {
+-    const { defaultView } = doc
+-    const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
++    const { defaultView } = doc ?? {}
++    const el = doc?.body ?? doc?.documentElement
++    if (!el || !defaultView) return { vertical: false, rtl: false }
++    const { writingMode, direction } = defaultView.getComputedStyle(el)
+     const vertical = writingMode === 'vertical-rl'
+         || writingMode === 'vertical-lr'
+-    const rtl = doc.body.dir === 'rtl'
++    const rtl = el.dir === 'rtl'
+         || direction === 'rtl'
+-        || doc.documentElement.dir === 'rtl'
++        || doc.documentElement?.dir === 'rtl'
+     return { vertical, rtl }
+ }
+ 
+ const getBackground = doc => {
+-    const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
+-    return bodyStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
+-        && bodyStyle.backgroundImage === 'none'
+-        ? doc.defaultView.getComputedStyle(doc.documentElement).background
+-        : bodyStyle.background
++    const el = doc?.body ?? doc?.documentElement
++    if (!el || !doc?.defaultView) return 'transparent'
++    const style = doc.defaultView.getComputedStyle(el)
++    return style.backgroundColor === 'rgba(0, 0, 0, 0)'
++        && style.backgroundImage === 'none'
++        ? (doc.documentElement ? doc.defaultView.getComputedStyle(doc.documentElement).background : 'transparent')
++        : style.background
+ }
+ 
+ const makeMarginals = (length, part) => Array.from({ length }, () => {
+@@ -232,15 +239,20 @@
              display: 'flex',
              justifyContent: 'center',
              alignItems: 'center',
@@ -130,7 +183,7 @@
          this.#iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
          this.#iframe.setAttribute('scrolling', 'no')
      }
-@@ -257,26 +264,23 @@
+@@ -257,26 +269,26 @@
                  const doc = this.document
                  afterLoad?.(doc)
  
@@ -143,7 +196,12 @@
                  this.#vertical = vertical
                  this.#rtl = rtl
  
-                 this.#contentRange.selectNodeContents(doc.body)
+-                this.#contentRange.selectNodeContents(doc.body)
++                const el = doc?.body ?? doc?.documentElement
++                if (el) {
++                    this.#contentRange.selectNodeContents(el)
++                    this.#observer.observe(el)
++                }
 +
 +                void this.container.offsetWidth
 +
@@ -152,17 +210,18 @@
                  this.#iframe.style.display = 'block'
 +                this.#iframe.style.visibility = 'visible'
                  this.render(layout)
-                 this.#observer.observe(doc.body)
+-                this.#observer.observe(doc.body)
 -
 -                // the resize observer above doesn't work in Firefox
 -                // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
 -                // until the bug is fixed we can at least account for font load
-                 doc.fonts.ready.then(() => this.expand())
+-                doc.fonts.ready.then(() => this.expand())
 -
++                doc?.fonts?.ready?.then(() => this.expand())
                  resolve()
              }, { once: true })
              this.#iframe.src = src
-@@ -292,12 +296,14 @@
+@@ -292,12 +304,14 @@
      scrolled({ gap, columnWidth }) {
          const vertical = this.#vertical
          const doc = this.document
@@ -177,7 +236,7 @@
          })
          setStylesImportant(doc.body, {
              [vertical ? 'max-height' : 'max-width']: `${columnWidth}px`,
-@@ -311,6 +317,7 @@
+@@ -311,6 +325,7 @@
          this.#size = vertical ? height : width
  
          const doc = this.document
@@ -185,7 +244,7 @@
          setStylesImportant(doc.documentElement, {
              'box-sizing': 'border-box',
              'column-width': `${Math.trunc(columnWidth)}px`,
-@@ -321,13 +328,13 @@
+@@ -321,13 +336,13 @@
                  : { 'height': `${height}px` }),
              'padding': vertical ? `${gap / 2}px 0` : `0 ${gap / 2}px`,
              'overflow': 'hidden',
@@ -202,7 +261,7 @@
              '-webkit-line-box-contain': 'block glyphs replaced',
          })
          setStylesImportant(doc.body, {
-@@ -342,71 +349,81 @@
+@@ -342,71 +357,81 @@
          const { width, height, margin } = this.#layout
          const vertical = this.#vertical
          const doc = this.document
@@ -332,7 +391,7 @@
      }
      set overlayer(overlayer) {
          this.#overlayer = overlayer
-@@ -416,11 +433,11 @@
+@@ -416,11 +441,11 @@
          return this.#overlayer
      }
      destroy() {
@@ -346,7 +405,7 @@
  export class Paginator extends HTMLElement {
      static observedAttributes = [
          'flow', 'gap', 'margin',
-@@ -438,9 +455,9 @@
+@@ -438,9 +463,9 @@
      #rtl = false
      #margin = 0
      #index = -1
@@ -358,7 +417,7 @@
      #styles
      #styleMap = new WeakMap()
      #mediaQuery = matchMedia('(prefers-color-scheme: dark)')
-@@ -449,6 +466,10 @@
+@@ -449,6 +474,10 @@
      #touchState
      #touchScrolled
      #lastVisibleRange
@@ -369,7 +428,7 @@
      constructor() {
          super()
          this.#root.innerHTML = `<style>
-@@ -499,19 +520,43 @@
+@@ -499,19 +528,43 @@
                  }
              }
          }
@@ -415,7 +474,18 @@
          }
          #header {
              grid-column: 3 / 4;
-@@ -583,40 +628,55 @@
+@@ -568,7 +621,9 @@
+         this.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
+         this.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
+         this.addEventListener('touchend', this.#onTouchEnd.bind(this))
+-        this.addEventListener('load', ({ detail: { doc } }) => {
++        this.addEventListener('load', ({ detail }) => {
++            const doc = detail?.doc
++            if (!doc) return
+             doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
+             doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
+             doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
+@@ -583,40 +638,62 @@
                  else setSelectionTo(this.#anchor, -1)
              }
          })
@@ -428,14 +498,24 @@
 -            else if (!backward && selRange.compareBoundaryPoints(Range.END_TO_END, range) > 0)
 -                this.next()
 -        }, 700)
-         this.addEventListener('load', ({ detail: { doc } }) => {
+-        this.addEventListener('load', ({ detail: { doc } }) => {
++        this.addEventListener('load', ({ detail }) => {
++            const doc = detail?.doc
++            if (!doc) return
              let isPointerSelecting = false
              doc.addEventListener('pointerdown', () => isPointerSelecting = true)
              doc.addEventListener('pointerup', () => isPointerSelecting = false)
 +            doc.addEventListener('pointercancel', () => isPointerSelecting = false)
              let isKeyboardSelecting = false
-             doc.addEventListener('keydown', () => isKeyboardSelecting = true)
-             doc.addEventListener('keyup', () => isKeyboardSelecting = false)
+-            doc.addEventListener('keydown', () => isKeyboardSelecting = true)
+-            doc.addEventListener('keyup', () => isKeyboardSelecting = false)
++            doc.addEventListener('keydown', e => {
++                if (e.shiftKey) isKeyboardSelecting = true
++                else isKeyboardSelecting = false
++            })
++            doc.addEventListener('keyup', e => {
++                if (!e.shiftKey) isKeyboardSelecting = false
++            })
 +            
 +            const checkPointerSelection = debounce((range, sel) => {
 +                if (!sel?.rangeCount) return
@@ -454,6 +534,7 @@
 -                if (!sel.rangeCount) return
 -                if (isPointerSelecting && sel.type === 'Range')
 -                    checkPointerSelection(range, sel)
+-                else if (isKeyboardSelecting) {
 +                if (!sel?.rangeCount) return
 +                
 +                if (!sel.isCollapsed && sel.toString().trim().length > 0) {
@@ -463,7 +544,7 @@
 +                    const range = this.#lastVisibleRange
 +                    if (range) checkPointerSelection(range, sel)
 +                }
-                 else if (isKeyboardSelecting) {
++                else if (isKeyboardSelecting && !sel.isCollapsed) {
 +                    const range = this.#lastVisibleRange
 +                    if (!range) return
                      const selRange = sel.getRangeAt(0).cloneRange()
@@ -488,7 +569,7 @@
          })
  
          this.#mediaQueryListener = () => {
-@@ -637,7 +697,7 @@
+@@ -637,7 +714,7 @@
                  this.#top.style.setProperty('--_' + name, value)
                  break
              case 'max-inline-size':
@@ -497,23 +578,67 @@
                  this.#top.style.setProperty('--_' + name, value)
                  this.render()
                  break
-@@ -651,12 +711,12 @@
+@@ -650,17 +727,48 @@
+             if (detail.type !== 'text/css') return
              const w = innerWidth
              const h = innerHeight
-             detail.data = Promise.resolve(detail.data).then(data => data
+-            detail.data = Promise.resolve(detail.data).then(data => data
 -                // unprefix as most of the props are (only) supported unprefixed
-+                
-                 .replace(/(?<=[{\s;])-epub-/gi, '')
+-                .replace(/(?<=[{\s;])-epub-/gi, '')
 -                // replace vw and vh as they cause problems with layout
-+                
-                 .replace(/(\d*\.?\d+)vw/gi, (_, d) => parseFloat(d) * w / 100 + 'px')
-                 .replace(/(\d*\.?\d+)vh/gi, (_, d) => parseFloat(d) * h / 100 + 'px')
+-                .replace(/(\d*\.?\d+)vw/gi, (_, d) => parseFloat(d) * w / 100 + 'px')
+-                .replace(/(\d*\.?\d+)vh/gi, (_, d) => parseFloat(d) * h / 100 + 'px')
 -                // `page-break-*` unsupported in columns; replace with `column-break-*`
-+                
-                 .replace(/page-break-(after|before|inside)\s*:/gi, (_, x) =>
-                     `-webkit-column-break-${x}:`)
-                 .replace(/break-(after|before|inside)\s*:\s*(avoid-)?page/gi, (_, x, y) =>
-@@ -680,8 +740,6 @@
+-                .replace(/page-break-(after|before|inside)\s*:/gi, (_, x) =>
+-                    `-webkit-column-break-${x}:`)
+-                .replace(/break-(after|before|inside)\s*:\s*(avoid-)?page/gi, (_, x, y) =>
+-                    `break-${x}: ${y ?? ''}column`))
++            detail.data = Promise.resolve(detail.data).then(async data => {
++                if (data == null) return data
++                let str = data
++                if (typeof str !== 'string') {
++                    if (typeof str?.text === 'function') {
++                        try {
++                            str = await str.text()
++                        } catch {
++                            return data
++                        }
++                    } else if (ArrayBuffer.isView(str)) {
++                        try {
++                            str = new TextDecoder().decode(str)
++                        } catch {
++                            return data
++                        }
++                    } else if (str instanceof ArrayBuffer || Object.prototype.toString.call(str) === '[object ArrayBuffer]') {
++                        try {
++                            str = new TextDecoder().decode(new Uint8Array(str))
++                        } catch {
++                            return data
++                        }
++                    } else {
++                        return data
++                    }
++                }
++                if (typeof str !== 'string') return data
++                return str
++                    // some books use the -epub- prefix for writing-mode
++                    .replace(/(?<=[{\s;])-epub-/gi, '')
++                    // replace vw/vh with px
++                    .replace(/(\d*\.?\d+)vw/gi, (_, d) => parseFloat(d) * w / 100 + 'px')
++                    .replace(/(\d*\.?\d+)vh/gi, (_, d) => parseFloat(d) * h / 100 + 'px')
++                    // WebKit column break compatibility
++                    .replace(/page-break-(after|before|inside)\s*:/gi, (_, x) =>
++                        `-webkit-column-break-${x}:`)
++                    .replace(/break-(after|before|inside)\s*:\s*(avoid-)?page/gi, (_, x, y) =>
++                        `break-${x}: ${y ?? ''}column`)
++            }).catch(e => {
++                console.warn(new Error(`Failed to transform CSS for ${detail.name}`, { cause: e }))
++                return ''
++            })
+         })
+     }
+     #createView() {
+@@ -680,8 +788,6 @@
          this.#rtl = rtl
          this.#top.classList.toggle('vertical', vertical)
  
@@ -522,7 +647,7 @@
          this.#background.style.background = background
  
          const { width, height } = this.#container.getBoundingClientRect()
-@@ -694,28 +752,12 @@
+@@ -694,28 +800,12 @@
          this.#margin = margin
  
          const g = parseFloat(style.getPropertyValue('--_gap')) / 100
@@ -553,7 +678,7 @@
              this.setAttribute('dir', vertical ? 'rtl' : 'ltr')
              this.#top.style.padding = '0'
              const columnWidth = maxInlineSize
-@@ -753,6 +795,23 @@
+@@ -753,6 +843,23 @@
      }
      render() {
          if (!this.#view) return
@@ -577,7 +702,7 @@
          this.#view.render(this.#beforeRender({
              vertical: this.#vertical,
              rtl: this.#rtl,
-@@ -779,7 +838,10 @@
+@@ -779,7 +886,10 @@
          return this.#view.element.getBoundingClientRect()[this.sideProp]
      }
      get start() {
@@ -589,7 +714,7 @@
      }
      get end() {
          return this.start + this.size
-@@ -790,16 +852,41 @@
+@@ -790,16 +900,41 @@
      get pages() {
          return Math.round(this.viewSize / this.size)
      }
@@ -635,7 +760,7 @@
      }
      snap(vx, vy) {
          const velocity = this.#vertical ? vy : vx
-@@ -814,55 +901,158 @@
+@@ -814,55 +949,158 @@
  
          this.#scrollToPage(page, 'snap').then(() => {
              const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
@@ -810,7 +935,7 @@
      #getRectMapper() {
          if (this.scrolled) {
              const size = this.viewSize
-@@ -886,27 +1076,39 @@
+@@ -886,27 +1124,39 @@
              return this.#scrollTo(offset, reason)
          }
          const offset = this.#getRectMapper()(rect).left
@@ -859,7 +984,7 @@
              this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
              this.#afterScroll(reason)
          }
-@@ -919,28 +1121,55 @@
+@@ -919,28 +1169,55 @@
          return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
      }
      async #scrollToAnchor(anchor, reason = 'anchor') {
@@ -931,7 +1056,7 @@
      }
      #getVisibleRange() {
          if (this.scrolled) return getVisibleRange(this.#view.document,
-@@ -952,7 +1181,7 @@
+@@ -952,7 +1229,7 @@
      #afterScroll(reason) {
          const range = this.#getVisibleRange()
          this.#lastVisibleRange = range
@@ -940,7 +1065,7 @@
          if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
              this.#anchor = range
          else this.#justAnchored = true
-@@ -969,7 +1198,9 @@
+@@ -969,7 +1246,9 @@
          this.dispatchEvent(new CustomEvent('relocate', { detail }))
      }
      async #display(promise) {
@@ -951,7 +1076,7 @@
          this.#index = index
          const hasFocus = this.#view?.document?.hasFocus()
          if (src) {
-@@ -979,6 +1210,18 @@
+@@ -979,6 +1258,18 @@
                      const $styleBefore = doc.createElement('style')
                      doc.head.prepend($styleBefore)
                      const $style = doc.createElement('style')
@@ -970,7 +1095,7 @@
                      doc.head.append($style)
                      this.#styleMap.set(doc, [$styleBefore, $style])
                  }
-@@ -994,14 +1237,27 @@
+@@ -994,14 +1285,27 @@
              }))
              this.#view = view
          }
@@ -1000,7 +1125,7 @@
          if (index === this.#index) await this.#display({ index, anchor, select })
          else {
              const oldIndex = this.#index
-@@ -1015,7 +1271,7 @@
+@@ -1015,7 +1319,7 @@
                  .catch(e => {
                      console.warn(e)
                      console.warn(new Error(`Failed to load section ${index}`))
@@ -1009,7 +1134,7 @@
                  }))
          }
      }
-@@ -1060,14 +1316,24 @@
+@@ -1060,14 +1364,24 @@
      async #turnPage(dir, distance) {
          if (this.#locked) return
          this.#locked = true
@@ -1042,15 +1167,34 @@
      }
      prev(distance) {
          return this.#turnPage(-1, distance)
-@@ -1108,11 +1374,9 @@
+@@ -1108,21 +1422,22 @@
              $style.textContent = style
          } else $style.textContent = styles
  
 -        // NOTE: needs `requestAnimationFrame` in Chromium
-         requestAnimationFrame(() =>
-             this.#background.style.background = getBackground(this.#view.document))
+-        requestAnimationFrame(() =>
+-            this.#background.style.background = getBackground(this.#view.document))
++        requestAnimationFrame(() => {
++            if (this.#view?.document) {
++                this.#background.style.background = getBackground(this.#view.document)
++            }
++        })
  
 -        // needed because the resize observer doesn't work in Firefox
-         this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
++        this.#view?.document?.fonts?.ready?.then(() => this.#view?.expand?.())
      }
      focusView() {
+-        this.#view.document.defaultView.focus()
++        this.#view?.document?.defaultView?.focus?.()
+     }
+     destroy() {
+         this.#observer.unobserve(this)
+-        this.#view.destroy()
++        this.#view?.destroy?.()
+         this.#view = null
+-        this.sections[this.#index]?.unload?.()
++        this.sections?.[this.#index]?.unload?.()
+         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
+     }
+ }

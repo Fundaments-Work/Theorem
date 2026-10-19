@@ -65,7 +65,7 @@ export function PDFLensPreview({
             onPointerLeave={onPointerLeave}
             title={`Page ${pageNumber} — click to go there`}
             aria-label={`Go to page ${pageNumber}: ${text}`}
-            className="fixed z-[150] block overflow-hidden rounded-lg bg-white p-0 text-left cursor-pointer border-0"
+            className="fixed z-[150] block overflow-hidden bg-white p-0 text-left cursor-pointer border-0"
             style={{
                 ...style,
                 maxHeight: mobile ? "45vh" : 360,
