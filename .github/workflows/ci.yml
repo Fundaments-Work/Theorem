@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 jobs:
   content-check:
     # Guards the cross-repo contract: a Buy Me Momo URL here must match
