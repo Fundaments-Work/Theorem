@@ -1,0 +1,28 @@
+name: "Theorem CodeQL configuration"
+
+# Keep the analysis focused on code we ship and maintain. Build output,
+# generated Android scaffolding, vendored upstream sources, and test-only
+# code produce noise without protecting anything users run.
+paths-ignore:
+  # Package manager output and build artifacts
+  - node_modules
+  - dist
+  - src-tauri/target
+
+  # Generated Tauri scaffolding (Android project, schemas)
+  - src-tauri/gen
+
+  # Vendored Tauri Android API (checked into the plugin directories)
+  - src-tauri/plugins/*/android
+
+  # Upstream foliate-js submodule. Our patched runtime in
+  # src/features/reader/foliate-js-runtime is still analyzed.
+  - src/features/reader/foliate-js
+
+  # Tests are not shipped and several rules fire on test fixtures
+  - tests
+  - "**/*.test.*"
+  - "**/*.spec.*"
+
+  # Python bytecode cache
+  - "**/__pycache__"
