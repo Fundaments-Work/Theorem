@@ -1425,6 +1425,23 @@ export class FoliateEngine {
         }
     }
 
+    /** The text a CFI covers in a currently loaded section ('' when it cannot be resolved). */
+    async resolveCfiText(cfi: string): Promise<string> {
+        try {
+            const resolved = await this.view?.resolveNavigation?.(cfi);
+            if (!resolved) return '';
+            const contents = this.view?.renderer?.getContents?.() || [];
+            const content = contents.find((c: any) => c.index === resolved.index);
+            if (!content?.doc) return '';
+            const range = typeof resolved.anchor === 'function'
+                ? resolved.anchor(content.doc)
+                : resolved.anchor;
+            return typeof range?.toString === 'function' ? range.toString().trim() : '';
+        } catch {
+            return '';
+        }
+    }
+
     async removeAnnotation(id: string): Promise<void> {
         await this.removeHighlight(id);
     }
@@ -2090,6 +2107,17 @@ export class FoliateEngine {
             let pointerDownAt = 0;
             let pointerMoved = false;
             const SELECTION_CAPTURE_DELAY = 12;
+            // Native selection handles move without any DOM touch events, so on
+            // touch devices a selectionchange burst is a handle drag in progress.
+            // Wait for it to settle instead of re-anchoring the toolbar every frame.
+            const SELECTION_SETTLE_DELAY_TOUCH = 260;
+            const isCoarsePointer = (): boolean => {
+                try {
+                    return Boolean(win.matchMedia?.('(pointer: coarse)').matches);
+                } catch {
+                    return false;
+                }
+            };
             const SELECTION_INTERACTION_SUPPRESS_MS = 420;
             const TAP_MAX_DISTANCE = 12;
             const TAP_MAX_DURATION = 350;
@@ -2298,7 +2326,10 @@ export class FoliateEngine {
                     pendingTouchSelection = true;
                     return;
                 }
-                scheduleSelectionCapture();
+                scheduleSelectionCapture(
+                    undefined,
+                    isCoarsePointer() ? SELECTION_SETTLE_DELAY_TOUCH : SELECTION_CAPTURE_DELAY,
+                );
             }, true);
 
             win.addEventListener('mouseup', (event: MouseEvent) => {

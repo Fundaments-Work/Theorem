@@ -17,12 +17,14 @@
          + (offset != null && index % 2 ? `:${offset}` : '')
          + (temporal ? `~${temporal}` : '')
          + (spatial ? `@${spatial.join(':')}` : '')
-@@ -135,13 +134,12 @@
+@@ -135,13 +134,13 @@
      ? toString(collapse(parse(x), toEnd))
      : x.parent ? concatArrays(x.parent, x[toEnd ? 'end' : 'start']) : x
  
 -// create range CFI from two CFIs
- const buildRange = (from, to) => {
+-const buildRange = (from, to) => {
++// Theorem: exported so highlight merging can build one range from two points.
++export const buildRange = (from, to) => {
      if (typeof from === 'string') from = parse(from)
      if (typeof to === 'string') to = parse(to)
      from = collapse(from)
@@ -32,7 +34,7 @@
      const localFrom = from[from.length - 1], localTo = to[to.length - 1]
      const localParent = [], localStart = [], localEnd = []
      let pushToParent = true
-@@ -155,7 +153,7 @@
+@@ -155,7 +154,7 @@
              if (b) localEnd.push(b)
          }
      }
@@ -41,7 +43,7 @@
      const parent = from.slice(0, -1).concat([localParent])
      return toString({ parent, start: [localStart], end: [localEnd] })
  }
-@@ -176,7 +174,7 @@
+@@ -176,7 +175,7 @@
              if (x.index > y.index) return 1
              if (x.index < y.index) return -1
              if (i === maxIndex) {
@@ -50,7 +52,7 @@
                  if (x.offset > y.offset) return 1
                  if (x.offset < y.offset) return -1
              }
-@@ -190,7 +188,7 @@
+@@ -190,7 +189,7 @@
  
  const getChildNodes = (node, filter) => {
      const nodes = Array.from(node.childNodes)
@@ -59,7 +61,7 @@
          .filter(node => isTextNode(node) || isElementNode(node))
      return filter ? nodes.map(node => {
          const accept = filter(node)
-@@ -200,17 +198,12 @@
+@@ -200,17 +199,12 @@
      }).flat().filter(x => x) : nodes
  }
  
@@ -78,7 +80,7 @@
              else if (isTextNode(node)) {
                  if (Array.isArray(last)) last.push(node)
                  else if (isTextNode(last)) arr[arr.length - 1] = [last, node]
-@@ -221,40 +214,79 @@
+@@ -221,40 +215,79 @@
              }
              return arr
          }, [])
@@ -178,7 +180,7 @@
  }
  
  const nodeToParts = (node, offset, filter) => {
-@@ -266,7 +298,7 @@
+@@ -266,7 +299,7 @@
      const indexed = indexChildNodes(parentNode, filter)
      const index = indexed.findIndex(x =>
          Array.isArray(x) ? x.some(x => x === node) : x === node)
@@ -187,7 +189,7 @@
      const chunk = indexed[index]
      if (Array.isArray(chunk)) {
          let sum = 0
-@@ -281,7 +313,7 @@
+@@ -281,7 +314,7 @@
      const part = { id, index, offset }
      return (parentNode !== node.ownerDocument.documentElement
          ? nodeToParts(parentNode, null, filter).concat(part) : [part])
@@ -196,7 +198,7 @@
          .filter(x => x.index !== -1)
  }
  
-@@ -301,19 +333,22 @@
+@@ -301,19 +334,22 @@
      const start = partsToNode(root, startParts[0], filter)
      const end = partsToNode(root, endParts[0], filter)
  
@@ -227,7 +229,7 @@
  export const fromElements = elements => {
      const results = []
      const { parentNode } = elements[0]
-@@ -329,14 +364,11 @@
+@@ -329,14 +365,11 @@
  export const toElement = (doc, parts) =>
      partsToNode(doc.documentElement, collapse(parts)).node
  

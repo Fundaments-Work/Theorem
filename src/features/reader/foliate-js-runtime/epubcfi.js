@@ -134,7 +134,8 @@ export const collapse = (x, toEnd) => typeof x === 'string'
     ? toString(collapse(parse(x), toEnd))
     : x.parent ? concatArrays(x.parent, x[toEnd ? 'end' : 'start']) : x
 
-const buildRange = (from, to) => {
+// Theorem: exported so highlight merging can build one range from two points.
+export const buildRange = (from, to) => {
     if (typeof from === 'string') from = parse(from)
     if (typeof to === 'string') to = parse(to)
     from = collapse(from)

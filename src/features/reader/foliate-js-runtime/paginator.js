@@ -641,8 +641,12 @@ export class Paginator extends HTMLElement {
         this.addEventListener('load', ({ detail }) => {
             const doc = detail?.doc
             if (!doc) return
+            // Only a mouse/pen drag may auto-turn the page. Touch selections are
+            // adjusted with native handles and must never carry the reader to
+            // another page; relying on Android cancelling the pointer events
+            // was fragile and let the page travel on other WebViews.
             let isPointerSelecting = false
-            doc.addEventListener('pointerdown', () => isPointerSelecting = true)
+            doc.addEventListener('pointerdown', e => isPointerSelecting = e.pointerType !== 'touch')
             doc.addEventListener('pointerup', () => isPointerSelecting = false)
             doc.addEventListener('pointercancel', () => isPointerSelecting = false)
             let isKeyboardSelecting = false

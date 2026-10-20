@@ -36,6 +36,8 @@ export interface ReaderViewportHandle {
     addHighlight: (cfi: string, text: string, color: HighlightColor) => Promise<Annotation>;
     addAnnotation: (annotation: Annotation) => Promise<void>;
     removeHighlight: (id: string) => Promise<void>;
+    /** Text a CFI covers in a loaded section; '' when unresolved. */
+    resolveCfiText: (cfi: string) => Promise<string>;
     loadAnnotations: (annotations: Annotation[]) => Promise<void>;
     clearSelection: () => void;
     
@@ -185,6 +187,7 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         addHighlight: (cfi: string, text: string, color: HighlightColor) => addHighlight(cfi, text, color),
         addAnnotation: (annotation: Annotation) => addAnnotation(annotation),
         removeHighlight: (id: string) => removeHighlight(id),
+        resolveCfiText: async (cfi: string) => (await getEngine()?.resolveCfiText(cfi)) ?? '',
         loadAnnotations: (annotations: Annotation[]) => loadAnnotations(annotations),
         clearSelection: () => clearSelection(),
         getVisibleTextForTts: () => getVisibleTextForTts(),
