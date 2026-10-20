@@ -57,3 +57,51 @@ describe("DiscoverService", () => {
         expect(feed.entries.every((e) => e.detailHref && e.cover?.includes("/cache/epub/"))).toBe(true);
     });
 });
+
+describe("Discover's cached sections", () => {
+    const KEY = "theorem_discover_cache_v3";
+    const good = {
+        id: "s1", title: "Section",
+        books: [{ id: "b1", title: "A Book", authors: ["Someone"], acquisitions: [] }],
+    };
+
+    async function freshService() {
+        const { vi } = await import("vitest");
+        vi.resetModules();
+        return (await import("../src/core/services/DiscoverService")).DiscoverService;
+    }
+
+    it("ignores and removes a cache written by the pre-rewrite app instead of crashing the page on it", async () => {
+        // Entries of the old shape: `author` string, no `authors`/`acquisitions` arrays.
+        localStorage.setItem(
+            "theorem_discover_cache_v2",
+            JSON.stringify([{ id: "essentials", title: "Timeless Essentials", books: [{ id: "x", title: "Dracula", author: "Bram Stoker", downloadUrl: "https://x/y.epub" }] }]),
+        );
+        const service = await freshService();
+        expect(service.getCachedSections()).toEqual([]);
+        expect(localStorage.getItem("theorem_discover_cache_v2")).toBeNull();
+    });
+
+    it("never reads an old-shape entry even if it sits under the current key", async () => {
+        localStorage.setItem(KEY, JSON.stringify([{ id: "s", title: "S", books: [{ id: "x", title: "Old", author: "A" }] }]));
+        const service = await freshService();
+        expect(service.getCachedSections()).toEqual([]);
+        expect(localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it("drops the whole cache when any one section is unusable rather than rendering a half-broken storefront", async () => {
+        localStorage.setItem(KEY, JSON.stringify([good, { id: "bad", title: "Bad", books: [{ id: "x" }] }]));
+        const service = await freshService();
+        expect(service.getCachedSections()).toEqual([]);
+    });
+
+    it("keeps a valid cache and survives corrupt JSON", async () => {
+        localStorage.setItem(KEY, JSON.stringify([good]));
+        let service = await freshService();
+        expect(service.getCachedSections()).toEqual([good]);
+        localStorage.setItem(KEY, "{not json");
+        service = await freshService();
+        expect(service.getCachedSections()).toEqual([]);
+        localStorage.removeItem(KEY);
+    });
+});

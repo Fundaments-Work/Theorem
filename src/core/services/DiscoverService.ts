@@ -36,19 +36,38 @@ const CURATED_FEEDS = [
     },
 ];
 
-// In-memory and persistent cache for instant 0ms section switching
-const DISCOVER_CACHE_KEY = "theorem_discover_cache_v2";
+// In-memory and persistent cache for instant 0ms section switching.
+// The key is versioned with the *shape* of an entry: v2 held the pre-OPDS-rewrite entries
+// (`author`, `downloadUrl`...), which the current UI cannot render and used to crash it.
+const DISCOVER_CACHE_KEY = "theorem_discover_cache_v3";
+const LEGACY_DISCOVER_CACHE_KEYS = ["theorem_discover_cache_v2", "theorem_discover_cache"];
 const sectionCache = new Map<string, { data: DiscoverSection; timestamp: number }>();
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
+
+/** Is this really a book in today's shape? Anything else in storage is ignored, never rendered. */
+function isUsableEntry(book: unknown): book is OpdsEntry {
+    const b = book as Partial<OpdsEntry> | null;
+    return Boolean(b) && typeof b!.id === "string" && typeof b!.title === "string" && Array.isArray(b!.authors) && Array.isArray(b!.acquisitions);
+}
+
+function isUsableSection(section: unknown): section is DiscoverSection {
+    const s = section as Partial<DiscoverSection> | null;
+    return Boolean(s) && typeof s!.id === "string" && typeof s!.title === "string" && Array.isArray(s!.books) && s!.books.every(isUsableEntry);
+}
 
 function loadPersistedCache(): DiscoverSection[] {
     try {
         if (typeof window === "undefined" || !window.localStorage) return [];
+        // Free the space the old caches held; their entries are in a shape we no longer read.
+        for (const key of LEGACY_DISCOVER_CACHE_KEYS) localStorage.removeItem(key);
         const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
         if (!raw) return [];
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
+        if (Array.isArray(parsed)) {
+            const usable = parsed.filter(isUsableSection);
+            if (usable.length === parsed.length && usable.length > 0) return usable;
+            // Partly or wholly unusable (a corrupt or hand-edited cache): start clean.
+            localStorage.removeItem(DISCOVER_CACHE_KEY);
         }
     } catch {
         // Ignore parse errors

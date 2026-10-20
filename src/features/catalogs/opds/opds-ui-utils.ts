@@ -10,7 +10,8 @@ export function formatBytes(bytes?: number): string {
 }
 
 export function entryAuthor(entry: Pick<OpdsEntry, "authors">): string {
-    return entry.authors.filter(Boolean).join(", ");
+    // `?? []`: an entry from an older cache or a misbehaving source must never take the page down.
+    return (entry.authors ?? []).filter(Boolean).join(", ");
 }
 
 /** What tapping the main button of a book should do. */
@@ -25,13 +26,14 @@ export type EntryAction =
     | { kind: "none" };
 
 export function entryAction(entry: OpdsEntry): EntryAction {
+    const acquisitions = entry.acquisitions ?? [];
     if (entry.primary !== undefined) {
-        const acquisition = entry.acquisitions[entry.primary];
+        const acquisition = acquisitions[entry.primary];
         if (acquisition) return { kind: "download", acquisition };
     }
-    if (entry.acquisitions.length === 0 && entry.detailHref) return { kind: "partial" };
+    if (acquisitions.length === 0 && entry.detailHref) return { kind: "partial" };
 
-    const first = entry.acquisitions.find((a) => a.kind !== "sample") ?? entry.acquisitions[0];
+    const first = acquisitions.find((a) => a.kind !== "sample") ?? acquisitions[0];
     if (first) {
         const reason = first.drm
             ? "drm"

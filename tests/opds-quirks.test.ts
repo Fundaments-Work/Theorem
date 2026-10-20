@@ -86,3 +86,13 @@ describe("mergeEditions", () => {
         expect(mergeEditions([one])).toBe(one);
     });
 });
+
+describe("entry helpers tolerate malformed entries", () => {
+    it("never throw on an entry without authors or acquisitions (old caches, misbehaving sources)", async () => {
+        const { entryAction, entryAuthor } = await import("../src/features/catalogs/opds/opds-ui-utils");
+        const broken = { id: "x", title: "T" } as unknown as OpdsEntry;
+        expect(entryAuthor(broken)).toBe("");
+        expect(entryAction(broken)).toEqual({ kind: "none" });
+        expect(entryAction({ ...broken, detailHref: "https://x/y" } as OpdsEntry)).toEqual({ kind: "partial" });
+    });
+});
