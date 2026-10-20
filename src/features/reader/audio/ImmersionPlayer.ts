@@ -102,6 +102,8 @@ export interface NeuralStatus {
     modelsReady: boolean;
     engineLoaded: boolean;
     available: boolean;
+    /** This OS/CPU has a neural runtime at all (false on Intel Macs, ARM Windows/Linux). */
+    supported: boolean;
 }
 
 export const NEURAL_VOICES = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"] as const;
@@ -123,11 +125,12 @@ export function resolveNeuralVoice(voice: string | null | undefined): NeuralVoic
  *  there the neural voice comes from the companion TTS engine app instead. */
 export async function getNeuralStatus(): Promise<NeuralStatus> {
     const unavailable: NeuralStatus = {
-        runtimeReady: false, modelsReady: false, engineLoaded: false, available: false,
+        runtimeReady: false, modelsReady: false, engineLoaded: false, available: false, supported: false,
     };
     if (!isTauri() || isAndroid()) return unavailable;
     try {
-        return await invoke<NeuralStatus>("tts_neural_status");
+        const status = await invoke<Partial<NeuralStatus>>("tts_neural_status");
+        return { ...unavailable, ...status };
     } catch {
         return unavailable;
     }

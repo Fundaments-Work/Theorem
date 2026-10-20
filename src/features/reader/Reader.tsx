@@ -1393,13 +1393,17 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     // Desktop only: probe once whether the Supertonic neural engine is installed.
     const [neuralReady, setNeuralReady] = useState(false);
-    const showNeuralInstall = isTauriDesktop() && !neuralReady;
+    // Starts false so the install offer never flashes up before the probe answers, and stays
+    // false on machines that have no neural runtime (e.g. Intel Macs).
+    const [neuralSupported, setNeuralSupported] = useState(false);
+    const showNeuralInstall = isTauriDesktop() && neuralSupported && !neuralReady;
     useEffect(() => {
         if (!isTauriDesktop()) return;
         let cancelled = false;
         getNeuralStatus().then((status) => {
             if (cancelled) return;
             setNeuralReady(status.available);
+            setNeuralSupported(status.supported);
         });
         return () => { cancelled = true; };
     }, []);
