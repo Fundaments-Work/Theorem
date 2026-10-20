@@ -8,6 +8,8 @@ Open a book, turn pages, change the theme and text size, search inside it, jump 
 
 Click a cover in the Library, or open a file from your file manager. Theorem saves your position for each book and takes you back to it the next time you open that book. Click the arrow at the top left of the reader to return to the Library.
 
+This guide writes `Ctrl` for the main shortcut key. On a Mac that is the Command key (`⌘`), for example `⌘F` to search.
+
 Theorem uses one reader for EPUB, MOBI, AZW, AZW3, FB2 and comics, and a separate PDF reader. Most controls are the same in both.
 
 ## Turn pages and move around

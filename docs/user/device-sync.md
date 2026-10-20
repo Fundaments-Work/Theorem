@@ -1,6 +1,6 @@
 # Sync Between Devices
 
-Pair two devices running Theorem with a QR code or a pairing code, and keep your library, highlights, notes, vocabulary and reading progress in step without an account.
+Pair two devices with a QR code or pairing code and keep your library, notes, vocabulary and reading progress in step without creating an account.
 
 Device sync is peer to peer. Your devices talk to each other directly, and there is no Theorem account or Theorem server that stores your data. Sync is available in the desktop and Android apps, not in the browser demo.
 

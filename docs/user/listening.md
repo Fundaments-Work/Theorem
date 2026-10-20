@@ -1,6 +1,6 @@
 # Listening with Text-to-Speech and Audiobooks
 
-Have a book read aloud with your system voice or an offline neural voice, attach a narrated audiobook file to a book, or generate an audiobook from a book on desktop.
+Have a book read aloud with your system voice or an offline neural voice, attach a narrated audiobook file, or generate an audiobook from a book on desktop.
 
 Theorem offers three ways to listen. All of them work offline.
 
@@ -37,7 +37,7 @@ Theorem uses the book's language when it has one, and English otherwise.
 
 The neural voice runs completely on your computer. Nothing is bundled with the app, so you download it once.
 
-It is available on Linux (64-bit x86), Windows (64-bit) and macOS on Apple Silicon. Intel Macs are not supported.
+It is available on Linux (64-bit x86), Windows (64-bit) and macOS on Apple Silicon. Intel Macs, and Windows or Linux on ARM chips, are not supported. On those computers Settings says that Neural Voice is not available on this platform, and the reader does not offer the download.
 
 1. Open Settings and select the General tab.
 2. Make sure Text-to-Speech is on. The Neural Voice section appears below the retention settings only when it is on.

@@ -1,6 +1,6 @@
 # Getting Started
 
-Open Theorem for the first time, add your first book, and learn how the sidebar, top bar and search box work on desktop and on Android.
+Open Theorem for the first time, add your first book, and learn how the sidebar, top bar and search box work on desktop and on Android phones and tablets.
 
 ## First launch
 
@@ -35,7 +35,7 @@ You can also open a book directly from your file manager. Theorem registers itse
 
 ## Learn the layout on Android
 
-On a phone, a bottom bar gives quick access to Library, Shelves, Workbench, Feeds and Settings. The top bar has a search button, Sync devices and Statistics. The full sidebar, including the Bookmarks page, appears only on wider screens such as tablets. On a phone, you can still see a book's bookmarks from the annotations panel inside the reader. Discover is not available on Android.
+On a phone, a bottom bar gives quick access to five pages: Library, Shelves, Discover, Workbench and Feeds. The top bar has a search button, Sync devices, Statistics and Settings. Bookmarks is a tab inside Workbench, next to All, Highlights, Notes and Words. On a narrow screen only the tab you are on shows its name and the others show an icon. The full sidebar appears on wider screens such as tablets.
 
 ![The Theorem library on Android showing a grid of book covers](../screenshots/android-library.png)
 
@@ -48,10 +48,11 @@ On a phone, a bottom bar gives quick access to Library, Shelves, Workbench, Feed
 | `Ctrl+3` | Feeds |
 | `Ctrl+4` | Workbench |
 | `Ctrl+5` | Statistics |
+| `Ctrl+6` | Discover |
 | `Ctrl+7` | Bookmarks |
 | `Ctrl+,` | Settings |
 
-On macOS these shortcuts use the Control key, not Command. See [Settings and shortcuts](settings-and-shortcuts.md) for the full list.
+On a Mac, use the Command key instead of Control: `⌘1`, `⌘2` and so on. This guide writes `Ctrl` for the main shortcut key on every computer. The shortcuts window (`Shift+?`) and Settings show the keys for your computer. See [Settings and shortcuts](settings-and-shortcuts.md) for the full list.
 
 ## What to do next
 

@@ -2,6 +2,8 @@
 
 Theorem is a free, local-first reader for ebooks, PDFs, comics and RSS feeds that exports your highlights to Markdown, on Linux, macOS, Windows and Android.
 
+Download Theorem from [theorem.fundaments.work](https://theorem.fundaments.work/) or the [latest release](https://github.com/Fundaments-Work/Theorem/releases/latest). [Install Theorem](install.md) lists the files for each system.
+
 Theorem keeps your library, highlights, notes and reading progress on your own device. There is no account to create and no cloud service to sign in to. You can read DRM-free EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ and CBR files, follow RSS feeds, look words up in offline dictionaries, listen with text-to-speech, and write every highlight to plain Markdown files for Obsidian or Logseq.
 
 ![The Theorem library showing a grid of book covers, a search box and the Add Books, Select and Filter buttons](../screenshots/library-grid.png)
@@ -42,8 +44,8 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 - **[Feeds and articles](feeds.md)**
   Subscribe to RSS and Atom feeds, read articles in the reader, save them offline, and control how long they are kept.
 
-- **[Discover free books](discover.md)**
-  Browse and search public-domain books from Project Gutenberg and Standard Ebooks and add them to your library.
+- **[Discover free books and online catalogs](discover.md)**
+  Browse public-domain books from Project Gutenberg and Standard Ebooks, connect your own catalog such as Calibre or Komga, sign in to private libraries, and add books with one tap. Works on phones too.
 
 - **[Listening with text-to-speech and audiobooks](listening.md)**
   Have a book read aloud, install the offline neural voice, attach an audiobook file, and generate an audiobook.

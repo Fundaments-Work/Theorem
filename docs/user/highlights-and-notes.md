@@ -1,6 +1,6 @@
 # Highlights and Notes
 
-Highlight text in six colors, attach notes, save bookmarks, mark up PDFs with a pen, and share any highlight as an image.
+Highlight text in six colors, attach notes, save bookmarks, mark up PDFs with a pen, and share any highlight as an image from books, PDFs and RSS articles.
 
 Highlights, notes and bookmarks work in books, PDFs, comics and RSS articles. Everything is stored on your device. To get highlights and notes into another app, see [Markdown export for Obsidian and Logseq](vault-sync.md).
 
@@ -34,6 +34,10 @@ The same pop-up also has these buttons:
 3. When Theorem asks "Delete this highlight and any associated notes?", confirm.
 
 A highlight is one continuous range of text. A sentence that runs across a page or column break is still a single highlight. If you select text that overlaps or touches an existing highlight in the same chapter, Theorem merges them into one. The oldest highlight keeps its notes. A highlight never crosses from one chapter to the next, and PDF highlights are per page and are not merged.
+
+### Select text on a touch screen
+
+Press and hold a word, then drag the handles to extend the selection. The pop-up waits until you stop moving the handles, so it does not jump around while you drag, and it appears next to the part of your selection that is on the screen. Selecting text never turns the page. If a passage continues on the next page, highlight the part you can see, turn the page, and highlight the rest. If the second selection overlaps the first or starts exactly where it ended, Theorem joins them into one highlight. A gap between them, even a single space, leaves two separate highlights.
 
 ## Add a note
 

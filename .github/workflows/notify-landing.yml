@@ -7,6 +7,7 @@ on:
       - 'docs/**'
       - 'ARCHITECTURE.md'
       - 'README.md'
+      - 'CHANGELOG.md'
   release:
     types: [published]
   workflow_dispatch:

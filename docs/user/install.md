@@ -86,8 +86,11 @@ On Windows, macOS and Linux desktop builds, check for updates inside the app.
 
 1. Open Settings and select the About tab.
 2. Under Links, click Check for Updates.
-3. If a stable update is found, click Install Update & Restart.
-4. If the newest release is a beta, the app shows a View Beta Release link instead. Open it and install the new version from the release page.
+3. If a stable update is found, click Install Update & Restart. Theorem downloads it and asks you to restart.
+4. If you are running a beta and a newer beta exists, the app shows a View Beta Release link instead. Open it and install the new version from the release page.
+5. If nothing newer exists, a message says Up to Date.
+
+The same Links section has a Download Latest Release link that opens the releases page. Android has no in-app updater. Install a newer APK over the old one.
 
 ## Next step
 
