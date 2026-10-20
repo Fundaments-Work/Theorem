@@ -12,8 +12,6 @@ import { normalizeFilePath } from "./core/lib/utils";
 import { registerShortcuts, useKeyboardShortcuts } from "./core/lib/keyboard-shortcuts";
 import { initI18n } from "./core/lib/i18n";
 import { initLogger } from "./core/lib/debug";
-import { prewarmPdfJsRuntime } from "./core/lib/pdfjs-runtime";
-import { prewarmFoliateRuntime } from "./core/lib/foliate-runtime";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
 import { flushAllPersistence } from "./core/lib/persist-storage";
@@ -443,12 +441,11 @@ function App() {
 
     useEffect(() => {
         if (!storesHydrated) return;
-        // Warm the reader, PDF.js, and foliate runtime chunks during idle after
-        // first paint so the first book open skips chunk load + engine parse.
+        // Warm the reader component chunk during idle after first paint so the first
+        // book open skips chunk load. Document engines (PDF.js, Foliate) are loaded
+        // on demand when a book of that format is opened.
         return scheduleIdleTask(() => {
             void prewarmReaderChunk();
-            void prewarmPdfJsRuntime();
-            void prewarmFoliateRuntime();
         });
     }, [storesHydrated]);
 

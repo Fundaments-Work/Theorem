@@ -1327,12 +1327,12 @@ const PAGE_CANVAS_CLASS = "block absolute inset-0";
 
 const IS_ANDROID_RUNTIME = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
 /**
- * Offscreen rendered pages kept for instant scroll-back. Desktop: 6 pages or
- * 24M canvas pixels (~96MB); Android: 3 pages or 8M pixels (~32MB).
+ * Offscreen rendered pages kept for instant scroll-back. Desktop: 4 pages or
+ * 12M canvas pixels (~48MB); Android: 3 pages or 8M pixels (~32MB).
  */
 const renderedPageCache = new RenderedPageCache<object>(
-    IS_ANDROID_RUNTIME ? 3 : 6,
-    IS_ANDROID_RUNTIME ? 8_000_000 : 24_000_000,
+    IS_ANDROID_RUNTIME ? 3 : 4,
+    IS_ANDROID_RUNTIME ? 8_000_000 : 12_000_000,
 );
 /** Above this zoom, pages render only when near the viewport (no ±N pre-render window). */
 const HIGH_ZOOM_RENDER_WINDOW_SCALE = 1.6;
@@ -2273,6 +2273,7 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 setPages((existingPages) => { existingPages.forEach((p) => p.cleanup()); return []; });
                 pageLayoutRef.current = [];
                 activeRangeTransport?.abort();
+                renderedPageCache.clear();
                 loadedPdf?.cleanup();
                 try { void (loadedPdf as any)?.destroy?.(); } catch {}
                 try { void loadingTaskRef.current?.destroy(); } catch {}
