@@ -2241,67 +2241,106 @@ fn run_opds(output: &Output, app: &tauri::AppHandle, command: OpdsCommand) -> i3
     }
 }
 
+fn opds_load_feed(output: &Output, url: &str) -> Result<theorem_core::opds::model::Feed, i32> {
+    use theorem_core::opds::model::Outcome;
+    match block_on(|| crate::opds_net::load(url, None)) {
+        Ok(loaded) => match loaded.outcome {
+            Outcome::Feed { feed } => Ok(*feed),
+            Outcome::Unsupported { reason } => Err(output.error(&reason)),
+            Outcome::Authentication { title, .. } => Err(output.error(&format!(
+                "{title}: this catalog requires a sign-in, which the CLI does not support yet"
+            ))),
+            _ => Err(output.error("the address did not return a catalog")),
+        },
+        Err(e) => Err(output.error(&e.to_string())),
+    }
+}
+
 fn opds_browse(output: &Output, url: &str) -> i32 {
-    let feed = match block_on(|| crate::opds_parser::fetch_and_parse_opds_native(url.to_string())) {
+    let feed = match opds_load_feed(output, url) {
         Ok(feed) => feed,
-        Err(e) => return output.error(&e),
+        Err(code) => return code,
     };
 
     if output.json {
         return output.print_json(&feed);
     }
     println!("{}", output.bold(&feed.title));
-    for (index, entry) in feed.entries.iter().enumerate() {
-        let kind = if entry.is_navigation || entry.nav_url.is_some() {
-            "nav"
+    let mut index = 0;
+    for nav in &feed.navigation {
+        index += 1;
+        println!(
+            "{}  {} {}",
+            output.dim(&format!("{index:>3}")),
+            output.bold(&nav.title),
+            output.dim("[nav]")
+        );
+    }
+    for entry in &feed.entries {
+        index += 1;
+        let by = if entry.authors.is_empty() {
+            String::new()
         } else {
+            format!(" by {}", entry.authors.join(", "))
+        };
+        let kind = if entry.primary.is_some() {
             "book"
+        } else {
+            "info"
         };
         println!(
             "{}  {} {}",
-            output.dim(&format!("{:>3}", index + 1)),
+            output.dim(&format!("{index:>3}")),
             output.bold(&entry.title),
-            output.dim(&format!(
-                "[{kind}]{}",
-                entry
-                    .author
-                    .as_ref()
-                    .map(|a| format!(" by {a}"))
-                    .unwrap_or_default()
-            ))
+            output.dim(&format!("[{kind}]{by}"))
         );
     }
-    output.note(&format!("# {} entries", feed.entries.len()));
+    output.note(&format!(
+        "# {} navigation links, {} books",
+        feed.navigation.len(),
+        feed.entries.len()
+    ));
     0
 }
 
 fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selector: &str) -> i32 {
-    let feed = match block_on(|| crate::opds_parser::fetch_and_parse_opds_native(url.to_string())) {
+    let feed = match opds_load_feed(output, url) {
         Ok(feed) => feed,
-        Err(e) => return output.error(&e),
+        Err(code) => return code,
     };
 
+    // Numbering matches `opds browse`: navigation links first, then books.
+    let nav_count = feed.navigation.len();
     let entry = match entry_selector.parse::<usize>() {
-        Ok(index) if index >= 1 && index <= feed.entries.len() => Some(&feed.entries[index - 1]),
-        _ => feed.entries.iter().find(|e| {
+        Ok(index) if index > nav_count && index - nav_count <= feed.entries.len() => {
+            Some(&feed.entries[index - nav_count - 1])
+        }
+        Ok(_) => None,
+        Err(_) => feed.entries.iter().find(|e| {
             e.title
                 .to_lowercase()
                 .contains(&entry_selector.to_lowercase())
         }),
     };
     let Some(entry) = entry else {
-        return output.error(&format!("entry '{entry_selector}' not found in catalog"));
-    };
-    let Some(download_url) = entry.download_url.as_ref() else {
         return output.error(&format!(
-            "entry '{}' has no acquisition link (navigation entry?)",
+            "entry '{entry_selector}' not found among the catalog's books"
+        ));
+    };
+    let Some(acquisition) = entry.primary.and_then(|i| entry.acquisitions.get(i)) else {
+        return output.error(&format!(
+            "entry '{}' has no direct download (borrow, purchase or DRM-protected)",
             entry.title
         ));
     };
+    let download_url = &acquisition.href;
 
     output.note(&format!("downloading '{}'...", entry.title));
     let bytes = {
-        let response = match crate::shared_http_client().get(&**download_url).send() {
+        let response = match crate::shared_http_client()
+            .get(download_url.as_str())
+            .send()
+        {
             Ok(response) => response,
             Err(e) => return output.error(&e.to_string()),
         };
@@ -2314,12 +2353,7 @@ fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selec
         }
     };
 
-    let extension = entry
-        .download_format
-        .as_deref()
-        .and_then(|f| f.split('/').next_back())
-        .unwrap_or("epub")
-        .to_ascii_lowercase();
+    let extension = acquisition.format.unwrap_or("epub");
     let temp_dir = match tempfile::tempdir() {
         Ok(dir) => dir,
         Err(e) => return output.error(&e.to_string()),

@@ -9,6 +9,7 @@
 
 pub mod fuzzy;
 pub mod markdown;
+pub mod opds;
 pub mod text_normalizer;
 pub mod vault;
 pub mod wasm;

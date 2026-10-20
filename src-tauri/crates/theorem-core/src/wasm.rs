@@ -49,3 +49,20 @@ pub fn wasm_year_to_words(year: u32) -> Option<String> {
 pub fn wasm_safe_vault_filename(title: &str) -> String {
     crate::vault::safe_vault_filename(title)
 }
+
+/// Parse an OPDS document fetched by the browser. Returns the `Outcome` as JSON, the same shape
+/// the desktop app gets from its native loader, so the UI has one code path.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn wasm_opds_parse(body: &[u8], content_type: &str, base_url: &str) -> Result<String, JsValue> {
+    let outcome = crate::opds::parse_catalog(body, content_type, base_url);
+    serde_json::to_string(&outcome)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+}
+
+/// Expand an OPDS/OpenSearch search URL template with a query.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn wasm_opds_expand_search(template: &str, query: &str) -> String {
+    crate::opds::search::expand(template, query)
+}

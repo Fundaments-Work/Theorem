@@ -27,7 +27,7 @@ mod iroh_sync;
 pub mod mdict;
 pub mod mobi_parser;
 mod offload_commands;
-pub mod opds_parser;
+pub mod opds_net;
 pub mod rss_parser;
 mod smart_shelves;
 pub mod stardict;
@@ -1943,7 +1943,10 @@ pub fn run() {
             offload_commands::get_mobi_metadata,
             article_extractor::fetch_and_extract_article_native,
             offload_commands::extract_article_from_html_native,
-            opds_parser::fetch_and_parse_opds_native,
+            opds_net::opds_load,
+            opds_net::opds_search,
+            opds_net::opds_download,
+            opds_net::opds_cleanup_download,
             open_book_in_new_window,
             mdict::mdx_lookup,
             vault_export::vault_export_snapshot,
