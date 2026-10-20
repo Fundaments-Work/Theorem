@@ -36,6 +36,10 @@ Both pages render `components/AnnotationListCard.tsx`. Cards fit their content, 
 5. Store mutation triggers `queueVaultSync()` (for Markdown export)
 6. If sync is active, `scheduleMutationSync()` propagates to paired devices
 
+### Cross-page highlights (EPUB)
+
+A highlight is one CFI range; the overlayer draws it as per-line rects, so a sentence split across a page or column break is already a single highlight. To keep it that way, a new selection that **overlaps or exactly touches** existing highlights in the same section is merged (`mergeSelectionIntoHighlights` in `Reader.tsx`, logic in `foliate/selection-anchor.ts`): the oldest highlight keeps its id and notes, its CFI becomes the union, and the others are removed with tombstones. A selection fully inside a highlight edits that highlight instead. Highlights never span spine sections. PDF highlights are per page and are not merged.
+
 ### Creating a Highlight (PDF)
 
 1. User selects text in PDF canvas view

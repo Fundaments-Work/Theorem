@@ -1,6 +1,7 @@
 # Plugin-First Extensibility Architecture Plan
 
 **Date**: 2026-08-30 (Updated: 2026-09-17)  
+**Schedule**: see [2026-10-20-plugin-roadmap-1.6-to-2.0.md](./2026-10-20-plugin-roadmap-1.6-to-2.0.md) for the version-by-version path.  
 **Status**: Architecture Blueprint Deferred to v2.0+ — Replaced in v1.6.0 by Native Modular Power Features  
 **Target Milestone**: v2.0.0+ (Long-Term Extensibility & Ecosystem Milestone)  
 **Area**: Plugin Engine / WebAssembly Sandbox / Reader Overlays / Custom Views / Capability Security  
