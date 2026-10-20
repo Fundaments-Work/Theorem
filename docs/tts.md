@@ -60,6 +60,14 @@ Settings → General → Neural Voice shows install status, downloads all
 missing assets with per-file progress, and removes the install (including
 cache).
 
+**Supported platforms.** A runtime asset is published for Linux x86_64, macOS
+aarch64 (Apple Silicon) and Windows x86_64 only. `tts_model::is_supported(os, arch)`
+encodes that table; `tts_neural_status` reports it as `supported`, the Settings
+section shows "not available on this platform" when it is false, the reader's
+install offer stays hidden, and `tts_model_download_asset` refuses to run (so an
+Intel Mac, or Windows/Linux on ARM, is never offered a download that cannot
+work). A test asserts the flag agrees with the compiled asset table.
+
 ## Immersion Player
 
 `src/features/reader/audio/ImmersionPlayer.ts` chooses the path per

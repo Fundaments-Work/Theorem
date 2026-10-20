@@ -38,10 +38,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Support Placements** — Added an authentic crescent-dumpling `MomoIcon` to the desktop sidebar footer (both expanded and collapsed layouts), the mobile titlebar header cluster, and a permanent entry in Settings → Links.
 - **Safe External Opener** — Unified external link launching (`src/core/lib/open-external-url.ts`) dynamically invoking `@tauri-apps/plugin-opener` on native desktop/mobile platforms with fallback to `window.open` in browser environments.
 
+### Discover & OPDS Catalogs
+
+- **Browse any OPDS catalog** — Discover is now one row of sources: the curated storefront, Project Gutenberg, Standard Ebooks and every catalog you add. Catalogs added in earlier versions were saved but never browsable (the full browser was unmounted); they all work now. Sections, shelves with *See all*, a trail with Back, server search with a local-filter fallback, sort/language/format filters, series and covers, and books that load as you scroll on a virtualized grid.
+- **OPDS 2.0 and real-world Atom** — A single Rust parser (`theorem-core::opds`) reads OPDS 1.0–1.2 Atom, OPDS 2.0 JSON, OpenSearch descriptions, HTML pages that advertise a feed, facets, indirect acquisition, prices and authentication documents. It runs natively on desktop and Android and through WebAssembly in the web build, so every platform behaves the same. Tested on real Gutenberg, Standard Ebooks and OPDS 2.0 reference documents plus Calibre, Komga/Kavita and Feedbooks-style output.
+- **Sign in to private catalogs** — HTTP Basic sign-in using the server's own labels; credentials stay on the device, are never synced, and are saved only after the server accepts them. Adding a catalog checks the address first and explains what is wrong (`opds://` links, `host:port`, LAN addresses and HTML discovery are accepted).
+- **Honest downloads** — Purchases, loans, subscriptions and DRM-locked files (Adobe ADEPT, Readium LCP) are labelled instead of offered as downloads. Downloads stream with progress, go through the same import as "Add Books", and a login page that answers where a book should be is refused.
+- **Native network layer** — `opds_net.rs` replaces the old fetcher: content negotiation, redirect-aware relative links, typed errors (sign-in, 403/404/429, timeout, size), 25 MB catalog cap. The CLI's `opds` commands use it too.
+- **Gutenberg covers** — Gutenberg search results now show real covers and open straight to the book's downloads.
+
+### Phones & Navigation
+
+- **Discover and Bookmarks on phones** — The 2026-02 removal of the mobile drawer left both without an entry point. The bottom bar is now Library, Shelves, Discover, Workbench, Feeds; Settings moved to the top bar beside Statistics; Bookmarks is a Workbench tab (with Highlights, Notes and Words). The tab row never scrolls away on small phones: below `sm` only the active tab shows its label.
+- **Keyboard shortcuts follow the platform** — `Ctrl` in a shortcut now means Command on macOS and Control elsewhere; labels show ⌘/⇧/⌥ on a Mac. `Ctrl+6` opens Discover (it duplicated Workbench).
+
+### Accessibility & Responsiveness
+
+- **Audited with axe-core on every screen** at 1280, 390 and 320px (see `docs/accessibility.md`): the final run reports no violations, no horizontal overflow and no target under 24px.
+- **Dialogs and reader panels are named; closed panels are inert** — `Modal` was labelled by an empty heading, and the reader's closed panels stayed tabbable and announced. Reader sliders, "more actions" buttons and the retention select now have names; Settings toggles report which choice is selected; annotation cards no longer nest controls inside a button.
+- **Contrast** — muted text on muted surfaces (3.9:1) and the reading themes' muted/secondary text (3.3:1) now reach 4.5:1; text is no longer dimmed with `opacity`.
+- **Phones** — the page title is always in the accessibility tree, the title bar is a `header` landmark, the reader has a main region, and sliders, swatches, breadcrumbs and toolbar buttons meet minimum target sizes.
+- **Library and Shelves toolbars use the phone row** — Add stretches across the row and the icon buttons are 44px, instead of a small desktop cluster pushed to the right.
+- **No more overflow from long paths** — a long folder path in Settings (the Neural Voice "N MB at /home/…/tts" line) wrapped past the screen; setting descriptions now wrap anywhere.
+
+### Highlights
+
+- **Cross-page highlights stay one highlight** — A selection that overlaps or touches existing highlights (the second half of a sentence on the next page) merges into one: the oldest keeps its id and notes, its range becomes the union, and the others are removed with sync tombstones. Merging never crosses chapters.
+- **Touch selection** — The toolbar anchors to a visible rect (not the last rect on the next page), waits for a handle drag to settle, and touch selections never turn the page.
+
 ### Fixed
 
 - **Tauri IPC access control check on memory trim** — Added wildcard window capability in `src-tauri/capabilities/default.json` and allowed IPC localhost origins in CSP, resolving Tauri v2 IPC ACL denials (`trim_memory`) on sub-windows and reloaded webviews.
 - **PDF Viewer Stability & Zoom Convergence** — Eliminated PDF zoom jumping, dropped TOC jumps, and page-pill layout squeezing on document load.
+- **Discover no longer crashes on an old cache** — The cached storefront from before the OPDS rewrite (`theorem_discover_cache_v2`) held entries the new UI cannot render and took the page down (`entry.authors` undefined). The cache is versioned by entry shape (v3), old caches are deleted, anything that is not in today's shape is ignored, and the helpers tolerate malformed entries.
+- **Repeated phrases no longer edit the wrong highlight** — Existing-highlight matching used the selected text (or a substring of it) across the whole book; it now uses range containment.
+- **Neural voice offered where it cannot work** — Intel Macs and Windows/Linux on ARM were offered a download for a runtime that does not exist (the "supported" flag was always true). The flag is real now and the installer refuses to run.
+- **Sentry bundle** — Named imports let the bundler drop session Replay: the Sentry chunk is 158 KB instead of 446 KB (54 KB instead of 149 KB gzipped).
 
 ## [1.5.9] - 2026-10-04 (Beta)
 

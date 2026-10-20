@@ -28,7 +28,7 @@ pnpm dev:tauri    # desktop (full experience)
 | [sub-shelves.md](sub-shelves.md) | One level of nested sub-shelves |
 | [comic-scrolling.md](comic-scrolling.md) | Continuous vertical strip reading for CBZ/CBR |
 | [cbr-android-fix.md](cbr-android-fix.md) | Native CBR/RAR→CBZ path on Android |
-| [discover.md](discover.md) | OPDS 1.2 catalog browser & public domain storefront |
+| [discover.md](discover.md) | Discover: public-domain storefront and a browser for any OPDS catalog (Atom/OPDS 1.x and OPDS 2.0), sign-in, downloads |
 | [sync.md](sync.md) | P2P device sync via iroh |
 | [annotations.md](annotations.md) | Highlights, notes, bookmarks |
 | [vocabulary.md](vocabulary.md) | Dictionary lookups, StarDict + MDict |
@@ -47,6 +47,7 @@ pnpm dev:tauri    # desktop (full experience)
 | [COMPETITIVE_STRATEGY_BLUEPRINT.md](COMPETITIVE_STRATEGY_BLUEPRINT.md) | Master market & open-source competitive strategy |
 | [epub-preparser.md](epub-preparser.md) | Rust EPUB ZIP pre-parser |
 | [keyboard-shortcuts.md](keyboard-shortcuts.md) | All keyboard shortcuts |
+| [accessibility.md](accessibility.md) | Accessibility and responsive-layout audit: findings, fixes and the rules that keep them |
 | [onboarding.md](onboarding.md) | First-run flow |
 | [android-build.md](android-build.md) | Android build, signing, and CI |
 | [DISTRIBUTION.md](DISTRIBUTION.md) | Packaging and distribution |

@@ -124,13 +124,13 @@ EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, and RSS articles (DRM-free files
 </p>
 
 ### Discover & OPDS Catalogs
-Browse curated storefronts and search over 75,000+ public domain classics from Project Gutenberg and Standard Ebooks with 1-click EPUB downloads. Connect open (unauthenticated) OPDS 1.x feeds, such as a Calibre, Kavita, or Komga server, with sort/language/format facets and Prev/Next pagination on paged catalogs. Clean, deterministic clothbound covers for books without bundled artwork.
+Browse curated storefronts and search over 75,000+ public domain classics from Project Gutenberg and Standard Ebooks with 1-click downloads. Add any **OPDS catalog** (Calibre, Kavita, Komga, COPS, a library, a public collection) from one row of sources: OPDS 1.x and **OPDS 2.0**, sections and shelves, server search, sort/language/format filters, series and covers, and books that load as you scroll. Catalogs that need a login sign in with HTTP Basic (kept on your device only). Purchases, loans and DRM-locked files are explained rather than faked. Everything downloads through the same import as "Add Books". Works on phones, too (Discover is a bottom-bar tab). One Rust parser serves the desktop, Android and web builds.
 
 ### Reading Customization
 Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-serif, monospace). Font size (12–32), line height (1.0–2.2). Text alignment. Reading flow (paged, scroll). Brightness slider. Zoom for fixed-layout formats. Full-screen mode. Tap to hide the toolbars.
 
 ### Highlights & Annotations
-Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Notes on any highlight. Bookmarks. Annotation panel with quick navigation, editing, and deletion. Works across all formats including PDF and RSS articles.
+Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Notes on any highlight. A highlight that runs across a page break is always one highlight (overlapping or touching selections merge). Bookmarks (a Workbench tab, on phones too). Annotation panel with quick navigation, editing, and deletion. Works across all formats including PDF and RSS articles.
 
 ### PDF Annotations
 Freehand drawing with configurable stroke width. Text notes placed anywhere on the page. Multi-line rectangular highlights. Per-page annotation rendering. PDF view state persistence (page, zoom, mode per-book).

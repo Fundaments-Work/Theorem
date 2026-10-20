@@ -40,6 +40,22 @@ Both pages render `components/AnnotationListCard.tsx`. Cards fit their content, 
 
 A highlight is one CFI range; the overlayer draws it as per-line rects, so a sentence split across a page or column break is already a single highlight. To keep it that way, a new selection that **overlaps or exactly touches** existing highlights in the same section is merged (`mergeSelectionIntoHighlights` in `Reader.tsx`, logic in `foliate/selection-anchor.ts`): the oldest highlight keeps its id and notes, its CFI becomes the union, and the others are removed with tombstones. A selection fully inside a highlight edits that highlight instead. Highlights never span spine sections. PDF highlights are per page and are not merged.
 
+### Selecting on touch devices (EPUB)
+
+- **Toolbar anchor.** The highlight toolbar hangs from a rect that is actually on screen
+  (`pickVisibleAnchorRect`). For a selection that runs onto the next page the last text rect is on
+  the other page, so the nearest visible one is used (clamped into the viewport if none is).
+- **Handle drags settle.** Native selection handles move without any DOM touch events, so on
+  coarse-pointer devices a burst of `selectionchange` is a drag in progress. The toolbar is
+  re-anchored 260 ms after the selection stops moving instead of on every frame.
+- **No page travel on touch.** The paginator's auto-turn while dragging a selection applies to
+  mouse and pen only (`pointerType !== 'touch'`); touch selections never carry the reader to
+  another page.
+- **Matching.** A selection "is" an existing highlight only when it lies *inside* it
+  (`findAnnotationForSelection`, CFI containment, with an identical-text fallback in the same
+  section for legacy CFIs that no longer resolve). Matching on text across the whole book made a
+  repeated phrase edit a different highlight; that is gone.
+
 ### Creating a Highlight (PDF)
 
 1. User selects text in PDF canvas view

@@ -11,7 +11,7 @@
 │  └──────────┘  └──────────┘  └────────────────────┘  │
 │  ┌──────────┐                          │              │
 │  │ BottomNav│                    ┌──────┴──────┐      │
-│  │ (mobile) │                    │ Lazy routes │      │
+│  │ (phones) │                    │ Lazy routes │      │
 │  └──────────┘                    └──────┬──────┘      │
 └────────────────────────────────────────┼─────────────┘
                                          │
@@ -153,11 +153,10 @@ rssStore (persisted, version 1)
   ├─ feeds: RssFeed[]
   └─ articles: RssArticle[]
 
-opdsStore (persisted, version 2)
-  ├─ catalogs: OpdsCatalog[]
-  ├─ activeCatalogId: string | null
-  ├─ currentFeedUrl: string | null
-  └─ feedHistory: string[]
+opdsStore (persisted, version 3)
+  ├─ catalogs: OpdsCatalog[]        (built-ins always present; `auth` is local-only, never synced)
+  └─ activeCatalogId: string | null (null = the Discover home)
+     // Trail, pages and search state live in useOpdsBrowser, per catalog — not in the store.
 ```
 
 **Non-persisted data lives in SQLite directly:**
