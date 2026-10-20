@@ -15,7 +15,7 @@ import { resolve } from "path";
 
 const chips = readFileSync(resolve("src/ui/filter-chips.ts"), "utf-8");
 const library = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
-const opds = readFileSync(resolve("src/features/catalogs/OPDSBrowser.tsx"), "utf-8");
+const opds = readFileSync(resolve("src/features/catalogs/opds/OpdsFacetBar.tsx"), "utf-8");
 
 describe("filter panel chip styles are shared", () => {
     it("defines one selected and two unselected chip styles", () => {
@@ -84,9 +84,9 @@ describe("filter panel chip styles are shared", () => {
     });
 
     it("the OPDS catalog browser uses the same constants", () => {
-        // Sort, language and format chips all render with the shared treatment.
-        expect(opds).toContain('from "../../ui/filter-chips"');
-        expect(opds.match(/FILTER_CHIP_SELECTED/g)?.length).toBeGreaterThanOrEqual(4);
+        // Language and format chips render with the shared treatment (sorting is a dropdown now).
+        expect(opds).toContain('from "../../../ui/filter-chips"');
+        expect(opds.match(/FILTER_CHIP_SELECTED/g)?.length).toBeGreaterThanOrEqual(3);
         expect(opds).toContain("FILTER_CHIP_UNSELECTED_ON_SURFACE");
     });
 });

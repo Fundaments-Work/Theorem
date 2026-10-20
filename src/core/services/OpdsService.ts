@@ -1,9 +1,22 @@
 import { isTauri } from "../lib/env";
 import { browserCatalogUrl } from "../lib/catalog-fetch-url";
-import { saveBookData, saveCoverImage } from "../lib/storage";
+import { initTheoremCoreWasm, wasmOpdsExpandSearch, wasmOpdsParse } from "../lib/theorem-core";
+import { importBooksFromFilesIncremental, importBooksIncremental } from "../lib/import";
 import { useLibraryStore } from "../store";
-import type { Book, BookFormat, OpdsCatalog, OpdsEntry, OpdsFeed, OpdsLink } from "../types";
-import { XMLParser } from "fast-xml-parser";
+import type {
+    Book,
+    OpdsAcquisition,
+    OpdsCatalog,
+    OpdsCredentials,
+    OpdsEntry,
+    OpdsErrorKind,
+    OpdsFeed,
+    OpdsLoaded,
+    OpdsOutcome,
+    OpdsSearchRef,
+    OpdsDownloadedFile,
+} from "../types";
+import { applyCatalogQuirks, mergeEditions } from "./opds-quirks";
 
 export const DEFAULT_OPDS_PRESETS: OpdsCatalog[] = [
     {
@@ -11,7 +24,7 @@ export const DEFAULT_OPDS_PRESETS: OpdsCatalog[] = [
         title: "Project Gutenberg",
         url: "https://www.gutenberg.org/ebooks.opds/",
         isPreset: true,
-        description: "Over 60,000 free classics and public domain literature.",
+        description: "Over 70,000 free classics and public domain literature.",
     },
     {
         id: "standard-ebooks",
@@ -22,404 +35,362 @@ export const DEFAULT_OPDS_PRESETS: OpdsCatalog[] = [
     },
 ];
 
-function resolveUrl(relativeOrAbsolute: string, baseUrl: string): string {
-    try {
-        return new URL(relativeOrAbsolute, baseUrl).href;
-    } catch {
-        return relativeOrAbsolute;
+// ── errors ───────────────────────────────────────────────────────────────────
+
+export class OpdsError extends Error {
+    readonly kind: OpdsErrorKind;
+    readonly status?: number;
+    readonly realm?: string;
+    readonly retryAfter?: number;
+    /** The server's OPDS Authentication Document, when it sent one with a 401. */
+    readonly hint?: OpdsOutcome;
+
+    constructor(
+        kind: OpdsErrorKind,
+        message: string,
+        extra: { status?: number; realm?: string; retryAfter?: number; hint?: OpdsOutcome } = {},
+    ) {
+        super(message);
+        this.name = "OpdsError";
+        this.kind = kind;
+        Object.assign(this, extra);
     }
 }
 
-async function fetchFeedXml(url: string): Promise<string> {
-    let rawText = "";
-    if (isTauri()) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        rawText = await invoke<string>("fetch_rss_feed", { url });
-    } else {
-        const response = await fetch(browserCatalogUrl(url));
-        if (!response.ok) {
-            throw new Error(`Could not load catalog (${response.status})`);
-        }
-        rawText = await response.text();
-    }
+const ERROR_MESSAGES: Record<OpdsErrorKind, string> = {
+    invalidUrl: "That does not look like a catalog address.",
+    network: "Could not reach the catalog. Check the address and your connection.",
+    timeout: "The catalog took too long to respond.",
+    notFound: "The catalog address was not found (404).",
+    forbidden: "The catalog refused access (403).",
+    rateLimited: "The catalog is limiting requests. Try again in a moment.",
+    http: "The catalog returned an error.",
+    authRequired: "This catalog requires a sign-in.",
+    tooLarge: "The catalog's response is larger than Theorem will accept.",
+    unsupported: "This address is not an OPDS catalog.",
+    io: "Could not save the download.",
+    cors: "This catalog does not allow web browsers to read it. Use the Theorem desktop or mobile app.",
+};
 
-    // Auto-discover Atom/OPDS alternate link if an HTML page was returned
-    if (rawText.trim().startsWith("<!DOCTYPE html") || rawText.trim().startsWith("<html")) {
-        const match = rawText.match(/<link[^>]+rel=["']alternate["'][^>]+type=["'](application\/atom\+xml[^"']*)["'][^>]+href=["']([^"']+)["']/i)
-            || rawText.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']alternate["'][^>]+type=["'](application\/atom\+xml[^"']*)["']/i);
-        if (match) {
-            const feedHref = match[1].includes("http") ? match[1] : match[2];
-            if (feedHref && !feedHref.includes("atom+xml")) {
-                const resolvedFeedUrl = resolveUrl(feedHref, url);
-                return fetchFeedXml(resolvedFeedUrl);
-            }
-        }
-    }
-
-    return rawText;
-}
-
-async function fetchBinary(url: string): Promise<ArrayBuffer> {
-    if (isTauri()) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const bytes = await invoke<number[] | Uint8Array>("fetch_binary_content", { url });
-        if (bytes instanceof Uint8Array) {
-            const buf = new ArrayBuffer(bytes.byteLength);
-            new Uint8Array(buf).set(bytes);
-            return buf;
-        }
-        const arr = new Uint8Array(bytes);
-        const buf = new ArrayBuffer(arr.byteLength);
-        new Uint8Array(buf).set(arr);
-        return buf;
-    }
-    const response = await fetch(browserCatalogUrl(url));
-    if (!response.ok) {
-        throw new Error(`Failed to download book: ${response.status}`);
-    }
-    return await response.arrayBuffer();
-}
-
-function createOpdsParser(): XMLParser {
-    return new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: "@_",
-        removeNSPrefix: false,
-        textNodeName: "#text",
-        parseTagValue: false,
-        parseAttributeValue: false,
-        isArray: (name: string) => name === "entry" || name === "link" || name === "author" || name === "item",
-        trimValues: true,
+/** Native errors arrive as the serialised Rust enum: `{ kind: "authRequired", realm, ... }`. */
+function fromNative(raw: unknown): OpdsError {
+    if (raw instanceof OpdsError) return raw;
+    const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const kind = (typeof o.kind === "string" ? o.kind : "network") as OpdsErrorKind;
+    const message =
+        typeof o.message === "string" && o.message
+            ? o.message
+            : kind === "http" && typeof o.status === "number"
+              ? `The catalog answered with HTTP ${o.status}.`
+              : ERROR_MESSAGES[kind] ?? (typeof raw === "string" ? raw : ERROR_MESSAGES.network);
+    return new OpdsError(kind, message, {
+        status: typeof o.status === "number" ? o.status : undefined,
+        realm: typeof o.realm === "string" ? o.realm : undefined,
+        retryAfter: typeof o.retryAfter === "number" ? o.retryAfter : undefined,
+        hint: (o.hint as OpdsOutcome | null | undefined) ?? undefined,
     });
 }
 
-function getTextContent(node: any): string {
-    if (!node) return "";
-    if (typeof node === "string") return node;
-    if (typeof node === "object" && "#text" in node) return String(node["#text"]);
-    return "";
+export function describeOpdsError(error: unknown): string {
+    if (error instanceof OpdsError) return error.message;
+    if (error instanceof Error) return error.message;
+    return ERROR_MESSAGES.network;
 }
 
-function extractFormatFromMime(mime?: string, href?: string): "epub" | "pdf" | "cbz" | "mobi" | undefined {
-    const type = (mime || "").toLowerCase();
-    const path = (href || "").toLowerCase();
+// ── fetching ─────────────────────────────────────────────────────────────────
 
-    if (type.includes("epub") || path.endsWith(".epub")) return "epub";
-    if (type.includes("pdf") || path.endsWith(".pdf")) return "pdf";
-    if (type.includes("comic") || type.includes("cbz") || path.endsWith(".cbz")) return "cbz";
-    if (type.includes("mobi") || type.includes("prc") || path.endsWith(".mobi") || type.includes("kindle")) return "mobi";
-    return undefined;
+const ACCEPT =
+    "application/opds+json, application/atom+xml;profile=opds-catalog;q=0.95, application/atom+xml;q=0.9, application/xml;q=0.8, text/html;q=0.5, */*;q=0.1";
+const MAX_HOPS = 3;
+
+function basicAuth(auth?: OpdsCredentials): Record<string, string> {
+    if (!auth) return {};
+    // btoa only takes Latin-1; encode the credentials as UTF-8 first.
+    const bytes = new TextEncoder().encode(`${auth.username}:${auth.password}`);
+    let bin = "";
+    bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    return { Authorization: `Basic ${btoa(bin)}` };
 }
 
-export async function parseOpdsFeed(xmlText: string, feedUrl: string): Promise<OpdsFeed> {
-    const parser = createOpdsParser();
-    const result = parser.parse(xmlText);
-
-    // Support standard Atom, RSS 2.0, or RDF feeds
-    const feedNode = result.feed || result["atom:feed"] || result.rss?.channel || result;
-    const title = getTextContent(feedNode.title || feedNode["atom:title"]) || "Library Catalog";
-    const subtitle = getTextContent(feedNode.subtitle || feedNode["atom:subtitle"] || feedNode.description) || undefined;
-    const icon = getTextContent(feedNode.icon || feedNode["atom:icon"] || feedNode.image?.url) || undefined;
-    const updated = getTextContent(feedNode.updated || feedNode["atom:updated"] || feedNode.lastBuildDate) || undefined;
-    const feedId = getTextContent(feedNode.id || feedNode["atom:id"]) || feedUrl;
-
-    const rawLinks: any[] = Array.isArray(feedNode.link) ? feedNode.link : feedNode.link ? [feedNode.link] : [];
-    let selfUrl: string | undefined;
-    let nextUrl: string | undefined;
-    let prevUrl: string | undefined;
-    let upUrl: string | undefined;
-    let startUrl: string | undefined;
-    let searchUrlTemplate: string | undefined;
-
-    for (const link of rawLinks) {
-        if (typeof link === "string") continue;
-        const rel = link["@_rel"] || "";
-        const href = link["@_href"];
-        const type = link["@_type"] || "";
-        if (!href) continue;
-
-        const resolved = resolveUrl(href, feedUrl);
-        if (rel === "self") selfUrl = resolved;
-        else if (rel === "next") nextUrl = resolved;
-        else if (rel === "previous" || rel === "prev") prevUrl = resolved;
-        else if (rel === "up") upUrl = resolved;
-        else if (rel === "start") startUrl = resolved;
-        else if (rel === "search" || type.includes("opensearch")) {
-            if (href.includes("{searchTerms}")) {
-                searchUrlTemplate = href;
-            } else {
-                searchUrlTemplate = resolved;
-            }
-        }
+function statusError(status: number, headers: Headers): OpdsError {
+    if (status === 401) {
+        const www = headers.get("www-authenticate") ?? "";
+        const realm = /realm="?([^",]+)"?/i.exec(www)?.[1];
+        return new OpdsError("authRequired", ERROR_MESSAGES.authRequired, { status, realm });
     }
-
-    const rawEntries: any[] = Array.isArray(feedNode.entry)
-        ? feedNode.entry
-        : feedNode.entry
-          ? [feedNode.entry]
-          : Array.isArray(feedNode.item)
-            ? feedNode.item
-            : feedNode.item
-              ? [feedNode.item]
-              : [];
-
-    const entries: OpdsEntry[] = [];
-
-    for (const entryNode of rawEntries) {
-        const id = getTextContent(entryNode.id || entryNode["atom:id"] || entryNode.guid) || `book-${Math.random().toString(36).slice(2)}`;
-        const entryTitle = getTextContent(entryNode.title || entryNode["atom:title"]) || "Untitled";
-        
-        let author: string | undefined;
-        const authors = entryNode.author || entryNode["atom:author"] || entryNode["dc:creator"];
-        if (Array.isArray(authors) && authors.length > 0) {
-            author = getTextContent(authors[0].name || authors[0]["atom:name"] || authors[0]);
-        } else if (authors) {
-            author = getTextContent(authors.name || authors["atom:name"] || authors);
-        }
-
-        const summary = getTextContent(entryNode.summary || entryNode["atom:summary"] || entryNode.description) || undefined;
-        const content = getTextContent(entryNode.content || entryNode["atom:content"]) || undefined;
-        const entryUpdated = getTextContent(entryNode.updated || entryNode["atom:updated"] || entryNode.pubDate) || undefined;
-        const published = getTextContent(entryNode.published || entryNode["atom:published"] || entryNode["dc:issued"]) || undefined;
-        const language = getTextContent(entryNode["dc:language"]) || undefined;
-        const publisher = getTextContent(entryNode["dc:publisher"]) || undefined;
-
-        const entryLinksRaw: any[] = Array.isArray(entryNode.link)
-            ? entryNode.link
-            : entryNode.link
-              ? [entryNode.link]
-              : [];
-
-        // RSS enclosure support
-        if (entryNode.enclosure) {
-            const enc = entryNode.enclosure;
-            entryLinksRaw.push({
-                "@_rel": "http://opds-spec.org/acquisition",
-                "@_href": enc["@_url"] || enc.url,
-                "@_type": enc["@_type"] || enc.type,
-            });
-        }
-
-        const links: OpdsLink[] = [];
-        let coverUrl: string | undefined;
-        let thumbnailUrl: string | undefined;
-        let downloadUrl: string | undefined;
-        let downloadFormat: "epub" | "pdf" | "cbz" | "mobi" | undefined;
-        let navUrl: string | undefined;
-
-        for (const l of entryLinksRaw) {
-            if (typeof l === "string") {
-                const resolvedHref = resolveUrl(l, feedUrl);
-                const detectedFmt = extractFormatFromMime(undefined, l);
-                if (detectedFmt) {
-                    downloadUrl = resolvedHref;
-                    downloadFormat = detectedFmt;
-                }
-                continue;
-            }
-
-            const rel = (l["@_rel"] || "").toLowerCase();
-            const href = l["@_href"];
-            const type = (l["@_type"] || "").toLowerCase();
-            const linkTitle = l["@_title"] || undefined;
-            if (!href) continue;
-
-            const resolvedHref = resolveUrl(href, feedUrl);
-            links.push({ rel, href: resolvedHref, type, title: linkTitle });
-
-            // Image / Thumbnail
-            if (rel.includes("thumbnail") || rel.includes("image/thumbnail")) {
-                thumbnailUrl = resolvedHref;
-            } else if (rel.includes("image") || rel.includes("cover")) {
-                coverUrl = resolvedHref;
-            } else if (type.includes("image/")) {
-                if (!coverUrl) coverUrl = resolvedHref;
-            }
-
-            // Acquisition (Direct Download)
-            if (
-                rel.includes("acquisition") ||
-                type.includes("application/epub+zip") ||
-                type.includes("application/pdf") ||
-                href.endsWith(".epub") ||
-                href.endsWith(".pdf")
-            ) {
-                const detectedFmt = extractFormatFromMime(type, href);
-                if (detectedFmt && (!downloadUrl || detectedFmt === "epub")) {
-                    downloadUrl = resolvedHref;
-                    downloadFormat = detectedFmt;
-                }
-            }
-
-            // Navigation (drilldown subfeed)
-            if (rel === "subsection" || rel.includes("subsection") || type.includes("profile=opds-catalog") || type.includes("application/atom+xml")) {
-                if (!navUrl) {
-                    navUrl = resolvedHref;
-                }
-            }
-        }
-
-        if (!thumbnailUrl && coverUrl) thumbnailUrl = coverUrl;
-        if (!coverUrl && thumbnailUrl) coverUrl = thumbnailUrl;
-
-        // If it has no download URL yet but links to a specific book OPDS feed (like Gutenberg single book),
-        // keep it as navigable so tapping it loads the book acquisition feed
-        const isNavigation = !downloadUrl && Boolean(navUrl);
-
-        entries.push({
-            id,
-            title: entryTitle,
-            author,
-            summary: summary || content,
-            content,
-            updated: entryUpdated,
-            published,
-            language,
-            publisher,
-            coverUrl,
-            thumbnailUrl,
-            downloadUrl,
-            downloadFormat,
-            navUrl,
-            isNavigation,
-            links,
-        });
+    if (status === 403) return new OpdsError("forbidden", ERROR_MESSAGES.forbidden, { status });
+    if (status === 404 || status === 410) return new OpdsError("notFound", ERROR_MESSAGES.notFound, { status });
+    if (status === 429) {
+        const retry = Number(headers.get("retry-after"));
+        return new OpdsError("rateLimited", ERROR_MESSAGES.rateLimited, { status, retryAfter: Number.isFinite(retry) ? retry : undefined });
     }
+    return new OpdsError("http", `The catalog answered with HTTP ${status}.`, { status });
+}
 
-    return {
-        id: feedId,
-        title,
-        subtitle,
-        icon,
-        updated,
-        selfUrl,
-        nextUrl,
-        prevUrl,
-        upUrl,
-        startUrl,
-        searchUrlTemplate,
-        entries,
-    };
+/** Browser (web build) path: fetch, then hand the bytes to the same Rust parser via WebAssembly. */
+async function loadInBrowser(startUrl: string, auth?: OpdsCredentials): Promise<OpdsLoaded> {
+    if (!(await initTheoremCoreWasm())) {
+        throw new OpdsError("unsupported", "The catalog parser could not start in this browser.");
+    }
+    let url = startUrl.trim();
+    const seen = new Set<string>();
+    for (let hop = 0; hop <= MAX_HOPS; hop++) {
+        if (seen.has(url)) break;
+        seen.add(url);
+        let response: Response;
+        try {
+            if (!/^https?:\/\//i.test(url)) throw new OpdsError("invalidUrl", ERROR_MESSAGES.invalidUrl);
+            response = await fetch(browserCatalogUrl(url), { headers: { Accept: ACCEPT, ...basicAuth(auth) } });
+        } catch (e) {
+            if (e instanceof OpdsError) throw e;
+            // A cross-origin block and an unreachable host look identical to fetch(); say the useful thing.
+            throw new OpdsError("cors", ERROR_MESSAGES.cors);
+        }
+        if (!response.ok) throw statusError(response.status, response.headers);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const finalUrl = response.url && !response.url.includes("/api/gutenberg") ? response.url : url;
+        const outcome = wasmOpdsParse(bytes, response.headers.get("content-type") ?? "", finalUrl) as OpdsOutcome | null;
+        if (!outcome) throw new OpdsError("unsupported", "The catalog could not be read.");
+        if (outcome.type === "discovery") {
+            url = outcome.href;
+            continue;
+        }
+        return { finalUrl, outcome };
+    }
+    throw new OpdsError("unsupported", "This address does not lead to an OPDS catalog.");
+}
+
+async function loadNative(url: string, auth?: OpdsCredentials): Promise<OpdsLoaded> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+        return await invoke<OpdsLoaded>("opds_load", { url, auth: auth ?? null });
+    } catch (e) {
+        throw fromNative(e);
+    }
+}
+
+// ── cache ────────────────────────────────────────────────────────────────────
+
+const FEED_TTL_MS = 5 * 60 * 1000;
+const FEED_CACHE_MAX = 80;
+const feedCache = new Map<string, { at: number; loaded: OpdsLoaded }>();
+
+function cacheKey(url: string, auth?: OpdsCredentials): string {
+    return `${auth?.username ?? ""}@${url}`;
+}
+
+function remember(key: string, loaded: OpdsLoaded) {
+    feedCache.delete(key);
+    feedCache.set(key, { at: Date.now(), loaded });
+    while (feedCache.size > FEED_CACHE_MAX) {
+        const oldest = feedCache.keys().next().value;
+        if (oldest === undefined) break;
+        feedCache.delete(oldest);
+    }
+}
+
+export function clearOpdsCache(): void {
+    feedCache.clear();
+}
+
+// ── public API ───────────────────────────────────────────────────────────────
+
+export interface LoadOptions {
+    auth?: OpdsCredentials;
+    /** Skip the short-lived cache (pull-to-refresh, retry). */
+    force?: boolean;
+}
+
+export interface LoadedFeed {
+    feed: OpdsFeed;
+    finalUrl: string;
+}
+
+/** Turn a loaded outcome into a feed, or throw the error a user should see. */
+function expectFeed(loaded: OpdsLoaded): LoadedFeed {
+    const { outcome, finalUrl } = loaded;
+    switch (outcome.type) {
+        case "feed":
+            return { feed: applyCatalogQuirks(outcome.feed, finalUrl), finalUrl };
+        case "authentication":
+            throw new OpdsError("authRequired", outcome.title || ERROR_MESSAGES.authRequired, { hint: outcome });
+        case "unsupported":
+            throw new OpdsError("unsupported", outcome.reason);
+        default:
+            throw new OpdsError("unsupported", ERROR_MESSAGES.unsupported);
+    }
+}
+
+async function loadRaw(url: string, opts: LoadOptions = {}): Promise<OpdsLoaded> {
+    const key = cacheKey(url, opts.auth);
+    const hit = feedCache.get(key);
+    if (!opts.force && hit && Date.now() - hit.at < FEED_TTL_MS) return hit.loaded;
+    const loaded = isTauri() ? await loadNative(url, opts.auth) : await loadInBrowser(url, opts.auth);
+    // Only documents that are feeds are worth keeping; an auth challenge must be re-asked.
+    if (loaded.outcome.type === "feed") remember(key, loaded);
+    return loaded;
 }
 
 export const OpdsService = {
-    async fetchFeed(url: string): Promise<OpdsFeed> {
+    /** Load a catalog feed. Throws `OpdsError`. */
+    async load(url: string, opts: LoadOptions = {}): Promise<LoadedFeed> {
+        return expectFeed(await loadRaw(normalizeCatalogUrl(url), opts));
+    },
+
+    /** Check an address a user typed: what is it, and does it need a sign-in? */
+    async probe(url: string, auth?: OpdsCredentials): Promise<LoadedFeed> {
+        return OpdsService.load(url, { auth, force: true });
+    },
+
+    /** Run the catalog's own search. Resolves OpenSearch description documents on the way. */
+    async search(ref: OpdsSearchRef, query: string, auth?: OpdsCredentials): Promise<LoadedFeed> {
+        const q = query.trim();
+        if (!q) throw new OpdsError("invalidUrl", "Enter something to search for.");
         if (isTauri()) {
+            const { invoke } = await import("@tauri-apps/api/core");
             try {
-                const { invoke } = await import("@tauri-apps/api/core");
-                const nativeResult = await invoke<any>("fetch_and_parse_opds_native", { url });
-                if (nativeResult && Array.isArray(nativeResult.entries)) {
-                    return {
-                        id: nativeResult.id,
-                        title: nativeResult.title,
-                        subtitle: nativeResult.subtitle,
-                        icon: nativeResult.icon,
-                        updated: nativeResult.updated,
-                        selfUrl: nativeResult.self_url,
-                        nextUrl: nativeResult.next_url,
-                        prevUrl: nativeResult.prev_url,
-                        upUrl: nativeResult.up_url,
-                        startUrl: nativeResult.start_url,
-                        searchUrlTemplate: nativeResult.search_url_template,
-                        entries: nativeResult.entries.map((e: any) => ({
-                            id: e.id,
-                            title: e.title,
-                            author: e.author,
-                            summary: e.summary,
-                            content: e.content,
-                            updated: e.updated,
-                            published: e.published,
-                            language: e.language,
-                            publisher: e.publisher,
-                            coverUrl: e.cover_url,
-                            thumbnailUrl: e.thumbnail_url,
-                            downloadUrl: e.download_url,
-                            downloadFormat: e.download_format,
-                            navUrl: e.nav_url,
-                            isNavigation: e.is_navigation,
-                            links: e.links || [],
-                        })),
-                    };
-                }
-            } catch (err) {
-                console.warn("[OpdsService] Native OPDS parse failed, falling back to JS:", err);
+                return expectFeed(await invoke<OpdsLoaded>("opds_search", { searchRef: ref, query: q, auth: auth ?? null }));
+            } catch (e) {
+                throw fromNative(e);
             }
         }
-        const xmlText = await fetchFeedXml(url);
-        return parseOpdsFeed(xmlText, url);
+        let template = ref.href;
+        if (ref.kind === "description") {
+            const described = await loadRaw(ref.href, { auth });
+            if (described.outcome.type !== "openSearch" || described.outcome.templates.length === 0) {
+                throw new OpdsError("unsupported", "This catalog's search description could not be read.");
+            }
+            template = described.outcome.templates[0].template;
+        }
+        await initTheoremCoreWasm();
+        const url = wasmOpdsExpandSearch(template, q);
+        if (!url) throw new OpdsError("unsupported", "This catalog's search could not be started.");
+        return expectFeed(await loadRaw(url, { auth }));
     },
 
-    async search(templateUrl: string, query: string, baseUrl: string): Promise<OpdsFeed> {
-        let url = templateUrl;
-        if (url.includes("{searchTerms}")) {
-            url = url.replace("{searchTerms}", encodeURIComponent(query));
-        } else {
-            const sep = url.includes("?") ? "&" : "?";
-            url = `${url}${sep}q=${encodeURIComponent(query)}`;
-        }
-        const resolved = resolveUrl(url, baseUrl);
-        return OpdsService.fetchFeed(resolved);
-    },
-
-    async downloadAndImportBook(
-        entry: OpdsEntry,
-        onProgress?: (msg: string) => void
-    ): Promise<string> {
-        let downloadUrl = entry.downloadUrl;
-
-        // If the entry links to a sub-feed (e.g. Gutenberg book acquisition feed), resolve it
-        if (!downloadUrl && entry.navUrl) {
-            onProgress?.("Resolving download options…");
-            const subFeed = await OpdsService.fetchFeed(entry.navUrl);
-            const acqEntry = subFeed.entries.find((e) => e.downloadUrl);
-            if (acqEntry?.downloadUrl) {
-                downloadUrl = acqEntry.downloadUrl;
-            }
-        }
-
-        if (!downloadUrl) {
-            throw new Error("No download link available for this book.");
-        }
-
-        onProgress?.("Downloading book…");
-        const buffer = await fetchBinary(downloadUrl);
-        const bookId = `book-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const format: BookFormat = entry.downloadFormat || "epub";
-        const storagePath = await saveBookData(bookId, buffer);
-
-        let coverPath: string | undefined;
-        if (entry.coverUrl) {
-            try {
-                onProgress?.("Downloading cover…");
-                const coverBuffer = await fetchBinary(entry.coverUrl);
-                const blob = new Blob([coverBuffer], { type: "image/jpeg" });
-                coverPath = await saveCoverImage(bookId, blob);
-            } catch {
-                // Ignore cover failure
-            }
-        }
-
-        const book: Book = {
-            id: bookId,
-            title: entry.title,
-            author: entry.author || "Unknown Author",
-            format,
-            filePath: storagePath,
-            storagePath,
-            fileSize: buffer.byteLength,
-            addedAt: new Date(),
-            coverPath,
-            description: entry.summary,
-            publisher: entry.publisher,
-            language: entry.language,
-            progress: 0,
-            tags: [],
-            isFavorite: false,
-            readingTime: 0,
-            lastReadAt: new Date(),
+    /**
+     * The full entry for a partial one (catalogs that list books and put the downloads one click
+     * deeper). Several editions in one feed are merged into a single book.
+     */
+    async loadDetail(entry: OpdsEntry, auth?: OpdsCredentials): Promise<OpdsEntry> {
+        if (!entry.detailHref) return entry;
+        const { feed } = await OpdsService.load(entry.detailHref, { auth });
+        const detail = mergeEditions(feed.entries);
+        if (!detail) return entry;
+        return {
+            ...entry,
+            ...detail,
+            // Keep what the listing already knew when the detail leaves a field out.
+            authors: detail.authors.length > 0 ? detail.authors : entry.authors,
+            cover: detail.cover ?? entry.cover,
+            thumbnail: detail.thumbnail ?? entry.thumbnail,
+            webUrl: detail.webUrl ?? entry.webUrl,
+            detailHref: undefined,
         };
+    },
 
-        useLibraryStore.getState().addBook(book);
-        return bookId;
+    /**
+     * Download an acquisition and import it through the same pipeline as "Add Books", so metadata,
+     * covers and duplicate handling are identical. Returns the imported book.
+     */
+    async download(
+        acquisition: OpdsAcquisition,
+        opts: { auth?: OpdsCredentials; onProgress?: (received: number, total?: number) => void } = {},
+    ): Promise<Book> {
+        const failures: unknown[] = [];
+        const addBook = (book: Book) => useLibraryStore.getState().addBook(book);
+
+        if (isTauri()) {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const { listen } = await import("@tauri-apps/api/event");
+            const id = `opds-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            const unlisten = await listen<{ id: string; received: number; total?: number }>("opds-download-progress", (e) => {
+                if (e.payload.id === id) opts.onProgress?.(e.payload.received, e.payload.total ?? undefined);
+            });
+            let file: OpdsDownloadedFile | undefined;
+            try {
+                file = await invoke<OpdsDownloadedFile>("opds_download", { id, url: acquisition.href, auth: opts.auth ?? null });
+                const imported = await importBooksIncremental([file.path], addBook, (_source, err) => failures.push(err));
+                if (imported[0]) return imported[0];
+                throw failures[0] instanceof Error ? failures[0] : new OpdsError("unsupported", "Theorem could not import this file.");
+            } catch (e) {
+                throw fromNative(e);
+            } finally {
+                unlisten();
+                if (file) void invoke("opds_cleanup_download", { path: file.path }).catch(() => undefined);
+            }
+        }
+
+        let response: Response;
+        try {
+            response = await fetch(browserCatalogUrl(acquisition.href), { headers: basicAuth(opts.auth) });
+        } catch {
+            throw new OpdsError("cors", ERROR_MESSAGES.cors);
+        }
+        if (!response.ok) throw statusError(response.status, response.headers);
+        const blob = await response.blob();
+        // A login, loan or purchase page answers 200 OK where a book should be; never import that.
+        if (await looksLikeHtml(blob)) {
+            throw new OpdsError(
+                "unsupported",
+                "The server returned a web page instead of a book. Signing in or completing a loan or purchase may be required.",
+            );
+        }
+        opts.onProgress?.(blob.size, blob.size);
+        const name = filenameFor(acquisition, response);
+        const imported = await importBooksFromFilesIncremental([new File([blob], name, { type: blob.type })], addBook, (_s, err) => failures.push(err));
+        if (imported[0]) return imported[0];
+        throw failures[0] instanceof Error ? failures[0] : new OpdsError("unsupported", "Theorem could not import this file.");
     },
 };
+
+/** Does this download start like a web page? Mirrors the desktop downloader's check. */
+export async function looksLikeHtml(blob: Blob): Promise<boolean> {
+    if (/^text\/html|^application\/xhtml/i.test(blob.type)) return true;
+    const head = new TextDecoder().decode(new Uint8Array(await blob.slice(0, 512).arrayBuffer())).trimStart().toLowerCase();
+    return head.startsWith("<!doctype html") || head.startsWith("<html") || (head.startsWith("<?xml") && head.includes("<html"));
+}
+
+function filenameFor(a: OpdsAcquisition, response: Response): string {
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const fromHeader = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)?.[1];
+    let name = fromHeader ? decodeURIComponent(fromHeader) : "";
+    if (!name) {
+        try {
+            name = decodeURIComponent(new URL(a.href).pathname.split("/").filter(Boolean).pop() ?? "");
+        } catch {
+            name = "";
+        }
+    }
+    name = name.replace(/[\\/:*?"<>|]/g, "_") || "book";
+    if (a.format && !new RegExp(`\\.${a.format}(\\.[a-z0-9]+)?$`, "i").test(name)) name += `.${a.format}`;
+    return name;
+}
+
+/** Hosts that are practically always plain-http servers on the user's own network. */
+function isLocalHost(hostPort: string): boolean {
+    const host = hostPort.split(/[/:?#]/)[0].toLowerCase();
+    return (
+        host === "localhost" ||
+        host.endsWith(".local") ||
+        host.endsWith(".lan") ||
+        host.endsWith(".home") ||
+        /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+        /^[^.]+$/.test(host) // a bare machine name such as "nas" or "raspberrypi"
+    );
+}
+
+/**
+ * Accept what people paste: bare hostnames, `host:port`, `opds://` links (the scheme many reading
+ * apps hand out) and stray whitespace. Addresses on the local network default to http because
+ * that is how personal servers (Calibre, Kavita, Komga) are usually run; everything else to https.
+ */
+export function normalizeCatalogUrl(input: string): string {
+    let url = input.trim().replace(/\s+/g, "");
+    if (!url) return url;
+    url = url.replace(/^opds:\/\/\/?/i, "https://").replace(/^opds\+(https?):\/\//i, "$1://");
+    // A real scheme is letters followed by "://" (or mailto-like "scheme:" without digits-only rest).
+    // `localhost:8080` and `192.168.1.5:80` are host:port, not schemes.
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url;
+    return `${isLocalHost(url) ? "http" : "https"}://${url}`;
+}

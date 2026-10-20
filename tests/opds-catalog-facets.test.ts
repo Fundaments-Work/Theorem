@@ -8,13 +8,20 @@ import {
 } from "../src/features/catalogs/catalog-facets";
 import type { OpdsEntry } from "../src/core/types";
 
-function entry(over: Partial<OpdsEntry> & { id: string }): OpdsEntry {
+/** Test shorthand: `author` and `downloadUrl`/`downloadFormat` build the parser's richer shape. */
+function entry(
+    over: Partial<OpdsEntry> & { id: string; author?: string; downloadUrl?: string; downloadFormat?: OpdsEntry["acquisitions"][number]["format"] },
+): OpdsEntry {
+    const { author, downloadUrl, downloadFormat, ...rest } = over;
     return {
         title: "Untitled",
-        isNavigation: false,
-        links: [],
-        ...over,
-    } as OpdsEntry;
+        authors: author ? [author] : [],
+        acquisitions: downloadUrl
+            ? [{ href: downloadUrl, kind: "openAccess", mime: "application/octet-stream", format: downloadFormat, drm: false, downloadable: true }]
+            : [],
+        primary: downloadUrl ? 0 : undefined,
+        ...rest,
+    };
 }
 
 const CATALOG: OpdsEntry[] = [
@@ -46,6 +53,13 @@ describe("entryFormat", () => {
     it("reports other when there is no download URL", () => {
         expect(entryFormat(entry({ id: "x" }))).toBe("other");
     });
+
+    it("uses the best download's format, not just the first file listed", () => {
+        const e = entry({ id: "x", downloadUrl: "https://x/a.pdf" });
+        e.acquisitions.push({ href: "https://x/a.epub", kind: "openAccess", mime: "application/epub+zip", format: "epub", drm: false, downloadable: true });
+        e.primary = 1;
+        expect(entryFormat(e)).toBe("epub");
+    });
 });
 
 describe("formatLabel", () => {
@@ -71,12 +85,13 @@ describe("collectCatalogFacets", () => {
         expect(collectCatalogFacets(CATALOG).formats.sort()).toEqual(["cbz", "epub", "pdf"]);
     });
 
-    it("ignores navigation entries", () => {
-        const facets = collectCatalogFacets([
-            ...CATALOG,
-            entry({ id: "nav", isNavigation: true, title: "Fiction", language: "fr" }),
-        ]);
-        expect(facets.languages).not.toContain("fr");
+    it("does not invent a format for partial entries whose downloads are one click deeper", () => {
+        // A listing row that only links to the book's page has no file to name a format after.
+        const facets = collectCatalogFacets([...CATALOG, entry({ id: "partial", title: "Listing row", language: "fr" })]);
+        expect(facets.formats).not.toContain("other");
+        expect(facets.formats.sort()).toEqual(["cbz", "epub", "pdf"]);
+        // ...but its language is still a useful filter.
+        expect(facets.languages).toContain("fr");
     });
 
     it("returns empty lists for an empty catalog", () => {
@@ -98,7 +113,7 @@ describe("applyCatalogFacets", () => {
 
     it("sorts by author", () => {
         const result = applyCatalogFacets(CATALOG, { ...noSelection, sortOrder: "author" });
-        expect(result.map((e) => e.author)).toEqual(["Alpha", "Beta", "Delta", "Gamma"]);
+        expect(result.map((e) => e.authors[0])).toEqual(["Alpha", "Beta", "Delta", "Gamma"]);
     });
 
     it("sorts newest first and oldest first", () => {
@@ -157,7 +172,15 @@ describe("applyCatalogFacets", () => {
 });
 
 describe("sort order options", () => {
-    it("exposes the four orders used by the chip row", () => {
-        expect(CATALOG_SORT_ORDERS.map((o) => o.id)).toEqual(["title", "author", "newest", "oldest"]);
+    it("exposes the catalog's own order first, then the four client-side orders", () => {
+        expect(CATALOG_SORT_ORDERS.map((o) => o.id)).toEqual(["catalog", "title", "author", "newest", "oldest"]);
+    });
+
+    it("catalog order leaves the server's ranking untouched (popularity, relevance) but still filters", () => {
+        const ranked = [CATALOG[2], CATALOG[0], CATALOG[3], CATALOG[1]];
+        const kept = applyCatalogFacets(ranked, { sortOrder: "catalog", language: null, format: null });
+        expect(kept.map((e) => e.id)).toEqual(["c", "a", "d", "b"]);
+        expect(kept).not.toBe(ranked);
+        expect(applyCatalogFacets(ranked, { sortOrder: "catalog", language: null, format: "pdf" }).map((e) => e.id)).toEqual(["c", "b"]);
     });
 });

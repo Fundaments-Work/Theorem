@@ -1,77 +1,38 @@
 // @vitest-environment jsdom
 /**
- * OPDS results grid is virtualized.
+ * The catalog's book grid is virtualized.
  *
- * This guards a measured regression, not a hypothetical one: `OPDSBrowser` was
- * the only list in the app that rendered one DOM node per catalog entry, while
- * Library, Shelves, Bookmarks, Annotations, Feeds and Discover's search grid all
- * used `@tanstack/react-virtual`. A feed with a few thousand titles therefore
- * mounted a few thousand cards on every navigation.
+ * Library, Shelves, Bookmarks, Annotations, Feeds and Discover's search all use
+ * `@tanstack/react-virtual`; a catalog with a few thousand titles must too, or every navigation
+ * mounts a few thousand cards.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React from "react";
-import type { OpdsEntry, OpdsFeed } from "../src/core/types";
+import type { OpdsFeed } from "../src/core/types";
 
-const fetchFeed = vi.fn();
-const search = vi.fn();
+const load = vi.fn();
 
 vi.mock("../src/core/services/OpdsService", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../src/core/services/OpdsService")>();
-    return {
-        ...actual,
-        OpdsService: {
-            ...actual.OpdsService,
-            fetchFeed: (...args: unknown[]) => fetchFeed(...args),
-            search: (...args: unknown[]) => search(...args),
-            downloadAndImportBook: vi.fn(),
-        },
-    };
+    return { ...actual, OpdsService: { ...actual.OpdsService, load: (...a: unknown[]) => load(...a), search: vi.fn(), loadDetail: vi.fn(), download: vi.fn() } };
 });
 
-import { OPDSBrowserPage } from "../src/features/catalogs/OPDSBrowser";
 import { useOpdsStore } from "../src/core/store";
-import { cardCount, flush, render, stubLayout, unmountAll } from "./helpers/opds-browser-harness";
+import { resetOpdsBrowserSession } from "../src/features/catalogs/opds/useOpdsBrowser";
+import { CATALOG, cardCount, flush, makeEntry, makeFeed, renderBrowser, stubLayout, unmountAll } from "./helpers/opds-browser-harness";
 
-function makeEntry(index: number): OpdsEntry {
-    return {
-        id: `urn:book:${index}`,
-        title: `Catalogue Volume ${index}`,
-        author: `Author ${index % 40}`,
-        summary: `Entry number ${index}`,
-        language: "en",
-        publisher: "Test Press",
-        published: "2026-01-01",
-        isNavigation: false,
-        downloadUrl: `https://example.com/dl/${index}.epub`,
-        coverUrl: `https://example.com/covers/${index}.jpg`,
-        navUrl: undefined,
-        updated: new Date(2026, 0, 1).toISOString(),
-    } as OpdsEntry;
-}
+const big = (size: number, over: Partial<OpdsFeed> = {}) =>
+    makeFeed({ entries: Array.from({ length: size }, (_, i) => makeEntry(i, { title: `Catalogue Volume ${i}` })), ...over });
+const served = (feed: OpdsFeed) => load.mockResolvedValue({ feed, finalUrl: CATALOG.url });
 
-function makeFeed(size: number, over: Partial<OpdsFeed> = {}): OpdsFeed {
-    return {
-        title: "Huge Catalog",
-        entries: Array.from({ length: size }, (_, i) => makeEntry(i)),
-        selfUrl: "https://example.com/opds",
-        ...over,
-    } as OpdsFeed;
-}
-
-describe("OPDS results grid virtualization", () => {
+describe("catalog results grid virtualization", () => {
     let unstub: () => void = () => {};
 
     beforeEach(() => {
         vi.clearAllMocks();
+        resetOpdsBrowserSession();
         unstub = stubLayout();
-        useOpdsStore.setState({
-            catalogs: [{ id: "c1", title: "Huge Catalog", url: "https://example.com/opds" }],
-            activeCatalogId: "c1",
-            currentFeedUrl: null,
-            feedHistory: [],
-        } as never);
+        useOpdsStore.setState({ catalogs: [CATALOG], activeCatalogId: CATALOG.id });
     });
-
     afterEach(() => {
         unmountAll();
         unstub();
@@ -79,74 +40,65 @@ describe("OPDS results grid virtualization", () => {
     });
 
     it("mounts a bounded window of cards for a 3000-entry feed", async () => {
-        fetchFeed.mockResolvedValue(makeFeed(3000));
-
-        const container = render(<OPDSBrowserPage />);
+        served(big(3000));
+        const container = renderBrowser();
         await flush();
-
-        const mountedCards = cardCount(container);
-        expect(mountedCards).toBeGreaterThan(0);
+        const mounted = cardCount(container);
+        expect(mounted).toBeGreaterThan(0);
         // The whole point: a few dozen mounted nodes, not 3000.
-        expect(mountedCards).toBeLessThan(100);
+        expect(mounted).toBeLessThan(100);
     });
 
     it("scales the mounted window with the viewport, not the feed size", async () => {
-        fetchFeed.mockResolvedValue(makeFeed(500));
-
-        const smallContainer = render(<OPDSBrowserPage />);
+        served(big(500));
+        const small = renderBrowser();
         await flush();
-        const smallMounted = cardCount(smallContainer);
+        const smallMounted = cardCount(small);
         unmountAll();
+        resetOpdsBrowserSession();
 
-        fetchFeed.mockResolvedValue(makeFeed(5000));
-
-        const bigContainer = render(<OPDSBrowserPage />);
+        served(big(5000));
+        const large = renderBrowser();
         await flush();
-        const bigMounted = cardCount(bigContainer);
-
         // 10x the entries must not mean 10x the DOM.
-        expect(bigMounted).toBeLessThan(smallMounted * 4);
+        expect(cardCount(large)).toBeLessThan(smallMounted * 4);
     });
 
     it("still reports the true entry count even though cards are windowed", async () => {
-        fetchFeed.mockResolvedValue(makeFeed(3000));
-
-        const container = render(<OPDSBrowserPage />);
+        served(big(3000));
+        const container = renderBrowser();
         await flush();
+        expect(container.querySelector("[data-opds-count]")!.textContent).toContain("3,000 books");
+    });
 
-        expect(container.textContent).toContain("3,000 titles");
+    it("says how many of the catalog's total are loaded when the server reports a total", async () => {
+        served(big(25, { totalResults: 70000, nextUrl: "https://example.com/opds?p=2" }));
+        const container = renderBrowser();
+        await flush();
+        expect(container.querySelector("[data-opds-count]")!.textContent).toContain("25 of 70,000 books");
     });
 
     it("shows skeletons while loading instead of an empty page", async () => {
         // Never resolves: the component stays in its loading state.
-        fetchFeed.mockReturnValue(new Promise(() => {}));
-
-        const container = render(<OPDSBrowserPage />);
+        load.mockReturnValue(new Promise(() => {}));
+        const container = renderBrowser();
         await flush();
-
         expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
+        expect(container.querySelector("[data-opds-skeleton]")).not.toBeNull();
         expect(cardCount(container)).toBe(0);
     });
 
-    it("keeps navigation entries outside the book virtualizer", async () => {
-        const navEntry = {
-            id: "urn:catalog:fiction",
-            title: "Fiction",
-            summary: "Fiction collection",
-            isNavigation: true,
-            navUrl: "https://example.com/opds/fiction",
-        } as OpdsEntry;
-        fetchFeed.mockResolvedValue(
-            makeFeed(40, {
-                entries: [navEntry, ...Array.from({ length: 40 }, (_, i) => makeEntry(i))],
+    it("keeps navigation rows outside the book virtualizer", async () => {
+        served(
+            big(40, {
+                navigation: [{ title: "Fiction", href: "https://example.com/opds/fiction", rel: "subsection", summary: "Fiction collection" }],
             }),
         );
-
-        const container = render(<OPDSBrowserPage />);
+        const container = renderBrowser();
         await flush();
-
-        // The category tile is still rendered and is not counted as a book card.
+        // The category row is rendered and is not counted as a book card.
         expect(container.textContent).toContain("Fiction");
+        expect(container.querySelectorAll("[aria-label=Browse] li")).toHaveLength(1);
         expect(cardCount(container)).toBeLessThan(40);
     });
 });

@@ -37,7 +37,8 @@ describe("scrollbar-solid shared by all list scrollers", () => {
             ["scrollbar-solid"],
         ],
         [
-            "src/features/catalogs/DiscoverPage.tsx",
+            // The page scroller moved here when Discover gained a source bar above it.
+            "src/features/catalogs/CatalogsPage.tsx",
             ["scrollbar-solid"],
         ],
         [

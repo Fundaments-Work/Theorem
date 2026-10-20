@@ -1,3 +1,3 @@
-export { DiscoverPage } from "./DiscoverPage";
-export { DiscoverPage as OPDSBrowserPage } from "./DiscoverPage";
-export { DiscoverPage as default } from "./DiscoverPage";
+export { CatalogsPage as OPDSBrowserPage } from "./CatalogsPage";
+export { CatalogsPage } from "./CatalogsPage";
+export { CatalogsPage as default } from "./CatalogsPage";

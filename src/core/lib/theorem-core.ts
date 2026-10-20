@@ -15,6 +15,8 @@ import init, {
     wasm_normalize_speech_text,
     wasm_safe_vault_filename,
     wasm_number_to_words,
+    wasm_opds_parse,
+    wasm_opds_expand_search,
 } from "../wasm/theorem_core.js";
 
 export interface FuzzyRankCandidate {
@@ -114,6 +116,30 @@ export async function initTheoremCoreWasm(
  */
 export function isWasmCoreReady(): boolean {
     return wasmReady;
+}
+
+/**
+ * Parse an OPDS document (Atom/OPDS 1.x, OPDS 2.0 JSON, OpenSearch, or an HTML page that
+ * advertises a feed) with the same Rust parser the desktop app uses natively.
+ * Returns null when the module is not ready, so callers can report that instead of guessing.
+ */
+export function wasmOpdsParse(body: Uint8Array, contentType: string, baseUrl: string): unknown | null {
+    if (!wasmReady) return null;
+    try {
+        return JSON.parse(wasm_opds_parse(body, contentType, baseUrl));
+    } catch {
+        return null;
+    }
+}
+
+/** Fill an OPDS/OpenSearch URL template with a search query (Rust implementation). */
+export function wasmOpdsExpandSearch(template: string, query: string): string | null {
+    if (!wasmReady) return null;
+    try {
+        return wasm_opds_expand_search(template, query);
+    } catch {
+        return null;
+    }
 }
 
 /**

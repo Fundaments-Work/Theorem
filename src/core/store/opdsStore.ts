@@ -1,132 +1,85 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
-import { DEFAULT_OPDS_PRESETS } from "../services/OpdsService";
-import type { OpdsCatalog } from "../types";
+import { DEFAULT_OPDS_PRESETS, normalizeCatalogUrl } from "../services/OpdsService";
+import type { OpdsCatalog, OpdsCredentials } from "../types";
 
 export interface OpdsState {
     catalogs: OpdsCatalog[];
+    /** The catalog being browsed, or `null` for the curated Discover home. */
     activeCatalogId: string | null;
-    currentFeedUrl: string | null;
-    feedHistory: string[];
 
     addCatalog: (catalog: Omit<OpdsCatalog, "id">) => string;
     removeCatalog: (id: string) => void;
     updateCatalog: (id: string, updates: Partial<OpdsCatalog>) => void;
+    setCredentials: (id: string, auth: OpdsCredentials | undefined) => void;
     setActiveCatalog: (id: string | null) => void;
-    navigateToFeed: (url: string) => void;
-    /**
-     * Move to another page of the *same* feed (OPDS `next`/`previous` links)
-     * without pushing navigation history. A page turn is not a navigation:
-     * stepping Back through five pages to leave a catalog would be tedious,
-     * so Back returns to the parent category instead.
-     */
-    goToPage: (url: string) => void;
-    navigateBack: () => boolean;
-    resetNavigation: () => void;
+}
+
+function withPresets(catalogs: unknown): OpdsCatalog[] {
+    const list = Array.isArray(catalogs) ? (catalogs as OpdsCatalog[]) : [];
+    // Presets are part of the app: always present, and always at the front.
+    const presets = DEFAULT_OPDS_PRESETS.map((preset) => {
+        const saved = list.find((c) => c.id === preset.id);
+        return saved ? { ...preset, auth: saved.auth } : preset;
+    });
+    return [...presets, ...list.filter((c) => !c.isPreset && !DEFAULT_OPDS_PRESETS.some((p) => p.id === c.id))];
 }
 
 export const useOpdsStore = create<OpdsState>()(
     persist(
-        (set, get) => ({
+        (set) => ({
             catalogs: DEFAULT_OPDS_PRESETS,
-            activeCatalogId: "project-gutenberg",
-            currentFeedUrl: "https://www.gutenberg.org/ebooks.opds/",
-            feedHistory: [],
+            activeCatalogId: null,
 
             addCatalog: (catalog) => {
                 const id = `catalog-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                const newCatalog: OpdsCatalog = { ...catalog, id };
-                set((state) => {
-                    const current = Array.isArray(state.catalogs) ? state.catalogs : DEFAULT_OPDS_PRESETS;
-                    return {
-                        catalogs: [...current, newCatalog],
-                        activeCatalogId: id,
-                        currentFeedUrl: newCatalog.url,
-                        feedHistory: [],
-                    };
-                });
+                const created: OpdsCatalog = { ...catalog, id, url: normalizeCatalogUrl(catalog.url) };
+                set((state) => ({
+                    catalogs: [...withPresets(state.catalogs), created],
+                    activeCatalogId: id,
+                }));
                 return id;
             },
 
             removeCatalog: (id) => {
                 set((state) => {
-                    const current = Array.isArray(state.catalogs) ? state.catalogs : DEFAULT_OPDS_PRESETS;
-                    const filtered = current.filter((c) => c.id !== id);
-                    const isCurrentActive = state.activeCatalogId === id;
-                    const nextActive = isCurrentActive ? (filtered[0]?.id || null) : state.activeCatalogId;
-                    const nextUrl = isCurrentActive ? (filtered[0]?.url || null) : state.currentFeedUrl;
+                    const target = state.catalogs.find((c) => c.id === id);
+                    // Presets cannot be removed: they are the app's own sources.
+                    if (!target || target.isPreset) return state;
                     return {
-                        catalogs: filtered,
-                        activeCatalogId: nextActive,
-                        currentFeedUrl: nextUrl,
-                        feedHistory: isCurrentActive ? [] : state.feedHistory,
+                        catalogs: state.catalogs.filter((c) => c.id !== id),
+                        activeCatalogId: state.activeCatalogId === id ? null : state.activeCatalogId,
                     };
                 });
             },
 
             updateCatalog: (id, updates) => {
-                set((state) => {
-                    const current = Array.isArray(state.catalogs) ? state.catalogs : DEFAULT_OPDS_PRESETS;
-                    return {
-                        catalogs: current.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-                    };
-                });
+                set((state) => ({
+                    catalogs: state.catalogs.map((c) =>
+                        c.id === id
+                            ? { ...c, ...updates, ...(updates.url ? { url: normalizeCatalogUrl(updates.url) } : {}) }
+                            : c,
+                    ),
+                }));
+            },
+
+            setCredentials: (id, auth) => {
+                set((state) => ({
+                    catalogs: state.catalogs.map((c) => (c.id === id ? { ...c, auth } : c)),
+                }));
             },
 
             setActiveCatalog: (id) => {
-                if (!id) {
-                    set({ activeCatalogId: null, currentFeedUrl: null, feedHistory: [] });
-                    return;
-                }
-                const catalog = get().catalogs.find((c) => c.id === id);
-                if (catalog) {
-                    set({
-                        activeCatalogId: id,
-                        currentFeedUrl: catalog.url,
-                        feedHistory: [],
-                    });
-                }
-            },
-
-            navigateToFeed: (url) => {
-                const current = get().currentFeedUrl;
-                if (current && current !== url) {
-                    set((state) => ({
-                        currentFeedUrl: url,
-                        feedHistory: [...state.feedHistory, current],
-                    }));
-                } else {
-                    set({ currentFeedUrl: url });
-                }
-            },
-
-            goToPage: (url) => {
-                set({ currentFeedUrl: url });
-            },
-
-            navigateBack: () => {
-                const { feedHistory } = get();
-                if (feedHistory.length === 0) return false;
-                const previous = feedHistory[feedHistory.length - 1];
-                set({
-                    currentFeedUrl: previous,
-                    feedHistory: feedHistory.slice(0, -1),
-                });
-                return true;
-            },
-
-            resetNavigation: () => {
-                const active = get().catalogs.find((c) => c.id === get().activeCatalogId);
-                set({
-                    currentFeedUrl: active?.url || null,
-                    feedHistory: [],
+                set((state) => {
+                    if (id !== null && !state.catalogs.some((c) => c.id === id)) return state;
+                    return { activeCatalogId: id };
                 });
             },
         }),
         {
             name: "theorem-opds",
-            version: 2,
+            version: 3,
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
                 (state) => [state.catalogs, state.activeCatalogId],
@@ -135,27 +88,19 @@ export const useOpdsStore = create<OpdsState>()(
                     activeCatalogId: state.activeCatalogId,
                 }),
             ),
-            migrate: (persistedState: any, version: number) => {
-                if (version < 2 && persistedState) {
-                    const catalogs = Array.isArray(persistedState.catalogs)
-                        ? persistedState.catalogs.map((c: OpdsCatalog) => {
-                              if (c.url === "https://standardebooks.org/feeds/opds") {
-                                  return { ...c, url: "https://standardebooks.org/feeds/atom/new-releases" };
-                              }
-                              if (c.url === "https://m.gutenberg.org/ebooks.opds/") {
-                                  return { ...c, url: "https://www.gutenberg.org/ebooks.opds/" };
-                              }
-                              return c;
-                          })
-                        : DEFAULT_OPDS_PRESETS;
-                    return {
-                        ...persistedState,
-                        catalogs,
-                        activeCatalogId: "project-gutenberg",
-                    };
+            migrate: (persisted: unknown, version: number) => {
+                const state = (persisted ?? {}) as { catalogs?: OpdsCatalog[]; activeCatalogId?: string | null };
+                let catalogs = Array.isArray(state.catalogs) ? state.catalogs : [];
+                if (version < 2) {
+                    catalogs = catalogs.map((c) => {
+                        if (c.url === "https://m.gutenberg.org/ebooks.opds/") return { ...c, url: "https://www.gutenberg.org/ebooks.opds/" };
+                        return c;
+                    });
                 }
-                return persistedState;
+                // v3: the old browser was replaced and "Add Source" entries were never browsable.
+                // Keep every catalog the user added; start on the Discover home.
+                return { catalogs: withPresets(catalogs), activeCatalogId: null };
             },
-        }
-    )
+        },
+    ),
 );

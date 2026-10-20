@@ -1,6 +1,8 @@
 import type { OpdsEntry } from "../../core/types";
 
 export const CATALOG_SORT_ORDERS = [
+    // The server's own order (popularity, newest first, relevance) is often the point of a list.
+    { id: "catalog", label: "Catalog order" },
     { id: "title", label: "Title A–Z" },
     { id: "author", label: "Author A–Z" },
     { id: "newest", label: "Newest" },
@@ -26,18 +28,19 @@ const FORMAT_LABELS: Record<string, string> = {
     cbz: "CBZ",
     cbr: "CBR",
     mobi: "MOBI",
-    azw3: "AZw3",
+    azw3: "AZW3",
+    fb2: "FB2",
 };
 
 /**
- * Format for an entry. `downloadFormat` is set when the feed declares it;
- * otherwise fall back to the download URL's extension, since plenty of OPDS
- * servers omit the type.
+ * Format for an entry: the best download's declared format, else any acquisition's, else the
+ * file extension of its address (plenty of OPDS servers omit the media type), else "other".
  */
 export function entryFormat(entry: OpdsEntry): string {
-    if (entry.downloadFormat) return entry.downloadFormat;
-    const url = entry.downloadUrl;
-    if (!url) return "other";
+    const best = entry.primary !== undefined ? entry.acquisitions[entry.primary] : entry.acquisitions[0];
+    if (!best) return "other";
+    if (best.format) return best.format;
+    const url = best.href;
     const withoutQuery = url.split(/[?#]/)[0];
     const lastSegment = withoutQuery.slice(withoutQuery.lastIndexOf("/") + 1);
     const dot = lastSegment.lastIndexOf(".");
@@ -81,9 +84,10 @@ export function collectCatalogFacets(entries: OpdsEntry[]): CatalogFacets {
     const formatCounts = new Map<string, number>();
 
     for (const entry of entries) {
-        if (entry.isNavigation) continue;
         const language = entryLanguage(entry);
         if (language) languageCounts.set(language, (languageCounts.get(language) ?? 0) + 1);
+        // A partial entry (its downloads are one click deeper) has no format to filter on yet.
+        if (entry.acquisitions.length === 0) continue;
         const format = entryFormat(entry);
         formatCounts.set(format, (formatCounts.get(format) ?? 0) + 1);
     }
@@ -119,12 +123,13 @@ function sortCatalogEntries(
     entries: OpdsEntry[],
     sortOrder: CatalogSortOrder,
 ): OpdsEntry[] {
+    if (sortOrder === "catalog") return [...entries];
     const sorted = [...entries];
     switch (sortOrder) {
         case "author":
             sorted.sort(
                 (a, b) =>
-                    (a.author ?? "").localeCompare(b.author ?? "", undefined, { sensitivity: "base" }) ||
+                    (a.authors[0] ?? "").localeCompare(b.authors[0] ?? "", undefined, { sensitivity: "base" }) ||
                     a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
             );
             break;

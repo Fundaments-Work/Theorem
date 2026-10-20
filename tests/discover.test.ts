@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DiscoverService } from "../src/core/services/DiscoverService";
-import { parseOpdsFeed } from "../src/core/services/OpdsService";
+import { initTheoremCoreWasm, wasmOpdsParse } from "../src/core/lib/theorem-core";
+import { applyCatalogQuirks } from "../src/core/services/opds-quirks";
+import type { OpdsOutcome } from "../src/core/types";
 
 const SAMPLE_GUTENBERG_SEARCH = `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
@@ -37,20 +39,21 @@ describe("DiscoverService", () => {
         expect(typeof DiscoverService.downloadBook).toBe("function");
     });
 
-    it("parses and filters Gutenberg search XML properly", async () => {
-        const feed = await parseOpdsFeed(SAMPLE_GUTENBERG_SEARCH, "https://www.gutenberg.org/ebooks/search.opds/?query=pride");
-        expect(feed.entries.length).toBe(4);
+    it("parses Gutenberg search XML into category rows and real, openable books", async () => {
+        await initTheoremCoreWasm();
+        const url = "https://www.gutenberg.org/ebooks/search.opds/?query=pride";
+        const outcome = wasmOpdsParse(new TextEncoder().encode(SAMPLE_GUTENBERG_SEARCH), "application/atom+xml", url) as OpdsOutcome;
+        if (outcome.type !== "feed") throw new Error("expected a feed");
 
-        // Test filtering via DiscoverService
-        const actualBooks = feed.entries.filter((entry) => {
-            const lower = (entry.title || "").toLowerCase().trim();
-            if (["authors", "subjects", "bookshelves", "categories", "languages"].includes(lower)) return false;
-            if (entry.id.includes("/subjects/") || entry.id.includes("/bookshelves/") || entry.id.includes("/authors/")) return false;
-            return true;
-        });
+        // Straight from the parser, Gutenberg's book rows look exactly like category rows...
+        expect(outcome.feed.navigation).toHaveLength(4);
 
-        expect(actualBooks.length).toBe(2);
-        expect(actualBooks[0].title).toBe("Pride and Prejudice");
-        expect(actualBooks[1].title).toContain("Moby Dick");
+        // ...and the Gutenberg adapter separates them, which is what Discover relies on.
+        const feed = applyCatalogQuirks(outcome.feed, url);
+        expect(feed.navigation.map((n) => n.title)).toEqual(["Authors", "Subjects"]);
+        expect(feed.entries.map((e) => e.title)).toEqual(["Pride and Prejudice", "Moby Dick; Or, The Whale"]);
+        expect(feed.entries[0].authors).toEqual(["Jane Austen"]);
+        expect(feed.entries[1].authors).toEqual(["Herman Melville"]);
+        expect(feed.entries.every((e) => e.detailHref && e.cover?.includes("/cache/epub/"))).toBe(true);
     });
 });

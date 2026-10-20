@@ -1,8 +1,4 @@
-import { isTauri } from "../lib/env";
-import { browserCatalogUrl } from "../lib/catalog-fetch-url";
-import { saveBookData, saveCoverImage } from "../lib/storage";
-import { useLibraryStore } from "../store";
-import type { Book, BookFormat, OpdsEntry, OpdsFeed } from "../types";
+import type { Book, OpdsEntry, OpdsFeed } from "../types";
 import { OpdsService } from "./OpdsService";
 
 export interface DiscoverSection {
@@ -72,107 +68,36 @@ function savePersistedCache(sections: DiscoverSection[]) {
 
 async function fetchFeedSafe(url: string, timeoutMs = 8000): Promise<OpdsFeed | null> {
     try {
-        const fetchPromise = OpdsService.fetchFeed(url);
-        const timeoutPromise = new Promise<OpdsFeed>((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-        );
-        return await Promise.race([fetchPromise, timeoutPromise]);
+        const load = OpdsService.load(url).then((r) => r.feed);
+        const timeout = new Promise<OpdsFeed>((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs));
+        return await Promise.race([load, timeout]);
     } catch (e) {
         console.warn(`Failed to fetch feed from ${url}:`, e);
         return null;
     }
 }
 
-async function fetchBinary(url: string): Promise<ArrayBuffer> {
-    if (isTauri()) {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const bytes = await invoke<number[] | Uint8Array>("fetch_binary_content", { url });
-        if (bytes instanceof Uint8Array) {
-            const buf = new ArrayBuffer(bytes.byteLength);
-            new Uint8Array(buf).set(bytes);
-            return buf;
-        }
-        const arr = new Uint8Array(bytes);
-        const buf = new ArrayBuffer(arr.byteLength);
-        new Uint8Array(buf).set(arr);
-        return buf;
-    }
-    const res = await fetch(browserCatalogUrl(url));
-    if (!res.ok) throw new Error(`Download failed (${res.status})`);
-    return await res.arrayBuffer();
-}
-
+/** Entries that are real, openable books — not notices, empty-result placeholders or shelves. */
 function filterActualBooks(entries: OpdsEntry[]): OpdsEntry[] {
-    const invalidKeywords = new Set([
-        "authors",
-        "author",
-        "bookshelves",
-        "bookshelf",
-        "subjects",
-        "subject",
-        "categories",
-        "category",
-        "languages",
-        "language",
-        "popular",
-        "latest",
-        "search",
-        "search results",
-        "no results",
-        "results",
-    ]);
-
     return entries
         .filter((entry) => {
-            const rawTitle = (entry.title || "").trim();
-            const lower = rawTitle.toLowerCase();
-            if (invalidKeywords.has(lower)) return false;
-
-            // Reject empty search results / notice entries
+            const title = (entry.title || "").trim();
+            const lower = title.toLowerCase();
+            if (title.length < 2) return false;
+            // Placeholder rows some catalogs emit for an empty search.
             if (
                 lower.includes("no results") ||
                 lower.includes("returned no") ||
                 lower.includes("no books found") ||
-                lower.includes("not found") ||
                 lower.includes("matching your search") ||
-                lower.includes("0 results") ||
-                lower.startsWith("search results for") ||
-                lower.startsWith("search for")
+                lower.startsWith("search results for")
             ) {
                 return false;
             }
-
-            // Reject category / shelf navigation links
-            if (entry.id.includes("/subjects/") || entry.id.includes("/bookshelves/") || entry.id.includes("/authors/")) return false;
-            if (entry.navUrl && (entry.navUrl.includes("/subjects/") || entry.navUrl.includes("/bookshelves/") || entry.navUrl.includes("/authors/"))) return false;
-
-            // Must have a valid title
-            if (!rawTitle || rawTitle.length < 2) return false;
-
-            // Must either have a direct download URL, or a valid book identifier
-            const isGutenbergBook = entry.id.includes("/ebooks/") && /\/ebooks\/\d+/.test(entry.id);
-            const isStandardEbooks = entry.id.includes("standardebooks.org/ebooks/");
-            const hasDownload = Boolean(entry.downloadUrl);
-            const hasBookNav = Boolean(entry.navUrl && (entry.navUrl.includes("/ebooks/") || entry.navUrl.includes("/entry/")));
-
-            if (!hasDownload && !isGutenbergBook && !isStandardEbooks && !hasBookNav) {
-                return false;
-            }
-
-            return true;
+            // Something the reader can actually get: a download now, or a detail page that has one.
+            return entry.primary !== undefined || Boolean(entry.detailHref);
         })
-        .map((entry) => {
-            let cleanTitle = entry.title;
-            cleanTitle = cleanTitle.replace(/\s+by\s+.*$/i, "").trim();
-            const extractedAuthor =
-                entry.author ||
-                (entry.content && !entry.content.includes("<") && entry.content.length < 60 ? entry.content.trim() : undefined);
-            return {
-                ...entry,
-                title: cleanTitle || entry.title,
-                author: extractedAuthor,
-            };
-        });
+        .map((entry) => ({ ...entry, title: entry.title.replace(/\s+by\s+.*$/i, "").trim() || entry.title }));
 }
 
 export const DiscoverService = {
@@ -204,7 +129,7 @@ export const DiscoverService = {
 
                 try {
                     const feed = await fetchFeedSafe(feedConfig.url, 6000);
-                    if (feed && feed.entries && feed.entries.length > 0) {
+                    if (feed && feed.entries.length > 0) {
                         const validBooks = filterActualBooks(feed.entries);
                         if (validBooks.length > 0) {
                             const section: DiscoverSection = {
@@ -241,77 +166,16 @@ export const DiscoverService = {
         return feed ? filterActualBooks(feed.entries) : [];
     },
 
-    async downloadBook(
-        entry: OpdsEntry,
-        onProgress?: (step: string) => void
-    ): Promise<string> {
-        let downloadUrl = entry.downloadUrl;
-
-        // If it's an entry linking to a book-specific acquisition feed, fetch it
-        if (!downloadUrl && entry.navUrl) {
-            onProgress?.("Resolving download format…");
-            const subFeed = await fetchFeedSafe(entry.navUrl);
-            const acq = subFeed?.entries.find((e) => e.downloadUrl);
-            if (acq?.downloadUrl) {
-                downloadUrl = acq.downloadUrl;
-            }
+    /** Add a Discover book to the Library (resolving its detail page first when it has one). */
+    async downloadBook(entry: OpdsEntry, onProgress?: (message: string) => void): Promise<Book> {
+        let full = entry;
+        if (entry.primary === undefined && entry.detailHref) {
+            onProgress?.("Resolving download options…");
+            full = await OpdsService.loadDetail(entry);
         }
-
-        if (!downloadUrl) {
-            // Gutenberg direct fallback format
-            const match = entry.id.match(/\/ebooks\/(\d+)/);
-            if (match) {
-                const id = match[1];
-                downloadUrl = `https://www.gutenberg.org/ebooks/${id}.epub.images`;
-            }
-        }
-
-        if (!downloadUrl) {
-            throw new Error("No direct EPUB download available for this title.");
-        }
-
+        const acquisition = full.primary !== undefined ? full.acquisitions[full.primary] : undefined;
+        if (!acquisition) throw new Error("No download link available for this book.");
         onProgress?.("Downloading book…");
-        const buffer = await fetchBinary(downloadUrl);
-        const bookId = `book-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const format: BookFormat = entry.downloadFormat || "epub";
-        const storagePath = await saveBookData(bookId, buffer);
-
-        let coverPath: string | undefined;
-        if (entry.coverUrl || entry.thumbnailUrl) {
-            const cUrl = entry.coverUrl || entry.thumbnailUrl;
-            if (cUrl) {
-                try {
-                    onProgress?.("Downloading cover…");
-                    const coverBuffer = await fetchBinary(cUrl);
-                    const blob = new Blob([coverBuffer], { type: "image/jpeg" });
-                    coverPath = await saveCoverImage(bookId, blob);
-                } catch {
-                    // Non-fatal
-                }
-            }
-        }
-
-        const book: Book = {
-            id: bookId,
-            title: entry.title,
-            author: entry.author || "Unknown Author",
-            format,
-            filePath: storagePath,
-            storagePath,
-            fileSize: buffer.byteLength,
-            addedAt: new Date(),
-            coverPath,
-            description: entry.summary,
-            publisher: entry.publisher,
-            language: entry.language,
-            progress: 0,
-            tags: ["Discover"],
-            isFavorite: false,
-            readingTime: 0,
-            lastReadAt: new Date(),
-        };
-
-        useLibraryStore.getState().addBook(book);
-        return bookId;
+        return OpdsService.download(acquisition);
     },
 };

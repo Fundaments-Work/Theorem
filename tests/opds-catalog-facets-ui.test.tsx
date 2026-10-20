@@ -1,230 +1,172 @@
 // @vitest-environment jsdom
 /**
- * OPDS catalog sort and filter chips.
+ * Sort and filter chips in the catalog browser.
  *
- * OPDS had no sorting and no filtering at all, so a mixed catalog could only be
- * scanned top to bottom. The chips reuse the Library filter panel's shared
- * treatment, and facet options are collected from the *unfiltered* set so
- * selecting one never makes the others unreachable.
+ * The pure logic is covered in `opds-catalog-facets.test.ts`; this guards the wiring: the chips
+ * narrow the list that is on screen, every option stays reachable while one is active, clearing
+ * works, and an empty result offers a way out instead of a blank page.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React, { act } from "react";
+import { act } from "react";
 import type { OpdsEntry, OpdsFeed } from "../src/core/types";
 
-const fetchFeed = vi.fn();
+const load = vi.fn();
 
 vi.mock("../src/core/services/OpdsService", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../src/core/services/OpdsService")>();
-    return {
-        ...actual,
-        OpdsService: {
-            ...actual.OpdsService,
-            fetchFeed: (...args: unknown[]) => fetchFeed(...args),
-            search: vi.fn(),
-            downloadAndImportBook: vi.fn(),
-        },
-    };
+    return { ...actual, OpdsService: { ...actual.OpdsService, load: (...a: unknown[]) => load(...a), search: vi.fn(), loadDetail: vi.fn(), download: vi.fn() } };
 });
 
-import { OPDSBrowserPage } from "../src/features/catalogs/OPDSBrowser";
 import { useOpdsStore } from "../src/core/store";
-import {
-    clickButton,
-    flush,
-    render,
-    shownTitles,
-    stubLayout,
-    unmountAll,
-} from "./helpers/opds-browser-harness";
+import { resetOpdsBrowserSession } from "../src/features/catalogs/opds/useOpdsBrowser";
+import { CATALOG, clickButton, flush, makeEntry, makeFeed, renderBrowser, shownTitles, stubLayout, unmountAll } from "./helpers/opds-browser-harness";
 
-function entry(over: Partial<OpdsEntry> & { id: string }): OpdsEntry {
-    return { isNavigation: false, links: [], ...over } as OpdsEntry;
-}
+const withFormat = (e: OpdsEntry, format: "epub" | "pdf" | "cbz"): OpdsEntry => ({
+    ...e,
+    acquisitions: [{ ...e.acquisitions[0], href: `https://x/${e.id}.${format}`, format }],
+});
 
-const CATALOG: OpdsEntry[] = [
-    entry({ id: "a", title: "Zebra Crossing", author: "Beta", language: "en", downloadUrl: "https://x/z.epub" }),
-    entry({ id: "b", title: "apple orchard", author: "Alpha", language: "en", downloadUrl: "https://x/a.pdf" }),
-    entry({ id: "c", title: "Mango Street", author: "Gamma", language: "sv", downloadUrl: "https://x/m.pdf" }),
-    entry({ id: "d", title: "Banana Republic", author: "Delta", language: "sv", downloadUrl: "https://x/b.cbz" }),
+const entries: OpdsEntry[] = [
+    withFormat(makeEntry(1, { title: "Zebra", language: "en" }), "epub"),
+    withFormat(makeEntry(2, { title: "Apple", language: "en-GB" }), "pdf"),
+    withFormat(makeEntry(3, { title: "Mango", language: "sv" }), "pdf"),
+    withFormat(makeEntry(4, { title: "Banana", language: "fr" }), "cbz"),
 ];
 
-describe("OPDS sort and filters", () => {
-    let unstub: () => void = () => {};
+const served = (feed: OpdsFeed) => load.mockResolvedValue({ feed, finalUrl: CATALOG.url });
+const chip = (c: HTMLElement, label: string) => Array.from(c.querySelectorAll("button[aria-pressed]")).find((b) => b.textContent?.trim() === label) as HTMLElement | undefined;
+const count = (c: HTMLElement) => c.querySelector("[data-opds-count]")?.textContent ?? "";
 
+describe("catalog sort and filters", () => {
+    let unstub: () => void = () => {};
     beforeEach(() => {
         vi.clearAllMocks();
+        resetOpdsBrowserSession();
         unstub = stubLayout();
-        useOpdsStore.setState({
-            catalogs: [{ id: "c1", title: "Test Catalog", url: "https://example.com/opds" }],
-            activeCatalogId: "c1",
-            currentFeedUrl: null,
-            feedHistory: [],
-        } as never);
-        fetchFeed.mockResolvedValue({ title: "Test Catalog", selfUrl: "https://example.com/opds", entries: CATALOG } as OpdsFeed);
+        useOpdsStore.setState({ catalogs: [CATALOG], activeCatalogId: CATALOG.id });
     });
-
     afterEach(() => {
         unmountAll();
         unstub();
         unstub = () => {};
     });
 
-    it("sorts by title by default", async () => {
-        const container = render(<OPDSBrowserPage />);
+    it("keeps the catalog's own order by default rather than re-sorting it", async () => {
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-
-        expect(shownTitles(container)).toEqual([
-            "apple orchard",
-            "Banana Republic",
-            "Mango Street",
-            "Zebra Crossing",
-        ]);
+        expect(shownTitles(c)).toEqual(["Zebra", "Apple", "Mango", "Banana"]);
+        expect(c.textContent).toContain("Catalog order");
     });
 
-    it("reorders the grid when a sort chip is clicked", async () => {
-        const container = render(<OPDSBrowserPage />);
+    it("narrows to a language across its regional variants and reports the narrowed count", async () => {
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-
-        clickButton(container, "Author A–Z");
+        expect(count(c)).toContain("4 books");
+        act(() => chip(c, "English")!.click());
         await flush();
-
-        expect(shownTitles(container)).toEqual([
-            "apple orchard",
-            "Zebra Crossing",
-            "Banana Republic",
-            "Mango Street",
-        ]);
+        expect(shownTitles(c)).toEqual(["Zebra", "Apple"]);
+        expect(count(c)).toContain("2 books");
+        expect(count(c)).toContain("filtered");
     });
 
-    it("narrows to a language and reports the narrowed count", async () => {
-        const container = render(<OPDSBrowserPage />);
+    it("keeps every option reachable while a filter is active", async () => {
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-        expect(container.textContent).toContain("4 titles");
-
-        clickButton(container, "sv");
+        act(() => chip(c, "English")!.click());
         await flush();
-
-        expect(shownTitles(container).sort()).toEqual(["Banana Republic", "Mango Street"]);
-        expect(container.textContent).toContain("2 titles");
+        // The options come from the whole list, not just what is currently shown.
+        expect(chip(c, "Swedish")).toBeDefined();
+        expect(chip(c, "French")).toBeDefined();
     });
 
-    it("keeps every facet option reachable while a filter is active", async () => {
-        const container = render(<OPDSBrowserPage />);
+    it("toggles a filter off when its chip is pressed again", async () => {
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-
-        clickButton(container, "sv");
+        act(() => chip(c, "English")!.click());
         await flush();
-
-        // Otherwise selecting a language would remove the other language chip and
-        // there would be no way back.
-        expect(container.textContent).toContain("en");
+        act(() => chip(c, "English")!.click());
+        await flush();
+        expect(shownTitles(c)).toHaveLength(4);
+        expect(chip(c, "English")!.getAttribute("aria-pressed")).toBe("false");
     });
 
-    it("toggles a filter off when its chip is clicked again", async () => {
-        const container = render(<OPDSBrowserPage />);
+    it("filters by format and combines it with language", async () => {
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-
-        clickButton(container, "sv");
+        act(() => chip(c, "PDF")!.click());
         await flush();
-        expect(shownTitles(container)).toHaveLength(2);
-
-        clickButton(container, "sv");
+        expect(shownTitles(c)).toEqual(["Apple", "Mango"]);
+        act(() => chip(c, "English")!.click());
         await flush();
-        expect(shownTitles(container)).toHaveLength(4);
-    });
-
-    it("filters by format", async () => {
-        const container = render(<OPDSBrowserPage />);
-        await flush();
-
-        clickButton(container, "EPUB");
-        await flush();
-
-        expect(shownTitles(container)).toEqual(["Zebra Crossing"]);
-    });
-
-    it("combines language and format", async () => {
-        const container = render(<OPDSBrowserPage />);
-        await flush();
-
-        clickButton(container, "en");
-        await flush();
-        clickButton(container, "PDF");
-        await flush();
-
-        expect(shownTitles(container)).toEqual(["apple orchard"]);
+        expect(shownTitles(c)).toEqual(["Apple"]);
     });
 
     it("clears every active filter at once", async () => {
-        const container = render(<OPDSBrowserPage />);
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-
-        clickButton(container, "en");
+        act(() => chip(c, "PDF")!.click());
+        act(() => chip(c, "English")!.click());
         await flush();
-        clickButton(container, "EPUB");
+        clickButton(c, "Clear");
         await flush();
-        expect(shownTitles(container)).toHaveLength(1);
-
-        clickButton(container, "Clear filters");
-        await flush();
-        expect(shownTitles(container)).toHaveLength(4);
+        expect(shownTitles(c)).toHaveLength(4);
     });
 
-    it("offers a recovery state when the filters hide everything", async () => {
-        // No entry is both "fr" and "cbz".
-        fetchFeed.mockResolvedValue({
-            title: "Test Catalog",
-            entries: [
-                entry({ id: "e", title: "Le Petit Prince", language: "fr", downloadUrl: "https://x/e.pdf" }),
-                entry({ id: "f", title: "Akira", language: "ja", downloadUrl: "https://x/f.cbz" }),
-            ],
-        } as OpdsFeed);
-
-        const container = render(<OPDSBrowserPage />);
+    it("offers a way out when the filters hide everything", async () => {
+        served(makeFeed({ entries }));
+        const c = renderBrowser();
         await flush();
-
-        clickButton(container, "fr");
+        act(() => chip(c, "CBZ")!.click());
+        act(() => chip(c, "English")!.click());
         await flush();
-        clickButton(container, "CBZ");
+        expect(shownTitles(c)).toHaveLength(0);
+        expect(c.querySelector("[data-opds-empty]")!.textContent).toContain("Nothing here yet");
+        clickButton(c, "Clear filters");
         await flush();
-
-        expect(shownTitles(container)).toHaveLength(0);
-        expect(container.textContent).toContain("No titles match these filters");
+        expect(shownTitles(c)).toHaveLength(4);
     });
 
-    it("hides the facet row when there is nothing to sort or filter", async () => {
-        // A single entry exposes neither a language nor a format choice.
-        fetchFeed.mockResolvedValue({
-            title: "Test Catalog",
-            entries: [entry({ id: "only", title: "Only Book", downloadUrl: "https://x/only.epub" })],
-        } as OpdsFeed);
-
-        const container = render(<OPDSBrowserPage />);
+    it("hides the chips when there is nothing to choose between", async () => {
+        served(makeFeed({ entries: [withFormat(makeEntry(1, { language: "en" }), "epub")] }));
+        const c = renderBrowser();
         await flush();
-
-        expect(container.textContent).not.toContain("Clear filters");
-        expect(shownTitles(container)).toEqual(["Only Book"]);
+        expect(c.querySelector("button[aria-pressed]")).toBeNull();
     });
 
-    it("resets a filter that no longer applies when the feed changes", async () => {
-        const container = render(<OPDSBrowserPage />);
+    it("shows the catalog's own facets (OPDS facet groups) as choices that load that list", async () => {
+        load.mockImplementation(async (url: string) => ({
+            finalUrl: url,
+            feed: url.includes("lang=fr")
+                ? makeFeed({ entries: [makeEntry(8, { title: "Livre" })], facets: [{ title: "Language", items: [{ title: "English", href: "https://example.com/opds?lang=en", active: false }, { title: "French", href: "https://example.com/opds?lang=fr", active: true }] }] })
+                : makeFeed({ entries, facets: [{ title: "Language", items: [{ title: "English", href: "https://example.com/opds?lang=en", active: true }, { title: "French", href: "https://example.com/opds?lang=fr", active: false }] }] }),
+        }));
+        const c = renderBrowser();
         await flush();
+        // The facet dropdown shows the active choice.
+        expect(c.querySelector('[role="group"][aria-label="Sort and filter"]')!.textContent).toContain("Language: English");
+    });
 
-        clickButton(container, "sv");
+    it("resets a filter that no longer applies when the list changes", async () => {
+        const nav = [{ title: "Other", href: "https://example.com/opds/other", rel: "subsection" }];
+        load.mockImplementation(async (url: string) => ({
+            finalUrl: url,
+            feed: url.endsWith("/other")
+                ? makeFeed({ title: "Other", entries: [withFormat(makeEntry(5, { title: "Solo", language: "en" }), "epub"), withFormat(makeEntry(6, { title: "Duo", language: "sv" }), "pdf")] })
+                : makeFeed({ entries, navigation: nav }),
+        }));
+        const c = renderBrowser();
         await flush();
-        expect(shownTitles(container)).toHaveLength(2);
-
-        // Navigating into a sub-feed where nothing is Swedish must not leave the
-        // grid permanently empty with no visible chip to turn off.
-        fetchFeed.mockResolvedValue({
-            title: "English Only",
-            entries: CATALOG.filter((e) => e.language === "en"),
-        } as OpdsFeed);
-        act(() => {
-            useOpdsStore.setState({ currentFeedUrl: "https://example.com/opds/sub" } as never);
-        });
+        act(() => chip(c, "French")!.click());
         await flush();
-
-        expect(shownTitles(container)).toHaveLength(2);
+        expect(shownTitles(c)).toEqual(["Banana"]);
+        act(() => (Array.from(c.querySelectorAll("button")).find((b) => b.textContent?.includes("Other")) as HTMLElement).click());
+        await flush();
+        expect(shownTitles(c)).toEqual(["Solo", "Duo"]);
     });
 });
