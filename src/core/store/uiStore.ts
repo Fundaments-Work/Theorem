@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppRoute, UIState } from "../types";
+import type { AppRoute, UIState, WorkbenchFilter } from "../types";
 
 interface UIStore extends UIState {
     setRoute: (route: AppRoute, bookId?: string, pushHistory?: boolean) => void;
@@ -25,6 +25,7 @@ interface UIStore extends UIState {
     ) => void;
     setDownloadingBook: (bookId?: string) => void;
     setPendingReaderLocation: (location?: string) => void;
+    requestWorkbenchFilter: (filter?: WorkbenchFilter) => void;
     
     setReaderToolbarVisible: (visible: boolean) => void;
     toggleReaderToolbar: () => void;
@@ -94,6 +95,7 @@ export const useUIStore = create<UIStore>()(
             set({ deviceSyncStatus, deviceSyncMessage, deviceSyncAt }),
         setDownloadingBook: (bookId) => set({ downloadingBookId: bookId }),
         setPendingReaderLocation: (location) => set({ pendingReaderLocation: location }),
+        requestWorkbenchFilter: (filter) => set({ workbenchFilterRequest: filter }),
 
         setHydrated: () => set({ hasHydrated: true }),
 

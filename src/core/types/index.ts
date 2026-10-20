@@ -444,6 +444,9 @@ export interface RssArticle {
 
 export type AppRoute = "library" | "reader" | "vocabulary" | "settings" | "annotations" | "statistics" | "shelves" | "bookmarks" | "feeds" | "opds";
 
+/** Filters of the Workbench (highlights, notes, words). Bookmarks is a sibling page, see WorkbenchTabs. */
+export type WorkbenchFilter = "all" | "highlights" | "notes" | "vocabulary";
+
 export interface UIState {
     currentRoute: AppRoute;
     currentBookId?: string;
@@ -466,6 +469,9 @@ export interface UIState {
     /** One-shot target for the reader: set when navigating to a bookmark or
      *  annotation from a list, consumed by the reader when the book opens. */
     pendingReaderLocation?: string;
+
+    /** One-shot: the Workbench tab to show next time it is visible (set by the Bookmarks page's tabs). */
+    workbenchFilterRequest?: WorkbenchFilter;
     
     hasHydrated: boolean;
 }

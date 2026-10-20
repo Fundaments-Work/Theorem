@@ -4,7 +4,7 @@ import { RouteErrorBoundary, KeyboardShortcutsHelp, AlertDialog, PageLoader, Spl
 import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
-import { isTauriDesktop, isTauri, isMobile } from "./core/lib/env";
+import { isTauriDesktop, isTauri } from "./core/lib/env";
 import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
@@ -558,10 +558,9 @@ function App() {
     // virtualizer caches, and filter state instead of remounting.
     // The reader stays exclusive (heavy engines unmount on exit).
 
-    const isMobileDevice = isMobile();
-    const showLibraryRoute = currentRoute === "library" || (currentRoute === "opds" && isMobileDevice);
+    const showLibraryRoute = currentRoute === "library";
     const showAnnotationsRoute = currentRoute === "annotations" || currentRoute === "vocabulary";
-    const showOpdsRoute = currentRoute === "opds" && !isMobileDevice;
+    const showOpdsRoute = currentRoute === "opds";
 
     // Mount-on-first-visit keep-alive: wrappers stay in the DOM, but a
     // page's chunk and effects only load the first time its route shows.
@@ -600,7 +599,7 @@ function App() {
         <div className="flex h-screen min-h-[100dvh] bg-[var(--color-background)]">
             
             <div className="hidden md:block">
-                <Sidebar isMobile={isMobileDevice} />
+                <Sidebar />
             </div>
 
             <div className="relative flex-1 flex flex-col min-w-0">
@@ -671,17 +670,15 @@ function App() {
                         </RouteErrorBoundary>
                         )}
                     </div>
-                    {!isMobileDevice && (
-                        <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
-                            {visitedRoutes.has("opds") && (
-                            <RouteErrorBoundary>
-                                <Suspense fallback={<PageLoader />}>
-                                    <OPDSBrowserPage />
-                                </Suspense>
-                            </RouteErrorBoundary>
-                            )}
-                        </div>
-                    )}
+                    <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
+                        {visitedRoutes.has("opds") && (
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <OPDSBrowserPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                        )}
+                    </div>
                 </main>
             </div>
 

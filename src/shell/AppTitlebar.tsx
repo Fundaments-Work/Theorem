@@ -9,6 +9,7 @@ import {
     Search,
     BarChart3,
     ArrowDownUp,
+    Settings,
 } from "lucide-react";
 import { cn } from "../core/lib/utils";
 import { isMobile, isTauri } from "../core/lib/env";
@@ -184,6 +185,8 @@ export const AppTitlebar = memo(function AppTitlebar({
                 return "Shelves";
             case "feeds":
                 return "Feeds";
+            case "opds":
+                return "Discover";
             default:
                 return title;
         }
@@ -396,6 +399,17 @@ export const AppTitlebar = memo(function AppTitlebar({
                         aria-pressed={currentRoute === "statistics"}
                     >
                         <BarChart3 className="w-5 h-5" />
+                    </button>
+
+                    {/* Phones: the bottom bar is full, so Settings sits here. Desktop has it in the rail. */}
+                    <button
+                        onClick={() => setRoute("settings")}
+                        className={cn("md:!hidden", TITLEBAR_ICON_BUTTON)}
+                        aria-label="Settings"
+                        data-active={currentRoute === "settings" ? "true" : undefined}
+                        aria-pressed={currentRoute === "settings"}
+                    >
+                        <Settings className="w-5 h-5" />
                     </button>
 
                     {showDesktopWindowControls && (
