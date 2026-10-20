@@ -143,7 +143,7 @@ function App() {
             { label: "Go to Feeds",         keys: "Ctrl+3", category: "Navigation", handler: () => setRoute("feeds") },
             { label: "Go to Workbench",    keys: "Ctrl+4", category: "Navigation", handler: () => setRoute("annotations") },
             { label: "Go to Statistics",    keys: "Ctrl+5", category: "Navigation", handler: () => setRoute("statistics") },
-            { label: "Go to Workbench",     keys: "Ctrl+6", category: "Navigation", handler: () => setRoute("annotations") },
+            { label: "Go to Discover",      keys: "Ctrl+6", category: "Navigation", handler: () => setRoute("opds") },
             { label: "Go to Bookmarks",     keys: "Ctrl+7", category: "Navigation", handler: () => setRoute("bookmarks") },
             { label: "Go to Settings",      keys: "Ctrl+,", category: "Navigation", handler: () => setRoute("settings") },
             
