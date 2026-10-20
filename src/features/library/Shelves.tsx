@@ -44,7 +44,8 @@ const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
 
 const TOOLBAR_BUTTON_BASE = "ui-btn disabled:opacity-50";
 const TOOLBAR_BUTTON_PRIMARY = "ui-btn-primary disabled:opacity-50";
-const TOOLBAR_ICON_BUTTON = "h-10 w-10 px-0";
+/** 44px on touch screens (the minimum comfortable target), 40px with a pointer. */
+const TOOLBAR_ICON_BUTTON = "h-11 w-11 px-0 sm:h-10 sm:w-10";
 
 function EmptyShelves({ onCreate }: { onCreate: () => void }) {
     return (
@@ -624,11 +625,11 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 sm:gap-4 ml-auto sm:ml-0 flex-wrap">
+                    <div className="flex w-full items-center gap-2 sm:ml-0 sm:w-auto sm:gap-4 flex-wrap">
                         <button
                             onClick={handleGoToLibrary}
                             disabled={!!shelf.smartRules}
-                            className={cn(TOOLBAR_BUTTON_PRIMARY, "px-3 py-2 sm:px-4")}
+                            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 flex-1 justify-center px-3 py-2 sm:h-auto sm:flex-none sm:px-4")}
                             title={shelf.smartRules ? "Membership is managed by this shelf's rules" : "Add books from library"}
                         >
                             <Plus className="w-4 h-4" />

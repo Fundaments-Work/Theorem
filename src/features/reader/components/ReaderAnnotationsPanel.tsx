@@ -133,9 +133,6 @@ export function ReaderAnnotationsPanel({
     const renderBookmarkItem = (bookmark: Annotation) => (
         <div
             key={bookmark.id}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNavigate(bookmark); } }}
             className="group cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:border-[var(--color-accent)]"
             onClick={() => handleNavigate(bookmark)}
         >
@@ -152,7 +149,10 @@ export function ReaderAnnotationsPanel({
                             e.stopPropagation();
                             setMenuId(menuId === bookmark.id ? null : bookmark.id);
                         }}
-                        className="p-1.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation"
+                        className="p-2.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation sm:p-2"
+                        aria-label="More actions"
+                        aria-haspopup="menu"
+                        aria-expanded={menuId === bookmark.id}
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>
@@ -172,10 +172,15 @@ export function ReaderAnnotationsPanel({
             </div>
             <div className="flex items-center justify-between pl-6 font-mono text-[10px] text-[color:var(--color-text-secondary)]">
                 <span>{format(new Date(bookmark.createdAt), 'MMM d, yyyy')}</span>
-                <div className="flex items-center gap-1 text-[color:var(--color-accent)] transition-opacity">
+                <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleNavigate(bookmark); }}
+                    className="flex min-h-6 items-center gap-1 text-[color:var(--color-accent)] transition-opacity"
+                    aria-label="Jump to this bookmark in the book"
+                >
                     <span>Jump to</span>
                     <ExternalLink className="w-2.5 h-2.5" />
-                </div>
+                </button>
             </div>
         </div>
     );
@@ -183,9 +188,6 @@ export function ReaderAnnotationsPanel({
     const renderHighlightItem = (highlight: Annotation) => (
         <div
             key={highlight.id}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNavigate(highlight); } }}
             className="group cursor-pointer border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:border-[var(--color-accent)]"
             onClick={() => handleNavigate(highlight)}
         >
@@ -231,7 +233,10 @@ export function ReaderAnnotationsPanel({
                             e.stopPropagation();
                             setMenuId(menuId === highlight.id ? null : highlight.id);
                         }}
-                        className="p-1.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation"
+                        className="p-2.5 text-[color:var(--color-text-muted)] transition-opacity touch-manipulation sm:p-2"
+                        aria-label="More actions"
+                        aria-haspopup="menu"
+                        aria-expanded={menuId === highlight.id}
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>
@@ -251,10 +256,15 @@ export function ReaderAnnotationsPanel({
             </div>
             <div className="flex items-center justify-between pl-6 font-mono text-[10px] text-[color:var(--color-text-secondary)]">
                 <span>{format(new Date(highlight.createdAt), 'MMM d, yyyy')}</span>
-                <div className="flex items-center gap-1 text-[color:var(--color-accent)] transition-opacity">
+                <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleNavigate(highlight); }}
+                    className="flex min-h-6 items-center gap-1 text-[color:var(--color-accent)] transition-opacity"
+                    aria-label="Jump to this highlight in the book"
+                >
                     <span>Jump to</span>
                     <ExternalLink className="w-2.5 h-2.5" />
-                </div>
+                </button>
             </div>
         </div>
     );
@@ -290,7 +300,7 @@ export function ReaderAnnotationsPanel({
         <>
             <Backdrop visible={visible} onClick={onClose} />
 
-            <FloatingPanel visible={visible} className={cn("overflow-hidden", className)}>
+            <FloatingPanel visible={visible} label="Annotations and notes" className={cn("overflow-hidden", className)}>
                 
                 <div className="reader-panel-header flex flex-col">
                     <div className="flex items-center justify-between p-4">

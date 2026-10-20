@@ -210,7 +210,7 @@
     --app-bg: #141416;
     --app-surface: #1c1c20;
     --app-surface-elevated: #28282c;
-    --app-surface-muted: #353539;
+    --app-surface-muted: #2b2b2f;
     --app-surface-variant: #3d3d42;
     --app-surface-hover: #454549;
     --app-text-primary: #e8e6e1;
@@ -306,8 +306,8 @@
     --color-surface-variant: color-mix(in srgb, var(--reader-fg) 12%, var(--reader-bg));
     --color-surface-hover: color-mix(in srgb, var(--reader-fg) 14%, var(--reader-bg));
     --color-text-primary: var(--reader-fg);
-    --color-text-secondary: color-mix(in srgb, var(--reader-fg) 62%, var(--reader-bg));
-    --color-text-muted: color-mix(in srgb, var(--reader-fg) 50%, var(--reader-bg));
+    --color-text-secondary: color-mix(in srgb, var(--reader-fg) 78%, var(--reader-bg));
+    --color-text-muted: color-mix(in srgb, var(--reader-fg) 70%, var(--reader-bg));
     --color-border: color-mix(in srgb, var(--reader-fg) 20%, var(--reader-bg));
     --color-border-subtle: color-mix(in srgb, var(--reader-fg) 14%, var(--reader-bg));
     --color-accent: var(--reader-accent-override);
@@ -518,7 +518,12 @@
     appearance: none;
     width: 100%;
     height: 2px;
+    /* A 2px line is a hard target for a finger. Padding makes the grab area ~28px tall while
+       `background-clip` keeps the visible track as thin as before. */
+    box-sizing: content-box;
+    padding: 13px 0;
     background: var(--color-border);
+    background-clip: content-box;
     outline: none;
     cursor: pointer;
 }

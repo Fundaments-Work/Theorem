@@ -229,7 +229,7 @@ export const AppTitlebar = memo(function AppTitlebar({
     };
 
     return (
-        <div
+        <header
             className={cn(
                 "w-full z-50 select-none border-b border-[var(--color-border)] bg-[var(--color-surface)]",
                 "px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),4px)] lg:py-0",
@@ -263,7 +263,8 @@ export const AppTitlebar = memo(function AppTitlebar({
                         </div>
                     </button>
 
-                    <h1 className="hidden sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
+                    {/* Visually hidden on phones (the logo takes the space) but still the page's heading for assistive tech. */}
+                    <h1 className="sr-only sm:not-sr-only sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
                         {getPageTitle()}
                     </h1>
                 </div>
@@ -499,7 +500,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                     </div>
                 </div>
             )}
-        </div>
+        </header>
     );
 });
 

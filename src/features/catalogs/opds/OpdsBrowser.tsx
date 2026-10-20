@@ -64,7 +64,7 @@ function Trail({ crumbs, onGo }: { crumbs: { title: string }[]; onGo: (index: nu
                             <button
                                 type="button"
                                 onClick={() => onGo(i)}
-                                className="max-w-[10rem] truncate text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
+                                className="inline-flex min-h-6 max-w-[10rem] items-center truncate text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
                             >
                                 {crumb.title}
                             </button>

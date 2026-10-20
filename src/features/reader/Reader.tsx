@@ -2885,6 +2885,8 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     return (
         <div
+            role="main"
+            aria-label="Reader"
             className={cn(
                 "fixed inset-0 overflow-clip",
                 !isPdfFormat && `theme-${settings.readerSettings.theme}`

@@ -104,7 +104,7 @@ export const CatalogBookCard = memo(function CatalogBookCard({
                 </h3>
                 <p
                     data-catalog-card-author=""
-                    className="line-clamp-1 text-[10px] leading-[13px] text-[color:var(--color-text-secondary)] opacity-60"
+                    className="line-clamp-1 text-[10px] leading-[13px] text-[color:var(--color-text-secondary)]"
                 >
                     {author || "Unknown author"}
                 </p>

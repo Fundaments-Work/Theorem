@@ -65,10 +65,11 @@ function Section({ title, description, children }: { title: string; description?
 function SettingRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
     return (
         <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div className="w-full sm:flex-1 sm:pr-4">
+            <div className="w-full min-w-0 sm:flex-1 sm:pr-4">
                 <span className="font-sans text-[12px] text-[color:var(--color-text-primary)]">{label}</span>
                 {description && (
-                    <p className="mt-1 font-sans text-[11px] text-[color:var(--color-text-secondary)]">{description}</p>
+                    // `anywhere`: a folder path or URL has no spaces to wrap at and would widen the page.
+                    <p className="mt-1 font-sans text-[11px] text-[color:var(--color-text-secondary)] [overflow-wrap:anywhere]">{description}</p>
                 )}
             </div>
             <div className="w-full sm:w-auto sm:flex-shrink-0">{children}</div>
@@ -289,6 +290,7 @@ function AndroidEnginePicker() {
                 }
             >
                 <select
+                    aria-label="Voice engine"
                     value={currentEngine}
                     disabled={busy || engines.length === 0}
                     onChange={(e) => void selectEngine(e.target.value)}

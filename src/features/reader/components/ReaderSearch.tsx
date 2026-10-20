@@ -265,7 +265,7 @@ export function ReaderSearch({
         <>
             <Backdrop visible={visible} onClick={onClose} />
 
-            <FloatingPanel visible={visible} className={cn('flex flex-col overflow-hidden', className)}>
+            <FloatingPanel visible={visible} label="Search in book" className={cn('flex flex-col overflow-hidden', className)}>
                 
                 <div className="reader-panel-header px-4 pt-4 pb-3">
                     <div className="flex items-center justify-between mb-3">
@@ -376,9 +376,9 @@ export function ReaderSearch({
 
                 <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 custom-scrollbar [content-visibility:auto] overscroll-contain">
                     {!query && !isSearching && results.length === 0 && (
-                        <div className="w-full flex flex-col items-center justify-center py-12 px-6 text-center opacity-50">
-                            <Search className="w-8 h-8 mb-3" />
-                            <p className="w-full max-w-[15rem] text-xs leading-relaxed">Find words, names or phrases</p>
+                        <div className="w-full flex flex-col items-center justify-center py-12 px-6 text-center">
+                            <Search className="w-8 h-8 mb-3 text-[color:var(--color-text-muted)]" />
+                            <p className="w-full max-w-[15rem] text-xs leading-relaxed text-[color:var(--color-text-secondary)]">Find words, names or phrases</p>
                         </div>
                     )}
 

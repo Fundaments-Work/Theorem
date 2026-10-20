@@ -47,7 +47,7 @@ export function BookInfoPopover({
         <>
             <Backdrop visible={visible} onClick={onClose} />
 
-            <FloatingPanel visible={visible} className={cn("overflow-hidden", className)}>
+            <FloatingPanel visible={visible} label="Book information" className={cn("overflow-hidden", className)}>
                 
                 <div className="reader-panel-header flex items-center justify-between p-4 sm:p-5">
                     <div className="flex items-center gap-2.5">
