@@ -2,7 +2,7 @@
 # `github: [Fundaments-Work]` entry, which stays inert until the org's GitHub
 # Sponsors profile is enabled.
 #
-# Canonical source of truth: Fundaments-Work/content > support.json
-# (channel id `buyMeMomo`). To change the link, change it in the content repo
-# first, then update this file by hand.
+# The same URL is written into the app, Lemma and the landing sites. Every
+# place it appears is listed in the handbook note `Brand/Support channels`;
+# change them all together.
 custom: ['https://buymemomo.com/usefundaments']

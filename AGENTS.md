@@ -302,21 +302,22 @@ See the [Release](#release) section above. CI (`release.yml`) auto-builds and pu
 
 ## Cross-repo contracts
 
-Two other repos hold facts this repo depends on. Both are **read-only** from
-here: change them in the source repo, never here.
+Facts this repo shares with other repos. The design system is **read-only**
+from here: change it in its own repo, never here.
 
-### `Fundaments-Work/content` — shared facts
+### Buy Me Momo URL
 
-Machine-readable facts that more than one product must agree on. One
-`support.json` today; a product registry later.
+The URL is written out in this repo as literals, on purpose: a compiled bundle
+cannot depend on another repo at build time without real fragility in the
+release pipeline.
 
-- **Canonical home of the Buy Me Momo URL**: `support.json`, channel `buyMeMomo`.
-- This repo keeps the literal in `src/core/lib/support-prompt.ts` (the support
-  nudge) and `.github/FUNDING.yml` (the Sponsor button). Both are deliberate
-  literals — an Obsidian-style manifest and a compiled bundle cannot depend on
-  a sibling repo at build time without real fragility in the release pipeline.
+- Code and config: `src/core/lib/support-prompt.ts` (the support nudge) and
+  `.github/FUNDING.yml` (the Sponsor button).
+- Docs: `docs/settings.md` and `docs/ARCHITECTURE.md`.
 - There is no automated drift check (the `check:content` script and its CI job
-  were removed in 1.6.0). When the link changes, update both literals by hand.
+  were removed in 1.6.0). The same URL is used by Lemma and the landing sites;
+  every place it appears is listed in the handbook note `Brand/Support
+  channels`. Change them all together.
 
 ### `Fundaments-Work/design-system` — visual language
 
