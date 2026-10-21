@@ -88,7 +88,7 @@ All builds on the [Releases page](https://github.com/fundaments-work/theorem/rel
 
 ---
 
-New to Theorem? Read the [user guide](docs/user/index.md).
+New to Theorem? Read the [user guide](docs/user/index.md), or see [everything it can do](docs/user/features.md).
 
 ## Quick Start (Development)
 
