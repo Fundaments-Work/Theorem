@@ -41,6 +41,9 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 - **[Markdown export for Obsidian and Logseq](vault-sync.md)**
   Choose an export folder, pick a note style, and keep Markdown files of your highlights and vocabulary up to date.
 
+- **[Get ebook highlights into Obsidian](highlights-to-obsidian.md)**
+  Step by step: pick your vault as the export folder, highlight in an EPUB or PDF, see the exact Markdown Theorem writes, and set up Logseq or a custom template.
+
 - **[Dictionary and vocabulary](dictionary.md)**
   Look up words while reading, install offline dictionaries, and save words to your vocabulary list.
 
