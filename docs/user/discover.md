@@ -57,7 +57,7 @@ Catalogs that follow the OPDS standard work in Theorem. This includes many schoo
 1. Tap Add a catalog at the top of Discover, or in the Bring your library card. Once you have catalogs, it is the plus button at the end of the tabs.
 2. Type or paste the catalog's address. You can leave out `https://`, and addresses such as `192.168.1.10:8080/opds` or `nas.local/opds` work. Links that start with `opds://` also work. Addresses on your own network use `http` unless you say otherwise.
 3. Tap Check address. Theorem contacts the catalog and tells you what it found, for example "OPDS 2.0 · 4 sections · search", or explains the problem.
-4. If the catalog asks for a sign-in, tap This catalog needs a sign-in, enter your username and password, and check again.
+4. If the catalog asks for a sign-in, the username and password fields appear by themselves, with the catalog's own wording. Fill them in and check again. If the catalog opens without a sign-in but you have an account there (some libraries show more books to members), tap Have an account? Add sign-in details, then check again.
 5. Edit the name if you like, then tap Add catalog.
 
 If the catalog is on a server that is switched off right now, the dialog offers Add anyway after the check fails, so you can save it and open it later.
