@@ -4,7 +4,10 @@ import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } f
 import { invoke } from "@tauri-apps/api/core";
 import { PageHeader } from "../../ui";
 import { cn, formatFileSize } from "../../core/lib/utils";
-import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
+import { isMobile, isTauri, isTauriDesktop, isTauriMobile } from "../../core/lib/env";
+import { requestNotificationPermission } from "../../core/lib/notifications";
+import { refreshScheduledReminders } from "../reader/hooks/useDailyGoalReminder";
+import { ReminderDeliveryNotice } from "./ReminderDeliveryNotice";
 import { getAllShortcuts, formatShortcutKeys } from "../../core/lib/keyboard-shortcuts";
 import {
     showOpenDirectoryDialog,
@@ -843,7 +846,14 @@ export const SettingsPage = memo(function SettingsPage() {
                             >
                                 <Toggle
                                     checked={settings.goalNotifications}
-                                    onChange={(checked) => updateSettings({ goalNotifications: checked })}
+                                    onChange={(checked) => {
+                                        updateSettings({ goalNotifications: checked });
+                                        // Asking needs the tap that turned reminders on; the
+                                        // background planner never prompts.
+                                        if (checked && isTauri()) {
+                                            void requestNotificationPermission().then(() => refreshScheduledReminders());
+                                        }
+                                    }}
                                 />
                             </SettingRow>
 
@@ -865,6 +875,8 @@ export const SettingsPage = memo(function SettingsPage() {
                                     )}
                                 />
                             </SettingRow>
+
+                            {isTauriMobile() && <ReminderDeliveryNotice enabled={settings.goalNotifications} />}
 
                             <SettingRow
                                 label="Sync Notifications"

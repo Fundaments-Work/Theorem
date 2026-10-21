@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { isTauri } from "../../../core/lib/env";
+import { isTauri, isTauriMobile } from "../../../core/lib/env";
 import { useSettingsStore } from "../../../core/store";
 import { localDateKey } from "../../../core/lib/date-keys";
 
@@ -27,9 +27,89 @@ export function isReminderTime(reminderSetting: string, now = new Date()): boole
     return currentMinutes >= targetMinutes - 5 && currentMinutes <= targetMinutes + 30;
 }
 
+/** What the scheduled reminders depend on; the plan is redone only when this changes. */
+function reminderInputs() {
+    const { settings, stats } = useSettingsStore.getState();
+    const today = localDateKey();
+    const dailyGoal = stats.dailyGoal || 30;
+    const todayMinutes = stats.dailyActivity.find((a) => a.date === today)?.minutes ?? 0;
+    return {
+        reminder: {
+            enabled: settings.goalNotifications,
+            time: settings.dailyReminderTime,
+            dailyGoal,
+            todayMinutes,
+        },
+        key: [settings.goalNotifications, settings.dailyReminderTime, dailyGoal, todayMinutes >= dailyGoal, today].join("|"),
+    };
+}
+
+/**
+ * Phones: keep Android's scheduled reminder in step with the settings (see
+ * `core/lib/daily-reminder.ts`). Sends one update at a time, so rapid changes (typing a time)
+ * arrive in order and the last one wins.
+ */
+/** Fired after Android has the new reminder settings, so Settings can show the next one. */
+export const REMINDER_CONFIGURED_EVENT = "theorem:reminder-configured";
+
+let activeReplan: ((force?: boolean) => void) | null = null;
+
+/** Re-plans now, e.g. after the reader allowed notifications from Settings. */
+export function refreshScheduledReminders(): void {
+    activeReplan?.(true);
+}
+
+export function startMobileReminderPlanner(): () => void {
+    let lastKey: string | null = null;
+    let queue: Promise<unknown> = Promise.resolve();
+    let disposed = false;
+
+    const replan = (force = false) => {
+        if (disposed || !useSettingsStore.persist.hasHydrated()) return;
+        const { key } = reminderInputs();
+        if (!force && key === lastKey) return;
+        lastKey = key;
+        queue = queue
+            .then(async () => {
+                if (disposed) return;
+                const { configureReminder, reminderConfig } = await import("../../../core/lib/daily-reminder");
+                // Read the settings now, not when queued, so the last change always wins.
+                await configureReminder(reminderConfig(reminderInputs().reminder));
+                window.dispatchEvent(new Event(REMINDER_CONFIGURED_EVENT));
+            })
+            .catch((error) => {
+                // Try again on the next change or return to the app.
+                lastKey = null;
+                if (import.meta.env.DEV) console.warn("[reminders] could not schedule", error);
+            });
+    };
+
+    const onVisibility = () => {
+        // Coming back may follow a permission change in system settings or a new day.
+        if (typeof document !== "undefined" && !document.hidden) replan(true);
+    };
+
+    activeReplan = replan;
+    replan(true);
+    const unsubscribe = useSettingsStore.subscribe(() => replan());
+    const unsubscribeHydration = useSettingsStore.persist.onFinishHydration(() => replan(true));
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+        disposed = true;
+        if (activeReplan === replan) activeReplan = null;
+        unsubscribe();
+        unsubscribeHydration();
+        document.removeEventListener("visibilitychange", onVisibility);
+    };
+}
+
 export function useDailyGoalReminder() {
     useEffect(() => {
         if (!isTauri()) return;
+        // A webview timer cannot run while a phone has the app in the background; the system
+        // schedules the reminders instead.
+        if (isTauriMobile()) return startMobileReminderPlanner();
 
         const checkReminder = async () => {
             try {

@@ -48,6 +48,15 @@ In the same Reading Goals section:
 
 These use your operating system's notifications. On Android, Theorem may ask for notification permission.
 
+On Android the daily reminder is kept by the system, so it arrives even when Theorem is closed and after the phone restarts. It is skipped on a day you have already met your goal. Under the reminder time, Settings shows when the next one is due. Two things can stop it, and Settings shows a note with a button for each instead:
+
+- **Notifications are off for Theorem.** Tap **Allow notifications**.
+- **Android may deliver the reminder up to an hour late.** From Android 12, an app needs the "Alarms & reminders" permission to remind you at the exact minute, and Android 14 and later don't give it by default. Tap **Remind me on time** and turn it on.
+
+Some phones (Xiaomi, Huawei, Oppo, Vivo and others) also stop apps in the background to save battery. If reminders still don't arrive, set Theorem's battery use to "No restrictions" in the phone's settings.
+
+On a computer the reminder shows while Theorem is open.
+
 ## Achievements
 
 The Achievements section lists four badges:
