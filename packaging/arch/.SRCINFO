@@ -1,0 +1,22 @@
+pkgbase = theorem-bin
+	pkgdesc = Local-first reader for ebooks, PDFs, comics and RSS that writes highlights as Markdown for Obsidian or Logseq (prebuilt)
+	pkgver = 1.5.9
+	pkgrel = 1
+	url = https://theorem.fundaments.work
+	arch = x86_64
+	license = MIT
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = libayatana-appindicator
+	optdepends = speech-dispatcher: read aloud with the system voice
+	provides = theorem
+	conflicts = theorem
+	noextract = Theorem_1.5.9_amd64.deb
+	options = !strip
+	options = !debug
+	source = Theorem_1.5.9_amd64.deb::https://github.com/Fundaments-Work/Theorem/releases/download/v1.5.9/Theorem_1.5.9_amd64.deb
+	source = LICENSE-1.5.9::https://raw.githubusercontent.com/Fundaments-Work/Theorem/v1.5.9/LICENSE
+	sha256sums = 38d40a73cc1ece0eeef857c19eb34104c15320abcb6b7f8e43a46c51f23cf8a5
+	sha256sums = 24321bdb7c4db56bce2ba0d9ef724b8fcbec0c02616dbc43ed2479d0c4637cdb
+
+pkgname = theorem-bin
