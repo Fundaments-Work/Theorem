@@ -54,7 +54,9 @@ catalogs the reader adds. It works on desktop, phones (it is a bottom-bar tab) a
 Until 1.6.0 Discover opened on a storefront assembled *inside the app* (`DiscoverPage` and
 `DiscoverService` fetched Gutenberg and Standard Ebooks feeds and built the shelves), next to two
 built-in catalogs, Project Gutenberg and Standard Ebooks. In 1.6.0 all of that became one built-in
-source: **Fundaments' own OPDS 2.0 catalog** at `https://catalog.fundaments.work/opds`
+source: **Fundaments' own OPDS 2.0 catalog**, whose home file the app loads directly at
+`https://catalog.fundaments.work/opds/index.json` (`/opds` redirects there for people and other
+readers, but a static redirect carries no CORS header, so browsers must skip it)
 (`DEFAULT_OPDS_PRESETS` in `OpdsService.ts`), shown as the Discover home.
 
 - **Curated on the server.** Shelves, the spotlight, search and categories are decided by the

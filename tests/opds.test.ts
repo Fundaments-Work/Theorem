@@ -94,7 +94,7 @@ describe("opdsStore", () => {
     });
 
     it("ships one built-in source: Fundaments' own catalog", () => {
-        expect(DEFAULT_OPDS_PRESETS.map((p) => [p.id, p.url, p.isPreset])).toEqual([["fundaments-library", "https://catalog.fundaments.work/opds", true]]);
+        expect(DEFAULT_OPDS_PRESETS.map((p) => [p.id, p.url, p.isPreset])).toEqual([["fundaments-library", "https://catalog.fundaments.work/opds/index.json", true]]);
     });
 
     it("never removes the built-in source", () => {

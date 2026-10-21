@@ -198,7 +198,7 @@ describe("OpdsService in the browser (WebAssembly parser)", () => {
 });
 
 describe("offline copy of the built-in catalog", () => {
-    const HOME = "https://catalog.fundaments.work/opds";
+    const HOME = "https://catalog.fundaments.work/opds/index.json";
     let storage: Map<string, string>;
     beforeEach(() => {
         routes = {};

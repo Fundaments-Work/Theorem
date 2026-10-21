@@ -22,7 +22,8 @@ import { CatalogsPage } from "../src/features/catalogs/CatalogsPage";
 import { addRecentSearch, readRecentSearches } from "../src/features/catalogs/DiscoverHome";
 import { flush, makeEntry, makeFeed, render, setInputValue, stubLayout, unmountAll } from "./helpers/opds-browser-harness";
 
-const HOME = "https://catalog.fundaments.work/opds";
+const BASE = "https://catalog.fundaments.work/opds";
+const HOME = `${BASE}/index.json`;
 const MINE = { id: "mine", title: "My Library", url: "http://nas.local/opds", auth: { username: "u", password: "p" } };
 
 const tabs = (c: HTMLElement) => Array.from(c.querySelectorAll('[aria-label="Catalog sources"] [role=tab]')) as HTMLElement[];
@@ -38,15 +39,15 @@ function homeFeed() {
         entries: [],
         search: { href: "https://catalog.fundaments.work/opds/search{?query}", kind: "template" },
         groups: [
-            { title: "New & restored editions", href: `${HOME}/shelf/new-restored`, navigation: [], entries: [1, 2, 3, 4].map((i) => makeEntry(i, { summary: `<p>Story <b>${i}</b> &amp; more</p>` })) },
-            { title: "Philosophy & essays", href: `${HOME}/shelf/philosophy`, navigation: [], entries: [5, 6].map((i) => makeEntry(i)) },
+            { title: "New & restored editions", href: `${BASE}/shelf/new-restored`, navigation: [], entries: [1, 2, 3, 4].map((i) => makeEntry(i, { summary: `<p>Story <b>${i}</b> &amp; more</p>` })) },
+            { title: "Philosophy & essays", href: `${BASE}/shelf/philosophy`, navigation: [], entries: [5, 6].map((i) => makeEntry(i)) },
             {
                 title: "Browse by category",
-                href: `${HOME}/categories`,
+                href: `${BASE}/categories`,
                 entries: [],
                 navigation: [
-                    { title: "Novels", href: `${HOME}/category/novels`, rel: "subsection", count: 23994 },
-                    { title: "Poetry", href: `${HOME}/category/poetry`, rel: "subsection", count: 852 },
+                    { title: "Novels", href: `${BASE}/category/novels`, rel: "subsection", count: 23994 },
+                    { title: "Poetry", href: `${BASE}/category/poetry`, rel: "subsection", count: 852 },
                 ],
             },
         ],
@@ -71,7 +72,7 @@ describe("Discover page", () => {
         unstub = stubLayout();
         memoryStorage();
         load.mockImplementation(async (url: string) => (url === HOME ? { finalUrl: HOME, feed: homeFeed() } : { finalUrl: url, feed: makeFeed({ title: "Mock" }) }));
-        search.mockResolvedValue({ finalUrl: `${HOME}/search?query=x`, feed: makeFeed({ title: "Results", entries: [makeEntry(9)] }) });
+        search.mockResolvedValue({ finalUrl: `${BASE}/search?query=x`, feed: makeFeed({ title: "Results", entries: [makeEntry(9)] }) });
         useOpdsStore.setState({ catalogs: [...DEFAULT_OPDS_PRESETS], activeCatalogId: null });
     });
     afterEach(() => {
@@ -113,7 +114,7 @@ describe("Discover page", () => {
             await flush();
             act(() => (c.querySelector("[data-discover-subject]") as HTMLElement).click());
             await flush();
-            expect(load).toHaveBeenCalledWith(`${HOME}/category/novels`, expect.anything());
+            expect(load).toHaveBeenCalledWith(`${BASE}/category/novels`, expect.anything());
             expect(home(c)).toBeNull();
             expect(c.querySelector('[aria-label="Catalog trail"]')?.textContent).toContain("Discover");
             act(() => (c.querySelector('[aria-label="Back"]') as HTMLElement).click());

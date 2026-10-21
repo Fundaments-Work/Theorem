@@ -28,7 +28,9 @@ export const DEFAULT_OPDS_PRESETS: OpdsCatalog[] = [
     {
         id: FUNDAMENTS_CATALOG_ID,
         title: "Fundaments Library",
-        url: "https://catalog.fundaments.work/opds",
+        // The home file itself, not /opds: that address is a redirect, and a browser following a
+        // cross-origin redirect needs CORS on the redirect too, which static redirects lack.
+        url: "https://catalog.fundaments.work/opds/index.json",
         isPreset: true,
         description: "Free classics and restored editions, chosen with care.",
     },
