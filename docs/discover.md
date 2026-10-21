@@ -36,7 +36,7 @@ catalogs the reader adds. It works on desktop, phones (it is a bottom-bar tab) a
 |---|---|
 | `metadata.subtitle` | Line under the "Discover" title |
 | search template | Large search box (`Search free books…`); submitting runs the catalog search |
-| first group with books | Its first two books as **hero cards** (cover blurred behind, summary as plain text, Add to Library / About), the rest as a "More new editions" carousel |
+| first group with books | Its first two books as **hero cards** (large cover beside the text on a tonal step, no image behind text, summary as plain text, Add to Library / About), the rest as a "More new editions" carousel |
 | other groups with books | Carousels with *See all* |
 | first group with only navigation | **Browse by subject** tiles (title + compact count, e.g. "24k books"), *All subjects* opens the full list |
 
@@ -46,7 +46,7 @@ catalogs the reader adds. It works on desktop, phones (it is a bottom-bar tab) a
   or corrupt storage just means no chips.
 - **Design:** the Fundaments design system (dark base, one lime accent, square corners, DM Sans
   300/400; hierarchy from size). Hover on tiles and hero cards is a lime edge, never a fill.
-- **Covers** in the hero backdrop go through `isSafeImageUrl`; the visible cover is
+- **Covers** in hero cards are
   `TheoremBookCover`, so a missing or unsafe image gets the drawn fallback.
 
 ## The built-in catalog

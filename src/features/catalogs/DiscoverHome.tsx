@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Check, Download, Library, Loader2, Plus, RefreshCw, Search, X } from "lucide-react";
 import { cn } from "../../core/lib/utils";
-import { isSafeImageUrl } from "../../core/lib/url-safety";
 import type { OpdsEntry, OpdsFeed, OpdsGroup, OpdsNavItem } from "../../core/types";
 import { TheoremBookCover } from "../../ui";
 import { DiscoverCarousel } from "./components/DiscoverCarousel";
@@ -69,28 +68,17 @@ function HeroCard({
     onGet: (entry: OpdsEntry) => void;
 }) {
     const author = entryAuthor(entry);
-    const cover = entry.cover || entry.thumbnail;
-    const backdrop = cover && isSafeImageUrl(cover) ? cover : undefined;
     const action = entryAction(entry);
     const canGet = !inLibrary && (action.kind === "download" || action.kind === "partial");
     const summary = plainSummary(entry.summary);
 
+    // Depth from a tonal step and a hairline, as everywhere in the design system: no image behind
+    // the text, no gradient, no blur (guidelines: text over an image or a gradient does not exist).
     return (
         <article
             data-discover-hero=""
-            className="group relative isolate flex min-h-[12rem] overflow-hidden sm:min-h-[15rem] border border-[var(--color-border)] bg-[var(--color-surface)] transition-[border-color] duration-200 hover:border-[var(--color-accent)]"
+            className="group flex min-h-[12rem] border border-[var(--color-border)] bg-[var(--color-surface-elevated)] transition-[border-color] duration-200 hover:border-[var(--color-accent)] sm:min-h-[15rem]"
         >
-            {backdrop && (
-                <img
-                    src={backdrop}
-                    alt=""
-                    aria-hidden="true"
-                    loading="lazy"
-                    decoding="async"
-                    className="absolute inset-0 -z-20 h-full w-full scale-125 object-cover opacity-40 blur-2xl"
-                />
-            )}
-            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-r from-[var(--color-background)] via-[color-mix(in_srgb,var(--color-background)_82%,transparent)] to-[color-mix(in_srgb,var(--color-background)_35%,transparent)]" />
 
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-4 p-4 sm:p-6">
                 <div className="min-w-0 space-y-2">
