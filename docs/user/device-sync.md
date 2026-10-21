@@ -23,7 +23,7 @@ Sync transfers book files. An audiobook file you attached to a book is linked on
 
 You pair once. After that the devices remember each other.
 
-1. On both devices, open Settings and select the Devices & Export tab. Find the Device Sync section.
+1. On both devices, open Settings and select the Devices & Export tab (called Devices on Android). Find the Device Sync section.
 2. On the first device, under Pair a Device, click Show Pairing QR. A QR code and a pairing code appear.
 3. On the second device, pair using one of these methods:
    - **Scan the QR code** (Android only). Click Scan QR Code and allow camera access when asked. Point the camera at the code.

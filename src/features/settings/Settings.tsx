@@ -4,7 +4,7 @@ import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } f
 import { invoke } from "@tauri-apps/api/core";
 import { PageHeader } from "../../ui";
 import { cn, formatFileSize } from "../../core/lib/utils";
-import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
+import { isTauri, isTauriDesktop } from "../../core/lib/env";
 import { getAllShortcuts, formatShortcutKeys } from "../../core/lib/keyboard-shortcuts";
 import {
     showOpenDirectoryDialog,
@@ -334,7 +334,9 @@ export const SettingsPage = memo(function SettingsPage() {
     const stats = useSettingsStore((state) => state.stats);
     const updateStats = useSettingsStore((state) => state.updateStats);
     const highlightsExportName = normalizeHighlightsExportName(settings.vault.highlightsFileName);
-    const isMobilePlatform = isMobile();
+    // Markdown export writes through the desktop shell; the web build skips it
+    // and mobile has no folder picker, so the section only exists on desktop.
+    const canExportMarkdown = isTauriDesktop();
     const isLinuxDesktop = isTauriDesktop() && navigator.userAgent.includes("Linux");
     const setVaultSyncStatus = useUIStore((state) => state.setVaultSyncStatus);
     const vaultSyncStatus = useUIStore((state) => state.vaultSyncStatus);
@@ -603,11 +605,6 @@ export const SettingsPage = memo(function SettingsPage() {
     };
 
     const handlePickVaultDirectory = async () => {
-        if (isMobilePlatform) {
-            setAlertInfo({ title: "Not Available", message: "Folder selection is not supported on mobile. Configure the export folder on desktop." });
-            return;
-        }
-
         const selectedPath = await showOpenDirectoryDialog({
             title: "Choose Export Folder",
             defaultPath: settings.vault.vaultPath || undefined,
@@ -729,7 +726,7 @@ export const SettingsPage = memo(function SettingsPage() {
     const tabButtons = [
         { id: "general" as const, label: "General" },
         { id: "dictionary" as const, label: "Dictionary" },
-        { id: "integrations" as const, label: "Devices & Export" },
+        { id: "integrations" as const, label: canExportMarkdown ? "Devices & Export" : "Devices" },
         { id: "storage" as const, label: "Data & Storage" },
         { id: "shortcuts" as const, label: "Shortcuts" },
         { id: "about" as const, label: "About" },
@@ -1176,7 +1173,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         </Section>
                     )}
 
-                    <div ref={markdownExportSectionRef}>
+                    {canExportMarkdown && <div ref={markdownExportSectionRef}>
                         <Section
                             title="Markdown Export"
                             description="Export highlights and vocabulary as markdown files"
@@ -1184,11 +1181,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         >
                             <SettingRow
                                 label="Export Folder"
-                                description={
-                                    isMobilePlatform
-                                        ? "Folder selection is unavailable on mobile. Configure on desktop."
-                                        : "Choose a folder for your exported markdown files"
-                                }
+                                description="Choose a folder for your exported markdown files"
                             >
                                 <div className="flex flex-wrap items-center gap-2">
                                     <input
@@ -1207,8 +1200,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                         onClick={() => {
                                             void handlePickVaultDirectory();
                                         }}
-                                        disabled={isMobilePlatform}
-                                        className={cn("ui-btn", isMobilePlatform && "pointer-events-none opacity-50")}
+                                        className="ui-btn"
                                     >
                                         Pick folder
                                     </button>
@@ -1342,7 +1334,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 </div>
                             </details>
                         </Section>
-                    </div>
+                    </div>}
                 </div>}
 
             {(activeTab === "storage" || visitedTabs.has("storage")) && <div className={activeTab === "storage" ? "" : "hidden"}>

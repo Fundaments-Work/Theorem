@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One Bookmarks entry point on desktop** — The sidebar no longer has a separate Bookmarks icon; Bookmarks is a Workbench tab on every screen size, and the Workbench icon stays lit while you are on it. `Ctrl+7` still opens it.
 - **Keyboard shortcuts follow the platform** — `Ctrl` in a shortcut now means Command on macOS and Control elsewhere; labels show ⌘/⇧/⌥ on a Mac. `Ctrl+6` opens Discover (it duplicated Workbench).
 
+- **Markdown export hidden where it cannot run** — Export only works in the desktop app, but Android and the browser still showed the whole Markdown Export section with a disabled folder picker. It is now hidden there, the Settings tab is called Devices, the reader's annotations panel shows the export status only when export is set up on desktop, and onboarding no longer promises export on phones.
 ### Accessibility & Responsiveness
 
 - **Audited with axe-core on every screen** at 1280, 390 and 320px (see `docs/accessibility.md`): the final run reports no violations, no horizontal overflow and no target under 24px.

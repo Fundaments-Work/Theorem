@@ -54,7 +54,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 
 ## Your data
 
-- **Markdown export.** Keep highlights and vocabulary as plain files for Obsidian or Logseq, with built-in note styles and your own template. Needs the desktop or Android app. [Markdown export](vault-sync.md), [Write a custom template](vault-sync.md#write-a-custom-template)
+- **Markdown export.** Keep highlights and vocabulary as plain files for Obsidian or Logseq, with built-in note styles and your own template. Desktop app only. [Markdown export](vault-sync.md), [Write a custom template](vault-sync.md#write-a-custom-template)
 - **Sync between devices.** Pair devices directly with a QR code, with no cloud account. Needs the desktop or Android app. [Sync between devices](device-sync.md)
 - **Backups.** Create a backup file, and see or clear your storage. [Data and storage](settings-and-shortcuts.md#data--storage)
 - **Everything stays on your device.** There is no account and no cloud service.

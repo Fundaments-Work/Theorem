@@ -11,7 +11,7 @@ Theorem exports highlights, notes, and vocabulary to Markdown files compatible w
 
 ## Output Presets
 
-Theorem provides 3 built-in output presets configured in **Settings → Markdown Export → Export Preset**:
+Theorem provides 3 built-in output presets configured in **Settings → Devices & Export → Markdown Export → Export Preset** (desktop only):
 
 ### 1. Obsidian (Default)
 
@@ -124,9 +124,13 @@ tags:
 2. **noun**: An ephemeral plant or insect.
 ```
 
+## Platforms
+
+Markdown export is desktop only. The web build has no file system access (`syncVaultMarkdownSnapshot` returns `skipped` outside Tauri) and mobile has no folder picker, so the Settings section, the Settings tab's "& Export" label, the reader annotations panel's export status line and the onboarding mention are all gated on `isTauriDesktop()`. Highlights made on a phone reach the export through [device sync](sync.md) and the next desktop export.
+
 ## Configuration
 
-Vault sync is configured in **Settings → Markdown Export**:
+Vault sync is configured in **Settings → Devices & Export → Markdown Export** (desktop only):
 
 | Setting | Purpose | Default |
 |---------|---------|---------|
@@ -139,13 +143,13 @@ Vault sync is configured in **Settings → Markdown Export**:
 ## When Export Happens
 
 - **Auto**: Triggered on annotation mutations (add/delete/edit highlight or note) after a short debounce to avoid excessive disk I/O.
-- **Manual**: Via the **Export now** button in Settings → Markdown Export.
+- **Manual**: Via the **Export now** button in Settings → Devices & Export → Markdown Export.
 - **Diff Detection**: Theorem compares byte hashes and only writes files that have actually changed, avoiding re-indexing cycles in Obsidian, Syncthing, or Git.
 
 ## Implementation Architecture
 
 1. **Rust Native Path (`src-tauri/src/vault_export.rs`)**: On desktop, the Tauri command `vault_export_snapshot` processes all books and annotations in parallel using Rayon threads.
-2. **TypeScript Web Fallback (`src/core/lib/vault-sync.ts`)**: In non-Tauri / test environments, a modular builder formats the markdown and outputs preset-specific structures.
+2. **TypeScript Fallback (`src/core/lib/vault-sync.ts`)**: If the native command fails, the TS builder formats the markdown and writes it through `plugin-fs`. Tests use the same builders. Outside Tauri the export is skipped.
 3. **Headless CLI**:
    ```bash
    theorem export --out ~/backup/reading_data.json

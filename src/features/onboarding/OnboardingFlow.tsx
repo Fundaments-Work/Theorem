@@ -8,6 +8,7 @@ import {
     ArrowLeft,
 } from "lucide-react";
 import { cn } from "../../core/lib/utils";
+import { isTauriDesktop } from "../../core/lib/env";
 import { TheoremLogo } from "../../shell/TheoremLogo";
 
 interface OnboardingFlowProps {
@@ -250,6 +251,9 @@ interface OnboardingStep {
     illustration: React.ReactNode;
 }
 
+// Markdown export only exists in the desktop app.
+const canExportMarkdown = isTauriDesktop();
+
 const steps: OnboardingStep[] = [
     {
         id: "welcome",
@@ -291,9 +295,10 @@ const steps: OnboardingStep[] = [
         id: "vault",
         icon: <FolderSync className="h-5 w-5" />,
         title: "Sync Across Devices",
-        subtitle: "P2P sync + markdown export.",
-        description:
-            "Pair devices to sync reading progress, highlights, and books over LAN. Export to Markdown vaults for long-term ownership — no cloud required.",
+        subtitle: canExportMarkdown ? "P2P sync + markdown export." : "Peer-to-peer sync.",
+        description: canExportMarkdown
+            ? "Pair devices to sync reading progress, highlights, and books over LAN. Export to Markdown vaults for long-term ownership — no cloud required."
+            : "Pair devices to sync reading progress, highlights, and books over LAN — no cloud required.",
         illustration: <VaultIllustration />,
     },
 ];

@@ -53,7 +53,7 @@ Search finds the exact letters you type. Check the spelling and turn off Match C
 
 ## Device sync
 
-- **The other device does not appear or does not sync.** Both devices must be running Theorem and be paired. Open Settings, Devices & Export, check the Paired Devices list and click Sync Now. If the This Device card says Pair a device to enable incoming sync, you have not paired yet.
+- **The other device does not appear or does not sync.** Both devices must be running Theorem and be paired. Open Settings, Devices & Export (Devices on Android), check the Paired Devices list and click Sync Now. If the This Device card says Pair a device to enable incoming sync, you have not paired yet.
 - **Pairing fails.** Make sure the pairing code is complete when you paste it, and try Show Pairing QR again to get a fresh code.
 - **QR scanning does not work.** Scanning works only in the Android app, and only after you allow camera access. On desktop, paste the pairing code instead.
 - **A sync is stuck.** Click Cancel next to the device and try Sync Now again.
@@ -79,7 +79,7 @@ Search finds the exact letters you type. Check the spelling and turn off Match C
 
 - **No files appear in the vault.** Open Settings, Devices & Export, Markdown Export. Make sure Export Folder is set, then click Export now. The Export Status line shows whether the export worked. If it says Set an export folder first, pick a folder.
 - **A book has no file.** Only books with highlights get a note. Bookmarks are not exported.
-- **I cannot choose a folder on Android.** The export folder setting is not available on Android. See [Markdown export for Obsidian and Logseq](vault-sync.md).
+- **I cannot find Markdown export on Android.** Markdown export runs in the desktop app only, so the section is hidden on Android. See [Markdown export for Obsidian and Logseq](vault-sync.md).
 - **The notes look different from what I expect.** Change the Export Preset or Highlight Grouping, or write a Custom (Knap) template.
 
 ## Installing and updating

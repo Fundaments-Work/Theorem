@@ -39,7 +39,7 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
   Review every highlight, note, saved word and bookmark across your library in one place.
 
 - **[Markdown export for Obsidian and Logseq](vault-sync.md)**
-  Choose an export folder, pick a note style, and keep Markdown files of your highlights and vocabulary up to date.
+  Choose an export folder, pick a note style, and keep Markdown files of your highlights and vocabulary up to date. Desktop app only.
 
 - **[Dictionary and vocabulary](dictionary.md)**
   Look up words while reading, install offline dictionaries, and save words to your vocabulary list.
@@ -70,4 +70,4 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 
 ## Try it without installing
 
-A browser demo runs at [read.fundaments.work](https://read.fundaments.work). Some features need the desktop or Android app, including smart shelves, folder scanning, device sync and Markdown export.
+A browser demo runs at [read.fundaments.work](https://read.fundaments.work). Some features need the desktop or Android app, including smart shelves, folder scanning and device sync. Markdown export needs the desktop app.
