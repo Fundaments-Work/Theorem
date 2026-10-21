@@ -44,6 +44,12 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 - **[Get ebook highlights into Obsidian](highlights-to-obsidian.md)**
   Step by step: pick your vault as the export folder, highlight in an EPUB or PDF, see the exact Markdown Theorem writes, and set up Logseq or a custom template.
 
+- **[Supported ebook, PDF and comic formats](supported-formats.md)**
+  Exactly what opens, what each format supports, and what differs by platform.
+
+- **[Annotate PDFs with highlights and a pen](annotate-pdfs.md)**
+  Which PDF tools work on which platform, and what reaches your Markdown export.
+
 - **[Dictionary and vocabulary](dictionary.md)**
   Look up words while reading, install offline dictionaries, and save words to your vocabulary list.
 
@@ -74,3 +80,19 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 ## Try it without installing
 
 A browser demo runs at [read.fundaments.work](https://read.fundaments.work). Some features need the desktop or Android app, including smart shelves, folder scanning, device sync and Markdown export.
+
+## Compare Theorem
+
+Factual comparisons with sources, including when the other app is the better fit.
+
+- **[Theorem vs the Calibre E-book Viewer](vs-calibre-viewer.md)**
+  Platforms, highlight export and library management.
+
+- **[Theorem vs KOReader](vs-koreader.md)**
+  Target hardware, formats and where highlights go.
+
+- **[Theorem vs the Zotero Reader](vs-zotero-reader.md)**
+  Sync, annotation export and what each app is built for.
+
+- **[Theorem vs Readwise Reader](vs-readwise-reader.md)**
+  Keeping books and highlights on your device versus a hosted reading service.

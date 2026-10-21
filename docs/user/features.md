@@ -7,16 +7,16 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 ## Your library
 
 - **Many formats.** EPUB, Kindle (MOBI, AZW, AZW3), FictionBook, comics (CBZ, CBR) and PDF. [Add books](library-and-import.md#add-books)
-- **Import whole folders.** Scan a folder, keep its folder structure, and browse your library by source folder. Needs the desktop or Android app. [Import a folder](library-and-import.md#import-a-folder)
+- **Import whole folders.** (new in 1.6.0, not released yet) Scan a folder, keep its folder structure, and browse your library by source folder. Needs the desktop or Android app. [Import a folder](library-and-import.md#import-a-folder)
 - **Search, sort and filter.** Find books by title, author and more, and narrow the view by status. [Search, sort and filter](library-and-import.md#search-sort-and-filter)
 - **Edit book details.** Change titles, authors, covers and tags; open a book in its own window on desktop. [Open and manage a book](library-and-import.md#open-and-manage-a-book)
-- **Act on many books at once.** Select all results across a filtered library, then mark read, add to a shelf or delete. [Select many books](library-and-import.md#select-many-books)
+- **Act on many books at once.** (new in 1.6.0, not released yet) Select all results across a filtered library, then mark read, add to a shelf or delete. [Select many books](library-and-import.md#select-many-books)
 - **Daily highlight.** A highlight from your own notes resurfaces on the Library page. [Daily highlight](library-and-import.md#daily-highlight)
 
 ## Organizing
 
-- **Shelves.** Group books your way, with sub-shelves for a second level. [Create a shelf](shelves.md#create-a-shelf), [Sub-shelves](shelves.md#nest-shelves-with-sub-shelves)
-- **Smart shelves.** Shelves that fill themselves from rules such as reading status, tags, series, authors and formats. Needs the desktop or Android app. [Build a smart shelf](shelves.md#build-a-smart-shelf)
+- **Shelves.** Group books your way, with sub-shelves for a second level (sub-shelves are new in 1.6.0, not released yet). [Create a shelf](shelves.md#create-a-shelf), [Sub-shelves](shelves.md#nest-shelves-with-sub-shelves)
+- **Smart shelves.** (new in 1.6.0, not released yet) Shelves that fill themselves from rules such as reading status, tags, series, authors and formats. Needs the desktop or Android app. [Build a smart shelf](shelves.md#build-a-smart-shelf)
 - **Series.** Volume order, combined progress, and a "Read next" prompt when you finish a volume. [Organize books into series](shelves.md#organize-books-into-series)
 
 ## Finding books
@@ -28,7 +28,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 - **Reader.** Themes (light, sepia, dark), type and layout controls, in-book search, table of contents and page navigation. [Change how a book looks](reading.md#change-how-a-book-looks), [Search inside a book](reading.md#search-inside-a-book)
 - **Footnotes and citations** open in a small popover without leaving the page. [Footnotes and citations](reading.md#footnotes-and-citations)
 - **PDFs.** Zoom modes, page labels, and Present and Print on desktop. [Read a PDF](reading.md#read-a-pdf)
-- **Comics.** Page by page, or a continuous vertical strip for webtoons. [Read a comic](reading.md#read-a-comic)
+- **Comics.** Page by page, or a continuous vertical strip for webtoons (the strip is new in 1.6.0, not released yet). [Read a comic](reading.md#read-a-comic)
 - **Speed Read.** Shows one word at a time at a speed you choose. Off by default, and not available for PDFs. [Speed Read](reading.md#speed-read)
 - **Separate window.** Open a book in its own window. Desktop only. [Open a book in a separate window](reading.md#open-a-book-in-a-separate-window)
 

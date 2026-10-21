@@ -44,6 +44,8 @@ Use the search box at the top of the Shelves page to find a shelf by name.
 
 ## Nest shelves with sub-shelves
 
+> **New in Theorem 1.6.0, not released yet.** Sub-shelves are in version 1.6.0. The latest release, 1.5.9, does not have them.
+
 You can put shelves inside other shelves, one level deep.
 
 1. Click New Shelf and, in the Parent shelf menu, choose the shelf that will hold the new one. Or open a top-level shelf and click New sub-shelf.
@@ -55,6 +57,8 @@ To move a shelf, choose Edit and change Parent shelf. Choose None (top-level she
 Each shelf keeps its own books. A parent shelf does not automatically include the books of its sub-shelves. Deleting a parent never deletes books.
 
 ## Build a smart shelf
+
+> **New in Theorem 1.6.0, not released yet.** Smart shelves are in version 1.6.0. The latest release, 1.5.9, does not have them.
 
 A smart shelf fills itself with every book that matches rules you write. It updates as you import, edit or read books.
 
