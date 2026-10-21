@@ -149,7 +149,11 @@ class ImmersionPlayer {
     private lastPosSec = 0;
     private streamDone = false;
     private progressTimer: ReturnType<typeof setInterval> | null = null;
-    private currentText = '';
+    /** Bumped by every speak()/stop()/completion; stale async work compares against it.
+     *  (Comparing page text is not enough: replaying the same page must not revive
+     *  the previous run.) */
+    private session = 0;
+    private polling = false;
 
     // ── Sentence tracking & prefetch coordination ───────────────────────────
     private activeChunks: string[] = [];
@@ -161,6 +165,7 @@ class ImmersionPlayer {
 
     // ── Platform session (Android engine app / desktop OS voice) ────────────
     private voice: string | null = null;
+    private platformSpeed = 1;
     private fullText = '';
     private fullWords: string[] = [];
     private lastRangeEnd = 0;
@@ -204,12 +209,12 @@ class ImmersionPlayer {
         if (!trimmed || !isTauri()) return;
 
         const normalized = normalizeTextForAudio(trimmed);
-        this.currentText = normalized;
+        const sid = this.session;
         const neural = await getNeuralStatus();
         // Superseded by a newer speak()/stop() while awaiting the status probe.
-        if (normalized !== this.currentText) return;
+        if (sid !== this.session) return;
         if (neural.available) {
-            await this.speakNeural(normalized, opts);
+            await this.speakNeural(normalized, opts, sid);
         } else {
             await this.speakPlatform(normalized, opts.voice ?? null, opts.speed ?? 1);
         }
@@ -217,7 +222,7 @@ class ImmersionPlayer {
 
     // ── Neural: synthesize to WAV, play through the native Rust player ──────
 
-    private async speakNeural(text: string, opts: SpeakOptions) {
+    private async speakNeural(text: string, opts: SpeakOptions, sid: number) {
         const voice = resolveNeuralVoice(opts.voice);
         const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
         const lang = opts.lang || "en";
@@ -225,8 +230,13 @@ class ImmersionPlayer {
         try {
             // Streaming: synthesize only the first sentence chunk, start
             // playback, then synthesize and queue the rest while audio plays.
-            const chunks = await invoke<string[]>("tts_text_chunks", { text, lang });
-            if (text !== this.currentText) return;
+            const chunks = (await invoke<string[]>("tts_text_chunks", { text, lang })).filter((c) => c.trim());
+            if (sid !== this.session) return;
+            if (chunks.length === 0) {
+                // Nothing speakable (symbols, a blank page): treat as read so the reader moves on.
+                this._onDone();
+                return;
+            }
             this.activeChunks = chunks;
             this.lastChunkIndex = 0;
             this.nearEndEmitted = false;
@@ -234,11 +244,16 @@ class ImmersionPlayer {
             const first = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
                 "tts_synthesize", { text: chunks[0], voice, speed, lang },
             );
-            if (text !== this.currentText || this._state !== 'loading') return;
+            if (sid !== this.session || this._state !== 'loading') return;
             // Native playback (rodio/cpal in Rust) — bypasses webview audio,
             // which could stay silently suspended outside a gesture stack.
             await invoke("tts_audio_play", { path: first.path });
-            if (text !== this.currentText || this._state !== 'loading') return;
+            if (sid !== this.session || this._state !== 'loading') {
+                // Stopped while the player was starting: don't leave audio running
+                // behind an idle UI (but never cut off a newer session that took over).
+                if ((this._state as PlaybackState) === 'idle') invoke("tts_audio_stop").catch(() => { /* already stopped */ });
+                return;
+            }
             this.nativeSession = true;
             this.durationSec = first.duration_sec;
             this.lastPosSec = 0;
@@ -257,7 +272,7 @@ class ImmersionPlayer {
             this.setState('playing');
 
             if (chunks.length > 1) {
-                void this.streamChunks(text, chunks.slice(1), voice, speed, lang);
+                void this.streamChunks(sid, chunks.slice(1), voice, speed, lang);
             }
         } catch (err: unknown) {
             this._onError(err instanceof Error ? err.message : String(err));
@@ -269,23 +284,23 @@ class ImmersionPlayer {
      *  keeps it saturated; if playback outpaces it, the native player's
      *  append-on-drain resumes seamlessly (see the underrun handling above). */
     private async streamChunks(
-        text: string,
+        sid: number,
         chunks: string[],
         voice: NeuralVoice,
         speed: number,
         lang: string,
     ) {
         for (const chunk of chunks) {
-            if (text !== this.currentText || !this.nativeSession) return;
+            if (sid !== this.session || !this.nativeSession) return;
             try {
                 const result = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
                     "tts_synthesize", { text: chunk, voice, speed, lang },
                 );
-                if (text !== this.currentText || !this.nativeSession) return;
+                if (sid !== this.session || !this.nativeSession) return;
                 await invoke("tts_audio_append", { path: result.path });
                 this.durationSec += result.duration_sec;
             } catch (err: unknown) {
-                if (text === this.currentText && this.nativeSession) {
+                if (sid === this.session && this.nativeSession) {
                     this._onError(err instanceof Error ? err.message : String(err));
                 }
                 return;
@@ -297,7 +312,10 @@ class ImmersionPlayer {
     private startProgressTimer() {
         this.stopProgressTimer();
         this.progressTimer = setInterval(async () => {
-            if (this._state !== 'playing' || !this.nativeSession) return;
+            // One status request in flight at a time, so a slow IPC can't pile up ticks.
+            if (this.polling || this._state !== 'playing' || !this.nativeSession) return;
+            this.polling = true;
+            const sid = this.session;
             try {
                 const status = await invoke<{
                     position: number;
@@ -305,6 +323,8 @@ class ImmersionPlayer {
                     chunk_index: number;
                     finished: boolean;
                 }>("tts_audio_status");
+                // The session ended (stop, page change) while the request was in flight.
+                if (sid !== this.session || !this.nativeSession) return;
 
                 this.lastPosSec = status.position;
                 this.callbacks.onProgress?.(status.position, this.durationSec);
@@ -341,6 +361,7 @@ class ImmersionPlayer {
                     this._onDone();
                 }
             } catch { /* transient IPC error; next tick retries */ }
+            finally { this.polling = false; }
         }, 100);
     }
 
@@ -367,7 +388,8 @@ class ImmersionPlayer {
     // ── Platform: OS/engine voice with estimated or event-driven timing ─────
 
     private async speakPlatform(text: string, voice: string | null, speed: number = 1) {
-        this.currentText = text;
+        const sid = this.session;
+        this.platformSpeed = speed > 0 ? speed : 1;
         this.fullText = text;
         this.fullWords = text.trim().split(/\s+/);
         this.platformSentences = segmentSentences(text);
@@ -379,8 +401,8 @@ class ImmersionPlayer {
         this.setState('loading');
         await this.bindPlatformEvents();
         try {
-            await invoke("tts_speak", { text, voice: voice || "" });
-            if (text !== this.currentText) return;
+            await invoke("tts_speak", { text, voice: voice || "", speed: this.platformSpeed });
+            if (sid !== this.session) return;
             this.setState('playing');
 
             if (this.platformSentences.length > 0) {
@@ -510,7 +532,7 @@ class ImmersionPlayer {
             wordsToDrop = spoken ? spoken.split(/\s+/).length : 0;
         } else {
             const elapsedSec = (performance.now() - this.startTime) / 1000;
-            const charsSpoken = Math.floor(elapsedSec * BASE_CHARS_PER_SEC);
+            const charsSpoken = Math.floor(elapsedSec * BASE_CHARS_PER_SEC * this.platformSpeed);
             let charCount = 0;
             for (let i = 0; i < this.fullWords.length; i++) {
                 charCount += this.fullWords[i].length;
@@ -533,7 +555,7 @@ class ImmersionPlayer {
         }
         const remaining = this.fullText.trim();
         if (!remaining) { this._onDone(); return; }
-        await this.speakPlatform(remaining, this.voice);
+        await this.speakPlatform(remaining, this.voice, this.platformSpeed);
     }
 
     async stop() {
@@ -569,7 +591,7 @@ class ImmersionPlayer {
     }
 
     private _clearAll() {
-        this.currentText = '';
+        this.session++;
         if (this.nativeSession) {
             invoke("tts_audio_stop").catch(() => { /* already stopped */ });
         }

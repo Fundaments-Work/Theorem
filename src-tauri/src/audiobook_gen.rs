@@ -26,6 +26,9 @@ pub mod engine {
     const BITRATE_BPS: u32 = 36_000;
     /// Silence joined between sentence chunks, in source samples.
     const CHUNK_GAP_SRC_SAMPLES: usize = (0.3 * 44_100.0) as usize;
+    /// A page is closed after ~1s of audio (48 packets of 20ms).
+    const MAX_PACKETS_PER_PAGE: u32 = 48;
+    const OPUS_VENDOR: &str = "Theorem";
     const PROGRESS_EVENT: &str = "audiobook-gen-progress";
     const DONE_EVENT: &str = "audiobook-gen-done";
 
@@ -110,15 +113,23 @@ pub mod engine {
             }
         }
 
-        fn add_packet(&mut self, data: &[u8], granule: u64) {
-            let full_segments = data.len() / 255;
-            for _ in 0..full_segments {
+        /// Adds one packet, closing the current page first when it is full (about
+        /// a second of audio, or the 255-entry segment table limit). Flushing
+        /// *before* the add means the final page is never empty, so it can always
+        /// carry the end-of-stream flag.
+        fn add_packet(&mut self, data: &[u8], granule: u64) -> std::io::Result<()> {
+            let needed = data.len() / 255 + 1;
+            if self.packet_count >= MAX_PACKETS_PER_PAGE || self.segments.len() + needed > 255 {
+                self.flush_page(false)?;
+            }
+            for _ in 0..data.len() / 255 {
                 self.segments.push(255);
             }
             self.segments.push((data.len() % 255) as u8);
             self.payload.extend_from_slice(data);
             self.packet_count += 1;
             self.granule = granule;
+            Ok(())
         }
 
         fn flush_page(&mut self, eos: bool) -> std::io::Result<()> {
@@ -153,14 +164,6 @@ pub mod engine {
             self.segments.clear();
             self.payload.clear();
             self.packet_count = 0;
-            Ok(())
-        }
-
-        /// Page is flushed every ~1s of audio (48 packets) or on demand.
-        fn maybe_flush(&mut self) -> std::io::Result<()> {
-            if self.packet_count >= 48 {
-                self.flush_page(false)?;
-            }
             Ok(())
         }
     }
@@ -222,6 +225,53 @@ pub mod engine {
         Ok((samples, sample_rate))
     }
 
+    /// RFC 7845 §5.2: vendor string, then a (here empty) user comment list.
+    /// Decoders reject the packet when the comment count is missing.
+    fn opus_tags_packet() -> Vec<u8> {
+        let mut tags = Vec::with_capacity(16 + OPUS_VENDOR.len());
+        tags.extend_from_slice(b"OpusTags");
+        tags.extend_from_slice(&(OPUS_VENDOR.len() as u32).to_le_bytes());
+        tags.extend_from_slice(OPUS_VENDOR.as_bytes());
+        tags.extend_from_slice(&0u32.to_le_bytes());
+        tags
+    }
+
+    /// Where generated audiobooks live; the only place Theorem deletes from.
+    fn audiobooks_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+        Ok(app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("No app data dir: {e}"))?
+            .join("audiobooks"))
+    }
+
+    /// Book ids become file names, so only plain identifier characters are allowed.
+    fn is_safe_book_id(id: &str) -> bool {
+        !id.is_empty()
+            && id.len() <= 128
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    }
+
+    /// Deletes a generated audiobook (or its leftover `.part`) when `path` is a
+    /// file directly inside the app's audiobooks folder. Anything else — a
+    /// user-attached file, a traversal attempt — is left alone and reports `false`.
+    pub fn delete_generated_impl(app: &AppHandle, path: &str) -> Result<bool, String> {
+        let dir = match audiobooks_dir(app)?.canonicalize() {
+            Ok(dir) => dir,
+            Err(_) => return Ok(false),
+        };
+        let Ok(target) = std::path::Path::new(path).canonicalize() else {
+            return Ok(false);
+        };
+        if target.parent() != Some(dir.as_path()) || !target.is_file() {
+            return Ok(false);
+        }
+        std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
     // ── Generation task ──────────────────────────────────────────────────────────
 
     async fn run_generation(
@@ -233,11 +283,7 @@ pub mod engine {
         lang: &str,
         cancel: Arc<AtomicBool>,
     ) -> Result<GenDonePayload, String> {
-        let dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("No app data dir: {e}"))?
-            .join("audiobooks");
+        let dir = audiobooks_dir(app)?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let final_path = dir.join(format!("{}.ogg", book_id));
         let part_path = dir.join(format!("{}.ogg.part", book_id));
@@ -255,14 +301,11 @@ pub mod engine {
         opus_head.extend_from_slice(&TARGET_SAMPLE_RATE.to_le_bytes());
         opus_head.extend_from_slice(&0i16.to_le_bytes());
         opus_head.push(0);
-        ogg.add_packet(&opus_head, 0);
+        ogg.add_packet(&opus_head, 0).map_err(|e| e.to_string())?;
         ogg.flush_page(false).map_err(|e| e.to_string())?;
 
-        let mut opus_tags = Vec::new();
-        opus_tags.extend_from_slice(b"OpusTags");
-        opus_tags.extend_from_slice(&4u32.to_le_bytes());
-        opus_tags.extend_from_slice(b"Theo");
-        ogg.add_packet(&opus_tags, 0);
+        ogg.add_packet(&opus_tags_packet(), 0)
+            .map_err(|e| e.to_string())?;
         ogg.flush_page(false).map_err(|e| e.to_string())?;
 
         let mut encoder =
@@ -279,18 +322,20 @@ pub mod engine {
 
         for (index, section) in sections.into_iter().enumerate() {
             if cancel.load(Ordering::SeqCst) {
-                drop(ogg);
-                let _ = std::fs::remove_file(&part_path);
                 return Err("cancelled".to_string());
             }
 
             let chunk_start_sec = granule as f64 / TARGET_SAMPLE_RATE as f64;
             let normalized_section =
-                crate::text_normalizer::normalize_speech_text(&section.text, "en");
+                crate::text_normalizer::normalize_speech_text(&section.text, lang);
             for (chunk_idx, chunk) in desktop::chunk_text(&normalized_section, 300)
                 .into_iter()
                 .enumerate()
             {
+                // A section can be many minutes of speech; honour cancel per chunk.
+                if cancel.load(Ordering::SeqCst) {
+                    return Err("cancelled".to_string());
+                }
                 if chunk_idx > 0 {
                     // Sentence gap (source-rate silence, resampled below).
                     let gap = resample_to_48k(&vec![0.0f32; CHUNK_GAP_SRC_SAMPLES], 44_100);
@@ -366,8 +411,8 @@ pub mod engine {
                     .map_err(|e| format!("Opus encode failed: {e}"))?
             };
             *granule += frame.len() as u64;
-            ogg.add_packet(&packet_buf[..written], *granule);
-            ogg.maybe_flush().map_err(|e| e.to_string())?;
+            ogg.add_packet(&packet_buf[..written], *granule)
+                .map_err(|e| e.to_string())?;
             pos = frame_end;
         }
         Ok(())
@@ -382,6 +427,9 @@ pub mod engine {
     ) -> Result<(), String> {
         if sections.is_empty() {
             return Err("No sections to narrate".to_string());
+        }
+        if !is_safe_book_id(&book_id) {
+            return Err("Invalid book id".to_string());
         }
         let flag = Arc::new(AtomicBool::new(false));
         {
@@ -402,13 +450,19 @@ pub mod engine {
                 .ok();
             let payload = match result {
                 Ok(done) => done,
-                Err(e) => GenDonePayload {
-                    book_id: task_book_id.clone(),
-                    path: None,
-                    duration_sec: 0.0,
-                    chapters: Vec::new(),
-                    error: Some(e),
-                },
+                Err(e) => {
+                    // Never leave a half-written file behind (cancel, synthesis or disk error).
+                    if let Ok(dir) = audiobooks_dir(&app) {
+                        let _ = std::fs::remove_file(dir.join(format!("{task_book_id}.ogg.part")));
+                    }
+                    GenDonePayload {
+                        book_id: task_book_id.clone(),
+                        path: None,
+                        duration_sec: 0.0,
+                        chapters: Vec::new(),
+                        error: Some(e),
+                    }
+                }
             };
             let _ = app.emit(DONE_EVENT, payload);
         });
@@ -430,7 +484,7 @@ pub mod engine {
         #[test]
         fn writes_parseable_opus_pages() {
             let mut ogg = OggWriter::new(Vec::new(), 0x12345678);
-            ogg.add_packet(b"OpusHead-xxxxxxxxxxxxxxxxxxxx", 0);
+            ogg.add_packet(b"OpusHead-xxxxxxxxxxxxxxxxxxxx", 0).unwrap();
             ogg.flush_page(false).unwrap();
             let pcm = vec![0.1f32; FRAME_SAMPLES * 2];
             let encoder = audiopus::coder::Encoder::new(
@@ -462,6 +516,72 @@ pub mod engine {
             let granule_bytes: [u8; 8] = out[eos_off + 6..eos_off + 14].try_into().unwrap();
             assert_eq!(u64::from_le_bytes(granule_bytes), granule);
         }
+
+        /// Walks every page, returning `(flags, segment_count, packet_count)`.
+        fn pages(out: &[u8]) -> Vec<(u8, usize, usize)> {
+            let mut pos = 0;
+            let mut found = Vec::new();
+            while pos < out.len() {
+                assert_eq!(&out[pos..pos + 4], b"OggS", "page boundary at {pos}");
+                let segs = out[pos + 26] as usize;
+                let table = &out[pos + 27..pos + 27 + segs];
+                let payload: usize = table.iter().map(|&b| b as usize).sum();
+                let packets = table.iter().filter(|&&b| b < 255).count();
+                found.push((out[pos + 5], segs, packets));
+                pos += 27 + segs + payload;
+            }
+            assert_eq!(pos, out.len(), "pages must tile the stream exactly");
+            found
+        }
+
+        #[test]
+        fn pages_never_overflow_the_segment_table_and_the_last_carries_eos() {
+            // Worst-case 1275-byte packets need 6 segments each; 48 of them would
+            // overflow a 255-entry table if only the packet count bounded a page.
+            for packets in [47usize, 48, 49, 96, 97, 200] {
+                let mut ogg = OggWriter::new(Vec::new(), 7);
+                for i in 0..packets {
+                    ogg.add_packet(&[0xab; 1275], (i as u64 + 1) * 960).unwrap();
+                }
+                ogg.flush_page(true).unwrap();
+                let all = pages(&ogg.out);
+                assert!(all.iter().all(|&(_, segs, _)| segs <= 255));
+                assert_eq!(all.iter().map(|p| p.2).sum::<usize>(), packets);
+                assert_eq!(all.last().unwrap().0 & 0x04, 0x04, "EOS on the last page");
+                assert!(all[..all.len() - 1].iter().all(|p| p.0 & 0x04 == 0));
+            }
+        }
+
+        #[test]
+        fn exact_page_boundary_still_ends_with_an_eos_page() {
+            let mut ogg = OggWriter::new(Vec::new(), 1);
+            for i in 0..MAX_PACKETS_PER_PAGE {
+                ogg.add_packet(&[1; 80], (u64::from(i) + 1) * 960).unwrap();
+            }
+            ogg.flush_page(true).unwrap();
+            let all = pages(&ogg.out);
+            assert_eq!(all.len(), 1);
+            assert_eq!(all[0].0 & 0x04, 0x04);
+        }
+
+        #[test]
+        fn opus_tags_packet_has_vendor_and_comment_count() {
+            let tags = opus_tags_packet();
+            assert_eq!(&tags[..8], b"OpusTags");
+            let vendor_len = u32::from_le_bytes(tags[8..12].try_into().unwrap()) as usize;
+            assert_eq!(&tags[12..12 + vendor_len], OPUS_VENDOR.as_bytes());
+            // The comment count must follow the vendor string, and the packet must end there.
+            assert_eq!(tags.len(), 12 + vendor_len + 4);
+            assert_eq!(&tags[12 + vendor_len..], &0u32.to_le_bytes());
+        }
+
+        #[test]
+        fn book_ids_cannot_escape_the_audiobooks_folder() {
+            assert!(is_safe_book_id("3f2a-91_b"));
+            for bad in ["", "../x", "a/b", "a\\b", "x.ogg", "a b", &"z".repeat(129)] {
+                assert!(!is_safe_book_id(bad), "{bad:?}");
+            }
+        }
     }
 }
 
@@ -478,6 +598,20 @@ pub async fn generate_audiobook(
     lang: String,
 ) -> Result<(), String> {
     engine::generate_audiobook_impl(app, book_id, sections, voice, speed, lang).await
+}
+
+/// Removes a generated audiobook file; a no-op (`false`) for anything outside the
+/// audiobooks folder, so user-attached recordings are never touched.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub fn delete_generated_audiobook(app: tauri::AppHandle, path: String) -> Result<bool, String> {
+    engine::delete_generated_impl(&app, &path)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn delete_generated_audiobook(_app: tauri::AppHandle, _path: String) -> Result<bool, String> {
+    Ok(false)
 }
 
 #[cfg(not(target_os = "android"))]

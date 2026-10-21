@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ListMusic, Moon, Pause, Play, Rewind, FastForward, X } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
@@ -10,6 +10,16 @@ const SKIP_SECONDS = 15;
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 const SLEEP_MINUTES = [15, 30, 45];
 const PROGRESS_SAVE_INTERVAL_MS = 5000;
+const KEYBOARD_SEEK_SECONDS = 5;
+/** A recording saved this close to the end counts as finished and restarts. */
+const RESTART_WITHIN_SECONDS = 3;
+
+function describeMediaError(audio: HTMLAudioElement): string {
+    // MEDIA_ERR_SRC_NOT_SUPPORTED also covers a file that moved or never existed on this device.
+    return audio.error?.code === 4
+        ? "Can't play this file here. It may have moved, or this device can't decode the format. Detach and attach it again from the library menu."
+        : "Playback failed. Close the player and try again.";
+}
 
 function formatTime(totalSec: number): string {
     const s = Math.max(0, Math.floor(totalSec));
@@ -40,6 +50,10 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
     const [chapterMenuOpen, setChapterMenuOpen] = useState(false);
     const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
     const [sleepDeadline, setSleepDeadline] = useState<number | null>(null);
+    /** Pause when playback reaches this position (end-of-chapter sleep), independent of speed. */
+    const sleepAtPositionRef = useRef<number | null>(null);
+    const [sleepAtChapterEnd, setSleepAtChapterEnd] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const lastSaveRef = useRef(0);
     const resumeRef = useRef(audioTrack.currentPositionSec);
     const trackRef = useRef(audioTrack);
@@ -53,30 +67,62 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         });
     }, [bookId]);
 
-    // Create the audio element once and resume at the saved position.
+    // Create the audio element once per recording and resume at the saved position.
+    const filePath = audioTrack.filePath;
     useEffect(() => {
-        const audio = new Audio(convertFileSrc(trackRef.current.filePath));
+        const audio = new Audio(convertFileSrc(filePath));
         audio.preload = "metadata";
         audio.playbackRate = trackRef.current.playbackSpeed || 1;
         audioRef.current = audio;
+        resumeRef.current = trackRef.current.currentPositionSec;
+        // Until the file has loaded, currentTime is 0 and says nothing about where the
+        // listener was: closing early must not overwrite the saved position with it.
+        let loaded = false;
+        setReady(false);
+        setError(null);
+        setPlaying(false);
 
         const onLoadedMetadata = () => {
+            loaded = true;
             // Prefer the real decoded duration over the container estimate.
-            if (Number.isFinite(audio.duration) && audio.duration > 0) {
-                setDuration(audio.duration);
-            }
-            // Resume at the saved position (only settable after metadata).
-            if (resumeRef.current > 0 && Number.isFinite(audio.duration)) {
-                audio.currentTime = Math.min(resumeRef.current, Math.max(0, audio.duration - 1));
+            const known = Number.isFinite(audio.duration) && audio.duration > 0;
+            if (known) setDuration(audio.duration);
+            // Resume at the saved position (only settable after metadata); a finished
+            // recording starts over rather than playing its last second.
+            let start = resumeRef.current;
+            if (known && start >= audio.duration - RESTART_WITHIN_SECONDS) start = 0;
+            if (start > 0 && known) {
+                audio.currentTime = Math.min(start, Math.max(0, audio.duration - 1));
+                setCurrentTime(audio.currentTime);
+            } else {
+                setCurrentTime(0);
             }
             setReady(true);
         };
         const onPlay = () => setPlaying(true);
-        const onPause = () => setPlaying(false);
+        const onPause = () => {
+            setPlaying(false);
+            if (loaded) saveProgress(audio.currentTime, audio.playbackRate);
+        };
+        const onEnded = () => {
+            setPlaying(false);
+            if (loaded) saveProgress(Number.isFinite(audio.duration) ? audio.duration : audio.currentTime, audio.playbackRate);
+        };
+        const onError = () => {
+            setPlaying(false);
+            setReady(false);
+            setError(describeMediaError(audio));
+        };
         const onTimeUpdate = () => {
             setCurrentTime(audio.currentTime);
+            const stopAt = sleepAtPositionRef.current;
+            if (stopAt !== null && audio.currentTime >= stopAt) {
+                sleepAtPositionRef.current = null;
+                setSleepAtChapterEnd(false);
+                audio.pause();
+            }
             const now = Date.now();
-            if (now - lastSaveRef.current > PROGRESS_SAVE_INTERVAL_MS) {
+            if (loaded && now - lastSaveRef.current > PROGRESS_SAVE_INTERVAL_MS) {
                 lastSaveRef.current = now;
                 saveProgress(audio.currentTime, audio.playbackRate);
             }
@@ -84,19 +130,23 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         audio.addEventListener("loadedmetadata", onLoadedMetadata);
         audio.addEventListener("play", onPlay);
         audio.addEventListener("pause", onPause);
+        audio.addEventListener("ended", onEnded);
+        audio.addEventListener("error", onError);
         audio.addEventListener("timeupdate", onTimeUpdate);
 
         return () => {
+            audio.removeEventListener("pause", onPause);
             audio.pause();
-            saveProgress(audio.currentTime, audio.playbackRate);
+            if (loaded) saveProgress(audio.currentTime, audio.playbackRate);
             audio.removeEventListener("loadedmetadata", onLoadedMetadata);
             audio.removeEventListener("play", onPlay);
-            audio.removeEventListener("pause", onPause);
+            audio.removeEventListener("ended", onEnded);
+            audio.removeEventListener("error", onError);
             audio.removeEventListener("timeupdate", onTimeUpdate);
             audio.src = "";
             audioRef.current = null;
         };
-    }, [bookId, saveProgress]);
+    }, [bookId, filePath, saveProgress]);
 
     // Sleep timer: pause and clear once the deadline passes.
     useEffect(() => {
@@ -123,16 +173,21 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
             ["seekbackward", () => skip(-SKIP_SECONDS)],
             ["seekforward", () => skip(SKIP_SECONDS)],
         ];
+        const onSeekTo = (details: MediaSessionActionDetails) => {
+            if (typeof details.seekTime === "number") seek(details.seekTime);
+        };
         try {
             for (const [action, handler] of actions) {
                 navigator.mediaSession.setActionHandler(action, handler);
             }
+            navigator.mediaSession.setActionHandler("seekto", onSeekTo);
         } catch { /* unsupported actions are fine */ }
         return () => {
             try {
                 for (const [action] of actions) {
                     navigator.mediaSession.setActionHandler(action, null);
                 }
+                navigator.mediaSession.setActionHandler("seekto", null);
             } catch { /* noop */ }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,6 +217,14 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         audio.currentTime = Math.max(0, Math.min(sec, audio.duration || Infinity));
         setCurrentTime(audio.currentTime);
     }, []);
+
+    /** Click or drag on the scrubber: map the pointer to a position in the recording. */
+    const seekFromPointer = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (rect.width <= 0 || !(duration > 0)) return;
+        const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        seek(ratio * duration);
+    }, [duration, seek]);
 
     const changeSpeed = useCallback((next: number) => {
         setSpeed(next);
@@ -207,7 +270,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             title={audioTrack.chapters.length > 0 ? "Jump to chapter" : undefined}
                         >
                             <span className="block text-[11px] text-[color:var(--color-text-primary)] truncate">
-                                {currentChapter ? currentChapter.title : "Audiobook"}
+                                {error ? <span role="alert" className="text-[color:var(--color-error)] whitespace-normal">{error}</span> : currentChapter ? currentChapter.title : "Audiobook"}
                             </span>
                         </button>
                         <span className="text-[10px] font-mono text-[color:var(--color-text-muted)] shrink-0">
@@ -218,7 +281,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                 onClick={() => setSleepMenuOpen(v => !v)}
                                 className={cn(
                                     "flex items-center justify-center w-7 h-7 transition-colors",
-                                    sleepDeadline !== null
+                                    sleepDeadline !== null || sleepAtChapterEnd
                                         ? "ui-selected"
                                         : "text-[color:var(--color-text-secondary)] hover:bg-[var(--color-overlay-subtle)]",
                                 )}
@@ -231,9 +294,14 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                 <>
                                     <div className="fixed inset-0 z-[141]" onClick={() => setSleepMenuOpen(false)} />
                                     <div className="absolute bottom-9 right-0 z-[142] w-32 border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
-                                        {sleepDeadline !== null && (
+                                        {(sleepDeadline !== null || sleepAtChapterEnd) && (
                                             <button
-                                                onClick={() => { setSleepDeadline(null); setSleepMenuOpen(false); }}
+                                                onClick={() => {
+                                                    setSleepDeadline(null);
+                                                    sleepAtPositionRef.current = null;
+                                                    setSleepAtChapterEnd(false);
+                                                    setSleepMenuOpen(false);
+                                                }}
                                                 className="w-full px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)]"
                                             >
                                                 Off
@@ -243,6 +311,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                             <button
                                                 key={min}
                                                 onClick={() => {
+                                                    sleepAtPositionRef.current = null;
+                                                    setSleepAtChapterEnd(false);
                                                     setSleepDeadline(Date.now() + min * 60_000);
                                                     setSleepMenuOpen(false);
                                                 }}
@@ -253,8 +323,12 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                         ))}
                                         <button
                                             onClick={() => {
-                                                const ch = audioTrack.chapters.find((c) => c.startSec > currentTime);
-                                                setSleepDeadline(Date.now() + Math.max(1, (ch ? ch.startSec - currentTime : duration - currentTime)) * 1000);
+                                                // Stop at the chapter boundary itself, so playback speed
+                                                // and pauses can't make a clock-based timer miss it.
+                                                const next = audioTrack.chapters.find((c) => c.startSec > currentTime);
+                                                sleepAtPositionRef.current = next ? next.startSec : duration;
+                                                setSleepAtChapterEnd(true);
+                                                setSleepDeadline(null);
                                                 setSleepMenuOpen(false);
                                             }}
                                             disabled={audioTrack.chapters.length === 0}
@@ -278,15 +352,26 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
 
                     {/* Row 2: scrubber */}
                     <div
-                        className="relative mt-1.5 h-2 cursor-pointer"
+                        className="relative mt-1.5 h-3 cursor-pointer touch-none"
                         role="slider"
+                        tabIndex={0}
                         aria-label="Playback position"
                         aria-valuemin={0}
                         aria-valuemax={Math.floor(duration)}
                         aria-valuenow={Math.floor(currentTime)}
-                        onClick={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            seek(((e.clientX - rect.left) / rect.width) * duration);
+                        aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
+                        onPointerDown={(e) => {
+                            e.currentTarget.setPointerCapture?.(e.pointerId);
+                            seekFromPointer(e);
+                        }}
+                        onPointerMove={(e) => { if (e.buttons & 1) seekFromPointer(e); }}
+                        onKeyDown={(e) => {
+                            if (e.key === "ArrowLeft" || e.key === "ArrowDown") skip(-KEYBOARD_SEEK_SECONDS);
+                            else if (e.key === "ArrowRight" || e.key === "ArrowUp") skip(KEYBOARD_SEEK_SECONDS);
+                            else if (e.key === "Home") seek(0);
+                            else if (e.key === "End") seek(duration);
+                            else return;
+                            e.preventDefault();
                         }}
                     >
                         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--color-surface-muted)]" />
@@ -312,7 +397,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                         </button>
                         <button
                             onClick={togglePlay}
-                            disabled={!ready}
+                            disabled={!ready || error !== null}
                             className={cn(
                                 "flex items-center justify-center w-10 h-10 transition-colors",
                                 "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)]",
@@ -337,6 +422,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                 <button
                                     key={s}
                                     onClick={() => changeSpeed(s)}
+                                    aria-pressed={speed === s}
+                                    aria-label={`Speed ${s}x`}
                                     className={cn(
                                         "px-1.5 py-0.5 text-[10px] transition-colors",
                                         speed === s

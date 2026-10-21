@@ -1354,15 +1354,33 @@ const BookReaderPage = memo(function BookReaderPage() {
         [settings.tts.voice, settings.tts.speed, currentBookId],
     );
 
+    // Text of the page that just finished narrating, to recognise the end of the book.
+    const lastSpokenTtsTextRef = useRef("");
+
     const handleTtsComplete = useCallback(async () => {
         if (isPdfFormat || !ttsEnabled || !immersionMode) return;
-        await readerRef.current?.next();
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        const newData = readerRef.current?.getVisibleTextForTts?.();
-        if (!newData?.text) return;
-        setTtsData(newData);
-
-        immersionPlayer.speak(newData.text, ttsSpeakOptions());
+        const finished = lastSpokenTtsTextRef.current;
+        // Skip pages with nothing to read (images, blank pages) instead of going quiet.
+        const MAX_BLANK_PAGES = 5;
+        for (let attempt = 0; attempt <= MAX_BLANK_PAGES; attempt++) {
+            await readerRef.current?.next();
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            const newData = readerRef.current?.getVisibleTextForTts?.();
+            const text = newData?.text?.trim();
+            if (!newData || !text) continue;
+            if (text === finished) {
+                // The page did not change: that was the last one. Re-reading it forever is wrong.
+                lastSpokenTtsTextRef.current = "";
+                setTtsState('idle');
+                toast("Reached the end of the book");
+                return;
+            }
+            lastSpokenTtsTextRef.current = text;
+            setTtsData(newData);
+            void immersionPlayer.speak(newData.text, ttsSpeakOptions());
+            return;
+        }
+        setTtsState('idle');
     }, [isPdfFormat, ttsEnabled, immersionMode, ttsSpeakOptions]);
 
     const handleTtsPlay = useCallback(() => {
@@ -1379,6 +1397,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             }
         }
         if (!text) return;
+        lastSpokenTtsTextRef.current = text;
         void immersionPlayer.speak(text, ttsSpeakOptions());
     }, [ttsState, ttsData, ttsSpeakOptions]);
 
@@ -1456,9 +1475,14 @@ const BookReaderPage = memo(function BookReaderPage() {
         setAudioGenProgress({ current: 0, total: sections.length });
         const { listen } = await import("@tauri-apps/api/event");
         const { invoke } = await import("@tauri-apps/api/core");
-        const unlistenProgress = await listen<{ current: number; total: number }>(
+        // Events are broadcast app-wide: only react to this book's generation.
+        const unlistenProgress = await listen<{ bookId?: string; current: number; total: number }>(
             "audiobook-gen-progress",
-            (e) => setAudioGenProgress(e.payload),
+            (e) => {
+                if (e.payload.bookId === currentBookId) {
+                    setAudioGenProgress({ current: e.payload.current, total: e.payload.total });
+                }
+            },
         );
         const unlistenDone = await listen<{
             bookId: string;
@@ -1467,11 +1491,14 @@ const BookReaderPage = memo(function BookReaderPage() {
             chapters: AudioChapter[];
             error: string | null;
         }>("audiobook-gen-done", (e) => {
+            if (e.payload.bookId !== currentBookId) return;
             unlistenProgress();
             unlistenDone();
             setAudioGenProgress(null);
             if (e.payload.error) {
-                if (e.payload.error !== "cancelled") {
+                if (e.payload.error === "cancelled") {
+                    toast("Audiobook generation cancelled");
+                } else {
                     toast.error(`Audiobook generation failed: ${e.payload.error}`);
                 }
                 return;
@@ -1503,6 +1530,12 @@ const BookReaderPage = memo(function BookReaderPage() {
             toast.error(`Audiobook generation failed: ${err}`);
         }
     }, [currentBookId, audioGenProgress, settings.tts.voice, settings.tts.speed, ttsSpeakOptions]);
+
+    const handleCancelAudiobook = useCallback(() => {
+        if (!currentBookId) return;
+        void import("@tauri-apps/api/core").then(({ invoke }) =>
+            invoke("generate_audiobook_cancel", { bookId: currentBookId }).catch(() => { /* already finished */ }));
+    }, [currentBookId]);
 
     useEffect(() => {
         immersionPlayer.init({
@@ -3093,6 +3126,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onOpenNeuralSettings={handleOpenNeuralSettings}
                         onGenerateAudiobook={isTauriDesktop() && neuralReady && !audioTrack ? () => void handleGenerateAudiobook() : undefined}
                         audioGenProgress={audioGenProgress}
+                        onCancelAudiobook={handleCancelAudiobook}
                         className={cn(
                             "fixed bottom-0 left-0 right-0 z-[140] transition-transform duration-150 ease-out",
                             immersionMode

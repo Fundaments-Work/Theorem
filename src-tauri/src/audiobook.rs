@@ -413,7 +413,8 @@ fn read_top_box(file: &mut std::fs::File, kind: &[u8; 4]) -> Option<Vec<u8>> {
                 let s = u64::from_be_bytes(large);
                 (pos + 16, s.checked_sub(16)?)
             }
-            s => (pos + 8, s - 8),
+            // A size below the 8-byte header is corrupt; bail out instead of wrapping.
+            s => (pos + 8, s.checked_sub(8)?),
         };
         if &box_kind == kind {
             if body_size > 64 * 1024 * 1024 {
@@ -464,8 +465,12 @@ fn parse_m4b(path: &str) -> Result<AudiobookMetadata, String> {
 fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
     use id3::TagLike;
 
-    let tag =
-        id3::Tag::read_from_path(path).map_err(|e| format!("Failed to read ID3 tags: {e}"))?;
+    // Untagged MP3s are common; only a genuinely unreadable file is an error.
+    let tag = match id3::Tag::read_from_path(path) {
+        Ok(tag) => tag,
+        Err(e) if matches!(e.kind, id3::ErrorKind::NoTag) => id3::Tag::new(),
+        Err(e) => return Err(format!("Failed to read ID3 tags: {e}")),
+    };
 
     // ID3v2 chapters arrive as CHAP frames (times in milliseconds).
     let chapters: Vec<AudiobookChapter> = tag
@@ -479,9 +484,12 @@ fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
         })
         .collect();
 
-    // MP3 containers carry no reliable duration atom; the last chapter end is
-    // the best static estimate and the frontend corrects it after decode.
-    let duration_sec = chapters.last().map(|c| c.end_sec).unwrap_or(0.0);
+    // Prefer the real stream length (Xing/VBRI frame count, else constant-bitrate
+    // estimate); fall back to the last chapter end. The player still corrects it
+    // from the decoded audio element.
+    let duration_sec = mp3_duration_sec(path)
+        .or_else(|| chapters.last().map(|c| c.end_sec))
+        .unwrap_or(0.0);
 
     let cover_data_url = tag.pictures().next().map(|pic| {
         format!("data:{};base64,{}", pic.mime_type, base64_encode(&pic.data)).into_boxed_str()
@@ -495,6 +503,144 @@ fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
         cover_data_url,
         chapters: chapters.into_boxed_slice(),
     })
+}
+
+const MPEG1_BITRATES: [[u32; 14]; 3] = [
+    [
+        32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448,
+    ],
+    [
+        32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384,
+    ],
+    [
+        32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+    ],
+];
+const MPEG2_BITRATES: [[u32; 14]; 3] = [
+    [
+        32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256,
+    ],
+    [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+    [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+];
+
+/// Duration of an MP3 stream without decoding it: the Xing/Info or VBRI frame
+/// count when present, otherwise `audio bytes * 8 / bitrate` for constant bitrate.
+fn mp3_duration_sec(path: &str) -> Option<f64> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let file_len = file.metadata().ok()?.len();
+    let mut head = [0u8; 10];
+    file.read_exact(&mut head).ok()?;
+    let mut start = 0u64;
+    if &head[..3] == b"ID3" {
+        let size = head[6..10]
+            .iter()
+            .fold(0u64, |acc, b| (acc << 7) | u64::from(b & 0x7f));
+        start = 10 + size + if head[5] & 0x10 != 0 { 10 } else { 0 };
+    }
+    // Skip padding/garbage up to the first valid frame header (bounded scan).
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut window = vec![0u8; 64 * 1024];
+    let read = file.read(&mut window).ok()?;
+    let window = &window[..read];
+    let (offset, header) = (0..window.len().saturating_sub(4)).find_map(|i| {
+        let h = u32::from_be_bytes(window[i..i + 4].try_into().ok()?);
+        Mp3Header::parse(h).map(|parsed| (i, parsed))
+    })?;
+    let frame_start = start + offset as u64;
+
+    let side_info = match (header.mpeg1, header.mono) {
+        (true, false) => 32,
+        (true, true) | (false, false) => 17,
+        (false, true) => 9,
+    };
+    let crc = if header.protected { 2 } else { 0 };
+    let xing_at = offset + 4 + crc + side_info;
+    let vbri_at = offset + 4 + 32;
+    let frames = window
+        .get(xing_at..xing_at + 12)
+        .filter(|b| &b[..4] == b"Xing" || &b[..4] == b"Info")
+        .and_then(|b| (b[7] & 1 != 0).then(|| u32::from_be_bytes([b[8], b[9], b[10], b[11]])))
+        .or_else(|| {
+            window
+                .get(vbri_at..vbri_at + 18)
+                .filter(|b| &b[..4] == b"VBRI")
+                .map(|b| u32::from_be_bytes([b[14], b[15], b[16], b[17]]))
+        });
+    if let Some(frames) = frames.filter(|f| *f > 0) {
+        return Some(
+            f64::from(frames) * f64::from(header.samples_per_frame) / f64::from(header.sample_rate),
+        );
+    }
+
+    // Constant bitrate: trim a trailing ID3v1 tag from the audio length.
+    let mut audio_end = file_len;
+    if file_len >= 128 {
+        let mut tail = [0u8; 3];
+        file.seek(SeekFrom::Start(file_len - 128)).ok()?;
+        file.read_exact(&mut tail).ok()?;
+        if &tail == b"TAG" {
+            audio_end -= 128;
+        }
+    }
+    let audio_bytes = audio_end.checked_sub(frame_start)?;
+    Some(audio_bytes as f64 * 8.0 / (f64::from(header.bitrate_kbps) * 1000.0))
+}
+
+struct Mp3Header {
+    mpeg1: bool,
+    mono: bool,
+    protected: bool,
+    bitrate_kbps: u32,
+    sample_rate: u32,
+    samples_per_frame: u32,
+}
+
+impl Mp3Header {
+    /// Validates a 4-byte MPEG audio frame header; `None` when it is not one.
+    fn parse(h: u32) -> Option<Self> {
+        if h >> 21 != 0x7ff {
+            return None;
+        }
+        let version = (h >> 19) & 3; // 3 = MPEG1, 2 = MPEG2, 0 = MPEG2.5
+        let layer = (h >> 17) & 3; // 3 = I, 2 = II, 1 = III
+        let bitrate_idx = ((h >> 12) & 15) as usize;
+        let rate_idx = ((h >> 10) & 3) as usize;
+        if version == 1 || layer == 0 || bitrate_idx == 0 || bitrate_idx == 15 || rate_idx == 3 {
+            return None;
+        }
+        let mpeg1 = version == 3;
+        let layer_row = (3 - layer) as usize;
+        let table = if mpeg1 {
+            &MPEG1_BITRATES
+        } else {
+            &MPEG2_BITRATES
+        };
+        let sample_rate = match (version, rate_idx) {
+            (3, 0) => 44_100,
+            (3, 1) => 48_000,
+            (3, _) => 32_000,
+            (2, 0) => 22_050,
+            (2, 1) => 24_000,
+            (2, _) => 16_000,
+            (_, 0) => 11_025,
+            (_, 1) => 12_000,
+            _ => 8_000,
+        };
+        let samples_per_frame = match (layer, mpeg1) {
+            (3, _) => 384,
+            (1, false) => 576,
+            _ => 1152,
+        };
+        Some(Self {
+            mpeg1,
+            mono: (h >> 6) & 3 == 3,
+            protected: (h >> 16) & 1 == 0,
+            bitrate_kbps: table[layer_row][bitrate_idx - 1],
+            sample_rate,
+            samples_per_frame,
+        })
+    }
 }
 
 fn ms_to_sec(ms: u64) -> f64 {
@@ -574,5 +720,99 @@ mod tests {
         );
 
         assert_eq!(chapter_title_from_sample(&[0, 0]), None);
+    }
+
+    fn temp_mp3(name: &str, bytes: &[u8]) -> String {
+        let path =
+            std::env::temp_dir().join(format!("theorem-audiobook-{}-{name}", std::process::id()));
+        std::fs::write(&path, bytes).unwrap();
+        path.display().to_string()
+    }
+
+    // MPEG1 Layer III, 128 kbps, 44.1 kHz, stereo.
+    const CBR_HEADER: [u8; 4] = [0xff, 0xfb, 0x90, 0x00];
+
+    #[test]
+    fn cbr_mp3_duration_comes_from_bitrate() {
+        let mut bytes = CBR_HEADER.to_vec();
+        bytes.resize(160_000, 0); // 128 kbps = 16 000 B/s
+        let path = temp_mp3("cbr.mp3", &bytes);
+        let secs = mp3_duration_sec(&path).unwrap();
+        assert!((secs - 10.0).abs() < 0.01, "got {secs}");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn vbr_mp3_duration_uses_xing_frame_count() {
+        let mut bytes = CBR_HEADER.to_vec();
+        bytes.resize(36, 0); // 4 header + 32 side info (MPEG1 stereo)
+        bytes.extend_from_slice(b"Xing");
+        bytes.extend_from_slice(&1u32.to_be_bytes()); // frames flag
+        bytes.extend_from_slice(&1000u32.to_be_bytes());
+        bytes.resize(4096, 0);
+        let path = temp_mp3("vbr.mp3", &bytes);
+        let secs = mp3_duration_sec(&path).unwrap();
+        assert!(
+            (secs - 1000.0 * 1152.0 / 44_100.0).abs() < 0.001,
+            "got {secs}"
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn id3v2_prefix_and_id3v1_suffix_are_not_counted_as_audio() {
+        let mut bytes = b"ID3\x03\x00\x00".to_vec();
+        bytes.extend_from_slice(&[0, 0, 0, 20]); // syncsafe size 20
+        bytes.resize(30, 0);
+        bytes.extend_from_slice(&CBR_HEADER);
+        bytes.resize(30 + 160_000, 0);
+        bytes.extend_from_slice(b"TAG");
+        bytes.resize(30 + 160_000 + 128, 0);
+        let path = temp_mp3("tagged.mp3", &bytes);
+        let secs = mp3_duration_sec(&path).unwrap();
+        assert!((secs - 10.0).abs() < 0.01, "got {secs}");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn untagged_mp3_attaches_instead_of_failing() {
+        let mut bytes = CBR_HEADER.to_vec();
+        bytes.resize(32_000, 0);
+        let path = temp_mp3("untagged.mp3", &bytes);
+        let meta = parse_mp3(&path).expect("an MP3 without ID3 is valid");
+        assert!(meta.title.is_none());
+        assert!(meta.chapters.is_empty());
+        assert!((meta.duration_sec - 2.0).abs() < 0.01);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn non_audio_and_empty_files_have_no_duration() {
+        let path = temp_mp3("junk.mp3", &[0u8; 2048]);
+        assert!(mp3_duration_sec(&path).is_none());
+        let empty = temp_mp3("empty.mp3", &[]);
+        assert!(mp3_duration_sec(&empty).is_none());
+        std::fs::remove_file(path).ok();
+        std::fs::remove_file(empty).ok();
+    }
+
+    #[test]
+    fn rejects_reserved_mpeg_headers() {
+        assert!(Mp3Header::parse(0xfffb_9000).is_some());
+        assert!(Mp3Header::parse(0xffeb_9000).is_none()); // reserved version
+        assert!(Mp3Header::parse(0xfff9_9000).is_none()); // reserved layer
+        assert!(Mp3Header::parse(0xfffb_f000).is_none()); // bad bitrate
+        assert!(Mp3Header::parse(0xfffb_9c00).is_none()); // bad sample rate
+    }
+
+    #[test]
+    fn corrupt_top_box_size_does_not_wrap() {
+        let mut bytes = vec![0, 0, 0, 4]; // size below the 8-byte header
+        bytes.extend_from_slice(b"moov");
+        bytes.resize(64, 0);
+        let path = temp_mp3("corrupt.m4b", &bytes);
+        let mut file = std::fs::File::open(&path).unwrap();
+        assert!(read_top_box(&mut file, b"moov").is_none());
+        std::fs::remove_file(path).ok();
     }
 }

@@ -17,7 +17,7 @@ Listening is not available for PDFs. It works with EPUB, MOBI, AZW, AZW3, FB2 an
 1. Open a book.
 2. Click the headphones button in the reader toolbar. On a narrow screen it is in the More options menu, under Immersion Reading.
 3. Click the play button in the bar at the bottom of the reader.
-4. Use pause and stop as needed. Theorem reads the text on the current page and then turns the page and keeps going.
+4. Use pause and stop as needed. Theorem reads the text on the current page and then turns the page and keeps going. Pages with nothing to read, such as a full-page picture, are skipped. At the end of the book it stops and says so, instead of reading the last page again.
 5. Click the headphones button again (Exit Immersion Reading) to return to normal reading.
 
 The bar shows Reading aloud, Paused or Loading..., and the time left. If text-to-speech was switched off in Settings, opening Immersion Reading switches it back on.
@@ -73,18 +73,20 @@ Android does not use the desktop download. Instead, Theorem speaks through an An
 2. In the file picker, choose an `.m4b`, `.m4a` or `.mp3` file.
 3. Wait for the message that the audiobook is attached.
 
-Theorem reads the duration and chapter marks from the file. It links to the file where it is and does not copy it, so keep the file in the same place. To remove the link, choose More..., then Detach Audiobook. That does not delete the audio file.
+Theorem reads the duration and chapter marks from the file. An MP3 without any tags attaches fine, it just has no title or chapters. Theorem links to the file where it is and does not copy it, so keep the file in the same place. To remove the link, choose More..., then Detach Audiobook. That does not delete your audio file. (An audiobook that Theorem generated itself is deleted when you detach it or delete the book, since nothing else uses it.)
+
+The link is stored per device. If you sync to another device where the file is not in the same place, the player tells you it can't play the file; detach it and attach it again there.
 
 ### Play an audiobook
 
 1. Open the book and click the headphones button. The audiobook player replaces the text-to-speech controls.
-2. Use play and pause, the position slider, and the back and forward buttons that jump 15 seconds.
+2. Use play and pause, the position slider (click or drag it, or focus it and use the arrow keys), and the back and forward buttons that jump 15 seconds.
 3. Choose a speed of 0.75x, 1x, 1.25x, 1.5x or 2x.
 4. Open the chapter list to jump to a chapter, when the file has chapter marks.
-5. Set the sleep timer to 15 min, 30 min, 45 min or End of chapter. Choose Off to cancel it.
+5. Set the sleep timer to 15 min, 30 min, 45 min or End of chapter. End of chapter stops exactly at the chapter break, whatever speed you listen at. Choose Off to cancel it.
 6. Click Close player to stop.
 
-Theorem saves your listening position every few seconds and remembers your speed. Headphone and lock-screen media controls work for play, pause and seeking. System text-to-speech stops while the audiobook plays.
+Theorem saves your listening position every few seconds, when you pause and when you close the player, and remembers your speed. A recording you finished starts again from the beginning next time. Headphone and lock-screen media controls work for play, pause and seeking. System text-to-speech stops while the audiobook plays.
 
 ## Generate an audiobook (desktop)
 
@@ -92,7 +94,7 @@ If the neural voice is installed, Theorem can turn a whole book into an audioboo
 
 1. Open a book (not a PDF) and click the headphones button.
 2. In the listening bar, click the disc button (Generate audiobook).
-3. Wait. The bar shows Generating, with a count of sections done out of the total.
+3. Wait. The bar shows Generating, with a count of sections done out of the total. Click the X beside it to cancel; nothing is kept if you do.
 4. When a message says the audiobook is ready, open Immersion Reading again to listen.
 
 Theorem saves the result as an Ogg Opus file in its app data folder, with chapter marks, and attaches it to the book. It takes roughly 16 MB per hour of audio. The generate button is hidden when the book already has an audiobook. Generating audiobooks is not available on Android.

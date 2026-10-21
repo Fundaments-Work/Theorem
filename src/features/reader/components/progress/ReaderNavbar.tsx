@@ -1,6 +1,6 @@
 
 import { useCallback, useMemo, useState, useRef, memo } from "react";
-import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal, Disc3 } from "lucide-react";
+import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal, Disc3, X } from "lucide-react";
 import { cn } from "../../../../core/lib/utils";
 import { isAndroid } from "../../../../core/lib/env";
 import { Spinner } from "../../../../ui";
@@ -38,6 +38,8 @@ interface ReaderNavbarProps {
     /** Present when the neural engine can narrate and no audiobook is attached. */
     onGenerateAudiobook?: () => void;
     audioGenProgress?: { current: number; total: number } | null;
+    /** Stops an audiobook generation that is in progress. */
+    onCancelAudiobook?: () => void;
 }
 
 export const ReaderNavbar = memo(function ReaderNavbar({
@@ -62,6 +64,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
     onOpenNeuralSettings,
     onGenerateAudiobook,
     audioGenProgress,
+    onCancelAudiobook,
 }: ReaderNavbarProps) {
     const [isDragging, setIsDragging] = useState(false);
     const [hoverFraction, setHoverFraction] = useState<number | null>(null);
@@ -333,9 +336,21 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                         </span>
                         <div className="flex items-center gap-1 ml-auto shrink-0">
                             {audioGenProgress ? (
-                                <span className="text-[10px] font-mono text-[var(--color-text-muted)] shrink-0">
-                                    Generating {audioGenProgress.current}/{audioGenProgress.total}
-                                </span>
+                                <>
+                                    <span className="text-[10px] font-mono text-[var(--color-text-muted)] shrink-0" role="status">
+                                        Generating {audioGenProgress.current}/{audioGenProgress.total}
+                                    </span>
+                                    {onCancelAudiobook && (
+                                        <button
+                                            onClick={onCancelAudiobook}
+                                            className="flex items-center justify-center w-7 h-7 text-[var(--color-text-secondary)] active:scale-90 transition-colors hover:text-[color:var(--color-error)]"
+                                            title="Cancel audiobook generation"
+                                            aria-label="Cancel audiobook generation"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    )}
+                                </>
                             ) : onGenerateAudiobook && (
                                 <button
                                     onClick={onGenerateAudiobook}

@@ -85,3 +85,24 @@ describe("Workbench tabs (the shared row that keeps Bookmarks reachable)", () =>
         expect(useUIStore.getState().workbenchFilterRequest).toBeUndefined();
     });
 });
+
+describe("desktop sidebar rail", () => {
+    const rail = () => Array.from(container.querySelectorAll("button[aria-label]")).map((b) => b.getAttribute("aria-label"));
+
+    it("has no separate Bookmarks entry — it is a Workbench tab", async () => {
+        const { Sidebar } = await import("../src/shell/layout/Sidebar");
+        act(() => root.render(<Sidebar />));
+        expect(rail()).not.toContain("Bookmarks");
+        expect(rail()).toEqual(expect.arrayContaining(["Library", "Workbench", "Shelves", "Discover", "Settings"]));
+    });
+
+    it("keeps Workbench lit on the Bookmarks and Words pages", async () => {
+        const { Sidebar } = await import("../src/shell/layout/Sidebar");
+        for (const route of ["bookmarks", "vocabulary", "annotations"] as const) {
+            useUIStore.setState({ currentRoute: route });
+            act(() => root.render(<Sidebar />));
+            const current = Array.from(container.querySelectorAll("[aria-current=page]")).map((b) => b.getAttribute("aria-label"));
+            expect(current).toEqual(["Workbench"]);
+        }
+    });
+});

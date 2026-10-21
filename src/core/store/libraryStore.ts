@@ -6,6 +6,7 @@ import { triggerVaultAutoSync } from "../lib/vault-sync";
 import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import { deleteBookStorage } from "../lib/storage-manager";
+import { deleteGeneratedAudiobookFile } from "../lib/audiobook-files";
 import { coverDisplayUrl, getCoverImage, INLINE_COVER_MAX_CHARS } from "../lib/storage";
 import { persistBookLocations } from "../lib/book-locations";
 import {
@@ -771,6 +772,7 @@ export const useLibraryStore = create<LibraryStore>()(
 
                 const state = get();
                 for (const book of state.books) {
+                    if (idSet.has(book.id)) deleteGeneratedAudiobookFile(book.audioTrack?.filePath);
                     if (!idSet.has(book.id) || book.syncedWithoutFile) continue;
                     if (isTauri()) {
                         deleteBookStorage(book.id).catch(e => console.error("[catch]", e));
@@ -986,6 +988,9 @@ export const useLibraryStore = create<LibraryStore>()(
 
             attachAudiobook: (bookId, track) => {
                 const state = get();
+                // Replacing a generated recording with another file frees the old one.
+                const previous = state.getBook(bookId)?.audioTrack?.filePath;
+                if (previous && previous !== track.filePath) deleteGeneratedAudiobookFile(previous);
                 const { books, updatedBook } = updateBookById(state.books, bookId, (book) => ({
                     ...book,
                     audioTrack: track,
@@ -1019,6 +1024,7 @@ export const useLibraryStore = create<LibraryStore>()(
 
             removeAudiobook: (bookId) => {
                 const state = get();
+                deleteGeneratedAudiobookFile(state.getBook(bookId)?.audioTrack?.filePath);
                 const { books, updatedBook } = updateBookById(state.books, bookId, (book) => ({
                     ...book,
                     audioTrack: undefined,
