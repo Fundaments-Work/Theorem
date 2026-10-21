@@ -11,7 +11,7 @@ Reflowable formats (EPUB, MOBI, FB2) are fundamentally different from PDF. PDF i
 
 | Component | File | Loaded |
 |-----------|------|--------|
-| `ReaderPage` | `src/features/reader/Reader.tsx` | Lazy (prewarmed in `App.tsx` after hydration) |
+| `ReaderPage` | `src/features/reader/Reader.tsx` | Lazy (chunk prewarmed in `App.tsx` at idle after hydration; PDF.js/Foliate load on demand) |
 | `ReaderViewport` | `src/features/reader/components/ReaderViewport.tsx` | Eager |
 | `PDFReader` | `src/features/reader/components/PDFReader.tsx` | Lazy (on first PDF) |
 | `ReaderNavbar` (immersion row) | `src/features/reader/components/progress/ReaderNavbar.tsx` | Eager (reader chunk) |
@@ -66,18 +66,19 @@ Reader.tsx
                  └─ Annotation layer (highlights, drawings)
 ```
 
-PDF.js is prewarmed on app start via `prewarmPdfJsRuntime()`. To prevent memory bloat on large documents:
+PDF.js is loaded on demand when the first PDF opens (only the reader chunk is prewarmed at idle; `prewarmPdfJsRuntime()` is still available but not called at startup). To prevent memory bloat on large documents:
 1. **Thread Worker Lifecycle**: `PDFDocumentLoadingTask` worker instance is retained and explicitly destroyed via `loadingTask.destroy()` on reader unmount and book change.
 2. **On-Demand Page Streaming**: `disableAutoFetch: true` and `disableStream: true` ensure the worker only fetches byte ranges for visible pages.
 3. **GPU Canvas Backing Store Reclamation**: When a page leaves the viewport window, `canvas.width = 0; canvas.height = 0;` runs after the inactive-release delay, freeing GPU framebuffer memory in Skia/Direct2D/Metal.
-4. **Operator List Garbage Collection**: `page.cleanup()` is invoked on non-visible page proxies to release deserialized vector operators and image bitmaps.
-5. **Presentation Modes**:
+4. **Bounded Offscreen Page Cache**: rendered pages kept for instant scroll-back are capped at 4 pages / 12M canvas pixels (~48 MB) on desktop and 3 pages / 8M pixels (~32 MB) on Android; the cache is cleared on unmount.
+5. **Operator List Garbage Collection**: `page.cleanup()` is invoked on non-visible page proxies to release deserialized vector operators and image bitmaps.
+6. **Presentation Modes**:
    - **Continuous (`scroll`)**: Virtualized DOM window with automatic layout measurement and smooth anchor restoration.
    - **Single Page (`paged`)**: Auto-fits page to screen (`page-fit`), centers using `m-auto` layout to prevent flex data-loss clipping, and keeps a ±2-page window pre-loaded for 0ms instant page turns.
-6. **Settings Persistence**: Zoom level, zoom mode, and presentation mode are saved per-book in `PdfViewState` within SQLite.
-7. **Canvas Theme Filters**: Dark mode (`.pdf-theme-dark` with CSS invert and hue rotation) and Sepia mode (`.pdf-theme-sepia` with warm tint) apply seamless eye-comfort filters to fixed-layout PDF canvases without re-rasterizing vector layers.
-8. **Logical Page Labels**: PDF.js `getPageLabels()` extracts publisher-defined roman numerals or appendix numbering (e.g. `iv (4 / 120)`). Labels are displayed in floating pills, formatted in titlebars, and resolved directly in page jump inputs (`goTo(target)`).
-9. **Rich Metadata**: Extracts PDF `creator`, `producer`, `pdfVersion`, and physical `pageSize` dimensions in the book info popover.
+7. **Settings Persistence**: Zoom level, zoom mode, and presentation mode are saved per-book in `PdfViewState` within SQLite.
+8. **Canvas Theme Filters**: Dark mode (`.pdf-theme-dark` with CSS invert and hue rotation) and Sepia mode (`.pdf-theme-sepia` with warm tint) apply seamless eye-comfort filters to fixed-layout PDF canvases without re-rasterizing vector layers.
+9. **Logical Page Labels**: PDF.js `getPageLabels()` extracts publisher-defined roman numerals or appendix numbering (e.g. `iv (4 / 120)`). Labels are displayed in floating pills, formatted in titlebars, and resolved directly in page jump inputs (`goTo(target)`).
+10. **Rich Metadata**: Extracts PDF `creator`, `producer`, `pdfVersion`, and physical `pageSize` dimensions in the book info popover.
 
 ## Annotations & O(1) Indexing
 

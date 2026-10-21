@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2026-10-12
+## [1.6.0] - 2026-10-21
 
 ### Smart Shelves & Sub-Shelves
 
@@ -68,11 +68,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Maintenance** — The Buy Me Momo content-drift check (`pnpm check:content` and its CI job) was removed; the two URL literals are now kept in sync by hand. CodeQL runs on a schedule rather than on every push, and the landing-page hook also fires on documentation changes.
 - **Tauri IPC access control check on memory trim** — Added wildcard window capability in `src-tauri/capabilities/default.json` and allowed IPC localhost origins in CSP, resolving Tauri v2 IPC ACL denials (`trim_memory`) on sub-windows and reloaded webviews.
 - **PDF Viewer Stability & Zoom Convergence** — Eliminated PDF zoom jumping, dropped TOC jumps, and page-pill layout squeezing on document load.
 - **Discover no longer crashes on an old cache** — The cached storefront from before the OPDS rewrite (`theorem_discover_cache_v2`) held entries the new UI cannot render and took the page down (`entry.authors` undefined). The cache is versioned by entry shape (v3), old caches are deleted, anything that is not in today's shape is ignored, and the helpers tolerate malformed entries.
 - **Repeated phrases no longer edit the wrong highlight** — Existing-highlight matching used the selected text (or a substring of it) across the whole book; it now uses range containment.
 - **Neural voice offered where it cannot work** — Intel Macs and Windows/Linux on ARM were offered a download for a runtime that does not exist (the "supported" flag was always true). The flag is real now and the installer refuses to run.
+- **Untrusted URLs are allowlisted** — Feed links, extracted article markup, book covers and the Library's HTML preview now pass through `src/core/lib/url-safety.ts`: only `http(s)`, `mailto` and `tel` links, only image-type `data:` URIs as image sources, and control-character tricks such as `java\tscript:` are normalized before checking. The Library's regex sanitizer was replaced by the existing DOMPurify `sanitizeHtml`.
+- **Lower memory on desktop** — PDF.js and Foliate are no longer pre-warmed at startup (they load when a book of that format opens), the PDF offscreen page cache dropped from 6 pages / ~96 MB to 4 pages / ~48 MB and is cleared on unmount, and session Replay was removed from Sentry.
 - **Sentry bundle** — Named imports let the bundler drop session Replay: the Sentry chunk is 158 KB instead of 446 KB (54 KB instead of 149 KB gzipped).
 
 ## [1.5.9] - 2026-10-04 (Beta)
