@@ -23,6 +23,9 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 - **[Install Theorem](install.md)**
   Download Theorem for Linux, macOS, Windows or Android, use the Linux install script, and update the app.
 
+- **[Theorem on Linux](linux.md)**
+  Packages, the install script, where your data lives, what works offline, and updating or removing Theorem on Linux.
+
 - **[Getting started](getting-started.md)**
   Walk through the first-run screens, add your first book, and learn the sidebar, top bar and search box.
 
@@ -73,6 +76,9 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 
 - **[Settings and shortcuts](settings-and-shortcuts.md)**
   Find every setting by tab, learn the keyboard shortcuts, back up your data, and use the command line.
+
+- **[Use Theorem from the command line and with AI agents](command-line.md)**
+  Find books, print chapters as text, search inside EPUB files, list highlights and get JSON for scripts and agents.
 
 - **[Troubleshooting](troubleshooting.md)**
   Fix common problems with importing, opening, syncing, dictionaries, speech and exports.
