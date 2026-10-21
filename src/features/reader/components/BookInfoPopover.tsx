@@ -4,6 +4,7 @@ import type { DocMetadata } from '../../../core/types';
 import { Backdrop, FloatingPanel } from '../../../ui';
 import { cn, normalizeAuthor } from '../../../core/lib/utils';
 import { formatAttachmentSize } from '../engines/pdf-attachments';
+import { metadataText } from '../engines/doc-metadata';
 
 interface BookInfoPopoverProps {
     metadata: DocMetadata | null;
@@ -38,7 +39,9 @@ export function BookInfoPopover({
     const sections = METADATA_SECTIONS
         .map(({ key, label, icon: Icon }) => ({
             label,
-            value: metadata[key],
+            // Engines should hand over strings, but a raw object here would crash the
+            // whole reader: this panel is mounted (hidden) as soon as a book opens.
+            value: metadataText(metadata[key]),
             Icon,
         }))
         .filter(s => s.value);
@@ -80,7 +83,7 @@ export function BookInfoPopover({
                         )}
                         <div className="flex-1 overflow-hidden">
                             <h3 className="text-sm text-[color:var(--color-text-primary)] line-clamp-2 mb-1">
-                                {metadata.title}
+                                {metadataText(metadata.title)}
                             </h3>
                             <p className="text-xs text-[color:var(--color-text-secondary)] line-clamp-1">
                                 {normalizeAuthor(metadata.author) || "Unknown Author"}
