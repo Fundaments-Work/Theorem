@@ -160,7 +160,7 @@
     --layout-reader-panel-max-width-mobile: 85vw;
     --layout-reader-panel-mobile-height: 78vh;
     --layout-reader-list-max-height: 60vh;
-    --layout-modal-max-height: min(90dvh, calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+    --layout-modal-max-height: min(90dvh, calc(100dvh - 2rem - var(--safe-area-top) - var(--safe-area-bottom)));
     --layout-modal-width-fluid: 92vw;
     --layout-modal-width-sm: 24rem;
     --layout-modal-width-md: 30rem;
@@ -178,7 +178,7 @@
     --layout-error-stack-max-height: 18.75rem;
     --layout-error-component-stack-max-height: 13.75rem;
     --layout-floating-panel-max-height: min(82vh, 42.5rem);
-    --layout-floating-panel-top-offset: calc(env(safe-area-inset-top) + var(--layout-titlebar-height) + var(--spacing-xl));
+    --layout-floating-panel-top-offset: calc(var(--safe-area-top) + var(--layout-titlebar-height) + var(--spacing-xl));
     --layout-floating-panel-max-height-desktop: calc(100vh - 6rem);
     --layout-floating-panel-width: min(var(--layout-reader-panel-width), calc(100vw - 2.5rem));
     --effect-backdrop-blur-sm: 1px;
@@ -202,6 +202,17 @@
     --icon-size-lg: 1.25rem;
     --border-width-hairline: 1px;
     --border-width-interactive: 1px;
+}
+
+/* Space the system bars and the camera cutout take at each edge. Use these, never
+   env(safe-area-inset-*) directly: Android's WebView reports only the cutout through env(), so
+   with edge-to-edge (always on from Android 15) the page drew under the status and navigation
+   bars. src/core/lib/system-insets.ts sets --system-inset-* from Android's real insets. */
+:root {
+    --safe-area-top: max(env(safe-area-inset-top, 0px), var(--system-inset-top, 0px));
+    --safe-area-right: max(env(safe-area-inset-right, 0px), var(--system-inset-right, 0px));
+    --safe-area-bottom: max(env(safe-area-inset-bottom, 0px), var(--system-inset-bottom, 0px));
+    --safe-area-left: max(env(safe-area-inset-left, 0px), var(--system-inset-left, 0px));
 }
 
 

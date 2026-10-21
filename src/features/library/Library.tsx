@@ -2472,7 +2472,7 @@ export function LibraryPage() {
                         </div>
                     </div>
 
-                    <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
+                    <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                         <DailyHighlightBanner
                             showDailyHighlight={!!settings.showDailyHighlight}
                             selectedShelf={selectedShelf}

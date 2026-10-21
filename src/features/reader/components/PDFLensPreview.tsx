@@ -45,7 +45,7 @@ export function PDFLensPreview({
     const style = useMemo(() => {
         const width = Math.min(MAX_WIDTH, window.innerWidth - MARGIN * 2);
         if (mobile) {
-            return { left: MARGIN, right: MARGIN, bottom: `calc(env(safe-area-inset-bottom) + ${MARGIN}px)` };
+            return { left: MARGIN, right: MARGIN, bottom: `calc(var(--safe-area-bottom) + ${MARGIN}px)` };
         }
         const centre = anchorRect.left + anchorRect.width / 2;
         const left = Math.max(MARGIN, Math.min(window.innerWidth - width - MARGIN, centre - width / 2));

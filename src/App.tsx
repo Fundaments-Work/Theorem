@@ -8,6 +8,7 @@ import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
 import { isTauriDesktop, isTauri, isTauriMobile } from "./core/lib/env";
 import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
+import { startSystemInsets } from "./core/lib/system-insets";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
 import { normalizeFilePath } from "./core/lib/utils";
 import { navigationShortcuts } from "./shell/layout/nav-items";
@@ -449,6 +450,9 @@ function App() {
     useEffect(() => {
         void initLogger();
     }, []);
+
+    // Before anything is laid out under the status or gesture bar (Android edge-to-edge).
+    useEffect(() => startSystemInsets(), []);
 
     useEffect(() => {
         void requestNotificationPermission();

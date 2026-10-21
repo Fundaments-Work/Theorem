@@ -10,7 +10,7 @@ export const BottomNav = memo(function BottomNav() {
     const currentRoute = useUIStore((state) => state.currentRoute);
     const setRoute = useUIStore((state) => state.setRoute);
     return (
-        <nav aria-label="Primary navigation" className="ui-bottom-nav fixed bottom-0 left-0 right-0 z-[var(--z-nav)] pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav aria-label="Primary navigation" className="ui-bottom-nav fixed bottom-0 left-0 right-0 z-[var(--z-nav)] pb-[var(--safe-area-bottom)] md:hidden">
             <ul className="ui-bottom-nav-list px-2">
                 {PRIMARY_DESTINATIONS.map((item) => {
                     const isActive = isNavItemActive(item, currentRoute);

@@ -232,7 +232,7 @@ export const AppTitlebar = memo(function AppTitlebar({
         <header
             className={cn(
                 "w-full z-50 select-none border-b border-[var(--color-border)] bg-[var(--color-surface)]",
-                "px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),4px)] lg:py-0",
+                "px-4 pb-2 pt-[max(var(--safe-area-top),4px)] lg:py-0",
                 showDesktopWindowControls ? "lg:pl-14 lg:pr-2" : "lg:px-14",
                 className
             )}

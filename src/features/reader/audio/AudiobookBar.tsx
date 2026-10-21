@@ -256,7 +256,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                 "absolute left-0 right-0 z-[139] transition-transform duration-300",
                 visible ? "translate-y-0" : "translate-y-[150%] pointer-events-none",
             )}
-            style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + env(safe-area-inset-bottom, 0px))" }}
+            style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + var(--safe-area-bottom))" }}
         >
             <div className="mx-auto max-w-2xl px-3">
                 <div className="border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-3 pt-2 pb-2 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">

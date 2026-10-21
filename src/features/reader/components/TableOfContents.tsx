@@ -182,7 +182,7 @@ export function TableOfContents({
                     
                     "fixed inset-x-0 bottom-0 z-[160]",
                     "h-[70vh] max-h-[70vh]",
-                    "pb-[env(safe-area-inset-bottom)]",
+                    "pb-[var(--safe-area-bottom)]",
                     
                     "sm:inset-y-0 sm:left-0 sm:right-auto sm:top-0 sm:bottom-0",
                     "sm:h-screen sm:max-h-screen",

@@ -345,4 +345,5 @@ The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
 - `content-visibility: auto` + `overscroll-behavior: contain` on scroll containers
 - Animate only with Tailwind utilities; guard `animate-fade-in` behind `prefers-reduced-motion: no-preference`
 - Use `cn()` from `src/core/lib/utils.ts` for class composition
+- Safe areas: use `var(--safe-area-top|right|bottom|left)`, never `env(safe-area-inset-*)` (a test enforces it). Android's WebView reports only the camera cutout through `env()`, so with edge-to-edge (always on from Android 15) pages drew under the status and gesture bars; `src/core/lib/system-insets.ts` feeds Android's real insets (`system_insets` command) into the tokens
 - Design tokens in `src/core/styles/design-tokens.css` + `@theme` block in `src/index.css`

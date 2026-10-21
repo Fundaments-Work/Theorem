@@ -706,7 +706,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             ) : (
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                     <div className="flex min-h-0 flex-1 flex-col w-full">
-                        <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
+                        <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                         <p className="text-[color:var(--color-text-muted)] text-xs">No documents match criteria</p>
@@ -891,7 +891,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                 </div>
             )}
             {isSelecting && selectedBooks.length > 0 && (
-                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
+                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
                     <span className="text-sm text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>
@@ -1182,7 +1182,7 @@ export function ShelvesPage() {
 
             <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                 <div className="flex min-h-0 flex-1 flex-col w-full">
-                    <section className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0 pt-4">
+                    <section className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0 pt-4">
                         {generalCollections.length === 0 ? (
                             <EmptyShelves onCreate={handleCreateShelf} />
                         ) : filteredShelves.length === 0 ? (

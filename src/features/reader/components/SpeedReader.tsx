@@ -207,7 +207,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] w-full h-full flex flex-col select-none bg-[var(--color-background)] text-[var(--color-text-primary)] pt-[max(env(safe-area-inset-top,0px),0.25rem)] pb-[max(env(safe-area-inset-bottom,0px),0.75rem)]">
+        <div className="fixed inset-0 z-[200] w-full h-full flex flex-col select-none bg-[var(--color-background)] text-[var(--color-text-primary)] pt-[max(var(--safe-area-top),0.25rem)] pb-[max(var(--safe-area-bottom),0.75rem)]">
             {/* Top Toolbar */}
             <div className="flex items-center justify-between shrink-0 h-12 w-full px-4 sm:px-6 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
                 <button

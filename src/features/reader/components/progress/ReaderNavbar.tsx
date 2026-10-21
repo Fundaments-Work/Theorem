@@ -290,7 +290,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                 className
             )}
             style={{
-                paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))",
+                paddingBottom: "max(0.25rem, var(--safe-area-bottom))",
             }}
         >
             

@@ -237,7 +237,7 @@ export function ArticleReaderContent({
     return (
         <div
             ref={scrollContainerRef}
-            className="h-full min-h-0 flex-1 overflow-y-auto scrollbar-solid overscroll-contain pb-[env(safe-area-inset-bottom)]"
+            className="h-full min-h-0 flex-1 overflow-y-auto scrollbar-solid overscroll-contain pb-[var(--safe-area-bottom)]"
             style={{
                 WebkitOverflowScrolling: "touch",
                 overscrollBehaviorY: "contain",

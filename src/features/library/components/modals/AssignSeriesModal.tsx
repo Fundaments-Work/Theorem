@@ -139,7 +139,7 @@ export function AssignSeriesModal({
                 the dialog's max-height clamp. Without it the form is a block box, so
                 the body grows to full content height and the footer gets clipped. */}
             <form onSubmit={handleSave} className="flex h-full min-h-0 flex-col">
-                <ModalBody className="pb-[calc(var(--spacing-lg)+env(safe-area-inset-bottom))] sm:pb-5">
+                <ModalBody className="pb-[calc(var(--spacing-lg)+var(--safe-area-bottom))] sm:pb-5">
                     <div className="space-y-6">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 flex items-center justify-center bg-[var(--color-accent)]/10 text-[color:var(--color-accent)] border border-[var(--color-accent)]/20 shrink-0">
@@ -236,7 +236,7 @@ export function AssignSeriesModal({
                         </div>
                     </div>
                 </ModalBody>
-                <ModalFooter className="pb-[calc(var(--spacing-md)+env(safe-area-inset-bottom))] sm:pb-4">
+                <ModalFooter className="pb-[calc(var(--spacing-md)+var(--safe-area-bottom))] sm:pb-4">
                     {/* Phones: full-width stacked actions so no control is squeezed
                         below a tappable size. Desktop keeps the single-row layout. */}
                     <div className="flex flex-col-reverse gap-2 w-full sm:flex-row sm:items-center sm:justify-between">

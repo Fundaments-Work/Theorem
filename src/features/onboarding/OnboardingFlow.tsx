@@ -339,7 +339,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             >
                 
                 {!isLast && (
-                    <div className="flex justify-end px-6 pt-4 md:pt-5">
+                    <div className="flex justify-end px-6 pt-[calc(var(--safe-area-top)+1rem)] md:pt-[calc(var(--safe-area-top)+1.25rem)]">
                         <button
                             onClick={handleSkip}
                             className="text-[11px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
@@ -379,7 +379,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     </p>
                 </div>
 
-                <div className="border-t border-[var(--color-border)] px-8 md:px-16 py-5">
+                <div className="border-t border-[var(--color-border)] px-8 md:px-16 pt-5 pb-[calc(var(--safe-area-bottom)+1.25rem)]">
                     
                     <div className="flex items-center justify-center gap-2 mb-5">
                         {steps.map((_, index) => (
