@@ -6,7 +6,7 @@ Review every highlight, note, saved word and bookmark across your whole library,
 
 ## Open the Workbench
 
-Click Workbench in the sidebar (the second icon), or press `Ctrl+4`. On Android, tap Workbench in the bottom bar. The page header counts your annotations and saved words, for example "4 annotations • 3 terms".
+Click Workbench in the sidebar (the fifth icon), or press `Ctrl+5`. On Android, tap Workbench in the bottom bar. The page header counts your annotations and saved words, for example "4 annotations • 3 terms".
 
 ## Filter, sort and search
 

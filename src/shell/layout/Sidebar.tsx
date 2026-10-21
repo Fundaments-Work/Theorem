@@ -1,13 +1,5 @@
 import { type ReactNode, memo } from "react";
-import {
-    Flame,
-    Compass,
-    FolderOpen,
-    Library,
-    NotebookPen,
-    Rss,
-    Settings,
-} from "lucide-react";
+import { BarChart3, Flame, Settings } from "lucide-react";
 import { cn } from "../../core/lib/utils";
 import { useUIStore } from "../../core/store";
 import { useSettingsStore } from "../../core/store";
@@ -15,23 +7,7 @@ import type { AppRoute } from "../../core/types";
 import { TheoremLogo } from "../TheoremLogo";
 import { MomoIcon } from "../../ui/MomoIcon";
 import { useSupportPrompt } from "../../core/lib/support-prompt";
-
-interface SidebarItem {
-    id: AppRoute;
-    label: string;
-    icon: ReactNode;
-    /** Other routes that belong to this item, so it stays lit on them. */
-    alsoActiveOn?: ReadonlyArray<AppRoute>;
-}
-
-const mainNavItems: SidebarItem[] = [
-    { id: "library", label: "Library", icon: <Library className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
-    // Bookmarks is a tab inside Workbench (with Highlights, Notes and Words), not a rail destination.
-    { id: "annotations", label: "Workbench", icon: <NotebookPen className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" />, alsoActiveOn: ["bookmarks", "vocabulary"] },
-    { id: "shelves", label: "Shelves", icon: <FolderOpen className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
-    { id: "feeds", label: "Snapshots", icon: <Rss className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
-    { id: "opds", label: "Discover", icon: <Compass className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
-];
+import { isNavItemActive, PRIMARY_DESTINATIONS } from "./nav-items";
 
 export const Sidebar = memo(function Sidebar() {
     const currentRoute = useUIStore((state) => state.currentRoute);
@@ -40,8 +16,6 @@ export const Sidebar = memo(function Sidebar() {
     const { isEligible: showSupport, openSupport: handleSupportClick } = useSupportPrompt();
 
     const displayStreak = currentStreak > 0;
-
-    const items = mainNavItems;
 
     const select = (id: AppRoute) => {
         if (currentRoute !== id) {
@@ -55,7 +29,7 @@ export const Sidebar = memo(function Sidebar() {
     // Same rule as the Fundaments.work activity bar: the open item is marked by a
     // lime edge, hover is the signal colour and never a background.
     const railButton = (id: AppRoute, label: string, icon: ReactNode, onClick: () => void, alsoActiveOn?: ReadonlyArray<AppRoute>) => {
-        const isActive = currentRoute === id || (alsoActiveOn?.includes(currentRoute) ?? false);
+        const isActive = isNavItemActive({ id, alsoActiveOn }, currentRoute);
         return (
             <button
                 key={id}
@@ -89,7 +63,9 @@ export const Sidebar = memo(function Sidebar() {
                 <TheoremLogo size={24} className="shrink-0" />
             </div>
             <nav aria-label="Main navigation"className="flex flex-1 flex-col min-h-0">
-                {items.map((item) => railButton(item.id, item.label, item.icon, () => select(item.id), item.alsoActiveOn))}
+                {PRIMARY_DESTINATIONS.map((item) =>
+                    railButton(item.id, item.label, <item.Icon className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" />, () => select(item.id), item.alsoActiveOn),
+                )}
             </nav>
             <div className="mt-auto flex flex-col">
                 {displayStreak && (
@@ -108,6 +84,8 @@ export const Sidebar = memo(function Sidebar() {
                         <MomoIcon className="h-4 w-4" />
                     </button>
                 )}
+                {/* Utilities, apart from the destinations: the same pair phones keep in the top bar. */}
+                {railButton("statistics", "Statistics", <BarChart3 className="h-4 w-4" />, () => setRoute("statistics"))}
                 {railButton("settings", "Settings", <Settings className="h-4 w-4" />, () => setRoute("settings"))}
             </div>
         </aside>

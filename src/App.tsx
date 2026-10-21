@@ -10,6 +10,7 @@ import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
 import { normalizeFilePath } from "./core/lib/utils";
+import { navigationShortcuts } from "./shell/layout/nav-items";
 import { registerShortcuts, useKeyboardShortcuts, SELECT_ALL_EVENT } from "./core/lib/keyboard-shortcuts";
 import { initLogger } from "./core/lib/debug";
 import { dispatchBackAction } from "./core/lib/back-navigation";
@@ -151,14 +152,13 @@ function App() {
                 handler: () => setShowShortcutsHelp((prev) => !prev),
             },
             
-            { label: "Go to Library",       keys: "Ctrl+1", category: "Navigation", handler: () => setRoute("library") },
-            { label: "Go to Shelves",       keys: "Ctrl+2", category: "Navigation", handler: () => setRoute("shelves") },
-            { label: "Go to Feeds",         keys: "Ctrl+3", category: "Navigation", handler: () => setRoute("feeds") },
-            { label: "Go to Workbench",    keys: "Ctrl+4", category: "Navigation", handler: () => setRoute("annotations") },
-            { label: "Go to Statistics",    keys: "Ctrl+5", category: "Navigation", handler: () => setRoute("statistics") },
-            { label: "Go to Discover",      keys: "Ctrl+6", category: "Navigation", handler: () => setRoute("opds") },
-            { label: "Go to Bookmarks",     keys: "Ctrl+7", category: "Navigation", handler: () => setRoute("bookmarks") },
-            { label: "Go to Settings",      keys: "Ctrl+,", category: "Navigation", handler: () => setRoute("settings") },
+            // Numbered like the rail and the bottom bar (nav-items.ts), so Ctrl+N is the Nth icon.
+            ...navigationShortcuts().map(({ label, keys, route }) => ({
+                label,
+                keys,
+                category: "Navigation",
+                handler: () => setRoute(route),
+            })),
             
             { label: "Find / Search",       keys: "Ctrl+F", category: "Search",     handler: () => {
                 const route = useUIStore.getState().currentRoute;

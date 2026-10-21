@@ -11,10 +11,10 @@
 |----------|--------|
 | `Ctrl+1` | Go to Library |
 | `Ctrl+2` | Go to Shelves |
-| `Ctrl+3` | Go to Feeds |
-| `Ctrl+4` | Go to Workbench (Annotations & Vocab) |
-| `Ctrl+5` | Go to Statistics |
-| `Ctrl+6` | Go to Discover |
+| `Ctrl+3` | Go to Discover |
+| `Ctrl+4` | Go to Feeds |
+| `Ctrl+5` | Go to Workbench (Annotations & Vocab) |
+| `Ctrl+6` | Go to Statistics |
 | `Ctrl+7` | Go to Bookmarks |
 | `Ctrl+,` | Go to Settings |
 | `Ctrl+F` | Focus search bar |

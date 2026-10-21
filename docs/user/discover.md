@@ -6,7 +6,7 @@ Discover works on desktop and on Android phones and tablets. It needs an interne
 
 ## Open Discover
 
-- **Desktop.** Click Discover in the sidebar, the compass icon near the bottom of the icon list, or press `Ctrl+6` (`⌘6` on a Mac).
+- **Desktop.** Click Discover in the sidebar, the compass icon (third from the top), or press `Ctrl+3` (`⌘3` on a Mac).
 - **Android.** Tap Discover in the bottom bar.
 
 Once you add a catalog, a row of tabs appears at the top: Discover, then each catalog you added, then a plus button that adds another. Tap a tab to open it. The row scrolls sideways when there are many catalogs, and the plus button stays in place. Until you add one, there are no tabs: Discover is the whole page.

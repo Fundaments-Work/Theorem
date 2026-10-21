@@ -91,10 +91,10 @@ This guide writes `Ctrl` for the main shortcut key. On Windows and Linux that is
 | :--- | :--- |
 | `Ctrl+1` | Library |
 | `Ctrl+2` | Shelves |
-| `Ctrl+3` | Feeds |
-| `Ctrl+4` | Workbench |
-| `Ctrl+5` | Statistics |
-| `Ctrl+6` | Discover |
+| `Ctrl+3` | Discover |
+| `Ctrl+4` | Feeds |
+| `Ctrl+5` | Workbench |
+| `Ctrl+6` | Statistics |
 | `Ctrl+7` | Bookmarks |
 | `Ctrl+,` | Settings |
 | `Ctrl+F` | Focus the search box (outside the reader) |

@@ -4,7 +4,7 @@ See your reading time, streaks and a 12-week heatmap, set daily and yearly readi
 
 ## Open the Statistics page
 
-Click the bar chart icon at the top right of the window, or press `Ctrl+5`. On Android the icon is in the top bar too.
+Click the bar chart icon at the bottom of the sidebar, just above Settings, or press `Ctrl+6`. On Android the icon is in the top bar.
 
 The page shows:
 

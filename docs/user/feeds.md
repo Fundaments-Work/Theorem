@@ -6,7 +6,7 @@ Subscribe to RSS and Atom feeds, read articles in the same reader as your books,
 
 ## Open the Feeds page
 
-Click Feeds in the sidebar, or press `Ctrl+3`. On desktop the sidebar tooltip for this page reads Snapshots, but the page itself is titled Feeds. On Android, Feeds is in the bottom bar.
+Click Feeds in the sidebar (the fourth icon), or press `Ctrl+4`. On Android, Feeds is in the bottom bar.
 
 ## Subscribe to a feed
 

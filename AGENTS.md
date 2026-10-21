@@ -57,6 +57,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 ### Known-flaky tests
 
 - `tests/release-1.0.7-store-scale.test.ts` asserts a wall-clock budget (`expect(elapsed).toBeLessThan(25)`) and can exceed it under full-suite parallel load while passing in isolation. Treat a lone failure here as a perf-measurement flake: re-run the file alone (`pnpm test tests/release-1.0.7-store-scale.test.ts`) to confirm, but still verify no genuine O(n) scan was introduced.
+- `tests/library-virtualization.test.ts` ("Row height estimation") asserts `elapsed < 1` ms for a pure size calculation and can exceed it under full-suite load. Same rule: re-run the file alone to confirm.
 
 ## Architecture
 

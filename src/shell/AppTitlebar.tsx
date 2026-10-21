@@ -392,9 +392,11 @@ export const AppTitlebar = memo(function AppTitlebar({
                         </span>
                     </div>
 
+                    {/* Phones: Statistics and Settings sit here, the bottom bar holds the five
+                        destinations. Desktop has both at the foot of the rail. */}
                     <button
                         onClick={() => setRoute("statistics")}
-                        className={TITLEBAR_ICON_BUTTON}
+                        className={cn("md:!hidden", TITLEBAR_ICON_BUTTON)}
                         aria-label="Statistics"
                         data-active={currentRoute === "statistics" ? "true" : undefined}
                         aria-pressed={currentRoute === "statistics"}
@@ -402,7 +404,6 @@ export const AppTitlebar = memo(function AppTitlebar({
                         <BarChart3 className="w-5 h-5" />
                     </button>
 
-                    {/* Phones: the bottom bar is full, so Settings sits here. Desktop has it in the rail. */}
                     <button
                         onClick={() => setRoute("settings")}
                         className={cn("md:!hidden", TITLEBAR_ICON_BUTTON)}
