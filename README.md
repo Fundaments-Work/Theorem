@@ -27,6 +27,8 @@
   <a href="#quick-install">Install</a> ·
   <a href="https://read.fundaments.work">Web demo</a> ·
   <a href="https://theorem.fundaments.work">Website</a> ·
+  <a href="https://fundaments.work/docs/theorem/">Docs</a> ·
+  <a href="https://fundaments.work/docs/theorem/guide/highlights-to-obsidian/">Highlights to Obsidian</a> ·
   <a href="#features">Features</a> ·
   <a href="#faq">FAQ</a> ·
   <a href="./CONTRIBUTING.md">Contribute</a>
