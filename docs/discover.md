@@ -205,14 +205,15 @@ the adapter turns those into partial books (real cover addresses, downloads reso
 
 ## Persistence
 
-`opdsStore` (version 4): `catalogs` and `activeCatalogId` (`null` = the built-in catalog). The
+`opdsStore` (version 5): `catalogs` and `activeCatalogId` (`null` = the built-in catalog). The
 built-in catalog is always present, always first and cannot be removed; a remembered catalog that
 no longer exists falls back to it.
 
-- **v3 → v4:** Project Gutenberg and Standard Ebooks stop being presets and are removed: they were
+- **v3 → v4 (and v4 → v5):** Project Gutenberg and Standard Ebooks stop being presets and are removed: they were
   the app's defaults, not the reader's choice. One the reader signed in to (a Standard Ebooks
   patron) stays as an ordinary catalog with its sign-in. The open catalog is kept if it still
-  exists; the retired storefront caches (`theorem_discover_cache*`) are deleted.
+  exists; the retired storefront caches (`theorem_discover_cache*`) are deleted. v5 repeats this for stores that an early 1.6.0 development build had
+  migrated to v4 by keeping the two as ordinary tabs.
 - **Older versions** keep every user-added catalog; malformed entries are dropped.
 
 ## Ingestion

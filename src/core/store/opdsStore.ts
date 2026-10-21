@@ -85,7 +85,7 @@ export const useOpdsStore = create<OpdsState>()(
         }),
         {
             name: "theorem-opds",
-            version: 4,
+            version: 5,
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
                 (state) => [state.catalogs, state.activeCatalogId],
@@ -104,11 +104,13 @@ export const useOpdsStore = create<OpdsState>()(
                     });
                 }
                 let activeCatalogId: string | null = null;
-                if (version < 4) {
-                    // v4: Fundaments' own catalog replaces Project Gutenberg and Standard Ebooks as
-                    // the built-in source (Discover's home now carries both). They were the app's
+                if (version < 5) {
+                    // v4/v5: Fundaments' own catalog replaces Project Gutenberg and Standard Ebooks
+                    // as the built-in source (Discover's home now carries both). They were the app's
                     // defaults, not the reader's choice, so they go; one the reader signed in to
                     // (a Standard Ebooks patron) was a choice and stays as an ordinary catalog.
+                    // v5 repeats it for stores an early 1.6.0 build migrated to v4 by keeping them
+                    // as ordinary tabs. Catalogs the reader added have generated ids and are kept.
                     catalogs = catalogs.flatMap((c) => {
                         if (!c || !FORMER_PRESET_IDS.has(c.id)) return [c];
                         return c.auth ? [{ ...c, isPreset: false }] : [];

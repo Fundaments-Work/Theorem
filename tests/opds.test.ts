@@ -190,6 +190,42 @@ describe("opdsStore", () => {
         }
     });
 
+    it("v4 → v5: removes the old built-in catalogs that an earlier v4 build kept as ordinary tabs", () => {
+        // A development build of 1.6.0 migrated them to isPreset: false instead of removing them.
+        const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
+        const migrated = persist.getOptions().migrate(
+            {
+                catalogs: [
+                    { id: "fundaments-library", title: "Fundaments Library", url: "https://catalog.fundaments.work/opds", isPreset: true },
+                    { id: "project-gutenberg", title: "Project Gutenberg", url: "https://www.gutenberg.org/ebooks.opds/", isPreset: false },
+                    { id: "standard-ebooks", title: "Standard Ebooks", url: "https://standardebooks.org/feeds/atom/new-releases", isPreset: false },
+                    { id: "catalog-7", title: "Patan Library", url: "https://lib.example/opds" },
+                ],
+                activeCatalogId: "standard-ebooks",
+            },
+            4,
+        ) as { catalogs: { id: string }[]; activeCatalogId: string | null };
+        expect(migrated.catalogs.map((c) => c.id)).toEqual(["fundaments-library", "catalog-7"]);
+        expect(migrated.activeCatalogId).toBeNull();
+    });
+
+    it("v4 → v5: keeps a former built-in catalog the reader signed in to, and catalogs they added at the same address", () => {
+        const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
+        const migrated = persist.getOptions().migrate(
+            {
+                catalogs: [
+                    { id: "standard-ebooks", title: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", isPreset: false, auth: { username: "patron", password: "" } },
+                    // Added by the reader through "Add a catalog": a generated id, so it is theirs.
+                    { id: "catalog-1700000000-ab12", title: "Gutenberg", url: "https://www.gutenberg.org/ebooks.opds/" },
+                ],
+                activeCatalogId: "catalog-1700000000-ab12",
+            },
+            4,
+        ) as { catalogs: { id: string }[]; activeCatalogId: string | null };
+        expect(migrated.catalogs.map((c) => c.id)).toEqual(["fundaments-library", "standard-ebooks", "catalog-1700000000-ab12"]);
+        expect(migrated.activeCatalogId).toBe("catalog-1700000000-ab12");
+    });
+
     it("migrating tolerates garbage", () => {
         const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
         const migrated = persist.getOptions().migrate(null, 0) as { catalogs: { id: string }[] };
