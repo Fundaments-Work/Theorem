@@ -67,6 +67,8 @@ Search finds the exact letters you type. Check the spelling and turn off Match C
 
 ## Catalogs in Discover
 
+> **New in Theorem 1.6.0, not released yet.** Your own catalogs are in version 1.6.0. The latest release, 1.5.9, does not have them, so this section applies to 1.6.0.
+
 - **A catalog will not open.** Read the message on the page. "Could not reach the catalog" means the address or your connection is wrong. For a server on your network, check that the computer running it is on and that your phone or computer is on the same network. "Not found (404)" means the address is wrong, and "Access denied" means the catalog refused your request.
 - **Check address says the address is a web page.** The address you gave is the library's website, not its catalog. Look for an OPDS or catalog link on the site, or ask the library for the OPDS address.
 - **The catalog asks for a sign-in again and again.** The username or password is not accepted. Tap Forget sign-in in the three-dot menu and sign in again. Some libraries sign in with a method Theorem cannot use yet, and the form says so.

@@ -2,7 +2,7 @@
 
 Download Theorem for Linux, macOS, Windows or Android from the GitHub releases page, use the one-line Linux installer, and update the app from Settings.
 
-Every build is listed on the [latest release page](https://github.com/fundaments-work/theorem/releases/latest). Pick the file for your system from the table below.
+Every build is listed on the [releases page](https://github.com/fundaments-work/theorem/releases). Pick the file for your system from the table below.
 
 | System | File to download |
 | :--- | :--- |

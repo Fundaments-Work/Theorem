@@ -17,7 +17,7 @@ Choose the Calibre viewer if you already manage your books in Calibre, need to c
 | DRM | DRM-free files only | Does not open DRM-protected books |
 | Highlights and notes | Six colours; notes; PDF pen, text notes and eraser ([guide](highlights-and-notes.md)) | Highlights in several styles with notes and colours; a Highlights panel; a library-wide "Browse annotations" tool |
 | Export of highlights | Markdown files, one per book, in a folder you choose, with Obsidian, Logseq, Minimalist and custom-template styles. Desktop apps only ([how it works](vault-sync.md)) | The viewer page does not describe export. Calibre's release notes mention exporting from the annotations browser to Markdown and, since version 9.11, to an HTML page |
-| Where highlights live | In Theorem's own library on your device; copied to Markdown by export | In the book file (EPUB) and in the Calibre library |
+| Where highlights live | In Theorem's own library on your device; copied to Markdown by export | By default, in the book file for EPUB books and also in the Calibre library |
 | Dictionary | Offline StarDict and MDict dictionaries, an English Wiktionary download, and an online English fallback ([dictionary](dictionary.md)) | Lookup through online sources such as Google dictionary and Wordnik, or a custom URL (a local server works). An offline built-in dictionary is not stated |
 | Text-to-speech | System voices on desktop and Android; an offline neural voice on desktop; not for PDFs ([listening](listening.md)) | Piper neural engine or the operating system's voices, with the current word or sentence highlighted |
 | Search inside a book | Exact text, match case, whole word | Contains, whole words, nearby words and regular expressions |
@@ -26,7 +26,7 @@ Choose the Calibre viewer if you already manage your books in Calibre, need to c
 | RSS | Built-in feed reader ([feeds](feeds.md)) | Not part of the viewer. Calibre can download news and convert it to e-books |
 | Library management | Shelves, series, tags, search and filters | Full e-book management, conversion, metadata editing, device transfer |
 | Licence | MIT | GPL-3.0 |
-| Cost | Free. See the [latest release](https://github.com/fundaments-work/theorem/releases/latest) | Described as free, with optional donations. See the Calibre site |
+| Cost | Free. See the [releases page](https://github.com/fundaments-work/theorem/releases) | Described as free, with optional donations. See the Calibre site |
 
 ## Choose Theorem if
 
@@ -42,7 +42,7 @@ Choose the Calibre viewer if you already manage your books in Calibre, need to c
 - You need to convert between formats, edit metadata in bulk, or send books to an e-reader. Theorem does none of these.
 - You want regular-expression or nearby-word search inside a book.
 - You want a reader that can also open the many other formats the Calibre converter handles. Check the Calibre manual for what the viewer itself opens.
-- You want highlights stored inside the EPUB file itself, so they travel with it.
+- You want highlights stored inside the EPUB file itself (Calibre's default for EPUB books), so they travel with it.
 
 ## Using both
 
@@ -54,22 +54,22 @@ No. Theorem imports copies of files. Your Calibre library is not changed, and no
 
 ## Can both tools open the same Kindle books?
 
-Only if the files are DRM-free. Neither tool opens DRM-protected files. Calibre states this on its DRM page, and Theorem's [troubleshooting page](troubleshooting.md) says the same.
+Only if the files are DRM-free. Neither tool opens DRM-protected files. Calibre explains on its DRM page that it does not support opening or viewing DRM files, and Theorem's [troubleshooting page](troubleshooting.md) says the same.
 
 ## Sources
 
 Calibre facts below come from Calibre's own site and manual. Theorem facts come from the Theorem app and the other pages in this guide.
 
 - [E-book viewer manual](https://manual.calibre-ebook.com/viewer.html): platforms, highlights, notes, dictionary sources, text-to-speech, search modes, bookmarks, Content server sync.
-- [About calibre](https://calibre-ebook.com/about): what calibre is, "completely free", "free and open source", news download.
-- [calibre on GitHub](https://github.com/kovidgoyal/calibre): GPL-3.0 licence, Linux, Windows and macOS.
-- [Download page](https://calibre-ebook.com/download): Windows, macOS, Linux and portable downloads.
+- [About calibre](https://calibre-ebook.com/about): what calibre is, "completely free and open source", news download. The download pages carry a request to contribute.
+- [calibre on GitHub](https://github.com/kovidgoyal/calibre): GPL-3.0 licence (the README says "running on Linux, Windows and macOS"; the repository's COPYRIGHT file lists "License: GPL-3").
+- [Download page](https://calibre-ebook.com/download): Windows, macOS, Linux and portable downloads; a separate link for phones and tablets.
 - [Calibre on mobile](https://calibre-ebook.com/download_android): "calibre itself does not run on phones/tablets"; USB and Content server options.
 - [FAQ](https://manual.calibre-ebook.com/faq.html): the conversion input formats list.
-- [DRM page](https://manual.calibre-ebook.com/drm.html): Calibre does not open DRM-protected books.
+- [DRM page](https://manual.calibre-ebook.com/drm.html): "If calibre were to support opening or viewing DRM files" it could be used for DRM removal, so it does not support DRM files.
 - [New in calibre 5.0](https://calibre-ebook.com/new-in/fourteen): highlights stored in the book file and in the library, highlight styles, notes, Browse annotations.
 - [User interface manual](https://manual.calibre-ebook.com/gui.html): the Browse annotations action.
-- [What's new](https://calibre-ebook.com/whats-new): Markdown and HTML export of annotations from the annotations browser.
+- [What's new](https://calibre-ebook.com/whats-new): a fix to "exporting highlights in markdown" from the annotations browser (Markdown export exists), and release 9.11, which added exporting annotations as HTML.
 
 Not stated in these sources: a full list of formats the viewer opens, an offline built-in dictionary, and any account requirement for the viewer.
 

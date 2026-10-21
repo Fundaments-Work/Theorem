@@ -13,19 +13,19 @@ Choose Readwise Reader if you mostly read web articles and newsletters, want to 
 | Topic | Theorem | Readwise Reader |
 | :--- | :--- | :--- |
 | Platforms | Linux, macOS, Windows and Android ([install](install.md)) | Web app, iOS, Android (including e-ink Android devices), Mac and Windows desktop apps, and browser extensions. A Linux desktop app is not listed |
-| Files you can add | EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ, CBR ([details](supported-formats.md)) | PDFs, EPUBs, Markdown and OPML files. MOBI, AZW, FB2 and comic formats are not mentioned |
+| Files you can add | EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ, CBR ([details](supported-formats.md)) | "A variety of different file types", including PDFs, EPUBs, Markdown and OPML files. MOBI, AZW, FB2 and comic formats are not mentioned |
 | DRM | DRM-free files only | A purchased book can be imported only when the store offers a DRM-free EPUB |
 | Web content | RSS, Atom and JSON Feed subscriptions with a saved-offline option ([feeds](feeds.md)) | Articles, newsletters, videos and tweets, saved with a browser extension or share sheet; RSS feeds; import from Pocket, Instapaper and Feedly |
 | Highlights | Six colours, notes, bookmarks; PDF pen and text notes ([guide](highlights-and-notes.md)) | Highlights, tags and notes. Multiple highlight colours are not supported; the docs suggest tags instead |
 | Export of highlights | Markdown files, one per book, written automatically to a folder you choose; Obsidian, Logseq, Minimalist and custom styles. Desktop apps only ([how it works](vault-sync.md)) | Markdown download per document or tag view with an editable template; automatic export to Obsidian through Readwise and its official Obsidian plugin, which appends rather than overwrites |
 | Dictionary | Offline StarDict and MDict dictionaries, an online English fallback, and a vocabulary list ([dictionary](dictionary.md)) | Ghostreader can define words and summarise documents. An offline dictionary is not stated |
 | Text-to-speech | System voices on desktop and Android; an offline neural voice on desktop; not for PDFs ([listening](listening.md)) | AI voices generated on request; documented as not working offline; PDFs only in text view |
-| Offline use | Everything is local; reading, dictionaries and export work offline once set up | Works offline on web, desktop and mobile after documents have been cached |
+| Offline use | Everything is local; reading, dictionaries and export work offline once set up | Works offline on web (if the page was already open), in the desktop app, and on mobile once the app has cached your documents |
 | Sync | Direct device-to-device sync, no account ([device sync](device-sync.md)) | Through your Readwise account |
 | Account | None | Readwise account required |
 | Where data lives | On your devices | Not stated in the pages checked |
 | Licence | MIT | Not stated in the pages checked |
-| Cost | Free. See the [latest release](https://github.com/fundaments-work/theorem/releases/latest) | Subscription. Reader is part of the full Readwise plan; see readwise.io/pricing for current plans and trial terms |
+| Cost | Free. See the [releases page](https://github.com/fundaments-work/theorem/releases) | Subscription. Reader is part of the full Readwise plan; see readwise.io/pricing for current plans and trial terms |
 
 ## Choose Theorem if
 
@@ -60,14 +60,15 @@ Not directly. Theorem has no importer for Readwise highlights. Readwise can expo
 Readwise facts come from the Readwise documentation and pricing page. Theorem facts come from the Theorem app and the other pages in this guide.
 
 - [What is Reader](https://docs.readwise.io/reader/docs): content types, RSS, highlights, text-to-speech, Ghostreader, import from other apps.
-- [Reader FAQ basics](https://docs.readwise.io/reader/docs/faqs): platforms, offline use, Readwise account authentication.
+- [Reader FAQ basics](https://docs.readwise.io/reader/docs/faqs): platforms, offline use, Readwise account authentication ("Reader uses your Readwise account for authentication").
 - [Mobile apps](https://docs.readwise.io/get-started/mobile-apps): iOS and Android apps, e-ink Android devices.
+- [Desktop apps](https://docs.readwise.io/get-started/desktop-apps): a native macOS app and a native Windows app; no Linux app is listed.
 - [Adding new content](https://docs.readwise.io/reader/docs/faqs/adding-new-content): file types, DRM-free EPUB requirement, upload limit.
 - [Highlights, tags and notes](https://docs.readwise.io/reader/docs/faqs/highlights-tags-notes): no multiple highlight colours, keyboard highlighting, PDF behaviour.
-- [Exporting](https://docs.readwise.io/reader/docs/faqs/exporting): Markdown download, templates, export to note-taking apps through Readwise.
+- [Exporting](https://docs.readwise.io/reader/docs/faqs/exporting): Markdown download for a document or a tag view, editable Jinja2 template, export to note-taking apps through Readwise.
 - [Readwise to Obsidian export](https://docs.readwise.io/readwise/docs/exporting-highlights/obsidian): the official plugin, Markdown with YAML front matter, Jinja2 templates, append-only behaviour.
 - [Text-to-speech FAQ](https://docs.readwise.io/reader/docs/faqs/text-to-speech): voices generated on request, not available offline, PDF limits.
-- [Pricing](https://readwise.io/pricing): Reader is part of the full Readwise plan; no prices are repeated here.
+- [Pricing](https://readwise.io/pricing): the Reader row is ticked for the Full plan only; no prices are repeated here.
 
 Not stated in these sources: where Reader stores your data, its licence, an offline dictionary, and support for MOBI, AZW, FB2 or comic files.
 

@@ -2,7 +2,7 @@
 
 Highlight text, draw with a pen and add notes on PDFs in Theorem; this page shows which tools work on which platform and what reaches your Markdown export.
 
-This page describes Theorem version 1.5.9, the latest release. PDFs open in their own reader with an annotation toolbar. You can highlight text, draw freehand, place text notes on a page, and erase marks. Everything is stored on your device.
+This page describes Theorem version 1.5.9, the newest release (published as a beta, or pre-release, on GitHub). PDFs open in their own reader with an annotation toolbar. You can highlight text, draw freehand, place text notes on a page, and erase marks. Everything is stored on your device.
 
 ## How do I highlight text in a PDF?
 
@@ -70,9 +70,9 @@ Only highlights and notes are written to your Markdown folder, one file per book
 
 For PDFs, read this before you rely on the export:
 
-- Highlights are exported as quoted text. Page numbers are not included.
-- A text note is exported with its text as the quote and again as the note.
-- A pen stroke is stored as a note whose text is the placeholder "Freehand annotation". In version 1.5.9 the exporter writes notes, so a stroke can show up as a line with that text and no drawing. Drawings are never exported as images.
+- Highlights are exported as quoted text. No page number is written for each mark. With the default Highlight Grouping setting (By Chapter), marks are grouped under a heading taken from the PDF's contents entry, or "Page N" when the PDF has none (from the source).
+- A text note is stored with the same text as both its quote and its note, so from the source it is written twice: once as the quoted line and once as the note.
+- A pen stroke is stored as a note whose selected text is the placeholder "Freehand annotation" and which has no note text. From the source, the exporter writes every highlight and note, so a stroke is written as one quoted line reading "Freehand annotation" (`> ==Freehand annotation==` in the Obsidian style) with no drawing. Drawings are never exported as images.
 
 Open your first export and check how your marks appear before you depend on it. If you want only highlights in Markdown, use the highlight tool for what you want to keep.
 

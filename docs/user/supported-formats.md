@@ -2,7 +2,7 @@
 
 Theorem opens DRM-free EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ and CBR files plus RSS feeds; this page shows what works in each format and on each platform.
 
-This page describes Theorem version 1.5.9, the latest release. It lists exactly which files Theorem imports, what you can do in each format, and where the desktop and Android apps differ.
+This page describes Theorem version 1.5.9, the newest release (published as a beta, or pre-release, on GitHub). It lists exactly which files Theorem imports, what you can do in each format, and where the desktop and Android apps differ.
 
 ## Which file types does Theorem open?
 
@@ -23,7 +23,7 @@ To add files, use Add Books or scan a folder. Steps are in [library and import](
 
 ## Does Theorem open DRM-protected books?
 
-No. Only DRM-free files open. Theorem has no code that removes DRM, so books from a store that locks them to an app or device (for example a protected Kindle or Adobe file) will not import or open. If a store offers a DRM-free download, use that. See [troubleshooting](troubleshooting.md) if a file will not open.
+No. Only DRM-free files open. Theorem has no code that removes DRM, so books from a store that locks them to an app or device (for example a protected Kindle or Adobe file) are not supported and may fail to import or open. If a store offers a DRM-free download, use that. See [troubleshooting](troubleshooting.md) if a file will not open.
 
 ## What can I do in each format?
 
@@ -60,7 +60,7 @@ Settings and shortcuts for the reader are in [reading](reading.md). Highlights a
 
 ### Comic notes
 
-- Comics open page by page, with a zoom control. If the archive contains `ComicInfo.xml`, Theorem reads the series and volume from it.
+- Comics open page by page, with a zoom control. If the archive contains `ComicInfo.xml`, Theorem reads the title, series and issue number (the Title, Series and Number fields) from it.
 - Because a CBR is converted at import, the copy in your library is a CBZ.
 - Read aloud, search and Define have no text to work on in comics.
 
@@ -68,7 +68,7 @@ Settings and shortcuts for the reader are in [reading](reading.md). Highlights a
 
 The formats are the same on Linux, macOS, Windows and Android. The differences are in the tools around them.
 
-| Platform | Open all formats above | PDF Present and Print | System voice for read aloud | Offline neural voice | Generate an audiobook | Markdown export folder |
+| Platform | Open all formats above | PDF Present and Print | System voice for read aloud | Offline neural voice | Generate an audiobook (needs the neural voice) | Markdown export folder |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | Linux | Yes | Yes | Yes, through speech-dispatcher | Yes, 64-bit x86 | Yes | Yes |
 | macOS | Yes | Yes | Yes, built-in voices | Yes, Apple Silicon only | Yes | Yes |
@@ -84,7 +84,7 @@ The formats are the same on Linux, macOS, Windows and Android. The differences a
 
 Only highlights and notes are written to your Markdown folder, one file per book. Bookmarks are not. The export runs in the desktop apps. See [Markdown export](vault-sync.md).
 
-Caution for PDFs: in version 1.5.9 a pen stroke is stored as a note whose text is the placeholder "Freehand annotation". The exporter writes notes, so a stroke can appear in the file as a line with that text and no drawing. A PDF text note has its text stored as both the quoted text and the note. Check your first export if you use the pen and text tools.
+Caution for PDFs: from the source of version 1.5.9, a pen stroke is stored as a note whose selected text is the placeholder "Freehand annotation" and which has no note text. The exporter writes every highlight and note, so a stroke is written as one quoted line with that text and no drawing. A PDF text note has its text stored as both the quoted text and the note, so it is written twice. Check your first export if you use the pen and text tools. Details are in [annotate PDFs](annotate-pdfs.md#what-is-exported-to-markdown).
 
 ## Is there anything else I should know about importing?
 

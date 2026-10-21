@@ -19,13 +19,13 @@ Choose Zotero if your reading is research: you need citations, a bibliography, t
 | Where annotations live | In Theorem's own library on your device. PDF files are not modified | In the Zotero database, not in the PDF file |
 | Export of annotations | Markdown files, one per book, in a folder you choose, with Obsidian, Logseq, Minimalist and custom-template styles. Desktop apps only ([how it works](vault-sync.md)) | A PDF with embedded annotations; annotations added to Zotero notes through HTML note templates; annotations included when exporting BibTeX or RIS with files. Markdown export is not stated, and Zotero says it plans other export methods |
 | Dictionary | Offline StarDict and MDict dictionaries and an online English fallback ([dictionary](dictionary.md)) | Not stated |
-| Read aloud | System voices on desktop and Android; an offline neural voice on desktop; not for PDFs ([listening](listening.md)) | Works on PDFs, EPUBs and snapshots. High-quality "Zotero Voices" need an internet connection and a Zotero account; offline it uses system voices at lower quality. Desktop first, iOS since October 2026, Android announced as coming |
+| Read aloud | System voices on desktop and Android; an offline neural voice on desktop; not for PDFs ([listening](listening.md)) | Works on PDFs, EPUBs and snapshots. High-quality "Zotero Voices" need an internet connection and a Zotero account; offline it uses system voices at lower quality. Desktop first, then iOS (announced October 2026); the Zotero 9 post said Android was coming soon |
 | Sync | Direct device-to-device sync, no account ([device sync](device-sync.md)) | Needs a Zotero account. Data sync is free and unlimited; file sync is separate, with 300 MB of free storage and larger plans for purchase; WebDAV is an option for files |
-| Account | None | Needed for syncing; whether the app works fully without one is not stated |
+| Account | None | Needed for syncing and for the high-quality read-aloud voices. Zotero says it stores data locally by default and runs offline |
 | Citations and bibliography | None | Core purpose of Zotero |
 | RSS | Built-in feed reader ([feeds](feeds.md)) | Not stated for the reader |
 | Licence | MIT | AGPL-3.0 |
-| Cost | Free. See the [latest release](https://github.com/fundaments-work/theorem/releases/latest) | Free software with paid storage plans. See Zotero's storage page |
+| Cost | Free. See the [releases page](https://github.com/fundaments-work/theorem/releases) | Free software with paid storage plans. See Zotero's storage page |
 
 ## Choose Theorem if
 
@@ -63,15 +63,15 @@ Zotero facts come from zotero.org documentation and blog posts, plus the Zotero 
 - [Annotations in the database](https://www.zotero.org/support/kb/annotations_in_database): annotations are not stored in the PDF file; export to PDF with embedded annotations; BibTeX and RIS option; plans for other export methods.
 - [Note templates](https://www.zotero.org/support/note_templates): HTML note templates for annotations.
 - [Syncing](https://www.zotero.org/support/sync): account requirement, data sync versus file sync, 300 MB free storage, WebDAV.
-- [Your data](https://www.zotero.org/support/zotero_data): local data directory and SQLite database; syncing described as optional.
-- [Download page](https://www.zotero.org/download/): Windows, macOS, Linux, iOS and Android.
-- [About Zotero](https://www.zotero.org/about/): free, open-source, nonprofit.
-- [Zotero source repository licence](https://raw.githubusercontent.com/zotero/zotero/main/COPYING): AGPL version 3.
+- [Your data](https://www.zotero.org/support/zotero_data): local data directory and the zotero.sqlite database. The Syncing page says Zotero "stores all data locally on your computer by default".
+- [Download page](https://www.zotero.org/download/): Windows, macOS, Linux, iOS and Android downloads.
+- [About Zotero](https://www.zotero.org/about/): "free, open-source research tool"; "runs both as a web service and offline on your personal devices"; a project of a nonprofit.
+- [Zotero source repository licence](https://raw.githubusercontent.com/zotero/zotero/main/COPYING): "GNU Affero General Public License, version 3 (AGPLv3)".
 - [Zotero 9 announcement](https://www.zotero.org/blog/zotero-9/): Read Aloud on PDFs, EPUBs and snapshots; internet and account for high-quality voices; system-voice fallback; reading position sync; word-processor annotations.
-- [Zotero 10 announcement](https://www.zotero.org/blog/zotero-10/): text, image and ink annotations appear only in the PDF view for now; Reading Mode.
+- [Zotero 10 announcement](https://www.zotero.org/blog/zotero-10/): annotations made with the text, image and ink tools are shown only in the PDF view (not in Reading Mode); Reading Mode.
 - [EPUB and snapshot annotation on iOS](https://www.zotero.org/blog/ios-epub-snapshot-annotation-and-pdf-metadata-retrieval/): highlights, underlines and sticky notes for EPUBs and snapshots.
 - [Read Aloud on iOS](https://www.zotero.org/blog/read-aloud-on-ios/): Read Aloud available on iOS, October 2026.
 
-Not stated in these sources: dictionary lookup, Markdown export, DRM handling, MOBI, FB2 or comic support, and whether an account is required to use the app without sync. Prices are not given here; see Zotero's storage documentation.
+Not stated in these sources: dictionary lookup, Markdown export, DRM handling, MOBI, FB2 or comic support. Prices are not given here; see Zotero's storage documentation.
 
 Last checked: October 2026.

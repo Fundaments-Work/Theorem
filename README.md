@@ -12,13 +12,13 @@
 
 <p align="center">
   <a href="https://read.fundaments.work"><img src="https://img.shields.io/badge/try%20the%20web%20demo-read.fundaments.work-c6f135?style=for-the-badge&labelColor=141416&logo=googlechrome&logoColor=c6f135" alt="Try the Theorem web demo"></a>
-  <a href="https://github.com/fundaments-work/theorem/releases/latest"><img src="https://img.shields.io/github/v/release/fundaments-work/theorem?label=latest&style=for-the-badge&labelColor=141416&color=c6f135" alt="Latest release"></a>
+  <a href="https://github.com/fundaments-work/theorem/releases"><img src="https://img.shields.io/github/v/release/fundaments-work/theorem?include_prereleases&label=latest&style=for-the-badge&labelColor=141416&color=c6f135" alt="Latest release"></a>
   <a href="https://github.com/fundaments-work/theorem/releases"><img src="https://img.shields.io/github/downloads/fundaments-work/theorem/total?style=for-the-badge&labelColor=141416&color=c6f135" alt="Downloads"></a>
 </p>
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-c6f135?style=flat-square&labelColor=141416" alt="MIT license"></a>
-  <a href="https://github.com/fundaments-work/theorem/releases/latest"><img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows%20%7C%20android-c6f135?style=flat-square&labelColor=141416" alt="Platforms: Linux, macOS, Windows, Android"></a>
+  <a href="https://github.com/fundaments-work/theorem/releases"><img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows%20%7C%20android-c6f135?style=flat-square&labelColor=141416" alt="Platforms: Linux, macOS, Windows, Android"></a>
   <a href="https://github.com/fundaments-work/theorem/actions"><img src="https://img.shields.io/github/actions/workflow/status/fundaments-work/theorem/ci.yml?branch=main&label=ci&style=flat-square&labelColor=141416&color=c6f135" alt="CI status"></a>
   <a href="./CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-c6f135?style=flat-square&labelColor=141416" alt="Pull requests welcome"></a>
 </p>
@@ -86,7 +86,7 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 | Windows | `.exe` (NSIS) or `.msi` |
 | Android | `.apk` |
 
-All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://read.fundaments.work) without installing.
+All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://read.fundaments.work) without installing.
 
 ---
 

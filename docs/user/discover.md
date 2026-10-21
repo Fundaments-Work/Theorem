@@ -1,6 +1,6 @@
-# Discover Free Books and Browse Online Catalogs
+# Discover Free Books
 
-Browse and search public-domain books from Project Gutenberg and Standard Ebooks, connect your own catalog such as a Calibre or Komga server, and add any title to your Theorem library with one tap.
+Browse and search public-domain books from Project Gutenberg and Standard Ebooks and add any title to your Theorem library; your own catalogs arrive in 1.6.0.
 
 Discover works on desktop and on Android phones and tablets. It needs an internet connection, or a connection to your own network for a home server, to load catalogs and to download books.
 
@@ -54,6 +54,8 @@ Some catalogs list books that Theorem cannot simply download. The book window sa
 - **Sample only.** You can add the sample, which is a short excerpt, not the book.
 
 ## Add your own catalog
+
+> **New in Theorem 1.6.0, not released yet.** Adding and browsing your own OPDS catalogs, including sign-in to private ones, is in version 1.6.0. In the latest release, 1.5.9, Discover shows the curated storefront, Project Gutenberg and Standard Ebooks only. This section and the sections below it describe 1.6.0.
 
 Catalogs that follow the OPDS standard work in Theorem. This includes Calibre content servers, Calibre-Web, Kavita, Komga, COPS, many libraries, and public collections. Both OPDS 1.x and OPDS 2.0 are supported.
 

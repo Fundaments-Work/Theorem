@@ -2,7 +2,7 @@
 
 Theorem is a free, local-first reader for ebooks, PDFs, comics and RSS feeds that exports your highlights to Markdown, on Linux, macOS, Windows and Android.
 
-Download Theorem from [theorem.fundaments.work](https://theorem.fundaments.work/) or the [latest release](https://github.com/Fundaments-Work/Theorem/releases/latest). [Install Theorem](install.md) lists the files for each system.
+Download Theorem from [theorem.fundaments.work](https://theorem.fundaments.work/) or the [releases page](https://github.com/Fundaments-Work/Theorem/releases). [Install Theorem](install.md) lists the files for each system.
 
 Theorem keeps your library, highlights, notes and reading progress on your own device. There is no account to create and no cloud service to sign in to. You can read DRM-free EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ and CBR files, follow RSS feeds, look words up in offline dictionaries, listen with text-to-speech, and write every highlight to plain Markdown files for Obsidian or Logseq.
 
@@ -60,7 +60,7 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
   Subscribe to RSS and Atom feeds, read articles in the reader, save them offline, and control how long they are kept.
 
 - **[Discover free books and online catalogs](discover.md)**
-  Browse public-domain books from Project Gutenberg and Standard Ebooks, connect your own catalog such as Calibre or Komga, sign in to private libraries, and add books with one tap. Works on phones too.
+  Browse public-domain books from Project Gutenberg and Standard Ebooks, and add books with one tap. Connecting your own catalogs and signing in to private libraries arrives in 1.6.0. Works on phones too.
 
 - **[Listening with text-to-speech and audiobooks](listening.md)**
   Have a book read aloud, install the offline neural voice, attach an audiobook file, and generate an audiobook.
@@ -102,3 +102,6 @@ Factual comparisons with sources, including when the other app is the better fit
 
 - **[Theorem vs Readwise Reader](vs-readwise-reader.md)**
   Keeping books and highlights on your device versus a hosted reading service.
+
+- **[Theorem vs Readest](vs-readest.md)**
+  Highlight export, account-based sync, formats and platforms between two open-source readers.

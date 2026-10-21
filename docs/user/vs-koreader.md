@@ -12,17 +12,17 @@ Choose KOReader if you read on an e-ink device, want a longer format list (DjVu,
 
 | Topic | Theorem | KOReader |
 | :--- | :--- | :--- |
-| Platforms | Linux, macOS, Windows and Android ([install](install.md)) | Kindle, Kobo, PocketBook, reMarkable and Cervantes devices, Android and desktop Linux. On macOS, the wiki says there are no binary downloads on the release page yet and builds are unsigned; native Windows install is not stated |
+| Platforms | Linux, macOS, Windows and Android ([install](install.md)) | Kindle, Kobo, PocketBook, reMarkable and Cervantes devices, Android, desktop Linux and ChromeOS. On macOS, the wiki says there are no binary downloads on the release page yet and builds are unsigned; native Windows install is not stated |
 | Formats opened | EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ, CBR ([details](supported-formats.md)) | EPUB, PDF, DjVu, XPS, CBT, CBZ, FB2, PDB, TXT, HTML, RTF, CHM, DOC, MOBI and ZIP. DRM handling is not stated |
 | Highlights | Six colours, notes, bookmarks; PDF pen, text notes and eraser ([guide](highlights-and-notes.md)) | Four styles (lighten, underline, strikeout, invert), colour on colour screens, notes, editable highlight text. Highlights can be saved into PDF files |
-| Export of highlights | Continuous Markdown export to a folder you choose, with Obsidian, Logseq, Minimalist and custom-template styles. Desktop apps only ([how it works](vault-sync.md)) | Export Highlights plugin: text, HTML, Markdown, Kindle Clippings and JSON files, plus services such as Joplin and Readwise. Obsidian is not mentioned in the sources checked |
-| Dictionary | Offline StarDict and MDict dictionaries, an English Wiktionary download, and an online English fallback ([dictionary](dictionary.md)) | StarDict dictionaries, which can be downloaded inside KOReader, plus Wikipedia lookup. Offline use is not stated explicitly |
+| Export of highlights | Continuous Markdown export to a folder you choose, with Obsidian, Logseq, Minimalist and custom-template styles. Desktop apps only ([how it works](vault-sync.md)) | Export Highlights plugin: text, HTML, Markdown, Kindle Clippings and JSON files, plus services such as Joplin and Readwise. You can choose the export folder. Obsidian is not mentioned in the sources checked |
+| Dictionary | Offline StarDict and MDict dictionaries, an English Wiktionary download, and an online English fallback ([dictionary](dictionary.md)) | StarDict dictionary files, which can be downloaded inside KOReader or copied into a folder on the device, plus Wikipedia lookup. Offline use is not stated explicitly |
 | Text-to-speech | System voices on desktop and Android; an offline neural voice on desktop; not for PDFs ([listening](listening.md)) | Not stated in the guides checked |
 | Sync | Direct device-to-device sync of library, highlights, notes and progress, no account ([device sync](device-sync.md)) | A progress-sync plugin keeps reading position in step between KOReader devices and needs an account on the KOReader sync server. What else it syncs is not stated |
 | RSS and catalogs | Built-in RSS, Atom and JSON Feed reader ([feeds](feeds.md)) | A News downloader plugin saves RSS and Atom entries as HTML files; an OPDS catalog plugin; a Wallabag plugin |
-| Account | None | Only for the progress-sync plugin |
+| Account | None | None for KOReader itself; the progress-sync plugin needs an account on a sync server, and services such as Readwise or Joplin use their own |
 | Licence | MIT | AGPL-3.0 |
-| Cost | Free. See the [latest release](https://github.com/fundaments-work/theorem/releases/latest) | Not stated on the pages checked; the project accepts donations. See the KOReader site |
+| Cost | Free. See the [releases page](https://github.com/fundaments-work/theorem/releases) | Not stated on the pages checked; the README mentions donations through Liberapay. See the KOReader site |
 
 ## Choose Theorem if
 
@@ -50,24 +50,24 @@ Theorem has an Android app, but this guide does not cover e-ink devices and the 
 
 ## Can KOReader write Markdown for Obsidian?
 
-KOReader's Export Highlights plugin can write Markdown files. Its documentation does not mention Obsidian or say which folder the files go to, so check the KOReader wiki for the current behaviour.
+KOReader's Export Highlights plugin can write Markdown files, and its user guide says you can choose the export folder. The documentation does not mention Obsidian, so whether a given folder works as an Obsidian vault is something to test yourself.
 
 ## Sources
 
 KOReader facts come from KOReader's own site, GitHub repository and wiki. Theorem facts come from the Theorem app and the other pages in this guide.
 
 - [koreader.rocks](https://koreader.rocks/): "a document viewer for E Ink devices", devices, the format list.
-- [KOReader on GitHub](https://github.com/koreader/koreader): AGPL-3.0 licence, platforms, reflowable and fixed formats, plugins and integrations, donations.
-- [User guide](https://koreader.rocks/user_guide/): highlight styles, notes, saving highlights into PDFs, dictionary lookup, Wikipedia lookup, exporting highlights, the News downloader, OPDS and Wallabag plugins. Text-to-speech does not appear in the guide.
-- [Highlight export wiki page](https://github.com/koreader/koreader/wiki/Highlight-export): export targets and formats; Obsidian and save location not mentioned.
+- [KOReader on GitHub](https://github.com/koreader/koreader): AGPL-3.0 licence (the COPYING file is the GNU Affero GPL, version 3), platforms, reflowable and fixed formats, plugins and integrations, Liberapay donations.
+- [User guide](https://koreader.rocks/user_guide/): highlight styles ("4 different styles"), colours on colour screens, adding notes, editing highlight text, saving highlights into PDFs, OCR, Export Highlights (text, HTML, Markdown, Kindle Clippings, JSON; "Choose export folder"), the News downloader and Wallabag plugins. Text-to-speech does not appear in the guide.
+- [Highlight export wiki page](https://github.com/koreader/koreader/wiki/Highlight-export): Joplin, Readwise and Nextcloud Notes targets; local JSON, HTML, Markdown or TXT files. Obsidian is not mentioned.
 - [Dictionary support wiki page](https://github.com/koreader/koreader/wiki/Dictionary-support): StarDict dictionaries and where to get them.
 - [Progress sync wiki page](https://github.com/koreader/koreader/wiki/Progress-sync): account requirement, what is sent, matching by file.
-- [Features list wiki page](https://github.com/koreader/koreader/wiki/Features-list): OPDS support including the Calibre Content Server catalog.
+- [Features list wiki page](https://github.com/koreader/koreader/wiki/Features-list): OPDS support including the Calibre Content Server catalog. The same table says "taking note: not supported yet", which is out of date: the user guide documents adding notes to highlights, so this page follows the user guide.
 - [Installation on Android](https://github.com/koreader/koreader/wiki/Installation-on-Android-devices): not on Google Play; F-Droid or APK.
 - [Installation on desktop Linux](https://github.com/koreader/koreader/wiki/Installation-on-desktop-Linux): deb, Flatpak and AppImage.
 - [Installation on macOS](https://github.com/koreader/koreader/wiki/Installation-on-MacOS): no release-page binaries yet; unsigned builds.
-- [KOReader wiki home](https://github.com/koreader/koreader/wiki): device installation guides, including a Windows-with-WSL entry.
+- [KOReader wiki home](https://github.com/koreader/koreader/wiki): device installation guides, including ChromeOS and a Windows-with-WSL entry.
 
-Not stated in these sources: text-to-speech, DRM handling, cost, offline dictionary behaviour, a save location for exported files, and what the progress-sync plugin covers beyond reading progress.
+Not stated in these sources: text-to-speech, DRM handling, cost, offline dictionary behaviour, Obsidian support, and what the progress-sync plugin covers beyond reading progress.
 
 Last checked: October 2026.
