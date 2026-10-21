@@ -24,3 +24,4 @@
 - [ ] Rust compiles (`cd src-tauri && cargo check`)
 - [ ] No `console.log` in production code
 - [ ] No secrets, tokens, or credentials introduced
+- [ ] Every commit is signed off (`git commit -s`, see [DCO](https://developercertificate.org))

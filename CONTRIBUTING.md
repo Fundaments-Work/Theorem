@@ -71,6 +71,24 @@ Use [conventional commits](https://www.conventionalcommits.org/):
 | `test:` | Adding or updating tests |
 | `ci:` | CI configuration |
 
+### Sign Your Commits (DCO)
+
+Every commit must carry a `Signed-off-by` line. By adding it you certify the [Developer Certificate of Origin](https://developercertificate.org): you wrote the change, or otherwise have the right to submit it under the project's license. You do not give up copyright to your work.
+
+Git adds the line for you with `-s`:
+
+```bash
+git commit -s -m "fix: keep reader position after rotation"
+```
+
+This produces:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+The name and email come from your `git config user.name` and `user.email`, and must be real. To sign off commits you already made on your branch, run `git rebase --signoff main` and push again.
+
 ### Before Submitting
 
 Run all applicable quality gates:
@@ -85,7 +103,7 @@ cd src-tauri && cargo clippy             # Rust lint — zero warnings
 ### Pull Request Lifecycle
 
 1. Fork the repository and create your branch from `main`
-2. Make your changes, keeping commits atomic and well-described
+2. Make your changes, keeping commits atomic, well-described and signed off (`git commit -s`)
 3. Run quality gates (above) and fix any issues
 4. Open a PR against `main` — the PR template will pre-fill with a checklist
 5. CI runs automatically: typecheck, tests, build, and Rust checks

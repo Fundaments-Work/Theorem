@@ -263,3 +263,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines, code conventions, and t
 ## License
 
 MIT License — see [LICENSE](./LICENSE) for details.
+
+The Theorem™ name and logo are not covered by the MIT License. See [TRADEMARKS.md](./TRADEMARKS.md) for how to use them, and how to name a fork.
