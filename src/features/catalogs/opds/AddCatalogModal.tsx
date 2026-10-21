@@ -109,7 +109,7 @@ export function AddCatalogModal({
                 <ModalHeader title="Add a catalog" onClose={onClose} />
                 <ModalBody className="space-y-4">
                     <p className="text-xs leading-relaxed text-[color:var(--color-text-muted)]">
-                        Paste the address of an OPDS catalog: a Calibre, Kavita, Komga or COPS server, a library, or a public collection.
+                        Paste the address of an OPDS catalog: your school, university or public library, or your own Calibre, Kavita, Komga or COPS server. It appears in Discover as a tab.
                     </p>
 
                     <label className="block space-y-1">

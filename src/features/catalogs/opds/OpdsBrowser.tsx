@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { ArrowLeft, ChevronRight, Globe, Loader2, MoreHorizontal, RefreshCw, Search, Trash2, X } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { toast } from "sonner";
@@ -6,7 +6,7 @@ import { cn } from "../../../core/lib/utils";
 import { rankByFuzzyQuery } from "../../../core/lib/search/fuzzy";
 import { useOpdsStore } from "../../../core/store";
 import { sanitizeHtml } from "../../../core/lib/sanitize";
-import type { OpdsCatalog, OpdsEntry, OpdsNavItem } from "../../../core/types";
+import type { OpdsCatalog, OpdsEntry, OpdsFeed, OpdsGroup, OpdsNavItem } from "../../../core/types";
 import { ConfirmDialog } from "../../../ui";
 import { DiscoverCarousel } from "../components/DiscoverCarousel";
 import {
@@ -76,12 +76,40 @@ function Trail({ crumbs, onGo }: { crumbs: { title: string }[]; onGo: (index: nu
     );
 }
 
+/** What a custom home page (see `renderHome`) gets to work with. */
+export interface OpdsHomeContext {
+    feed: OpdsFeed;
+    groups: OpdsGroup[];
+    loading: boolean;
+    canSearch: boolean;
+    inLibrary: (title: string) => boolean;
+    isBusy: (id: string) => boolean;
+    onSelectBook: (entry: OpdsEntry) => void;
+    onGetBook: (entry: OpdsEntry) => void;
+    onSearch: (query: string) => void;
+    onOpen: (href: string, title: string) => void;
+    onRefresh: () => void;
+}
+
 /**
  * Browse one OPDS catalog: its sections, shelves, search, filters and books, with downloads going
  * straight into the Library. Looks and behaves like the rest of the app (same cards, chips and
  * spacing as Discover and Library); everything catalog-specific lives in `useOpdsBrowser`.
+ *
+ * `renderHome` replaces the catalog's first page with a custom layout (the Discover front page);
+ * everything below it (shelves, categories, search results) stays the regular browser.
  */
-export function OpdsBrowser({ catalog, scrollRef }: { catalog: OpdsCatalog; scrollRef: RefObject<HTMLElement | null> }) {
+export function OpdsBrowser({
+    catalog,
+    scrollRef,
+    renderHome,
+    searchPlaceholder,
+}: {
+    catalog: OpdsCatalog;
+    scrollRef: RefObject<HTMLElement | null>;
+    renderHome?: (ctx: OpdsHomeContext) => ReactNode;
+    searchPlaceholder?: string;
+}) {
     const browser = useOpdsBrowser(catalog);
     const { state } = browser;
     const removeCatalog = useOpdsStore((s) => s.removeCatalog);
@@ -98,6 +126,11 @@ export function OpdsBrowser({ catalog, scrollRef }: { catalog: OpdsCatalog; scro
     const feed = state.feed;
     const title = feed?.title && state.crumbs.length > 1 ? feed.title : catalog.title;
     const serverSearch = browser.canSearch && !localOnly;
+
+    // Searches started elsewhere (the Discover home) show their words in the box.
+    useEffect(() => {
+        if (state.searchQuery) setQuery(state.searchQuery);
+    }, [state.searchQuery]);
 
     // A new list starts with the catalog's own order and no narrowing; the search box clears with it.
     const listKey = state.crumbs[state.crumbs.length - 1]?.url;
@@ -156,6 +189,41 @@ export function OpdsBrowser({ catalog, scrollRef }: { catalog: OpdsCatalog; scro
     const firstLoad = loading && !feed;
     const noResults = state.status === "ready" && visibleEntries.length === 0 && matchedNav.length === 0 && state.groups.length === 0;
     const isCustom = !catalog.isPreset;
+
+    const atHome = Boolean(renderHome) && state.crumbs.length <= 1 && !state.searchQuery && state.status !== "auth";
+    if (atHome && renderHome && (feed || !(state.status === "error"))) {
+        return (
+            <div>
+                {feed ? (
+                    renderHome({
+                        feed,
+                        groups: state.groups,
+                        loading,
+                        canSearch: browser.canSearch,
+                        inLibrary,
+                        isBusy,
+                        onSelectBook: setSelected,
+                        onGetBook: getEntry,
+                        onSearch: (q) => {
+                            void browser.search(q).then((ok) => {
+                                if (!ok) toast.error("Search isn't available right now. Try again in a moment.");
+                            });
+                        },
+                        onOpen: (href, label) => browser.open(href, label),
+                        onRefresh: browser.refresh,
+                    })
+                ) : (
+                    <Skeleton />
+                )}
+                <OpdsEntrySheet
+                    entry={selected}
+                    auth={browser.auth}
+                    onClose={() => setSelected(null)}
+                    onOpenFeed={(href, label) => browser.open(href, label)}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-5">
@@ -245,8 +313,8 @@ export function OpdsBrowser({ catalog, scrollRef }: { catalog: OpdsCatalog; scro
                                 setQuery(e.target.value);
                                 if (!e.target.value.trim() && state.searchQuery) browser.clearSearch();
                             }}
-                            placeholder={serverSearch ? `Search ${catalog.title}` : "Filter this list"}
-                            aria-label={serverSearch ? `Search ${catalog.title}` : "Filter this list"}
+                            placeholder={serverSearch ? (searchPlaceholder ?? `Search ${catalog.title}`) : "Filter this list"}
+                            aria-label={serverSearch ? (searchPlaceholder ?? `Search ${catalog.title}`) : "Filter this list"}
                             className="h-8 w-full border border-[var(--color-border)] bg-[var(--color-surface)] pl-8 pr-7 text-xs text-[color:var(--color-text-primary)] placeholder-[color:var(--color-text-muted)] transition-colors focus:border-[var(--color-text-primary)] focus:outline-none [&::-webkit-search-cancel-button]:hidden"
                         />
                         {query && (

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { initTheoremCoreWasm, wasmOpdsParse } from "../src/core/lib/theorem-core";
 import { DEFAULT_OPDS_PRESETS } from "../src/core/services/OpdsService";
 import { useOpdsStore } from "../src/core/store/opdsStore";
@@ -93,10 +93,14 @@ describe("opdsStore", () => {
         expect(useOpdsStore.getState().activeCatalogId).toBeNull();
     });
 
-    it("never removes the built-in sources", () => {
+    it("ships one built-in source: Fundaments' own catalog", () => {
+        expect(DEFAULT_OPDS_PRESETS.map((p) => [p.id, p.url, p.isPreset])).toEqual([["fundaments-library", "https://catalog.fundaments.work/opds", true]]);
+    });
+
+    it("never removes the built-in source", () => {
         reset();
-        useOpdsStore.getState().removeCatalog("project-gutenberg");
-        expect(useOpdsStore.getState().catalogs.map((c) => c.id)).toContain("project-gutenberg");
+        useOpdsStore.getState().removeCatalog("fundaments-library");
+        expect(useOpdsStore.getState().catalogs.map((c) => c.id)).toContain("fundaments-library");
     });
 
     it("ignores an attempt to open a source that does not exist", () => {
@@ -121,7 +125,7 @@ describe("opdsStore", () => {
         expect(useOpdsStore.getState().catalogs.find((c) => c.id === id)?.url).toBe("http://nas.local/opds");
     });
 
-    it("migrates the old store: user catalogs are kept (they were never browsable), presets are restored, start on Discover", async () => {
+    it("migrates the oldest store: user catalogs are kept, the built-in catalog is added, the old built-in Gutenberg goes", async () => {
         const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
         const migrated = persist.getOptions().migrate(
             {
@@ -134,16 +138,65 @@ describe("opdsStore", () => {
             1,
         ) as { catalogs: { id: string; title: string; url: string }[]; activeCatalogId: string | null };
         expect(migrated.activeCatalogId).toBeNull();
-        expect(migrated.catalogs.map((c) => c.id)).toEqual(["project-gutenberg", "standard-ebooks", "catalog-1"]);
-        expect(migrated.catalogs[0].url).toBe("https://www.gutenberg.org/ebooks.opds/");
-        expect(migrated.catalogs[2].title).toBe("My Komga");
+        expect(migrated.catalogs.map((c) => c.id)).toEqual(["fundaments-library", "catalog-1"]);
+        expect(migrated.catalogs[1].title).toBe("My Komga");
+    });
+
+    it("v3 → v4: the old built-in Gutenberg and Standard Ebooks go, unless signed in to; the built-in catalog leads", () => {
+        const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
+        const migrated = persist.getOptions().migrate(
+            {
+                catalogs: [
+                    { id: "project-gutenberg", title: "Project Gutenberg", url: "https://www.gutenberg.org/ebooks.opds/", isPreset: true },
+                    { id: "standard-ebooks", title: "Standard Ebooks", url: "https://standardebooks.org/feeds/atom/new-releases", isPreset: true, auth: { username: "patron", password: "" } },
+                    { id: "catalog-9", title: "Kavita", url: "http://nas:5000/api/opds/key" },
+                ],
+                activeCatalogId: "catalog-9",
+            },
+            3,
+        ) as { catalogs: { id: string; isPreset?: boolean; auth?: unknown }[]; activeCatalogId: string | null };
+        // Gutenberg was the app's default, not the reader's choice: gone. Standard Ebooks with a patron
+        // sign-in was a choice: kept, as an ordinary catalog.
+        expect(migrated.catalogs.map((c) => [c.id, Boolean(c.isPreset)])).toEqual([
+            ["fundaments-library", true],
+            ["standard-ebooks", false],
+            ["catalog-9", false],
+        ]);
+        expect(migrated.catalogs[1].auth).toEqual({ username: "patron", password: "" });
+        // The catalog you were reading stays open.
+        expect(migrated.activeCatalogId).toBe("catalog-9");
+
+        // The kept one can be removed like any other.
+        useOpdsStore.setState(migrated as never);
+        useOpdsStore.getState().removeCatalog("standard-ebooks");
+        expect(useOpdsStore.getState().catalogs.map((c) => c.id)).toEqual(["fundaments-library", "catalog-9"]);
+    });
+
+    it("v3 → v4: forgets a remembered catalog that no longer exists, and the retired Discover cache", () => {
+        const store = new Map<string, string>([["theorem_discover_cache_v3", "[]"], ["theorem_discover_cache", "x"], ["unrelated", "keep"]]);
+        const fake = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+        vi.stubGlobal("localStorage", fake);
+        try {
+            const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
+            const migrated = persist.getOptions().migrate(
+                { catalogs: [{ id: "project-gutenberg", title: "Project Gutenberg", url: "https://www.gutenberg.org/ebooks.opds/", isPreset: true }], activeCatalogId: "project-gutenberg" },
+                3,
+            ) as { activeCatalogId: string | null };
+            // Reading the old built-in Gutenberg when it went: back to Discover.
+            expect(migrated.activeCatalogId).toBeNull();
+            expect([...store.keys()]).toEqual(["unrelated"]);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it("migrating tolerates garbage", () => {
         const persist = (useOpdsStore as unknown as { persist: { getOptions: () => { migrate: (s: unknown, v: number) => unknown } } }).persist;
-        const migrated = persist.getOptions().migrate(null, 0) as { catalogs: unknown[] };
-        expect(migrated.catalogs).toHaveLength(2);
-        const again = persist.getOptions().migrate({ catalogs: "oops" }, 2) as { catalogs: unknown[] };
-        expect(again.catalogs).toHaveLength(2);
+        const migrated = persist.getOptions().migrate(null, 0) as { catalogs: { id: string }[] };
+        expect(migrated.catalogs.map((c) => c.id)).toEqual(["fundaments-library"]);
+        const again = persist.getOptions().migrate({ catalogs: "oops" }, 2) as { catalogs: { id: string }[] };
+        expect(again.catalogs.map((c) => c.id)).toEqual(["fundaments-library"]);
+        const holes = persist.getOptions().migrate({ catalogs: [null, 7, { id: "x" }, { id: "ok", title: "Ok", url: "https://ok.example/opds" }] }, 1) as { catalogs: { id: string }[] };
+        expect(holes.catalogs.map((c) => c.id)).toEqual(["fundaments-library", "ok"]);
     });
 });

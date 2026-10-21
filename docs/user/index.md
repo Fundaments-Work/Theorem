@@ -48,7 +48,7 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
   Subscribe to RSS and Atom feeds, read articles in the reader, save them offline, and control how long they are kept.
 
 - **[Discover free books and online catalogs](discover.md)**
-  Browse public-domain books from Project Gutenberg and Standard Ebooks, connect your own catalog such as Calibre or Komga, sign in to private libraries, and add books with one tap. Works on phones too.
+  Browse and search free public-domain books, add your school, university or library catalog or your own Calibre or Komga server, sign in to private libraries, and add books with one tap. Works on phones too.
 
 - **[Listening with text-to-speech and audiobooks](listening.md)**
   Have a book read aloud, install the offline neural voice, attach an audiobook file, and generate an audiobook.

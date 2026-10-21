@@ -21,7 +21,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 
 ## Finding books
 
-- **Discover.** The curated storefront, Project Gutenberg and Standard Ebooks, plus any OPDS catalog you add (Calibre, Komga, Kavita and others), with sign-in for private catalogs. Works on desktop and Android. [Discover](discover.md)
+- **Discover.** Hand-picked free books with search over about 78,000 titles, newest editions, shelves and subjects, plus your school, university or library catalog or your own OPDS server (Calibre, Komga, Kavita and others) as tabs, with sign-in for private catalogs. Works on desktop and Android. [Discover](discover.md)
 
 ## Reading
 

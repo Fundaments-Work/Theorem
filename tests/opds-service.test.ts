@@ -197,6 +197,67 @@ describe("OpdsService in the browser (WebAssembly parser)", () => {
     });
 });
 
+describe("offline copy of the built-in catalog", () => {
+    const HOME = "https://catalog.fundaments.work/opds";
+    let storage: Map<string, string>;
+    beforeEach(() => {
+        routes = {};
+        requests = [];
+        clearOpdsCache();
+        installFetch();
+        storage = new Map();
+        vi.stubGlobal("localStorage", {
+            getItem: (k: string) => storage.get(k) ?? null,
+            setItem: (k: string, v: string) => void storage.set(k, v),
+            removeItem: (k: string) => void storage.delete(k),
+        });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("shows the last good home feed when the server cannot be reached", async () => {
+        routes[HOME] = { type: "application/opds+json", body: fixture("opds2-home.json") };
+        const online = await OpdsService.load(HOME);
+        routes[HOME] = { throws: true };
+        const offline = await OpdsService.load(HOME, { force: true });
+        expect(offline.feed.title).toBe(online.feed.title);
+        expect(offline.feed.groups.length).toBe(online.feed.groups.length);
+    });
+
+    it("also covers server errors, but still reports them when there is no copy", async () => {
+        routes[HOME] = { status: 503, body: "down" };
+        await expect(OpdsService.load(HOME, { force: true })).rejects.toBeInstanceOf(OpdsError);
+        routes[HOME] = { type: "application/opds+json", body: fixture("opds2-home.json") };
+        await OpdsService.load(HOME, { force: true });
+        routes[HOME] = { status: 503, body: "down" };
+        expect((await OpdsService.load(HOME, { force: true })).feed.groups.length).toBeGreaterThan(0);
+    });
+
+    it("never stores a catalog the user added (it may be private)", async () => {
+        const mine = "https://my.library.example/opds";
+        routes[mine] = { type: "application/opds+json", body: fixture("opds2-home.json") };
+        await OpdsService.load(mine);
+        expect([...storage.keys()].some((k) => k.includes("my.library"))).toBe(false);
+        routes[mine] = { throws: true };
+        await expect(OpdsService.load(mine, { force: true })).rejects.toBeInstanceOf(OpdsError);
+    });
+
+    it("ignores a corrupted copy instead of showing it", async () => {
+        storage.set(`theorem-opds-offline:${HOME}`, "{not json");
+        routes[HOME] = { throws: true };
+        await expect(OpdsService.load(HOME, { force: true })).rejects.toBeInstanceOf(OpdsError);
+        storage.set(`theorem-opds-offline:${HOME}`, JSON.stringify({ outcome: { type: "authentication" }, finalUrl: HOME }));
+        await expect(OpdsService.load(HOME, { force: true })).rejects.toBeInstanceOf(OpdsError);
+    });
+
+    it("works without any storage at all", async () => {
+        vi.stubGlobal("localStorage", undefined);
+        routes[HOME] = { type: "application/opds+json", body: fixture("opds2-home.json") };
+        await expect(OpdsService.load(HOME)).resolves.toBeTruthy();
+        routes[HOME] = { throws: true };
+        await expect(OpdsService.load(HOME, { force: true })).rejects.toBeInstanceOf(OpdsError);
+    });
+});
+
 describe("downloading in the browser", () => {
     beforeEach(() => {
         routes = {};

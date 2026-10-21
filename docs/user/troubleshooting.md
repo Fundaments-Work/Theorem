@@ -60,7 +60,7 @@ Search finds the exact letters you type. Check the spelling and turn off Match C
 
 ## Discover and feeds
 
-- **Discover says Could not connect to online libraries.** Check your internet connection and click Try Again.
+- **The Discover page will not load.** Check your internet connection and tap Try again. If Theorem has loaded it before, the last copy is shown while you are offline.
 - **A feed will not add.** Check that the address is correct. If you gave a normal web page, the page may not advertise a feed, so look for the feed address on the site. The browser demo can be blocked by websites that do not allow it to fetch feeds, so use the desktop or Android app for feeds.
 - **New articles do not appear.** Feeds refresh when you click Refresh, not automatically.
 - **Articles disappeared.** Check Article Retention Period in Settings, General. Read articles you have not favorited or saved are removed once they are older than the period.
