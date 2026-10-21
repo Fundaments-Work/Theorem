@@ -1,4 +1,4 @@
-import { Layers } from "lucide-react";
+import { ListOrdered } from "lucide-react";
 import type { Book } from "../../../core/types";
 import { isBookMarkedRead } from "../../../core/lib/utils";
 
@@ -33,7 +33,7 @@ export function SeriesGroupHeader({
 
     return (
         <div className="flex items-center gap-2.5 min-w-0 border-b border-[var(--color-border)] pb-2">
-            <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
+            <ListOrdered className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
             <h2 className="text-sm text-[color:var(--color-text-primary)] truncate">
                 {seriesName}
             </h2>

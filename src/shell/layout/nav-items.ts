@@ -1,4 +1,4 @@
-import { Compass, FolderOpen, Library, NotebookPen, Rss, type LucideIcon } from "lucide-react";
+import { Compass, Layers, Library, Newspaper, NotebookPen, type LucideIcon } from "lucide-react";
 import type { AppRoute } from "../../core/types";
 
 export interface NavDestination {
@@ -18,12 +18,17 @@ export interface NavDestination {
  * Feeds), then what you kept (Workbench). Library is home, so it comes first. Five is the most a
  * bottom bar holds and a glance takes in; Statistics and Settings are utilities and live apart
  * (rail foot on desktop, top bar on phones). Bookmarks is a tab inside Workbench.
+ *
+ * Icons name the idea, not the technology: Shelves are collections of books (layers, not a
+ * folder on disk); Feeds are articles to read (a newspaper; the RSS mark stays where a feed
+ * address itself is meant, such as "Add feed"). Pages reuse their nav icon in headers and
+ * empty states, so a page looks the same wherever it appears.
  */
 export const PRIMARY_DESTINATIONS: ReadonlyArray<NavDestination> = [
     { id: "library", label: "Library", Icon: Library },
-    { id: "shelves", label: "Shelves", Icon: FolderOpen },
+    { id: "shelves", label: "Shelves", Icon: Layers },
     { id: "opds", label: "Discover", Icon: Compass },
-    { id: "feeds", label: "Feeds", Icon: Rss },
+    { id: "feeds", label: "Feeds", Icon: Newspaper },
     { id: "annotations", label: "Workbench", Icon: NotebookPen, alsoActiveOn: ["bookmarks", "vocabulary"] },
 ];
 

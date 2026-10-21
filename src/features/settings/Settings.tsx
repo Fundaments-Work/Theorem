@@ -36,10 +36,10 @@ import {
     Trash2,
     AlertTriangle,
     ChevronRight,
-    FolderOpen,
+    NotebookPen,
     BookOpen,
     Languages,
-    Rss,
+    Newspaper,
     Download,
     Globe,
     WifiOff,
@@ -232,7 +232,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
 
                     <div className="flex items-center justify-between p-4 bg-[var(--color-surface-muted)]">
                         <div className="flex items-center gap-3">
-                            <FolderOpen className="w-5 h-5 text-[color:var(--color-text-muted)]" />
+                            <NotebookPen className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
                                 <p className="text-sm text-[color:var(--color-text-primary)]">Highlights & Notes</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
@@ -244,7 +244,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
 
                     <div className="flex items-center justify-between p-4 bg-[var(--color-surface-muted)]">
                         <div className="flex items-center gap-3">
-                            <Rss className="w-5 h-5 text-[color:var(--color-text-muted)]" />
+                            <Newspaper className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
                                 <p className="text-sm text-[color:var(--color-text-primary)]">RSS Articles</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
@@ -987,7 +987,7 @@ export const SettingsPage = memo(function SettingsPage() {
                     <Section
                         title="RSS & Articles Retention"
                         description="Configure local retention and offline storage cleanup for RSS articles and content"
-                        icon={<Rss className="w-4 h-4" />}
+                        icon={<Newspaper className="w-4 h-4" />}
                     >
                         <SettingRow
                             label="Article Retention Period"

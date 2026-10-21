@@ -24,7 +24,7 @@ import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
     ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones,
-    Layers, MoreHorizontal, X, CheckSquare
+    ListOrdered, MoreHorizontal, X, CheckSquare
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -2325,7 +2325,7 @@ export function LibraryPage() {
                             disabled={!selectionReady || selectedBooks.length === 0}
                             className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
-                            <Layers className="w-3.5 h-3.5" />
+                            <ListOrdered className="w-3.5 h-3.5" />
                             <span>Series</span>
                         </button>
                         <button
