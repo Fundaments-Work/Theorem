@@ -217,3 +217,69 @@ pub fn get_android_id<R: Runtime>(app: &AppHandle<R>) -> Result<String, String> 
 
     Ok(response.android_id)
 }
+
+/// Whether daily reading reminders can be delivered at the exact minute.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderStatus {
+    pub exact_alarms: bool,
+    pub can_request_exact_alarms: bool,
+    /// When the next reminder is due (Unix milliseconds), if one is scheduled.
+    #[serde(default)]
+    pub next_reminder_at: Option<i64>,
+}
+
+/// The daily reading reminder as the app configures it; Android schedules from this.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderConfig {
+    pub enabled: bool,
+    pub hour: u8,
+    pub minute: u8,
+    pub title: Box<str>,
+    pub body: Box<str>,
+    /// "YYYY-MM-DD": the local day with no reminder, because its goal is met.
+    pub skip_date: Option<Box<str>>,
+}
+
+#[cfg(target_os = "android")]
+pub fn reminder_status<R: Runtime>(app: &AppHandle<R>) -> Result<ReminderStatus, String> {
+    let state = get_scan_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin::<ReminderStatus>("reminderStatus", serde_json::json!({}))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn open_exact_alarm_settings<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let state = get_scan_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin::<serde_json::Value>("openExactAlarmSettings", serde_json::json!({}))
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn open_notification_settings<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let state = get_scan_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin::<serde_json::Value>("openNotificationSettings", serde_json::json!({}))
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn configure_reminder<R: Runtime>(
+    app: &AppHandle<R>,
+    config: &ReminderConfig,
+) -> Result<(), String> {
+    let state = get_scan_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin::<serde_json::Value>("configureReminder", config)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}

@@ -1935,6 +1935,10 @@ pub fn run() {
             file_transfer::download_book_file,
             sync_commands::clear_sync_databases,
             set_android_fingerprint,
+            reminder_status,
+            configure_reading_reminder,
+            open_exact_alarm_settings,
+            open_notification_settings,
             hide_to_tray,
             download_and_extract_stardict,
             stardict::stardict_lookup,
@@ -1964,6 +1968,74 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Whether daily reading reminders fire at the exact minute (Android "Alarms & reminders").
+/// Elsewhere there is nothing to grant.
+#[tauri::command]
+fn reminder_status(
+    app: tauri::AppHandle,
+) -> Result<tauri_plugin_mobile_folder_scan::ReminderStatus, String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::reminder_status(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(tauri_plugin_mobile_folder_scan::ReminderStatus {
+            exact_alarms: true,
+            can_request_exact_alarms: false,
+            next_reminder_at: None,
+        })
+    }
+}
+
+/// Hands the daily reminder settings to Android, which schedules and re-arms the reminder
+/// itself. Desktop reminds from the running app instead, so this does nothing there.
+#[tauri::command]
+fn configure_reading_reminder(
+    app: tauri::AppHandle,
+    config: tauri_plugin_mobile_folder_scan::ReminderConfig,
+) -> Result<(), String> {
+    if config.hour > 23 || config.minute > 59 {
+        return Err("Invalid reminder time".into());
+    }
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::configure_reminder(&app, &config)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (&app, &config);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn open_exact_alarm_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::open_exact_alarm_settings(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn open_notification_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::open_notification_settings(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(())
+    }
 }
 
 #[tauri::command]

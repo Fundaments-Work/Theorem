@@ -26,6 +26,16 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 @InvokeArg
+class ConfigureReminderArgs {
+  var enabled: Boolean = false
+  var hour: Int = 20
+  var minute: Int = 0
+  var title: String = "Time to read"
+  var body: String = ""
+  var skipDate: String? = null
+}
+
+@InvokeArg
 class ScanFolderArgs {
   lateinit var treeUri: String
   var recursive: Boolean? = true
@@ -297,6 +307,85 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
       } catch (error: Exception) {
         invoke.reject(error.message ?: "Failed to save file")
       }
+    }
+  }
+
+  /**
+   * Whether daily reading reminders can fire at the exact minute, and when the next one is
+   * due. Without "Alarms & reminders" access (not granted by default from Android 14),
+   * Android 12+ may deliver them up to an hour late.
+   */
+  @Command
+  fun reminderStatus(invoke: Invoke) {
+    val response = JSObject()
+    response.put("exactAlarms", ReadingReminder.canScheduleExact(activity))
+    response.put("canRequestExactAlarms", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+    response.put("nextReminderAt", ReadingReminder.nextTriggerMillis(activity))
+    invoke.resolve(response)
+  }
+
+  /** Stores the reminder settings and schedules the next reminder (or removes it). */
+  @Command
+  fun configureReminder(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(ConfigureReminderArgs::class.java)
+      if (args.hour !in 0..23 || args.minute !in 0..59) {
+        invoke.reject("Invalid reminder time")
+        return
+      }
+      ReadingReminder.configure(
+        activity,
+        ReadingReminder.Config(
+          enabled = args.enabled,
+          hour = args.hour,
+          minute = args.minute,
+          title = args.title,
+          body = args.body,
+          skipDate = args.skipDate,
+        )
+      )
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Could not schedule the reminder")
+    }
+  }
+
+  /** Opens the system page where the reader allows exact reminders for Theorem. */
+  @Command
+  fun openExactAlarmSettings(invoke: Invoke) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+      invoke.resolve()
+      return
+    }
+    try {
+      val intent = Intent(
+        Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+        Uri.fromParts("package", activity.packageName, null)
+      )
+      activity.startActivity(intent)
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Could not open the alarm settings")
+    }
+  }
+
+  /** Opens Theorem's notification settings, for a reader who turned notifications off. */
+  @Command
+  fun openNotificationSettings(invoke: Invoke) {
+    try {
+      val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+          .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+      } else {
+        Intent(
+          Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+          Uri.fromParts("package", activity.packageName, null)
+        )
+      }
+      activity.startActivity(intent)
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Could not open the notification settings")
     }
   }
 
