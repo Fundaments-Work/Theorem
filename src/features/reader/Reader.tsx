@@ -1440,9 +1440,10 @@ const BookReaderPage = memo(function BookReaderPage() {
     useEffect(() => {
         return () => {
             if (isTauriDesktop()) {
+                // Memory is trimmed by the cleanup above (sqliteShrinkMemory → trim_memory);
+                // a second request here only raced it.
                 import("@tauri-apps/api/core").then(({ invoke }) => {
                     invoke("tts_engine_unload").catch(() => {});
-                    invoke("trim_memory").catch(() => {});
                 });
             }
         };

@@ -1603,6 +1603,13 @@ pub fn run() {
             },
         )
         .on_window_event(|window, event| {
+            // Give memory back when the user switches away, from here rather than from the
+            // page: a webview being hidden cancels IPC requests, and WebKit logs each one as
+            // "Fetch API cannot load ipc://localhost/… due to access control checks".
+            #[cfg(desktop)]
+            if let WindowEvent::Focused(false) = event {
+                trim_memory_soon(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     // Reader windows are separate webviews, so closing the main
@@ -2316,6 +2323,29 @@ async fn fetch_online_definition(term: String) -> Result<serde_json::Value, Stri
         .map_err(|e| format!("JSON parse error: {e}"))?;
 
     Ok(json)
+}
+
+/// `trim_memory` off the UI thread, at most once every 30 seconds (focus can flicker).
+#[cfg(desktop)]
+fn trim_memory_soon(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST_TRIM_SECS: AtomicU64 = AtomicU64::new(0);
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let last = LAST_TRIM_SECS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 30
+        || LAST_TRIM_SECS
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || trim_memory(app));
 }
 
 fn trim_memory(app: tauri::AppHandle) {

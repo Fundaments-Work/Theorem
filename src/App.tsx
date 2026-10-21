@@ -5,7 +5,7 @@ import { PageLoader, SplashScreen } from "./ui/loading";
 import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
-import { isTauriDesktop, isTauri } from "./core/lib/env";
+import { isTauriDesktop, isTauri, isTauriMobile } from "./core/lib/env";
 import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
@@ -242,8 +242,11 @@ function App() {
         pruneExpiredTombstones();
     }, []);
 
+    // Phones: trim memory when the app goes to the background. Desktop does this from Rust when
+    // the window loses focus: asking from a page that is being hidden makes WebKit cancel the IPC
+    // request and log an "access control checks" error.
     useEffect(() => {
-        if (!isTauri() || typeof document === "undefined") return;
+        if (!isTauriMobile() || typeof document === "undefined") return;
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === "hidden") {
