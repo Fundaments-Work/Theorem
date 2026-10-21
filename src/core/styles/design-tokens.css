@@ -160,7 +160,7 @@
     --layout-reader-panel-max-width-mobile: 85vw;
     --layout-reader-panel-mobile-height: 78vh;
     --layout-reader-list-max-height: 60vh;
-    --layout-modal-max-height: 90vh;
+    --layout-modal-max-height: min(90dvh, calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
     --layout-modal-width-fluid: 92vw;
     --layout-modal-width-sm: 24rem;
     --layout-modal-width-md: 30rem;
