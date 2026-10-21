@@ -23,8 +23,11 @@ export function useFilteredSelection(books: Book[], scope: string, enabled: bool
     }, [selectedBooks, storedIds.length, canSelect, setSelectedBooks]);
     useEffect(() => () => clearSelection(), [clearSelection]);
 
-    const selectAll = useCallback(() => {
-        if (canSelect) setSelectedBooks([...visibleIds]);
+    /** Returns false while selection is not ready yet (mode just entered, or search settling). */
+    const selectAll = useCallback((): boolean => {
+        if (!canSelect) return false;
+        setSelectedBooks([...visibleIds]);
+        return true;
     }, [canSelect, visibleIds, setSelectedBooks]);
     const toggleBookSelection = useCallback((id: string) => {
         if (!canSelect || !visibleIds.has(id)) return;

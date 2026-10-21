@@ -28,7 +28,7 @@ Every tagged release publishes:
 
 - **Linux**: `.deb`, `.AppImage` (+ `.sig` updater signatures)
 - **macOS**: `.dmg` for Apple Silicon (`aarch64`) and Intel (`x64`)
-- **Windows**: `.exe` (NSIS installer)
+- **Windows**: `.exe` (NSIS installer) and `.msi` (WiX installer, for managed/enterprise deployment)
 - **Android**: `.apk` per ABI (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) + `.aab`
 - **Updater**: `latest.json` consumed by the in-app updater
 
@@ -98,7 +98,7 @@ chmod +x Theorem_<version>_amd64.AppImage
 
 ### RPM (Fedora / RHEL / SUSE)
 
-Not currently built — `tauri.conf.json` targets `deb`, `appimage`, `nsis`, and
+Not currently built — `tauri.conf.json` targets `deb`, `appimage`, `nsis`, `msi`, and
 `dmg` only. To enable, add `"rpm"` to `bundle.targets` and a CI step, then
 publish to COPR (<https://copr.fedorainfracloud.org/>). Until then, use the
 AppImage.
@@ -128,7 +128,7 @@ in a tap) so users can `brew install --cask theorem`.
 
 ## Windows
 
-Distributed as an NSIS `.exe` via GitHub Releases. A WinGet manifest set lives
+Distributed as an NSIS `.exe` (recommended; also used by the in-app updater) and a WiX `.msi` via GitHub Releases. Use the `.msi` for Group Policy, Intune or `msiexec /i` deployments. A WinGet manifest set lives
 in `packaging/winget/`; submit it to
 [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) so users can
 `winget install Fundaments-Work.Theorem`. `wingetcreate` can update and submit

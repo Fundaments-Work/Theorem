@@ -64,5 +64,4 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 |--------|----------------|
 | [plans/](plans/) | Technical design plans & roadmaps (`plans/done/` holds shipped plans) |
 | [plans/2026-08-30-plugin-extensibility-architecture.md](plans/2026-08-30-plugin-extensibility-architecture.md) | Plugin extensibility architecture (designed, not implemented) |
-| [plans/2026-09-29-native-pdfium-rendering-engine-rfc.md](plans/2026-09-29-native-pdfium-rendering-engine-rfc.md) | Native PDFium rendering engine RFC |
 | [research/](research/) | Long-form research: Rust rewrite candidates, memory/SQLite tuning, announcements architecture |

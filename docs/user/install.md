@@ -6,7 +6,7 @@ Every build is listed on the [latest release page](https://github.com/fundaments
 
 | System | File to download |
 | :--- | :--- |
-| Windows (64-bit) | `Theorem_<version>_x64-setup.exe` |
+| Windows (64-bit) | `Theorem_<version>_x64-setup.exe` (or `Theorem_<version>_x64_en-US.msi` for managed deployments) |
 | macOS, Apple Silicon | `Theorem_<version>_aarch64.dmg` |
 | macOS, Intel | `Theorem_<version>_x64.dmg` |
 | Linux, Debian and Ubuntu | `Theorem_<version>_amd64.deb` |
@@ -18,7 +18,7 @@ The release page also lists x86 and x86_64 Android builds. Those are meant for e
 
 ## Install on Windows
 
-1. Download the `.exe` setup file from the release page.
+1. Download the `.exe` setup file from the release page. IT administrators can use the `.msi` package instead.
 2. Run it and follow the installer.
 3. Start Theorem from the Start menu.
 

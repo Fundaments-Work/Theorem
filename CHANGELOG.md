@@ -68,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ctrl/Cmd+A now selects all** — In the Library and inside a shelf it enters selection mode and selects every book in the current filtered view (previously it only toggled the mode, and did nothing on Bookmarks, which has no selection mode). In text fields it keeps its normal meaning.
+- **Windows MSI installer** — Releases now also build a WiX `.msi` next to the NSIS `.exe`, for Group Policy / Intune / `msiexec` deployments. The in-app updater keeps using the NSIS installer.
+- **Faster CI** — Superseded runs are cancelled, the Rust check caches its build, pnpm uses setup-node's store cache, the Build job no longer repeats the Typecheck job, and jobs have timeouts.
+- **Native PDFium RFC withdrawn** — The proposal to replace PDF.js with a native PDFium engine was removed from the docs; PDF.js stays the PDF engine.
 - **Maintenance** — The Buy Me Momo content-drift check (`pnpm check:content` and its CI job) was removed; the two URL literals are now kept in sync by hand. CodeQL runs on a schedule rather than on every push, and the landing-page hook also fires on documentation changes.
 - **Tauri IPC access control check on memory trim** — Added wildcard window capability in `src-tauri/capabilities/default.json` and allowed IPC localhost origins in CSP, resolving Tauri v2 IPC ACL denials (`trim_memory`) on sub-windows and reloaded webviews.
 - **PDF Viewer Stability & Zoom Convergence** — Eliminated PDF zoom jumping, dropped TOC jumps, and page-pill layout squeezing on document load.
@@ -114,7 +118,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - Replaced the README screenshot set with a current, organized gallery (desktop and mobile), and pointed the web demo link at `read.fundaments.work`.
-- Added an RFC evaluating a native PDFium engine for PDF rendering.
 
 ## [1.5.8] - 2026-09-28 (Beta)
 

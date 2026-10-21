@@ -121,6 +121,7 @@ jobs:
           | Platform | Download |
           |----------|----------|
           | Windows (x64) | [\`Theorem_${VERSION}_x64-setup.exe\`](${BASE}/Theorem_${VERSION}_x64-setup.exe) |
+          | Windows (x64, MSI) | [\`Theorem_${VERSION}_x64_en-US.msi\`](${BASE}/Theorem_${VERSION}_x64_en-US.msi) |
           | macOS (Apple Silicon) | [\`Theorem_${VERSION}_aarch64.dmg\`](${BASE}/Theorem_${VERSION}_aarch64.dmg) |
           | macOS (Intel) | [\`Theorem_${VERSION}_x64.dmg\`](${BASE}/Theorem_${VERSION}_x64.dmg) |
           | Linux (Debian/Ubuntu) | [\`Theorem_${VERSION}_amd64.deb\`](${BASE}/Theorem_${VERSION}_amd64.deb) |

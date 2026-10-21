@@ -252,7 +252,6 @@ For complete tracking across the repository's planning records:
 | Plan | Target | Current Status | Rationale |
 |---|---|---|---|
 | **Plugin Extensibility Architecture** ([`docs/plans/2026-08-30-plugin-extensibility-architecture.md`](../plans/2026-08-30-plugin-extensibility-architecture.md)) | v2.0.0+ | **Deferred** | Avoids premature API freeze while SQLite data layouts and reader geometry are actively optimized. User extensibility needs are fulfilled natively via Knap AST note templating. |
-| **Native PDFium Rendering Engine RFC** ([`docs/plans/2026-09-29-native-pdfium-rendering-engine-rfc.md`](../plans/2026-09-29-native-pdfium-rendering-engine-rfc.md)) | v2.x | **Backlog RFC** | PDF.js v6 with worker destruction, range reading, bounding-box Theorem Lens, and double-buffered zoom provides native-grade performance with zero native binary bloat (+12MB saved). |
 
 ---
 

@@ -9,7 +9,7 @@ import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
 import { normalizeFilePath } from "./core/lib/utils";
-import { registerShortcuts, useKeyboardShortcuts } from "./core/lib/keyboard-shortcuts";
+import { registerShortcuts, useKeyboardShortcuts, SELECT_ALL_EVENT } from "./core/lib/keyboard-shortcuts";
 import { initI18n } from "./core/lib/i18n";
 import { initLogger } from "./core/lib/debug";
 import { dispatchBackAction } from "./core/lib/back-navigation";
@@ -156,11 +156,8 @@ function App() {
             
             { label: "Select all",          keys: "Ctrl+A", category: "Library",    handler: () => {
                 const route = useUIStore.getState().currentRoute;
-                if (route !== "library" && route !== "shelves" && route !== "bookmarks") return;
-                const visiblePane = document.querySelector('#app-main > div:not(.hidden)');
-                const toggleSelectMode = (visiblePane?.querySelector('[data-action="toggle-select-mode"]')
-                    ?? document.querySelector('[data-action="toggle-select-mode"]')) as HTMLButtonElement | null;
-                if (toggleSelectMode) toggleSelectMode.click();
+                if (route !== "library" && route !== "shelves") return;
+                window.dispatchEvent(new Event(SELECT_ALL_EVENT));
             }},
         ]);
     }, [setRoute]);

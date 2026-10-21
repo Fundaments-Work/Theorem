@@ -174,7 +174,7 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 
 2. **Run full local quality gates**:
    - TypeScript: `pnpm typecheck` — zero errors
-   - Vitest: `pnpm test` — all suites must pass (currently 128 files / 1301 tests)
+   - Vitest: `pnpm test` — all suites must pass (currently 129 files / 1307 tests)
    - Production bundle: `pnpm build` — verifies bundle, WebAssembly modules, and PDF.js assets
    - Rust: `cd src-tauri && cargo fmt --check && cargo clippy && cargo check` — zero warnings/errors
    - Foliate runtime: `pnpm foliate:check` — clean pass

@@ -18,7 +18,7 @@
 | `Ctrl+7` | Go to Bookmarks |
 | `Ctrl+,` | Go to Settings |
 | `Ctrl+F` | Focus search bar |
-| `Ctrl+A` | Toggle select mode (Library/Shelves/Bookmarks) — currently a no-op; targets a missing `data-action="toggle-select-mode"` element |
+| `Ctrl+A` | Select all — enters selection mode and selects every book in the current filtered Library view or open shelf (no-op elsewhere, and inside text fields it keeps its normal meaning) |
 | `Shift+?` | Show shortcuts help modal |
 | `Escape` | Handled per-component (Theorem Lens, editors, fullscreen), not globally |
 
