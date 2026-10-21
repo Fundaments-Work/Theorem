@@ -2,7 +2,7 @@
 
 **Date**: 2026-10-08  
 **Status**: Research & Architecture Specification  
-**Related Active Plan**: [`docs/plans/2026-10-06-buyme-momo-and-announcements-design.md`](../plans/2026-10-06-buyme-momo-and-announcements-design.md)  
+**Related Active Plan**: [`docs/plans/2026-10-06-buyme-momo-and-announcements-design.md`](../plans/done/2026-10-06-buyme-momo-and-announcements-design.md)  
 **Authors**: Theorem Core Engineering  
 **Primary Code References**:
 - Shell & Layout: [`src/shell/layout/Sidebar.tsx`](../../src/shell/layout/Sidebar.tsx), [`src/shell/AppTitlebar.tsx`](../../src/shell/AppTitlebar.tsx), [`src/App.tsx`](../../src/App.tsx)
