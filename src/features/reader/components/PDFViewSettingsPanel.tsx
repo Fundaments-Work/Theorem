@@ -51,6 +51,7 @@ export function PDFViewSettingsPanel({
             <Backdrop visible={visible} onClick={onClose} className="z-[145]" />
 
             <FloatingPanel
+                label="PDF view settings"
                 visible={visible}
                 className={cn("z-[160] overflow-hidden bg-[var(--color-surface)]", className)}
             >

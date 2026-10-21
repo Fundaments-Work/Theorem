@@ -1,5 +1,6 @@
 import type { RssArticle } from "../../../core/types";
 import { setElementHtml } from "../../../core/lib/sanitize";
+import { isSafeAttributeUrl } from "../../../core/lib/url-safety";
 import { needsMarkdownRender, plainTextToHtml } from "../../../core/lib/article-markdown";
 
 export function processArticleHtml(raw: string): string {
@@ -100,11 +101,9 @@ export function sanitizeArticleHtml(html: string): string {
     temp.querySelectorAll("*").forEach((el) => {
         Array.from(el.attributes).forEach((attr) => {
             const name = attr.name.toLowerCase();
-            const value = attr.value.toLowerCase();
             if (
                 name.startsWith("on")
-                || (name === "href" && value.startsWith("javascript:"))
-                || (name === "src" && value.startsWith("javascript:"))
+                || !isSafeAttributeUrl(name, attr.value)
                 || name === "style"
                 || name === "class"
                 || name === "width"

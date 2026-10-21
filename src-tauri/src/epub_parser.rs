@@ -30,7 +30,7 @@ fn read_zip_by_name_inner<R: std::io::Read + std::io::Seek>(
         .index_for_name(name)
         .or_else(|| archive.index_for_name(clean_name))
         .or_else(|| {
-            archive.file_names().position(|f| {
+            archive.file_names().filter_map(|f| f.ok()).position(|f| {
                 let f_clean = f.trim_start_matches('/').trim_start_matches("./");
                 f_clean.eq_ignore_ascii_case(clean_name)
             })
@@ -706,12 +706,15 @@ fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Stri
     let file_path =
         resolve_book_path(app, path).ok_or_else(|| format!("file not found: {path}"))?;
     let file = File::open(&file_path).map_err(|e| format!("Cannot open {path}: {e}"))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let mut archive =
+        crate::zip_util::open_zip_archive(file).map_err(|e| format!("Not a valid zip: {e}"))?;
 
     let mut sizes: HashMap<String, u64> = HashMap::with_capacity(archive.len());
     for i in 0..archive.len() {
         if let Ok(f) = archive.by_index(i) {
-            sizes.insert(f.name().to_string(), f.size());
+            if let Ok(name) = f.name() {
+                sizes.insert(name.to_string(), f.size());
+            }
         }
     }
 
@@ -1157,7 +1160,7 @@ mod tests {
                 continue;
             }
             let file = file.unwrap();
-            let archive_res = zip::ZipArchive::new(file);
+            let archive_res = crate::zip_util::open_zip_archive(file);
             if archive_res.is_err() {
                 continue; // might be PDF or non-zip
             }

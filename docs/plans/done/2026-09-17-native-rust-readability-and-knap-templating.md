@@ -10,7 +10,7 @@
 ## 1. Executive Context & Core Principles
 
 ### 1.1 The Rust-First Engineering Mandate
-Theorem’s architectural doctrine ([`AGENTS.md`](../../AGENTS.md)) strictly dictates:
+Theorem’s architectural doctrine ([`AGENTS.md`](../../../AGENTS.md)) strictly dictates:
 > *"Whenever implementing any feature that processes text, files, collections, search, hashing, parsing, or caching, **always search for and prioritize a native Rust implementation** instead of TypeScript. Rust is the single source of truth for heavy computation, file I/O, and data storage. JavaScript/React should only handle UI presentation and lightweight interaction state."*
 
 ### 1.2 The Problem with Current Article Extraction
@@ -100,7 +100,7 @@ pub struct NativeExtractedArticle {
 ## 3. Component 2: Knap Template Engine for Vault Sync
 
 ### 3.1 The Need for Templating in Vault Sync
-Theorem's Obsidian Vault synchronization ([`src/core/lib/vault-sync.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/vault-sync.ts)) currently constructs Markdown files through rigid hardcoded string arrays. Users cannot customize their frontmatter properties, highlight callouts, or note structures.
+Theorem's Obsidian Vault synchronization ([`src/core/lib/vault-sync.ts`](../../../src/core/lib/vault-sync.ts)) currently constructs Markdown files through rigid hardcoded string arrays. Users cannot customize their frontmatter properties, highlight callouts, or note structures.
 
 ### 3.2 Knap Integration
 `knap` (`npm install knap`) is integrated into the export pipeline:

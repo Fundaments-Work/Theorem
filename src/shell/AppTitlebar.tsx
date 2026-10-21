@@ -9,6 +9,7 @@ import {
     Search,
     BarChart3,
     ArrowDownUp,
+    Settings,
 } from "lucide-react";
 import { cn } from "../core/lib/utils";
 import { isMobile, isTauri } from "../core/lib/env";
@@ -184,6 +185,8 @@ export const AppTitlebar = memo(function AppTitlebar({
                 return "Shelves";
             case "feeds":
                 return "Feeds";
+            case "opds":
+                return "Discover";
             default:
                 return title;
         }
@@ -226,7 +229,7 @@ export const AppTitlebar = memo(function AppTitlebar({
     };
 
     return (
-        <div
+        <header
             className={cn(
                 "w-full z-50 select-none border-b border-[var(--color-border)] bg-[var(--color-surface)]",
                 "px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),4px)] lg:py-0",
@@ -260,7 +263,8 @@ export const AppTitlebar = memo(function AppTitlebar({
                         </div>
                     </button>
 
-                    <h1 className="hidden sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
+                    {/* Visually hidden on phones (the logo takes the space) but still the page's heading for assistive tech. */}
+                    <h1 className="sr-only sm:not-sr-only sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
                         {getPageTitle()}
                     </h1>
                 </div>
@@ -398,6 +402,17 @@ export const AppTitlebar = memo(function AppTitlebar({
                         <BarChart3 className="w-5 h-5" />
                     </button>
 
+                    {/* Phones: the bottom bar is full, so Settings sits here. Desktop has it in the rail. */}
+                    <button
+                        onClick={() => setRoute("settings")}
+                        className={cn("md:!hidden", TITLEBAR_ICON_BUTTON)}
+                        aria-label="Settings"
+                        data-active={currentRoute === "settings" ? "true" : undefined}
+                        aria-pressed={currentRoute === "settings"}
+                    >
+                        <Settings className="w-5 h-5" />
+                    </button>
+
                     {showDesktopWindowControls && (
                         <div className="hidden sm:flex items-center ml-3 pl-3 border-l border-[var(--color-border)]">
                             <button
@@ -485,7 +500,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                     </div>
                 </div>
             )}
-        </div>
+        </header>
     );
 });
 

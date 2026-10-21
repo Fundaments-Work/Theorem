@@ -1,5 +1,6 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { formatShortcutKeys } from "../../../../core/lib/keyboard-shortcuts";
 import { createPortal } from 'react-dom';
 import { X, Save } from 'lucide-react';
 import { cn } from "../../../../core/lib/utils";
@@ -183,7 +184,7 @@ export function NoteEditor({
 
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--color-border)]">
                 <span className="font-mono text-[10px] text-[color:var(--color-text-muted)]">
-                    Ctrl+Enter to save
+                    {formatShortcutKeys("Ctrl+Enter")} to save
                 </span>
                 <button
                     onClick={handleSave}

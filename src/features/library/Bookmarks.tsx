@@ -13,6 +13,7 @@ import {
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
 import { Bookmark } from "lucide-react";
 import { AnnotationListCard } from "./components/AnnotationListCard";
+import { WorkbenchTabs } from "./components/WorkbenchTabs";
 import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
 import { useCardTextMeasurer } from "./components/useCardTextMeasurer";
 import { bookmarkPositionLabel } from "./components/bookmark-position";
@@ -98,6 +99,7 @@ export function BookmarksPage() {
     const getBook = useLibraryStore((state) => state.getBook);
     const removeAnnotation = useLibraryStore((state) => state.removeAnnotation);
     const setRoute = useUIStore((state) => state.setRoute);
+    const requestWorkbenchFilter = useUIStore((state) => state.requestWorkbenchFilter);
     const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const rssArticles = useRssStore((state) => state.articles);
@@ -269,6 +271,14 @@ export function BookmarksPage() {
     if (visibleBookmarks.length === 0) {
         return (
             <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+                <WorkbenchTabs
+                    active="bookmarks"
+                    onSelect={(tab) => {
+                        if (tab === "bookmarks") return;
+                        requestWorkbenchFilter(tab);
+                        setRoute("annotations");
+                    }}
+                />
                 <EmptyBookmarks />
             </div>
         );
@@ -281,6 +291,16 @@ export function BookmarksPage() {
             <PageHeader
                 title="Bookmarks"
                 description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "source" : "sources"}`}
+            />
+
+            <WorkbenchTabs
+                active="bookmarks"
+                className="mb-6"
+                onSelect={(tab) => {
+                    if (tab === "bookmarks") return;
+                    requestWorkbenchFilter(tab);
+                    setRoute("annotations");
+                }}
             />
 
             <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">

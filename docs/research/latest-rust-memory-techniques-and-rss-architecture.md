@@ -163,10 +163,10 @@ We audited Theorem's RSS implementation across `src-tauri/` and `src/`:
    - Because all RSS data is stored as a single JSON blob in `kv_store`, SQLite cannot index articles by feed, publication date, read status, or title.
    - Filtering articles in `FeedsPage.tsx` must load all articles into JavaScript memory and run JS `Array.prototype.filter()` and `Array.prototype.sort()`.
 3. **Redundant Dual Article Extractors**:
-   - Theorem has a native Rust article readability extractor in [`src-tauri/src/article_extractor.rs`](file:///run/media/sapiens/Development/Fundaments/Theorem/src-tauri/src/article_extractor.rs) (`fetch_and_extract_article_native`).
+   - Theorem has a native Rust article readability extractor in [`src-tauri/src/article_extractor.rs`](../../src-tauri/src/article_extractor.rs) (`fetch_and_extract_article_native`).
    - However, `ArticleExtractorService.ts` on the frontend still fetches HTML and runs `@mozilla/readability` + `DOMPurify` on the JavaScript main thread, duplicating code and pulling heavy JS libraries into the web bundle.
 4. **Synthetic EPUB Generation in JS**:
-   - In [`src/core/lib/rss-epub.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/rss-epub.ts), when an article is opened in the reader, the webview uses JavaScript `fflate` (`zipSync`) to compress the XHTML, CSS, and container XML into an in-memory zip buffer.
+   - In [`src/core/lib/rss-epub.ts`](../../src/core/lib/rss-epub.ts), when an article is opened in the reader, the webview uses JavaScript `fflate` (`zipSync`) to compress the XHTML, CSS, and container XML into an in-memory zip buffer.
 
 ---
 

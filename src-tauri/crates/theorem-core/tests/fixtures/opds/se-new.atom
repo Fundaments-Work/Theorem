@@ -1,0 +1,377 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet href="https://standardebooks.org/feeds/atom/style" type="text/xsl"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+	<script xmlns="http://www.w3.org/1999/xhtml" src="https://standardebooks.org/scripts/xslt-polyfill.min.js"/>
+	<id>https://standardebooks.org/feeds/atom/new-releases</id>
+	<link href="https://standardebooks.org/feeds/atom/new-releases" rel="self" type="application/atom+xml"/>
+	<title>Standard Ebooks - Newest Ebooks</title>
+	<subtitle>The 15 latest Standard Ebooks, most-recently-released first.</subtitle>
+	<icon>https://standardebooks.org/images/logo.png</icon>
+	<updated>2026-10-16T19:24:49Z</updated>
+	<author>
+		<name>Standard Ebooks</name>
+		<uri>https://standardebooks.org</uri>
+	</author>
+	<link href="https://standardebooks.org/opensearch" rel="search" title="Standard Ebooks" type="application/opensearchdescription+xml"/>
+	<entry>
+		<id>https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere</id>
+		<title>Moral Letters to Lucilius</title>
+		<author>
+			<name>Seneca</name>
+			<uri>https://standardebooks.org/ebooks/seneca</uri>
+		</author>
+		<published>2026-10-16T19:00:15Z</published>
+		<updated>2026-10-16T19:00:19Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">An elderly Roman Stoic philosopher gives life advice to a young friend.</summary>
+		<content type="html">&lt;p&gt;&lt;a href="https://standardebooks.org/ebooks/seneca"&gt;Seneca&lt;/a&gt; was a Stoic philosopher and statesman in Rome’s early post-Augustan era. He was Nero’s tutor, and then his advisor when Nero became emperor in 54 CE. After Seneca retired from public life, he wrote a series of letters to his friend Lucilius, the procurator of Sicily. These letters were circulated right before Seneca’s death in 65 CE, when Nero forced him to commit suicide for his alleged involvement in a conspiracy.&lt;/p&gt; &lt;p&gt;These letters, which were written for widespread publication as well as directly to Lucilius, mainly focus on guiding the reader to a life well-lived. At times, the advice is regarding specific personal issues, such as when he gives a review of a book written by Lucilius. Other letters give Seneca’s thoughts on broader issues like slavery, independence of thought, and virtue. Through all of them, his Stoicism shines through, whether in his metaphysics (like when he writes on “the god within us”) or in his focus on how virtue is the only good. His diverse interests are also on display, as when he addresses current events (like the burning of Lyons), or when he speculates on science (like when he offers his thoughts on animal instincts).&lt;/p&gt; &lt;p&gt;These letters have been popular and influential since their initial circulation, and were widely read from the Roman period, up through the Middle Ages, and into the Renaissance, where &lt;a href="https://standardebooks.org/ebooks/michel-de-montaigne"&gt;Michel de Montaigne&lt;/a&gt; used them as a model for his &lt;a href="https://standardebooks.org/ebooks/michel-de-montaigne/essays/charles-cotton"&gt;&lt;i&gt;Essays&lt;/i&gt;&lt;/a&gt;. They remain highly regarded today for their practical and sage advice.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Ethics--Early works to 1800"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Conduct of Life--Early works to 1800"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Philosophy"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere/downloads/seneca_moral-letters-to-lucilius_richard-m-gummere.epub?source=feed" length="1076225" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere/downloads/seneca_moral-letters-to-lucilius_richard-m-gummere_advanced.epub?source=feed" length="1388557" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere/downloads/seneca_moral-letters-to-lucilius_richard-m-gummere.kepub.epub?source=feed" length="1054775" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere/downloads/seneca_moral-letters-to-lucilius_richard-m-gummere.azw3?source=feed" length="1398956" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere/text/single-page" length="1742045" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington</id>
+		<title>Robur the Conqueror</title>
+		<author>
+			<name>Jules Verne</name>
+			<uri>https://standardebooks.org/ebooks/jules-verne</uri>
+		</author>
+		<published>2026-10-16T18:11:36Z</published>
+		<updated>2026-10-16T18:14:22Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A domineering inventor kidnaps members of a balloonist club and flies them around the world to prove the superiority of his heavier-than-air machine.</summary>
+		<content type="html">&lt;p&gt;&lt;i&gt;Robur the Conqueror&lt;/i&gt;, also published as &lt;i&gt;The Clipper of the Clouds&lt;/i&gt;, opens in Philadelphia at a meeting of the Weldon Institute, a club of balloon enthusiasts. A stranger named Robur asks to address the members, then tells them that the future belongs to heavier-than-air machines. He mocks the club’s giant balloon, the &lt;i&gt;Go-Ahead&lt;/i&gt;, and insults its members until the meeting erupts in chaos. That night he kidnaps Uncle Prudent, the club’s president, Phil Evans, its secretary, and Frycollin, Prudent’s servant. He takes them captive aboard the &lt;i&gt;Albatross&lt;/i&gt;, the flying machine he built, and flies them around the world to prove his point. After the captives escape, the story returns to Philadelphia for the first launch of the &lt;i&gt;Go-Ahead&lt;/i&gt;, where the &lt;i&gt;Albatross&lt;/i&gt; appears in the sky to challenge it.&lt;/p&gt; &lt;p&gt;First published in 1886 as &lt;i&gt;Robur-le-Conquérant&lt;/i&gt;, this book marks the thirtieth entry in &lt;a href="https://standardebooks.org/ebooks/jules-verne"&gt;Jules Verne’s&lt;/a&gt; &lt;a href="https://standardebooks.org/collections/voyages-extraordinaires"&gt;&lt;i&gt;Voyages Extraordinaires&lt;/i&gt;&lt;/a&gt;. Its sequel, &lt;a href="https://standardebooks.org/ebooks/jules-verne/master-of-the-world/cranstoun-metcalfe"&gt;&lt;i&gt;Master of the World&lt;/i&gt;&lt;/a&gt;, followed in 1904.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Science fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Aeronautics--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Adventure"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Science Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington/downloads/jules-verne_robur-the-conqueror_sampson-low-marston-searle-rivington.epub?source=feed" length="522280" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington/downloads/jules-verne_robur-the-conqueror_sampson-low-marston-searle-rivington_advanced.epub?source=feed" length="351327" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington/downloads/jules-verne_robur-the-conqueror_sampson-low-marston-searle-rivington.kepub.epub?source=feed" length="372582" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington/downloads/jules-verne_robur-the-conqueror_sampson-low-marston-searle-rivington.azw3?source=feed" length="501018" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington/text/single-page" length="438332" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood</id>
+		<title>Of One Blood</title>
+		<author>
+			<name>Pauline E. Hopkins</name>
+			<uri>https://standardebooks.org/ebooks/pauline-e-hopkins</uri>
+		</author>
+		<published>2026-10-15T19:37:14Z</published>
+		<updated>2026-10-15T19:37:16Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A young scholar’s life spirals down a dark path after the near-death of a singer.</summary>
+		<content type="html">&lt;p&gt;Attending medical school in Boston, Reuel Briggs has neither wealth nor the good looks of the upper-class white society with which he surrounds himself. He is, however, incredibly talented, and has a rare gift in the psychological study of mysticism and supernatural phenomenon. Even if his peers aren’t too keen on him, they can’t help but be awed by his talent, and subsequently call on his aid in reaching out to the minds of the sick and dying who would otherwise be lost. Though this field of mysticism is his life’s work and sole talent, it may soon be his downfall as it leads him down a dark path of secrets and discoveries.&lt;/p&gt; &lt;p&gt;&lt;i&gt;Of One Blood&lt;/i&gt; was first published serially in &lt;i&gt;The Colored American Magazine&lt;/i&gt;, which &lt;a href="https://standardebooks.org/ebooks/pauline-e-hopkins"&gt;Hopkins&lt;/a&gt; edited at the time. Written at the turn of the century and shortly after the Civil War, Hopkins explores the legacy of slavery, questions of identity, and the bounds of love and loyalty.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Paranormal fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Ethiopia--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="African American medical students--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Black people--Race identity--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Americans--Ethiopia--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fantasy"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Spirituality"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood/downloads/pauline-e-hopkins_of-one-blood.epub?source=feed" length="681900" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood/downloads/pauline-e-hopkins_of-one-blood_advanced.epub?source=feed" length="1138386" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood/downloads/pauline-e-hopkins_of-one-blood.kepub.epub?source=feed" length="620783" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood/downloads/pauline-e-hopkins_of-one-blood.azw3?source=feed" length="715948" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood/text/single-page" length="407554" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers</id>
+		<title>The Sowers</title>
+		<author>
+			<name>Henry Seton Merriman</name>
+			<uri>https://standardebooks.org/ebooks/henry-seton-merriman</uri>
+		</author>
+		<published>2026-10-13T17:47:53Z</published>
+		<updated>2026-10-13T17:47:59Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">Driven by their shared idealism, two men returning to Imperial Russia to effect change face mortal danger from both an autocratic state desperate to preserve its power and a peasantry driven to desperation by centuries of servitude.</summary>
+		<content type="html">&lt;p&gt;With &lt;i&gt;The Sowers&lt;/i&gt;, a story ranging from the upper class drawing-rooms of London, Paris, and St. Petersburg to the vast estates and peasant villages of the Russian steppe, &lt;a href="https://standardebooks.org/ebooks/henry-seton-merriman"&gt;Henry Seton Merriman&lt;/a&gt; enjoyed his greatest popular success. Its protagonist is a young man of strong ideals and character who is known to his friends and London society as Paul Howard Alexis, to the vicious Russian aristocracy and the thousands of resentful peasants on his estate as Prince Pavlo Alexis, and to those same impoverished thousands as the “Moscow Doctor” sent by God, whose tireless, compassionate, selfless care sustains them. This enigmatic man is understood only by his closest advisor, friend, and confidant, Karl Steinmetz, a cosmopolitan utopian philosopher given to bouts of cynicism and sentimentalism. Together they resolve, come what may, to carry out the work of a charitable organization banned by the Russian state but crucial to the well-being of millions of oppressed peasants.&lt;/p&gt; &lt;p&gt;The dangers are tremendous. The leadership of their organization is exiled by the Tsar’s secret police; nobles concerned with their peasants’ welfare are undermined by their peers; those same peasants, suspicious and superstitious, fear that anyone could be a spy or that any change in their lives will only deepen their misery; revolutionaries seek to exploit the growing unrest for their own political ends, while others seek to exploit it for their personal advantage. As Alexis and Steinmetz navigate this web of treachery, they realize that the greatest dangers and betrayals may come from those closest to them.&lt;/p&gt; &lt;p&gt;In &lt;i&gt;The Sowers&lt;/i&gt;, Merriman wrote with authority about the physical and political landscape of Russia, and with passion concerning those liberal ideals which became more evident in his later novels. For contemporary readers, the novel presented an exotic, mysterious place, the Russian Empire of the Romanovs, to which few traveled and which even fewer understood. As other European empires slowly changed and liberalized, Russia, with its vast spaces and rural millions, seemed increasingly anachronistic. Several of the more idealistic characters in the novel give voice to the author’s own sense that Russia would soon face an existential crisis when its peasantry finally rose up against those who had oppressed them for centuries, though the nature of such a revolution was unclear, and its trigger might not come in their lifetimes. For today’s reader, with the benefit of historical hindsight, those suggestions are uncannily prescient.&lt;/p&gt; &lt;p&gt;Published in 1896, &lt;i&gt;The Sowers&lt;/i&gt; anticipated the first Russian revolution by nine years. The extreme violence which attended the final fall of the Romanovs and their empire in 1917 occurred just fourteen years after Merriman’s own premature death in 1903.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Russia--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers/downloads/henry-seton-merriman_the-sowers.epub?source=feed" length="644041" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers/downloads/henry-seton-merriman_the-sowers_advanced.epub?source=feed" length="1409784" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers/downloads/henry-seton-merriman_the-sowers.kepub.epub?source=feed" length="604489" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers/downloads/henry-seton-merriman_the-sowers.azw3?source=feed" length="758045" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers/text/single-page" length="749479" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare</id>
+		<title>Beautiful Stories from Shakespeare</title>
+		<author>
+			<name>E. Nesbit</name>
+			<uri>https://standardebooks.org/ebooks/e-nesbit</uri>
+		</author>
+		<published>2026-10-12T19:23:56Z</published>
+		<updated>2026-10-13T01:47:14Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">Children’s author E. Nesbit retells some of Shakespeare’s plays for young readers.</summary>
+		<content type="html">&lt;p&gt;Two young couples, lost in an enchanted wood, are manipulated by quarreling fairies. A magician and his daughter entertain visitors he shipwrecked on their enchanted island. A king divides his lands unequally among his three daughters according to how well they flatter him. A witches’ prophecy sets a Scottish general on a tragic path.&lt;/p&gt; &lt;p&gt;&lt;i&gt;Beautiful Stories from Shakespeare&lt;/i&gt; is a collection of retellings of twenty of &lt;a href="https://standardebooks.org/ebooks/william-shakespeare"&gt;William Shakespeare’s&lt;/a&gt; plays by noted children’s author &lt;a href="https://standardebooks.org/ebooks/e-nesbit"&gt;E. Nesbit&lt;/a&gt;. Each play is condensed to its core story and told using simple language that children can understand. While some quotations from Shakespeare are retained, the emphasis is on the stories rather than the language. The collection contains thirteen comedies and seven tragedies, but none of the histories.&lt;/p&gt; &lt;p&gt;By 1907 Nesbit was well known for children’s novels such as &lt;i&gt;&lt;a href="https://standardebooks.org/ebooks/e-nesbit/five-children-and-it"&gt;Five Children and It&lt;/a&gt;&lt;/i&gt; and &lt;i&gt;&lt;a href="https://standardebooks.org/ebooks/e-nesbit/the-railway-children"&gt;The Railway Children&lt;/a&gt;&lt;/i&gt;. This collection expands on 1897’s &lt;i&gt;The Children’s Shakespeare&lt;/i&gt;, which retells twelve of these plays. It follows in the tradition of prose retellings for children established by Charles and Mary Lamb’s 1807 &lt;i&gt;Tales from Shakespeare&lt;/i&gt;.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Children's literature"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Shakespeare, William, 1564-1616--Stories, plots, etc.--Juvenile literature"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Children’s"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Shorts"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare/downloads/e-nesbit_beautiful-stories-from-shakespeare.epub?source=feed" length="708915" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare/downloads/e-nesbit_beautiful-stories-from-shakespeare_advanced.epub?source=feed" length="1098531" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare/downloads/e-nesbit_beautiful-stories-from-shakespeare.kepub.epub?source=feed" length="607135" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare/downloads/e-nesbit_beautiful-stories-from-shakespeare.azw3?source=feed" length="703490" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare/text/single-page" length="335167" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton</id>
+		<title>The Storm of Steel</title>
+		<author>
+			<name>Ernst Jünger</name>
+			<uri>https://standardebooks.org/ebooks/ernst-junger</uri>
+		</author>
+		<published>2026-10-06T21:19:53Z</published>
+		<updated>2026-10-06T21:25:05Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A German storm troop officer recounts his experiences in World War I.</summary>
+		<content type="html">&lt;p&gt;&lt;a href="https://standardebooks.org/ebooks/ernst-junger"&gt;Ernst Jünger&lt;/a&gt; was a German officer commanding storm troopers during World War I. This, his memoir of his time on the front, is one of the very first literary accounts of the Great War.&lt;/p&gt; &lt;p&gt;Jünger begins his story as a private entering training in the Champagne region. He continues on to take part in various battles, climbing the ranks until attaining command of a regiment and accumulating fourteen different hits from bullets or shrapnel. His career ends near the very end of the war: his lung is punctured by a bullet while his men die all around him, and he’s sent to the rear to convalesce in the war’s waning months.&lt;/p&gt; &lt;p&gt;The realities of this new style of war are described in a matter-of-fact and mostly apolitical way. Despite the obscene horrors Jünger graphically recounts, he seems stoic, even apathetic, about his role in the war, and about the destruction it caused. As he narrates battle after battle in gruesome detail, he falls back on a sense of “war without anger,” framing himself as a cog in an emotionless machine and his enemies as deserving of respect for their valor, and not hatred for their actions. Even as his superiors issue orders that he can clearly see will lead his men into the bloody meat grinder, Jünger remains obedient, patriotic, and driven by a sense of duty and national pride.&lt;/p&gt; &lt;p&gt;The first edition was published in 1920, shortly after the war’s end. Jünger revised the book several times, transforming its raw diary style into a more literary one in 1924. Consequently, the book sold incredibly well, allowing Jünger to lead a post-war career as a writer. Its emphasis on nationalism made it a favorite of Nazi propagandists in the early 1930s, in contrast with &lt;a href="https://standardebooks.org/ebooks/erich-maria-remarque"&gt;Erich Maria Remarque’s&lt;/a&gt; equally matter-of-fact but more clearly anti-war &lt;a href="https://standardebooks.org/ebooks/erich-maria-remarque/all-quiet-on-the-western-front/a-w-wheen"&gt;&lt;i&gt;All Quiet on the Western Front&lt;/i&gt;&lt;/a&gt;, which the Nazis banned. Jünger, who was not a Nazi, again revised it in 1934 in an attempt to make it less attractive as nationalistic propaganda, but despite his attempts the book remained a popular one both with the Wehrmacht and with the public.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="World War, 1914-1918"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Memoir"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Nonfiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton/downloads/ernst-junger_the-storm-of-steel_basil-creighton.epub?source=feed" length="649346" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton/downloads/ernst-junger_the-storm-of-steel_basil-creighton_advanced.epub?source=feed" length="568869" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton/downloads/ernst-junger_the-storm-of-steel_basil-creighton.kepub.epub?source=feed" length="565392" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton/downloads/ernst-junger_the-storm-of-steel_basil-creighton.azw3?source=feed" length="715358" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton/text/single-page" length="614056" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson</id>
+		<title>On the Making of Man</title>
+		<author>
+			<name>Gregory of Nyssa</name>
+			<uri>https://standardebooks.org/ebooks/gregory-of-nyssa</uri>
+		</author>
+		<published>2026-10-05T18:20:15Z</published>
+		<updated>2026-10-05T18:20:26Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">An early Christian theologian expounds on the doctrine of humanity being made in God’s image.</summary>
+		<content type="html">&lt;p&gt;&lt;i&gt;On the Making of Man&lt;/i&gt; is an early treatise on theological anthropology, the area of Christian theology that inquires into human nature with respect to God. In the treatise, the 4th century bishop and theologian &lt;a href="https://standardebooks.org/ebooks/gregory-of-nyssa"&gt;Gregory of Nyssa&lt;/a&gt; interprets the creation narrative found in the first three chapters of the Book of Genesis. In particular, he expounds on the verse Genesis 1:27, the textual basis of the Christian doctrine of &lt;i&gt;imago Dei&lt;/i&gt; (i.e. that humanity is made in God’s image). He argues that, being made in the likeness of divine sovereignty, human beings possess inherent dignity. This resemblance to God lies in humanity’s capability to possess godlike virtues, such as purity and freedom from passion. In order to refute opposing Christian and non-Christian views on human nature, Gregory ponders the soul’s relationship with the body, arguing that neither the body nor the soul preceded the other, but that both were co-created. He also argues for the possibility of the universal restoration of creation to perfection (a controversial doctrine known as &lt;i&gt;apokatastasis&lt;/i&gt;) on the basis of the finitude of evil.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Theological anthropology--Christianity"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Nonfiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Philosophy"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Spirituality"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson/downloads/gregory-of-nyssa_on-the-making-of-man_william-moore-henry-austin-wilson.epub?source=feed" length="699668" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson/downloads/gregory-of-nyssa_on-the-making-of-man_william-moore-henry-austin-wilson_advanced.epub?source=feed" length="972259" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson/downloads/gregory-of-nyssa_on-the-making-of-man_william-moore-henry-austin-wilson.kepub.epub?source=feed" length="535069" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson/downloads/gregory-of-nyssa_on-the-making-of-man_william-moore-henry-austin-wilson.azw3?source=feed" length="653300" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore_henry-austin-wilson/text/single-page" length="365209" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/dorothy-m-richardson/oberland</id>
+		<title>Oberland</title>
+		<author>
+			<name>Dorothy M. Richardson</name>
+			<uri>https://standardebooks.org/ebooks/dorothy-m-richardson</uri>
+		</author>
+		<published>2026-10-01T21:12:31Z</published>
+		<updated>2026-10-01T21:12:33Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">An independent young woman from London is gifted a two week trip to a resort in Switzerland.</summary>
+		<content type="html">&lt;p&gt;&lt;i&gt;Oberland&lt;/i&gt; is the ninth “chapter volume” of &lt;a href="https://standardebooks.org/ebooks/dorothy-m-richardson"&gt;Dorothy M. Richardson’s&lt;/a&gt; pioneering semi-autobiographical series, &lt;a href="https://standardebooks.org/collections/pilgrimage"&gt;Pilgrimage&lt;/a&gt;.&lt;/p&gt; &lt;p&gt;Series protagonist Miriam Henderson spends two weeks at the Hotel Alpenstock, a resort in the the Bernese Oberland region of Switzerland, mainly in the company of other English guests. In the evenings she watches how the relationships of these temporary groups emerge. During the day she explores the crisp beauty of the Alpine landscape and flings herself into winter sport, with the daily sunrise on the Alps becoming a character in its own right.&lt;/p&gt; &lt;p&gt;The book was inspired by a 1904 trip Richardson made to Adelboden, Switzerland, as a treat from her employer, Dr. J. H. Badcock.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Autobiographical fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Women--England--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="England--Social life and customs--20th century--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland/downloads/dorothy-m-richardson_oberland.epub?source=feed" length="556087" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland/downloads/dorothy-m-richardson_oberland_advanced.epub?source=feed" length="486002" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland/downloads/dorothy-m-richardson_oberland.kepub.epub?source=feed" length="477080" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland/downloads/dorothy-m-richardson_oberland.azw3?source=feed" length="570454" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/dorothy-m-richardson/oberland/text/single-page" length="328825" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow</id>
+		<title>The House of the Arrow</title>
+		<author>
+			<name>A. E. W. Mason</name>
+			<uri>https://standardebooks.org/ebooks/a-e-w-mason</uri>
+		</author>
+		<published>2026-10-01T21:03:08Z</published>
+		<updated>2026-10-01T21:03:41Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A blackmailer falsely accuses a dead woman’s niece of murder by poison, but the evidence suggests the accusation might not be false after all.</summary>
+		<content type="html">&lt;p&gt;After the apparently natural death of wealthy widow Madame Harlowe, a blackmailer accuses her niece of murder by poison—an accusation he knows to be false. The famous French detective &lt;a href="https://standardebooks.org/collections/inspector-hanaud"&gt;Inspector Hanaud&lt;/a&gt; is called in, with Madame Harlowe’s death only an excuse to investigate a series of anonymous blackmailings the local police have been helpless to solve.&lt;/p&gt; &lt;p&gt;The police exhume Madame Harlowe’s body and find no trace of poison, defeating the blackmailer—yet there’s a treatise on untraceable poison in the house library. Perhaps the accusation was really true?&lt;/p&gt; &lt;p&gt;&lt;a href="https://standardebooks.org/ebooks/a-e-w-mason"&gt;A. E. W. Mason&lt;/a&gt; had learned about untraceable poisons during his time as a Secret Service agent in 1915.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Detective and mystery stories"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Inheritance and succession--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Murder--Investigation--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Mystery"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow/downloads/a-e-w-mason_the-house-of-the-arrow.epub?source=feed" length="726379" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow/downloads/a-e-w-mason_the-house-of-the-arrow_advanced.epub?source=feed" length="1334748" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow/downloads/a-e-w-mason_the-house-of-the-arrow.kepub.epub?source=feed" length="671657" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow/downloads/a-e-w-mason_the-house-of-the-arrow.azw3?source=feed" length="820737" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow/text/single-page" length="665030" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard</id>
+		<title>Barlasch of the Guard</title>
+		<author>
+			<name>Henry Seton Merriman</name>
+			<uri>https://standardebooks.org/ebooks/henry-seton-merriman</uri>
+		</author>
+		<published>2026-09-28T19:22:22Z</published>
+		<updated>2026-09-28T20:18:31Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">Caught between the empires of Napoleonic France and Tsarist Russia, those in Danzig struggle to survive a nightmare of occupation and destruction, but within this the unlikeliest of friendships offers salvation to two very different people.</summary>
+		<content type="html">&lt;p&gt;One of &lt;a href="https://standardebooks.org/ebooks/henry-seton-merriman"&gt;Henry Seton Merriman’s&lt;/a&gt; most popular and acclaimed novels, &lt;i&gt;Barlasch of the Guard&lt;/i&gt; explores the ideals and imperfections of people, great and small alike, under the incomprehensible strains of life under siege, beset by the destructive forces of both man and nature.&lt;/p&gt; &lt;p&gt;The events are those of the months before, during, and after the Grande Armée’s 1812 invasion of and catastrophic retreat from Russia, during which approximately one million soldiers and civilians died, and which marked the end of Napoleon’s campaign to conquer Europe and the beginning of his eventual downfall. The focus of the story is the unlikely friendship between Désirée Sebastian, a poor but cultured young woman raised in Danzig (modern-day Gdansk, Poland), a strategically important “free city” occupied by Napoleon’s army, and “Papa” Barlasch, an earthy, low-born, veteran sergeant in Napoleon’s Old Guard, who finds himself quartered in the Sebastian home on Désirée’s wedding day. They’re surrounded by a vividly drawn supporting characters: Désirée’s new husband, a French officer; his cousin, a captain who sails under the English flag; his patron, an officer in Napoleon’s secret service; her father, an enigmatic French expatriate; and her sister, whose calculating nature contrasts with Désirée’s free-spirited outlook.&lt;/p&gt; &lt;p&gt;&lt;i&gt;Barlasch&lt;/i&gt; shares with other Merriman novels his intricate plotting and attention to detail informed by his own extensive travels, but differs from some of his other works in its use of often brutal historic and military detail in service of the underlying romanticism. Ultimately though, this is a very human drama focused not on the movements of armies, but on the changes wrought in their wake on soldiers and civilians caught up in epic events.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Napoleonic Wars, 1800-1815--Campaigns--Russia--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard/downloads/henry-seton-merriman_barlasch-of-the-guard.epub?source=feed" length="620432" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard/downloads/henry-seton-merriman_barlasch-of-the-guard_advanced.epub?source=feed" length="1089418" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard/downloads/henry-seton-merriman_barlasch-of-the-guard.kepub.epub?source=feed" length="538101" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard/downloads/henry-seton-merriman_barlasch-of-the-guard.azw3?source=feed" length="668175" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/henry-seton-merriman/barlasch-of-the-guard/text/single-page" length="545035" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs</id>
+		<title>His Royal Nibs</title>
+		<author>
+			<name>Winnifred Eaton Reeve</name>
+			<uri>https://standardebooks.org/ebooks/winnifred-eaton-reeve</uri>
+		</author>
+		<published>2026-09-27T20:41:54Z</published>
+		<updated>2026-09-27T21:10:07Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A young Englishman finds a new purpose in life as a hired hand at a ranch in Canada.</summary>
+		<content type="html">&lt;p&gt;A young man dubbed “Cheerio” for his English background, clean appearance, and well-kept suit, unexpectedly arrives at the highly regarded O Bar O ranch with one goal in mind: to offer his services as a hired hand, and thus find a new start in life in a foreign land. The ranch’s foreman, Bully Bill, surprised and irritated by the unwelcome stranger, decides to give Cheerio the job after witnessing his cool composure in the presence of a startled herd, preventing the ranch owner’s son from getting injured.&lt;/p&gt; &lt;p&gt;Cheerio proves his worth at every opportunity and earns the respect, both honest and begrudging, from riders and cowpunchers alike. His hard working day-to-day routine is balanced by his developing friendship with the boy he saved, Sandy McPherson, and the boy’s sister Hilda, for whom Cheerio develops a liking and who has become the subject of Cheerio’s artistic endeavors.&lt;/p&gt; &lt;p&gt;Everything seems to be going well for Cheerio until an incident at the branding corral brings back uncomfortable memories of his past life. Being deemed a coward and a weak man by his boss and peers, Cheerio grasps at one final chance to redeem himself and achieve his dream: to play a nightly game of chess with Canadian champion and famous rancher P. D. McPherson.&lt;/p&gt; &lt;p&gt;&lt;i&gt;His Royal Nibs&lt;/i&gt; is a story of resilience, newfound love, and fresh beginnings inspired by &lt;a href="https://standardebooks.org/ebooks/winnifred-eaton-reeve"&gt;Winnifred Eaton Reeve’s&lt;/a&gt; desire to write fiction set in Alberta, Canada after a career spent writing Japanese-themed works under a variety of pseudonyms, the most famous of which being “Onoto Watanna.” &lt;i&gt;His Royal Nibs&lt;/i&gt; would turn out to be her last published novel.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Ranch life--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Canada--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs/downloads/winnifred-eaton-reeve_his-royal-nibs.epub?source=feed" length="659043" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs/downloads/winnifred-eaton-reeve_his-royal-nibs_advanced.epub?source=feed" length="1109613" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs/downloads/winnifred-eaton-reeve_his-royal-nibs.kepub.epub?source=feed" length="592545" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs/downloads/winnifred-eaton-reeve_his-royal-nibs.azw3?source=feed" length="681737" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/winnifred-eaton-reeve/his-royal-nibs/text/single-page" length="397690" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp</id>
+		<title>The Autobiography of a Super-Tramp</title>
+		<author>
+			<name>W. H. Davies</name>
+			<uri>https://standardebooks.org/ebooks/w-h-davies</uri>
+		</author>
+		<published>2026-09-22T15:40:20Z</published>
+		<updated>2026-09-22T15:40:21Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">At the end of the 19th century, a destitute tramp wanders across England and North America.</summary>
+		<content type="html">&lt;p&gt;&lt;i&gt;The Autobiography of a Super-Tramp&lt;/i&gt;, poet &lt;a href="https://standardebooks.org/ebooks/w-h-davies"&gt;W. H. Davies’&lt;/a&gt; autobiography, recalls spurning a youth of subsistence and squalor in England to pursue a life of travel abroad. With quiet and understated prose, Davies recounts a tramp’s life: riding railroad boxcars and evading fare collectors, cadging free meals, working as a migrant field hand, and dealing with corrupt law enforcement and judges. Each encounter gives Davies a chance to share his observations on the state of America and England at the turn of the 20th century.&lt;/p&gt; &lt;p&gt;Davies’ anti-authoritarianism inspired contemporaries like George Bernard Shaw—who both lobbied for the book’s publication and provided its preface—as well as future drifters like Christopher “Alexander Supertramp” McCandless.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Poets, English--20th century--Biography"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Davies, W. H. (William Henry), 1871-1940"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Tramps--Biography"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Autobiography"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Travel"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp/downloads/w-h-davies_the-autobiography-of-a-super-tramp.epub?source=feed" length="795863" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp/downloads/w-h-davies_the-autobiography-of-a-super-tramp_advanced.epub?source=feed" length="1391441" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp/downloads/w-h-davies_the-autobiography-of-a-super-tramp.kepub.epub?source=feed" length="688915" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp/downloads/w-h-davies_the-autobiography-of-a-super-tramp.azw3?source=feed" length="822446" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/w-h-davies/the-autobiography-of-a-super-tramp/text/single-page" length="576329" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces</id>
+		<title>Contending Forces</title>
+		<author>
+			<name>Pauline E. Hopkins</name>
+			<uri>https://standardebooks.org/ebooks/pauline-e-hopkins</uri>
+		</author>
+		<published>2026-09-20T22:34:09Z</published>
+		<updated>2026-09-20T22:34:10Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A young woman of color reckons with her troubled past after she settles in Boston.</summary>
+		<content type="html">&lt;p&gt;In response to the upcoming abolition of slavery in the British Empire, Charles Montfort, an English planter in Bermuda, decides to move his family (and his human chattel) to the southern United States in order to free his slaves on his own schedule. However, Montfort’s arrival arouses the jealousy and anger of his neighbors, who murder Montfort and capture his wife and sons as slaves.&lt;/p&gt; &lt;p&gt;Several decades later, Charles Montfort’s lineage survives in the Smiths, a family of Black Bostonians headed by the matriarch Ma Smith, who keeps a boarding house alongside her daughter Dora and her son Will. When a beautiful but mysterious woman of color named Sappho Clark arrives at the boarding house, Dora’s fiancé John P. Langley becomes infatuated with her and begins vying for her attentions alongside Will Smith. The contest of suitors takes place against the backdrop of persistent racial violence in the United States, revealing the painful histories of all of the parties involved.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="African American women"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="African Americans"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces/downloads/pauline-e-hopkins_contending-forces.epub?source=feed" length="529162" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces/downloads/pauline-e-hopkins_contending-forces_advanced.epub?source=feed" length="586550" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces/downloads/pauline-e-hopkins_contending-forces.kepub.epub?source=feed" length="463356" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces/downloads/pauline-e-hopkins_contending-forces.azw3?source=feed" length="606822" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/pauline-e-hopkins/contending-forces/text/single-page" length="609249" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne</id>
+		<title>Sentimental Education</title>
+		<author>
+			<name>Gustave Flaubert</name>
+			<uri>https://standardebooks.org/ebooks/gustave-flaubert</uri>
+		</author>
+		<published>2026-09-18T16:28:02Z</published>
+		<updated>2026-09-19T18:29:29Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">A young man in mid-19th-century Paris obsesses over a friend’s wife.</summary>
+		<content type="html">&lt;p&gt;The young Frederick Moreau sets out for Paris to start his career, holding a letter of recommendation to a banker and the address of a friend. But when his introduction is unsuccessful, he finds himself at the shop of the art dealer Jacques Arnoux, where he meets Arnoux’s wife. Thus begins Frederick’s romantic obsession with the older, unattainable Mme. Arnoux, an obsession that plays out against the backdrop of a colorful cast of characters and the Revolution of 1848.&lt;/p&gt; &lt;p&gt;Though staying mostly in the shadow of &lt;i&gt;&lt;a href="https://standardebooks.org/ebooks/gustave-flaubert/madame-bovary/eleanor-marx-aveling"&gt;Madame Bovary&lt;/a&gt;&lt;/i&gt;, &lt;i&gt;Sentimental Education&lt;/i&gt; was praised by authors like &lt;a href="https://standardebooks.org/ebooks/george-sand"&gt;George Sand&lt;/a&gt; and &lt;a href="https://standardebooks.org/ebooks/emile-zola"&gt;Émile Zola&lt;/a&gt;. Frederick, said to be based on &lt;a href="https://standardebooks.org/ebooks/gustave-flaubert"&gt;Flaubert&lt;/a&gt; himself, is a kind of anti-hero in the sense that his character is unsympathetic and passive; thus, the novel is actually propelled more by the supporting characters, which are numerous and span a range of personalities and social classes. Flaubert uses them to illustrate how he viewed the character and moral fiber of his generation.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Married women--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Young men--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Paris (France)--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="France--History--February Revolution, 1848--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Unrequited love--Fiction"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Paris (France)--History--June Days, 1848--Fiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Fiction"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne/downloads/gustave-flaubert_sentimental-education_m-walter-dunne.epub?source=feed" length="965705" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne/downloads/gustave-flaubert_sentimental-education_m-walter-dunne_advanced.epub?source=feed" length="920436" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne/downloads/gustave-flaubert_sentimental-education_m-walter-dunne.kepub.epub?source=feed" length="908842" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne/downloads/gustave-flaubert_sentimental-education_m-walter-dunne.azw3?source=feed" length="1206314" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/gustave-flaubert/sentimental-education/m-walter-dunne/text/single-page" length="1177006" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+	<entry>
+		<id>https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france</id>
+		<title>Reflections on the Revolution in France</title>
+		<author>
+			<name>Edmund Burke</name>
+			<uri>https://standardebooks.org/ebooks/edmund-burke</uri>
+		</author>
+		<published>2026-09-11T15:04:18Z</published>
+		<updated>2026-09-11T15:04:21Z</updated>
+		<rights>Public domain in the United States. Users located outside of the United States must check their local laws before using this ebook. Original content released to the public domain via the Creative Commons CC0 1.0 Universal Public Domain Dedication.</rights>
+		<summary type="text">The conservative political theorist Edmund Burke critiques the political program of the French Revolution.</summary>
+		<content type="html">&lt;p&gt;Written in 1790 during the early stages of the French Revolution, &lt;i&gt;Reflections on the Revolution in France&lt;/i&gt; is regarded as one of the foundational texts of conservative political theory. In it, the British philosopher and statesman &lt;a href="https://standardebooks.org/ebooks/edmund-burke"&gt;Edmund Burke&lt;/a&gt; critiques the political program of the French Revolution, dismissing it as a political order founded on abstract principles. Instead, Burke advocates for constitutional rule based on received institutions, incremental reform, and sensitivity to the vagaries of human nature. Some of Burke’s predictions, such as the revolutionary government becoming a “mischievous and ignoble oligarchy” and the politicization of the military bringing about a “military republic,” proved to be prescient in the face of the Reign of Terror and Napoleon’s coup of 18 Brumaire.&lt;/p&gt;</content>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Great Britain--Politics and government--1760-1820"/>
+		<category scheme="http://purl.org/dc/terms/LCSH" term="Political science--Early works to 1800"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Nonfiction"/>
+		<category scheme="https://standardebooks.org/vocab/subjects" term="Philosophy"/>
+		<media:thumbnail height="525" url="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france/downloads/cover-thumbnail.jpg" width="350"/>
+		<link href="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france" rel="alternate" title="This ebook’s page at Standard Ebooks" type="application/xhtml+xml"/>
+		<link href="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france/downloads/edmund-burke_reflections-on-the-revolution-in-france.epub?source=feed" length="598801" rel="enclosure" title="Recommended compatible epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france/downloads/edmund-burke_reflections-on-the-revolution-in-france_advanced.epub?source=feed" length="687470" rel="enclosure" title="Advanced epub" type="application/epub+zip"/>
+		<link href="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france/downloads/edmund-burke_reflections-on-the-revolution-in-france.kepub.epub?source=feed" length="504615" rel="enclosure" title="Kobo Kepub epub" type="application/kepub+zip"/>
+		<link href="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france/downloads/edmund-burke_reflections-on-the-revolution-in-france.azw3?source=feed" length="712179" rel="enclosure" title="Amazon Kindle azw3" type="application/x-mobipocket-ebook"/>
+		<link href="https://standardebooks.org/ebooks/edmund-burke/reflections-on-the-revolution-in-france/text/single-page" length="687989" rel="enclosure" title="XHTML" type="application/xhtml+xml"/>
+	</entry>
+</feed>

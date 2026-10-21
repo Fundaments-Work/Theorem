@@ -214,16 +214,14 @@ describe("discover title lookups are indexed", () => {
         );
         expect(store).toContain("getLibraryTitleSet");
         expect(store).toContain("normalizeLibraryTitle");
-        const card = readFileSync(
-            resolve("src/features/catalogs/components/DiscoverBookCard.tsx"),
-            "utf-8",
-        );
-        expect(card).toContain("getLibraryTitleSet(books).has(");
+        // One shared hook builds the set once per library change; cards ask it, they never scan books.
+        const hook = readFileSync(resolve("src/features/catalogs/opds/useInLibrary.ts"), "utf-8");
+        expect(hook).toContain("getLibraryTitleSet(books)");
+        expect(hook).toContain("titles.has(");
+        const card = readFileSync(resolve("src/features/catalogs/components/CatalogBookCard.tsx"), "utf-8");
         expect(card).not.toContain("state.books.some(");
-        const modal = readFileSync(
-            resolve("src/features/catalogs/components/DiscoverDetailModal.tsx"),
-            "utf-8",
-        );
-        expect(modal).toContain("getLibraryTitleSet(books).has(");
+        expect(card).not.toContain("useLibraryStore");
+        const sheet = readFileSync(resolve("src/features/catalogs/opds/OpdsEntrySheet.tsx"), "utf-8");
+        expect(sheet).toContain("getLibraryTitleSet(books).has(");
     });
 });

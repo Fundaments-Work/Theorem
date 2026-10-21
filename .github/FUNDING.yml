@@ -3,6 +3,6 @@
 # Sponsors profile is enabled.
 #
 # Canonical source of truth: Fundaments-Work/content > support.json
-# (channel id `buyMeMomo`). `pnpm check:content` fails if this URL drifts from
-# it. To change the link, change it in the content repo first.
+# (channel id `buyMeMomo`). To change the link, change it in the content repo
+# first, then update this file by hand.
 custom: ['https://buymemomo.com/usefundaments']

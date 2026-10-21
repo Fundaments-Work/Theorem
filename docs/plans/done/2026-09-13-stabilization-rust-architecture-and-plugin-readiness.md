@@ -27,11 +27,11 @@ Prior to introducing these modular systems, Theorem resolved critical architectu
 4. **Main-Thread JavaScript CPU Churn**: Operations like in-book search snippet collection, image downsampling, RSS XML parsing, and Obsidian vault exports currently churn allocations on the single JavaScript thread.
 
 This master plan synthesizes all findings from:
-- [`docs/research/cross-page-highlighting.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/cross-page-highlighting.md) (Geometric client rects & anchor stabilization)
-- [`docs/research/rust-performance-rewrite-candidates.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/rust-performance-rewrite-candidates.md) (Targeted Rust modules)
-- [`docs/research/database-performance-and-memory-optimization.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/database-performance-and-memory-optimization.md) (Database virtualization & scale)
-- [`docs/research/latest-rust-memory-techniques-and-rss-architecture.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/latest-rust-memory-techniques-and-rss-architecture.md) (Cloudflare DNS memory layout lessons & RSS overhaul)
-- [`docs/research/whole-app-rust-capabilities-and-roadmap.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/docs/research/whole-app-rust-capabilities-and-roadmap.md) (Whole-app feature audit)
+- [`docs/research/cross-page-highlighting.md`](../../research/cross-page-highlighting.md) (Geometric client rects & anchor stabilization)
+- [`docs/research/rust-performance-rewrite-candidates.md`](../../research/rust-performance-rewrite-candidates.md) (Targeted Rust modules)
+- [`docs/research/database-performance-and-memory-optimization.md`](../../research/database-performance-and-memory-optimization.md) (Database virtualization & scale)
+- [`docs/research/latest-rust-memory-techniques-and-rss-architecture.md`](../../research/latest-rust-memory-techniques-and-rss-architecture.md) (Cloudflare DNS memory layout lessons & RSS overhaul)
+- [`docs/research/whole-app-rust-capabilities-and-roadmap.md`](../../research/whole-app-rust-capabilities-and-roadmap.md) (Whole-app feature audit)
 
 ---
 
@@ -373,4 +373,4 @@ Each milestone must strictly satisfy Theorem's quality gates:
    - Unit tests for all Rust modules (`vault_export`, `text_normalizer`, `rss_parser`, `book_search`).
    - Vitest suite (`pnpm test`) passing 100%.
 3. **Zero Secrets / Credentials Rule**:
-   - Full compliance with [`AGENTS.md`](file:///run/media/sapiens/Development/Fundaments/Theorem/AGENTS.md).
+   - Full compliance with [`AGENTS.md`](../../../AGENTS.md).

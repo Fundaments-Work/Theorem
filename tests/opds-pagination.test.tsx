@@ -1,317 +1,202 @@
 // @vitest-environment jsdom
 /**
- * OPDS feed pagination.
+ * Catalog pagination ("Load more").
  *
- * The parser always extracted `next`/`previous` links (there is a test in
- * `opds.test.ts` asserting exactly that), but the browser never offered them —
- * everything past page one of a paginated catalog was unreachable. The pager
- * turns pages inside the on-screen feed: a category's pages never push
- * navigation history, and a server-search result's pages never disturb the
- * browsed category underneath.
+ * OPDS catalogs serve long lists a page at a time through `next` links. Pages are appended to the
+ * list on screen: a page turn is not a navigation, so it never pushes a step onto the trail, and a
+ * misbehaving server (a `next` that repeats or runs dry) must end the list instead of being asked
+ * for forever.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import React from "react";
-import type { OpdsEntry, OpdsFeed } from "../src/core/types";
+import { act } from "react";
+import type { OpdsFeed } from "../src/core/types";
 
-const fetchFeed = vi.fn();
+const load = vi.fn();
 const search = vi.fn();
 
 vi.mock("../src/core/services/OpdsService", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../src/core/services/OpdsService")>();
-    return {
-        ...actual,
-        OpdsService: {
-            ...actual.OpdsService,
-            fetchFeed: (...args: unknown[]) => fetchFeed(...args),
-            search: (...args: unknown[]) => search(...args),
-            downloadAndImportBook: vi.fn(),
-        },
-    };
+    return { ...actual, OpdsService: { ...actual.OpdsService, load: (...a: unknown[]) => load(...a), search: (...a: unknown[]) => search(...a), loadDetail: vi.fn(), download: vi.fn() } };
 });
 
-import { OPDSBrowserPage } from "../src/features/catalogs/OPDSBrowser";
+import { OpdsError } from "../src/core/services/OpdsService";
 import { useOpdsStore } from "../src/core/store";
-import {
-    cardCount,
-    clickAriaLabel,
-    clickButton,
-    flush,
-    flushDebounce,
-    render,
-    setInputValue,
-    shownTitles,
-    stubLayout,
-    unmountAll,
-} from "./helpers/opds-browser-harness";
+import { resetOpdsBrowserSession } from "../src/features/catalogs/opds/useOpdsBrowser";
+import { CATALOG, clickButton, flush, makeEntry, makeFeed, renderBrowser, shownTitles, stubLayout, unmountAll } from "./helpers/opds-browser-harness";
 
-function entry(index: number, over: Partial<OpdsEntry> = {}): OpdsEntry {
-    return {
-        id: `urn:book:${index}`,
-        title: `Volume ${index}`,
-        author: `Author ${index}`,
-        isNavigation: false,
-        downloadUrl: `https://example.com/dl/${index}.epub`,
-        ...over,
-    } as OpdsEntry;
-}
+const URL1 = "https://example.com/opds";
+const URL2 = "https://example.com/opds?page=2";
+const URL3 = "https://example.com/opds?page=3";
 
-function feed(over: Partial<OpdsFeed> = {}): OpdsFeed {
-    return {
-        title: "Paged Catalog",
-        selfUrl: "https://example.com/opds",
-        entries: [entry(1), entry(2)],
-        ...over,
-    } as OpdsFeed;
-}
+const page = (ids: number[], next?: string, over: Partial<OpdsFeed> = {}) =>
+    makeFeed({ entries: ids.map((i) => makeEntry(i)), nextUrl: next, ...over });
 
-function page2(): OpdsFeed {
-    return feed({
-        title: "Paged Catalog",
-        entries: [entry(3), entry(4)],
-        prevUrl: "https://example.com/opds",
-        nextUrl: "https://example.com/opds?page=3",
+/** ids from..to inclusive. */
+const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+/** A first page long enough that its end is not in view, so loading more needs the button. */
+const LONG = range(1, 40);
+const count = (c: HTMLElement) => c.querySelector("[data-opds-count]")?.textContent ?? "";
+
+function serve(map: Record<string, OpdsFeed | Error | Promise<unknown>>) {
+    load.mockImplementation(async (url: string) => {
+        const hit = map[url];
+        if (hit === undefined) throw new Error(`unexpected request for ${url}`);
+        if (hit instanceof Error) throw hit;
+        if (hit instanceof Promise) return hit;
+        return { feed: hit, finalUrl: url };
     });
 }
 
-function seedStore() {
-    useOpdsStore.setState({
-        catalogs: [{ id: "c1", title: "Paged Catalog", url: "https://example.com/opds" }],
-        activeCatalogId: "c1",
-        currentFeedUrl: null,
-        feedHistory: [],
-    } as never);
-}
+const loadMoreButton = (c: HTMLElement) => Array.from(c.querySelectorAll("button")).find((b) => /Load more|Loading…|Try again/.test(b.textContent ?? ""));
 
-describe("OPDS pagination", () => {
+describe("catalog pagination", () => {
     let unstub: () => void = () => {};
-
     beforeEach(() => {
         vi.clearAllMocks();
+        resetOpdsBrowserSession();
         unstub = stubLayout();
-        seedStore();
+        useOpdsStore.setState({ catalogs: [CATALOG], activeCatalogId: CATALOG.id });
     });
-
     afterEach(() => {
         unmountAll();
         unstub();
         unstub = () => {};
     });
 
-    it("shows no pager when the feed links neither direction", async () => {
-        fetchFeed.mockResolvedValue(feed());
-
-        const container = render(<OPDSBrowserPage />);
+    it("offers no Load more when the feed has no next page", async () => {
+        serve({ [URL1]: page([1, 2]) });
+        const c = renderBrowser();
         await flush();
-
-        expect(container.querySelector('nav[aria-label="Catalog pages"]')).toBeNull();
+        expect(loadMoreButton(c)).toBeUndefined();
     });
 
-    it("turns to the next page and then back", async () => {
-        fetchFeed.mockResolvedValue(
-            feed({ nextUrl: "https://example.com/opds?page=2" }),
-        );
-
-        const container = render(<OPDSBrowserPage />);
+    it("appends the next page to what is already shown", async () => {
+        serve({ [URL1]: page(LONG, URL2), [URL2]: page(range(41, 44)) });
+        const c = renderBrowser();
         await flush();
-        expect(shownTitles(container)).toEqual(["Volume 1", "Volume 2"]);
-
-        // No Previous on the first page, but Next is offered.
-        expect(container.textContent).toContain("Next");
-        expect(container.textContent).not.toContain("Previous");
-
-        fetchFeed.mockResolvedValue(page2());
-        clickButton(container, "Next");
+        expect(count(c)).toContain("40 books");
+        expect(shownTitles(c)[0]).toBe("Volume 1");
+        clickButton(c, "Load more");
         await flush();
-
-        expect(fetchFeed).toHaveBeenLastCalledWith("https://example.com/opds?page=2");
-        expect(shownTitles(container)).toEqual(["Volume 3", "Volume 4"]);
-        expect(container.textContent).toContain("Previous");
-
-        fetchFeed.mockResolvedValue(feed({ nextUrl: "https://example.com/opds?page=2" }));
-        clickButton(container, "Previous");
-        await flush();
-
-        expect(shownTitles(container)).toEqual(["Volume 1", "Volume 2"]);
+        expect(count(c)).toContain("44 books");
+        expect(load).toHaveBeenLastCalledWith(URL2, expect.anything());
+        // The list is complete, so the button goes away.
+        expect(loadMoreButton(c)).toBeUndefined();
     });
 
-    it("does not push page turns onto the navigation history", async () => {
-        // Drilled one level in, so Back has somewhere to go.
-        useOpdsStore.setState({
-            currentFeedUrl: "https://example.com/opds/fiction",
-            feedHistory: ["https://example.com/opds"],
-        } as never);
-        fetchFeed.mockResolvedValue(
-            feed({
-                title: "Fiction",
-                selfUrl: "https://example.com/opds/fiction",
-                nextUrl: "https://example.com/opds/fiction?page=2",
-            }),
-        );
-
-        const container = render(<OPDSBrowserPage />);
+    it("does not show the same book twice when pages overlap", async () => {
+        serve({ [URL1]: page(LONG, URL2), [URL2]: page([40, 41, 42]) });
+        const c = renderBrowser();
         await flush();
-
-        fetchFeed.mockResolvedValue(
-            feed({
-                title: "Fiction",
-                entries: [entry(9)],
-                prevUrl: "https://example.com/opds/fiction",
-            }),
-        );
-        clickButton(container, "Next");
+        clickButton(c, "Load more");
         await flush();
-
-        // A page turn is not a navigation: history is untouched, so Back leaves
-        // the paginated feed instead of stepping to page one.
-        expect(useOpdsStore.getState().feedHistory).toEqual(["https://example.com/opds"]);
-        expect(shownTitles(container)).toEqual(["Volume 9"]);
+        // Book 40 was on both pages: 40 + 2 new, not 43.
+        expect(count(c)).toContain("42 books");
     });
 
-    it("keeps the old grid mounted while the next page loads", async () => {
-        fetchFeed.mockResolvedValue(feed({ nextUrl: "https://example.com/opds?page=2" }));
-
-        const container = render(<OPDSBrowserPage />);
+    it("does not treat a page turn as navigation (no trail, no Back)", async () => {
+        serve({ [URL1]: page(LONG, URL2), [URL2]: page(range(41, 80), URL3), [URL3]: page([81]) });
+        const c = renderBrowser();
         await flush();
-        expect(cardCount(container)).toBeGreaterThan(0);
-
-        // Hold the next page in flight: the current cards must stay, with the
-        // pager spinning, rather than flashing a skeleton.
-        let resolvePage: (f: OpdsFeed) => void = () => {};
-        fetchFeed.mockReturnValue(
-            new Promise<OpdsFeed>((resolve) => {
-                resolvePage = resolve;
-            }),
-        );
-        clickButton(container, "Next");
-        await flush(2);
-
-        expect(cardCount(container)).toBeGreaterThan(0);
-        expect(shownTitles(container)).toEqual(["Volume 1", "Volume 2"]);
-        expect(
-            container.querySelector('nav[aria-label="Catalog pages"] .animate-spin'),
-        ).not.toBeNull();
-
-        resolvePage(page2());
+        clickButton(c, "Load more");
         await flush();
-
-        expect(shownTitles(container)).toEqual(["Volume 3", "Volume 4"]);
+        clickButton(c, "Load more");
+        await flush();
+        expect(count(c)).toContain("81 books");
+        expect(c.querySelector('nav[aria-label="Catalog trail"]')).toBeNull();
+        expect(c.querySelector('[aria-label="Back"]')).toBeNull();
     });
 
-    it("scrolls back to the top on a page turn", async () => {
-        fetchFeed.mockResolvedValue(feed({ nextUrl: "https://example.com/opds?page=2" }));
-
-        const container = render(<OPDSBrowserPage />);
+    it("keeps the current books on screen while the next page loads", async () => {
+        let resolvePage2: (v: unknown) => void = () => {};
+        serve({ [URL1]: page(LONG, URL2), [URL2]: new Promise((r) => (resolvePage2 = r)) });
+        const c = renderBrowser();
         await flush();
-
-        const scroller = container.firstElementChild as HTMLElement;
-        scroller.scrollTop = 500;
-        expect(scroller.scrollTop).toBe(500);
-
-        fetchFeed.mockResolvedValue(page2());
-        clickButton(container, "Next");
+        clickButton(c, "Load more");
         await flush();
-
-        expect(scroller.scrollTop).toBe(0);
+        expect(shownTitles(c)[0]).toBe("Volume 1");
+        expect(count(c)).toContain("40 books");
+        expect(c.textContent).toContain("Loading…");
+        await act(async () => resolvePage2({ feed: page([41]), finalUrl: URL2 }));
+        await flush();
+        expect(count(c)).toContain("41 books");
     });
 
-    it("keeps sort and filter state across a page turn", async () => {
-        fetchFeed.mockResolvedValue(
-            feed({
-                entries: [
-                    entry(1, { title: "Zulu", language: "en" }),
-                    entry(2, { title: "Alpha", language: "en" }),
-                ],
-                nextUrl: "https://example.com/opds?page=2",
-            }),
-        );
-
-        const container = render(<OPDSBrowserPage />);
+    it("surfaces a failed page without losing the books already loaded, and retries the same page", async () => {
+        serve({ [URL1]: page(LONG, URL2), [URL2]: new OpdsError("timeout", "The catalog took too long to respond.") });
+        const c = renderBrowser();
         await flush();
-        expect(shownTitles(container)).toEqual(["Alpha", "Zulu"]);
-
-        fetchFeed.mockResolvedValue(
-            feed({
-                entries: [
-                    entry(3, { title: "Yankee", language: "en" }),
-                    entry(4, { title: "Bravo", language: "en" }),
-                ],
-            }),
-        );
-        clickButton(container, "Next");
+        clickButton(c, "Load more");
         await flush();
-
-        // Title sort survived the turn: the new page arrives ordered.
-        expect(shownTitles(container)).toEqual(["Bravo", "Yankee"]);
+        expect(c.textContent).toContain("The catalog took too long to respond.");
+        expect(count(c)).toContain("40 books");
+        serve({ [URL1]: page(LONG, URL2), [URL2]: page([41]) });
+        clickButton(c, "Try again");
+        await flush();
+        expect(count(c)).toContain("41 books");
     });
 
-    it("turns server-search result pages without touching the browsed feed", async () => {
-        fetchFeed.mockResolvedValue(
-            feed({ searchUrlTemplate: "https://example.com/search?q={searchTerms}" }),
-        );
-        search.mockResolvedValue(
-            feed({
-                title: "Search Results",
-                entries: [entry(7, { title: "Result One" })],
-                nextUrl: "https://example.com/search?q=x&page=2",
-            }),
-        );
-
-        const container = render(<OPDSBrowserPage />);
+    it("stops when a server's next link points back at a page it already served", async () => {
+        serve({ [URL1]: page(LONG, URL2), [URL2]: page(range(41, 44), URL1) });
+        const c = renderBrowser();
         await flush();
-
-        setInputValue(container, 'input[type="search"]', "x");
-        await flushDebounce();
-        expect(shownTitles(container)).toEqual(["Result One"]);
-
-        // Result pages are fetched as result pages, not navigations.
-        const feedCallsBefore = fetchFeed.mock.calls.length;
-        fetchFeed.mockResolvedValue(
-            feed({
-                title: "Search Results",
-                entries: [entry(8, { title: "Result Two" })],
-                prevUrl: "https://example.com/search?q=x",
-            }),
-        );
-        clickButton(container, "Next");
+        clickButton(c, "Load more");
         await flush();
-
-        expect(shownTitles(container)).toEqual(["Result Two"]);
-        // The browsed category was never re-fetched and no history was pushed.
-        expect(fetchFeed.mock.calls.length).toBe(feedCallsBefore + 1);
-        expect(useOpdsStore.getState().feedHistory).toEqual([]);
-
-        // Clearing the search still restores the browsed feed with no refetch.
-        const callsBeforeClear = fetchFeed.mock.calls.length;
-        clickAriaLabel(container, "Clear search");
-        await flush();
-
-        expect(fetchFeed).toHaveBeenCalledTimes(callsBeforeClear);
-        expect(shownTitles(container)).toEqual(["Volume 1", "Volume 2"]);
+        expect(count(c)).toContain("44 books");
+        expect(loadMoreButton(c)).toBeUndefined();
+        const calls = load.mock.calls.length;
+        await flush(10);
+        expect(load.mock.calls.length).toBe(calls);
     });
 
-    it("surfaces a failed result page turn without losing the current results", async () => {
-        fetchFeed.mockResolvedValue(
-            feed({ searchUrlTemplate: "https://example.com/search?q={searchTerms}" }),
-        );
-        search.mockResolvedValue(
-            feed({
-                entries: [entry(7, { title: "Result One" })],
-                nextUrl: "https://example.com/search?q=x&page=2",
-            }),
-        );
+    it("stops when a page adds nothing new, instead of requesting forever", async () => {
+        // Every page is the same two books and always links to a fresh-looking next page.
+        load.mockImplementation(async (url: string) => {
+            const n = Number(/page=(\d+)/.exec(url)?.[1] ?? 1);
+            return { feed: page([1, 2], `https://example.com/opds?page=${n + 1}`), finalUrl: url };
+        });
+        const c = renderBrowser();
+        await flush(20);
+        // Auto-loading near the end asks at most once more, sees nothing new, and ends the list.
+        expect(load.mock.calls.length).toBeLessThanOrEqual(3);
+        expect(shownTitles(c)).toEqual(["Volume 1", "Volume 2"]);
+        expect(loadMoreButton(c)).toBeUndefined();
+    });
 
-        const container = render(<OPDSBrowserPage />);
+    it("loads more automatically when the end of a short list is already in view", async () => {
+        serve({ [URL1]: page([1, 2], URL2), [URL2]: page([3, 4]) });
+        const c = renderBrowser();
+        await flush(10);
+        expect(count(c)).toContain("4 books");
+    });
+
+    it("turns the pages of server-search results without disturbing the browsed list beneath", async () => {
+        const searchRef = { href: "https://example.com/search?q={searchTerms}", kind: "template" as const };
+        serve({ [URL1]: page([1, 2], undefined, { search: searchRef }), "https://example.com/search?q=dune&page=2": page(range(141, 144)) });
+        search.mockResolvedValue({
+            feed: page(range(101, 140), "https://example.com/search?q=dune&page=2", { search: searchRef }),
+            finalUrl: "https://example.com/search?q=dune",
+        });
+        const c = renderBrowser();
         await flush();
-
-        setInputValue(container, 'input[type="search"]', "x");
-        await flushDebounce();
-        expect(shownTitles(container)).toEqual(["Result One"]);
-
-        fetchFeed.mockRejectedValue(new Error("502 Bad Gateway"));
-        clickButton(container, "Next");
+        const input = c.querySelector('input[type="search"]') as HTMLInputElement;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        await act(async () => {
+            setter.call(input, "dune");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => {
+            input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        });
         await flush();
-
-        // The current page of results survives the failed turn.
-        expect(shownTitles(container)).toEqual(["Result One"]);
+        expect(shownTitles(c)[0]).toBe("Volume 101");
+        expect(count(c)).toContain("40 books");
+        clickButton(c, "Load more");
+        await flush();
+        expect(count(c)).toContain("44 books");
+        // Back leaves the search and returns to the list that was open.
+        act(() => (c.querySelector('[aria-label="Back"]') as HTMLElement).click());
+        await flush();
+        expect(shownTitles(c)).toEqual(["Volume 1", "Volume 2"]);
     });
 });

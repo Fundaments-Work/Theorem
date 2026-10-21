@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../lib/env";
+import { isSafeImageUrl, isSafeLinkUrl } from "../lib/url-safety";
 
 export interface ExtractedArticle {
     title: string;
@@ -16,24 +17,39 @@ function resolveAbsoluteUrls(doc: Document, baseUrl: string): void {
     const images = Array.from(doc.querySelectorAll<HTMLImageElement>("img[src]"));
     for (const img of images) {
         const rawSrc = img.getAttribute("src");
-        if (rawSrc && !rawSrc.startsWith("data:") && !rawSrc.startsWith("blob:")) {
-            try {
-                img.setAttribute("src", new URL(rawSrc, baseUrl).href);
-            } catch {
-                // Keep original src if invalid
-            }
+        if (!rawSrc) {
+            continue;
+        }
+        if (!isSafeImageUrl(rawSrc)) {
+            img.removeAttribute("src");
+            continue;
+        }
+        // Data and blob URIs are already absolute; resolving them is a no-op.
+        if (/^(?:data|blob):/i.test(rawSrc)) {
+            continue;
+        }
+        try {
+            img.setAttribute("src", new URL(rawSrc, baseUrl).href);
+        } catch {
+            img.removeAttribute("src");
         }
     }
 
     const links = Array.from(doc.querySelectorAll<HTMLAnchorElement>("a[href]"));
     for (const a of links) {
         const rawHref = a.getAttribute("href");
-        if (rawHref && !rawHref.startsWith("#") && !rawHref.startsWith("javascript:") && !rawHref.startsWith("mailto:")) {
-            try {
-                a.setAttribute("href", new URL(rawHref, baseUrl).href);
-            } catch {
-                // Keep original href
-            }
+        // In-page anchors stay in-page; everything else is vetted and resolved.
+        if (!rawHref || rawHref.startsWith("#")) {
+            continue;
+        }
+        if (!isSafeLinkUrl(rawHref)) {
+            a.removeAttribute("href");
+            continue;
+        }
+        try {
+            a.setAttribute("href", new URL(rawHref, baseUrl).href);
+        } catch {
+            a.removeAttribute("href");
         }
     }
 }

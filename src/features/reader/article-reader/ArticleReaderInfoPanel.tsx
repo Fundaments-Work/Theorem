@@ -21,7 +21,7 @@ export function ArticleReaderInfoPanel({
     onToggleSaved,
 }: ArticleReaderInfoPanelProps) {
     return (
-        <FloatingPanel visible={visible} className="overflow-hidden">
+        <FloatingPanel visible={visible} label="Article information" className="overflow-hidden">
             <div className="reader-panel-header px-4 pt-4 pb-3 flex items-center justify-between">
                 <h2 className="font-mono text-[11px] text-[color:var(--color-text-primary)]">Article Info</h2>
                 <button

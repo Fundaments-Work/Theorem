@@ -485,7 +485,7 @@
              doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
              doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
              doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
-@@ -583,40 +638,62 @@
+@@ -583,40 +638,66 @@
                  else setSelectionTo(this.#anchor, -1)
              }
          })
@@ -502,8 +502,13 @@
 +        this.addEventListener('load', ({ detail }) => {
 +            const doc = detail?.doc
 +            if (!doc) return
++            // Only a mouse/pen drag may auto-turn the page. Touch selections are
++            // adjusted with native handles and must never carry the reader to
++            // another page; relying on Android cancelling the pointer events
++            // was fragile and let the page travel on other WebViews.
              let isPointerSelecting = false
-             doc.addEventListener('pointerdown', () => isPointerSelecting = true)
+-            doc.addEventListener('pointerdown', () => isPointerSelecting = true)
++            doc.addEventListener('pointerdown', e => isPointerSelecting = e.pointerType !== 'touch')
              doc.addEventListener('pointerup', () => isPointerSelecting = false)
 +            doc.addEventListener('pointercancel', () => isPointerSelecting = false)
              let isKeyboardSelecting = false
@@ -569,7 +574,7 @@
          })
  
          this.#mediaQueryListener = () => {
-@@ -637,7 +714,7 @@
+@@ -637,7 +718,7 @@
                  this.#top.style.setProperty('--_' + name, value)
                  break
              case 'max-inline-size':
@@ -578,7 +583,7 @@
                  this.#top.style.setProperty('--_' + name, value)
                  this.render()
                  break
-@@ -650,17 +727,48 @@
+@@ -650,17 +731,48 @@
              if (detail.type !== 'text/css') return
              const w = innerWidth
              const h = innerHeight
@@ -638,7 +643,7 @@
          })
      }
      #createView() {
-@@ -680,8 +788,6 @@
+@@ -680,8 +792,6 @@
          this.#rtl = rtl
          this.#top.classList.toggle('vertical', vertical)
  
@@ -647,7 +652,7 @@
          this.#background.style.background = background
  
          const { width, height } = this.#container.getBoundingClientRect()
-@@ -694,28 +800,12 @@
+@@ -694,28 +804,12 @@
          this.#margin = margin
  
          const g = parseFloat(style.getPropertyValue('--_gap')) / 100
@@ -678,7 +683,7 @@
              this.setAttribute('dir', vertical ? 'rtl' : 'ltr')
              this.#top.style.padding = '0'
              const columnWidth = maxInlineSize
-@@ -753,6 +843,23 @@
+@@ -753,6 +847,23 @@
      }
      render() {
          if (!this.#view) return
@@ -702,7 +707,7 @@
          this.#view.render(this.#beforeRender({
              vertical: this.#vertical,
              rtl: this.#rtl,
-@@ -779,7 +886,10 @@
+@@ -779,7 +890,10 @@
          return this.#view.element.getBoundingClientRect()[this.sideProp]
      }
      get start() {
@@ -714,7 +719,7 @@
      }
      get end() {
          return this.start + this.size
-@@ -790,16 +900,41 @@
+@@ -790,16 +904,41 @@
      get pages() {
          return Math.round(this.viewSize / this.size)
      }
@@ -760,7 +765,7 @@
      }
      snap(vx, vy) {
          const velocity = this.#vertical ? vy : vx
-@@ -814,55 +949,158 @@
+@@ -814,55 +953,158 @@
  
          this.#scrollToPage(page, 'snap').then(() => {
              const dir = page <= 0 ? -1 : page >= pages - 1 ? 1 : null
@@ -935,7 +940,7 @@
      #getRectMapper() {
          if (this.scrolled) {
              const size = this.viewSize
-@@ -886,27 +1124,39 @@
+@@ -886,27 +1128,39 @@
              return this.#scrollTo(offset, reason)
          }
          const offset = this.#getRectMapper()(rect).left
@@ -984,7 +989,7 @@
              this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
              this.#afterScroll(reason)
          }
-@@ -919,28 +1169,55 @@
+@@ -919,28 +1173,55 @@
          return this.#scrollToAnchor(anchor, select ? 'selection' : 'navigation')
      }
      async #scrollToAnchor(anchor, reason = 'anchor') {
@@ -1056,7 +1061,7 @@
      }
      #getVisibleRange() {
          if (this.scrolled) return getVisibleRange(this.#view.document,
-@@ -952,7 +1229,7 @@
+@@ -952,7 +1233,7 @@
      #afterScroll(reason) {
          const range = this.#getVisibleRange()
          this.#lastVisibleRange = range
@@ -1065,7 +1070,7 @@
          if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
              this.#anchor = range
          else this.#justAnchored = true
-@@ -969,7 +1246,9 @@
+@@ -969,7 +1250,9 @@
          this.dispatchEvent(new CustomEvent('relocate', { detail }))
      }
      async #display(promise) {
@@ -1076,7 +1081,7 @@
          this.#index = index
          const hasFocus = this.#view?.document?.hasFocus()
          if (src) {
-@@ -979,6 +1258,18 @@
+@@ -979,6 +1262,18 @@
                      const $styleBefore = doc.createElement('style')
                      doc.head.prepend($styleBefore)
                      const $style = doc.createElement('style')
@@ -1095,7 +1100,7 @@
                      doc.head.append($style)
                      this.#styleMap.set(doc, [$styleBefore, $style])
                  }
-@@ -994,14 +1285,27 @@
+@@ -994,14 +1289,27 @@
              }))
              this.#view = view
          }
@@ -1125,7 +1130,7 @@
          if (index === this.#index) await this.#display({ index, anchor, select })
          else {
              const oldIndex = this.#index
-@@ -1015,7 +1319,7 @@
+@@ -1015,7 +1323,7 @@
                  .catch(e => {
                      console.warn(e)
                      console.warn(new Error(`Failed to load section ${index}`))
@@ -1134,7 +1139,7 @@
                  }))
          }
      }
-@@ -1060,14 +1364,24 @@
+@@ -1060,14 +1368,24 @@
      async #turnPage(dir, distance) {
          if (this.#locked) return
          this.#locked = true
@@ -1167,7 +1172,7 @@
      }
      prev(distance) {
          return this.#turnPage(-1, distance)
-@@ -1108,21 +1422,22 @@
+@@ -1108,21 +1426,22 @@
              $style.textContent = style
          } else $style.textContent = styles
  

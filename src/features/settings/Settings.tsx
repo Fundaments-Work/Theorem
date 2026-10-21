@@ -97,12 +97,12 @@ interface SettingRowProps {
 function SettingRow({ label, description, htmlFor, children }: SettingRowProps) {
     return (
         <div className="grid gap-3 py-4 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div className="w-full sm:flex-1 sm:pr-4">
+            <div className="w-full min-w-0 sm:flex-1 sm:pr-4">
                 <label htmlFor={htmlFor} className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                     {label}
                 </label>
                 {description && (
-                    <p className="mt-1 font-sans text-[11px] text-[color:var(--color-text-secondary)]">
+                    <p className="mt-1 font-sans text-[11px] text-[color:var(--color-text-secondary)] [overflow-wrap:anywhere]">
                         {description}
                     </p>
                 )}
@@ -126,9 +126,11 @@ function Toggle({
     return (
         <div className="inline-flex border border-[var(--color-border)] bg-[var(--color-surface)]">
             <button
+                type="button"
+                aria-pressed={checked}
                 onClick={() => onChange(true)}
                 className={cn(
-                    "px-3 py-2 font-sans text-[11px]",
+                    "min-h-10 px-3 py-2 font-sans text-[11px] sm:min-h-0",
                     checked
                         ? "ui-selected"
                         : "text-[color:var(--color-text-secondary)]"
@@ -137,9 +139,11 @@ function Toggle({
                 On
             </button>
             <button
+                type="button"
+                aria-pressed={!checked}
                 onClick={() => onChange(false)}
                 className={cn(
-                    "border-l border-[var(--color-border)] px-3 py-2 font-sans text-[11px]",
+                    "min-h-10 border-l border-[var(--color-border)] px-3 py-2 font-sans text-[11px] sm:min-h-0",
                     !checked
                         ? "ui-selected"
                         : "text-[color:var(--color-text-secondary)]"
@@ -165,9 +169,11 @@ function ButtonSelect<T extends string>({
             {options.map((opt) => (
                 <button
                     key={opt.value}
+                    type="button"
+                    aria-pressed={value === opt.value}
                     onClick={() => onChange(opt.value)}
                     className={cn(
-                        "border border-[var(--color-border)] px-3 py-2 font-sans text-[11px] transition-colors",
+                        "min-h-10 border border-[var(--color-border)] px-3 py-2 font-sans text-[11px] transition-colors sm:min-h-0",
                         value === opt.value
                             ? "ui-selected"
                             : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
@@ -288,7 +294,7 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                         <AlertTriangle className="w-5 h-5" />
                         <div className="flex-1">
                             <p className="text-sm">Clear All Data</p>
-                            <p className="text-xs opacity-80">
+                            <p className="text-xs">
                                 Delete all books, highlights, vocabulary, and settings. This cannot be undone.
                             </p>
                         </div>
@@ -902,7 +908,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                         <button
                                             key={color}
                                             onClick={() => updateSettings({ accentColor: color })}
-                                            className="w-5 h-5 border transition-colors duration-100"
+                                            className="h-7 w-7 border transition-colors duration-100 sm:h-6 sm:w-6"
                                             style={{
                                                 backgroundColor: color,
                                                 borderColor: settings.accentColor === color ? "var(--color-accent-contrast)" : "var(--color-border)",
@@ -993,6 +999,7 @@ export const SettingsPage = memo(function SettingsPage() {
                             <select
                                 value={settings.rssRetentionDays ?? 30}
                                 onChange={(e) => updateSettings({ rssRetentionDays: Number(e.target.value) })}
+                                aria-label="Article retention period"
                                 className="ui-input py-1.5 px-3 text-xs w-44"
                             >
                                 <option value={0}>Keep Forever</option>

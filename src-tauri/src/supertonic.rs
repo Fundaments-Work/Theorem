@@ -804,6 +804,7 @@ pub mod desktop {
             "modelsReady": models,
             "engineLoaded": loaded,
             "available": runtime && models,
+            "supported": crate::tts_model::platform_supported(),
         }))
     }
 
@@ -943,6 +944,7 @@ pub fn tts_neural_status(_app: tauri::AppHandle) -> Result<serde_json::Value, St
         "modelsReady": false,
         "engineLoaded": false,
         "available": false,
+        "supported": false,
     }))
 }
 

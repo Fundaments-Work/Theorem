@@ -27,31 +27,61 @@ interface ShortcutGroup {
 let nextId = 0;
 const shortcutsByGroup = new Map<string, ShortcutGroup>();
 
-function parseCombo(keys: string): { key: string; ctrl: boolean; shift: boolean; alt: boolean; meta: boolean } {
+/**
+ * Apple platforms (macOS, iPadOS with a keyboard) put app shortcuts on Command, everyone else on
+ * Control. Evaluated per call so tests and hot-swapped keyboards behave.
+ */
+export function isApplePlatform(): boolean {
+    if (typeof navigator === "undefined") return false;
+    const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+    const platform = uaData?.platform || navigator.platform || "";
+    return /mac|iphone|ipad|ipod/i.test(platform);
+}
+
+interface Combo {
+    key: string;
+    /** The platform's primary modifier: Command on Apple platforms, Control elsewhere. */
+    mod: boolean;
+    shift: boolean;
+    alt: boolean;
+    /** A literal Command/Meta key, for the rare shortcut that must not follow the platform. */
+    meta: boolean;
+}
+
+/**
+ * "Ctrl", "Control", "Mod" and "CmdOrCtrl" all mean the primary modifier, so one declaration
+ * (`Ctrl+1`) is Ctrl+1 on Windows/Linux and ⌘1 on a Mac. "Meta"/"Cmd" stay literal.
+ */
+function parseCombo(keys: string): Combo {
     const parts = keys.toLowerCase().split("+").map((p) => p.trim());
     const key = parts[parts.length - 1];
     return {
         key,
-        ctrl: parts.includes("ctrl") || parts.includes("control"),
+        mod: parts.some((p) => p === "ctrl" || p === "control" || p === "mod" || p === "cmdorctrl"),
         shift: parts.includes("shift"),
-        alt: parts.includes("alt"),
+        alt: parts.includes("alt") || parts.includes("option"),
         meta: parts.includes("meta") || parts.includes("cmd"),
     };
 }
 
-function matchesCombo(event: KeyboardEvent, combo: ReturnType<typeof parseCombo>): boolean {
+function matchesCombo(event: KeyboardEvent, combo: Combo): boolean {
     const eventKey = event.key.toLowerCase();
     const comboKey = combo.key;
 
     if (eventKey !== comboKey && event.code !== undefined) {
-        const codeKey = event.code.toLowerCase().replace("key", "");
+        const codeKey = event.code.toLowerCase().replace("key", "").replace("digit", "");
         if (codeKey !== comboKey) return false;
     }
 
-    if (event.ctrlKey !== combo.ctrl) return false;
+    const apple = isApplePlatform();
+    // Required modifiers, resolved to the physical keys for this platform.
+    const wantCtrl = combo.mod && !apple;
+    const wantMeta = combo.meta || (combo.mod && apple);
+
+    if (event.ctrlKey !== wantCtrl) return false;
+    if (event.metaKey !== wantMeta) return false;
     if (event.shiftKey !== combo.shift) return false;
     if (event.altKey !== combo.alt) return false;
-    if (event.metaKey !== combo.meta) return false;
 
     return true;
 }
@@ -94,12 +124,9 @@ export function getAllShortcuts(): KeyboardShortcut[] {
 }
 
 const DISPLAY_KEY_MAP: Record<string, string> = {
-    ctrl: "Ctrl",
-    control: "Ctrl",
     shift: "Shift",
     alt: "Alt",
-    meta: "Cmd",
-    cmd: "Cmd",
+    option: "Alt",
     escape: "Esc",
     arrowleft: "←",
     arrowright: "→",
@@ -108,9 +135,40 @@ const DISPLAY_KEY_MAP: Record<string, string> = {
     " ": "Space",
 };
 
+const APPLE_KEY_MAP: Record<string, string> = {
+    ctrl: "⌘",
+    control: "⌘",
+    mod: "⌘",
+    cmdorctrl: "⌘",
+    meta: "⌘",
+    cmd: "⌘",
+    shift: "⇧",
+    alt: "⌥",
+    option: "⌥",
+};
+
+const OTHER_KEY_MAP: Record<string, string> = {
+    ctrl: "Ctrl",
+    control: "Ctrl",
+    mod: "Ctrl",
+    cmdorctrl: "Ctrl",
+    meta: "Win",
+    cmd: "Win",
+};
+
+/** Human label for a shortcut: "⌘ + 1" on a Mac, "Ctrl + 1" elsewhere. */
 export function formatShortcutKeys(keys: string): string {
-    const parts = keys.split("+").map((p) => p.trim());
-    return parts.map((p) => DISPLAY_KEY_MAP[p.toLowerCase()] ?? p.length === 1 ? p.toUpperCase() : p).join(" + ");
+    const apple = isApplePlatform();
+    return keys
+        .split("+")
+        .map((p) => p.trim())
+        .map((p) => {
+            const lower = p.toLowerCase();
+            const mapped = (apple ? APPLE_KEY_MAP[lower] : OTHER_KEY_MAP[lower]) ?? DISPLAY_KEY_MAP[lower];
+            if (mapped) return mapped;
+            return p.length === 1 ? p.toUpperCase() : p;
+        })
+        .join(" + ");
 }
 
 export function useKeyboardShortcuts(activeRoute?: string, enabled = true): void {

@@ -94,7 +94,7 @@ This document analyzes **every existing feature in Theorem**, identifies exact p
 - **Cross-Format Search**: Extend search beyond EPUB to native PDF text extraction using `lopdf` or memory-mapped stream search.
 
 #### B. Native Table of Contents (TOC) Parsing (`src-tauri/src/epub_parser.rs`)
-- **Current Defect**: In [`src/core/lib/toc.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/toc.ts), Theorem fetches `toc.ncx` or `nav.xhtml` from the ZIP archive and parses the XML using browser `DOMParser`.
+- **Current Defect**: In [`src/core/lib/toc.ts`](../../src/core/lib/toc.ts), Theorem fetches `toc.ncx` or `nav.xhtml` from the ZIP archive and parses the XML using browser `DOMParser`.
 - **Rust Solution**: During `prefetch_zip_metadata`, parse the TOC hierarchy directly using `quick-xml`. Return the structured `Vec<TocItem>` as part of the initial ZIP metadata payload. The reader can display the sidebar Table of Contents before the first chapter even inflates.
 
 ---
@@ -102,7 +102,7 @@ This document analyzes **every existing feature in Theorem**, identifies exact p
 ### 3.2 Library & Ingestion: Images, Metadata & Search
 
 #### A. Off-Thread Cover Processing (`image_ops.rs`)
-- **Current Defect**: When importing books through the UI, [`src/core/lib/cover-extractor.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/cover-extractor.ts) creates hidden HTML5 `<canvas>` elements, draws images, scales them, and converts them to data URLs. On mobile and lower-end desktop devices, this freezes the UI thread.
+- **Current Defect**: When importing books through the UI, [`src/core/lib/cover-extractor.ts`](../../src/core/lib/cover-extractor.ts) creates hidden HTML5 `<canvas>` elements, draws images, scales them, and converts them to data URLs. On mobile and lower-end desktop devices, this freezes the UI thread.
 - **Rust Solution**: The backend already has `image = { version = "0.25", features = ["png", "jpeg", "webp"] }` and `rayon`. Create a dedicated command:
   ```rust
   #[tauri::command]
@@ -122,7 +122,7 @@ This document analyzes **every existing feature in Theorem**, identifies exact p
 - Rather than running JavaScript `color-thief` or canvas `getImageData`, a native Rust function samples pixels from the already-decoded cover image, builds an octree or median-cut palette, and returns `primary`, `secondary`, and `accent` hex colors in <0.5ms.
 
 #### C. Two-Tier Hybrid Search (`SQLite FTS5` + `nucleo-matcher`)
-- Replace JavaScript `fuse.js` in [`src/core/lib/search/fuzzy.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/search/fuzzy.ts).
+- Replace JavaScript `fuse.js` in [`src/core/lib/search/fuzzy.ts`](../../src/core/lib/search/fuzzy.ts).
 - **Tier 1 (Disk / B-Tree Index)**: SQLite FTS5 retrieves top ~200 candidates across 50,000 titles in **~1.2ms** with 0 MB memory allocation.
 - **Tier 2 (SIMD Fuzzy Ranking & Highlighting)**: `nucleo-matcher` (Helix's SIMD Smith-Waterman matcher) re-ranks those 200 candidates, handles typo distance, and extracts exact matched character indices (`Vec<u32>`) so the UI can bold matching characters in real time.
 - **In-Memory Typeahead**: Command palette, shelves, tags, and chapter TOC run directly through `nucleo-matcher` in <0.05ms.
@@ -133,7 +133,7 @@ This document analyzes **every existing feature in Theorem**, identifies exact p
 ### 3.3 Notes, Vault & Spaced Repetition (Obsidian & Lemma SRS)
 
 #### A. Native Rayon Vault Exporter (`src-tauri/src/vault_export.rs`)
-- **Current Defect**: [`src/core/lib/vault-sync.ts`](file:///run/media/sapiens/Development/Fundaments/Theorem/src/core/lib/vault-sync.ts) formats Markdown strings in JavaScript and issues dozens of individual IPC calls (`plugin-fs.writeTextFile`) to write notes and `Vocabulary.md`.
+- **Current Defect**: [`src/core/lib/vault-sync.ts`](../../src/core/lib/vault-sync.ts) formats Markdown strings in JavaScript and issues dozens of individual IPC calls (`plugin-fs.writeTextFile`) to write notes and `Vocabulary.md`.
 - **Rust Solution**:
   ```rust
   #[tauri::command]

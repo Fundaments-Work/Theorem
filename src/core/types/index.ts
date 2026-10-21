@@ -444,6 +444,9 @@ export interface RssArticle {
 
 export type AppRoute = "library" | "reader" | "vocabulary" | "settings" | "annotations" | "statistics" | "shelves" | "bookmarks" | "feeds" | "opds";
 
+/** Filters of the Workbench (highlights, notes, words). Bookmarks is a sibling page, see WorkbenchTabs. */
+export type WorkbenchFilter = "all" | "highlights" | "notes" | "vocabulary";
+
 export interface UIState {
     currentRoute: AppRoute;
     currentBookId?: string;
@@ -466,6 +469,9 @@ export interface UIState {
     /** One-shot target for the reader: set when navigating to a bookmark or
      *  annotation from a list, consumed by the reader when the book opens. */
     pendingReaderLocation?: string;
+
+    /** One-shot: the Workbench tab to show next time it is visible (set by the Bookmarks page's tabs). */
+    workbenchFilterRequest?: WorkbenchFilter;
     
     hasHydrated: boolean;
 }
@@ -549,47 +555,6 @@ export interface ThemeSettings {
 
 export type { ThemeSettings as ReaderThemeSettings };
 
-export interface OpdsLink {
-    rel: string;
-    href: string;
-    type?: string;
-    title?: string;
-}
-
-export interface OpdsEntry {
-    id: string;
-    title: string;
-    author?: string;
-    summary?: string;
-    content?: string;
-    updated?: string;
-    published?: string;
-    language?: string;
-    publisher?: string;
-    coverUrl?: string;
-    thumbnailUrl?: string;
-    downloadUrl?: string;
-    downloadFormat?: "epub" | "pdf" | "cbz" | "mobi";
-    navUrl?: string;
-    isNavigation: boolean;
-    links: OpdsLink[];
-}
-
-export interface OpdsFeed {
-    id: string;
-    title: string;
-    subtitle?: string;
-    icon?: string;
-    updated?: string;
-    selfUrl?: string;
-    nextUrl?: string;
-    prevUrl?: string;
-    upUrl?: string;
-    startUrl?: string;
-    searchUrlTemplate?: string;
-    entries: OpdsEntry[];
-}
-
 export interface OpdsCatalog {
     id: string;
     title: string;
@@ -597,4 +562,30 @@ export interface OpdsCatalog {
     isPreset?: boolean;
     description?: string;
     icon?: string;
+    /** HTTP Basic credentials, kept on this device only and never synced. */
+    auth?: import("./opds").OpdsCredentials;
 }
+
+export type {
+    OpdsAcquisition,
+    OpdsAcquisitionKind,
+    OpdsAuthFlow,
+    OpdsCredentials,
+    OpdsDialect,
+    OpdsDownloadedFile,
+    OpdsEntry,
+    OpdsErrorKind,
+    OpdsFacet,
+    OpdsFacetGroup,
+    OpdsFeed,
+    OpdsFeedKind,
+    OpdsFormat,
+    OpdsGroup,
+    OpdsLink,
+    OpdsLoaded,
+    OpdsNavItem,
+    OpdsOutcome,
+    OpdsPrice,
+    OpdsSearchRef,
+    OpdsSeries,
+} from "./opds";

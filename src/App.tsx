@@ -4,7 +4,7 @@ import { RouteErrorBoundary, KeyboardShortcutsHelp, AlertDialog, PageLoader, Spl
 import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
-import { isTauriDesktop, isTauri, isMobile } from "./core/lib/env";
+import { isTauriDesktop, isTauri } from "./core/lib/env";
 import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
@@ -12,8 +12,6 @@ import { normalizeFilePath } from "./core/lib/utils";
 import { registerShortcuts, useKeyboardShortcuts } from "./core/lib/keyboard-shortcuts";
 import { initI18n } from "./core/lib/i18n";
 import { initLogger } from "./core/lib/debug";
-import { prewarmPdfJsRuntime } from "./core/lib/pdfjs-runtime";
-import { prewarmFoliateRuntime } from "./core/lib/foliate-runtime";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
 import { flushAllPersistence } from "./core/lib/persist-storage";
@@ -145,7 +143,7 @@ function App() {
             { label: "Go to Feeds",         keys: "Ctrl+3", category: "Navigation", handler: () => setRoute("feeds") },
             { label: "Go to Workbench",    keys: "Ctrl+4", category: "Navigation", handler: () => setRoute("annotations") },
             { label: "Go to Statistics",    keys: "Ctrl+5", category: "Navigation", handler: () => setRoute("statistics") },
-            { label: "Go to Workbench",     keys: "Ctrl+6", category: "Navigation", handler: () => setRoute("annotations") },
+            { label: "Go to Discover",      keys: "Ctrl+6", category: "Navigation", handler: () => setRoute("opds") },
             { label: "Go to Bookmarks",     keys: "Ctrl+7", category: "Navigation", handler: () => setRoute("bookmarks") },
             { label: "Go to Settings",      keys: "Ctrl+,", category: "Navigation", handler: () => setRoute("settings") },
             
@@ -443,12 +441,11 @@ function App() {
 
     useEffect(() => {
         if (!storesHydrated) return;
-        // Warm the reader, PDF.js, and foliate runtime chunks during idle after
-        // first paint so the first book open skips chunk load + engine parse.
+        // Warm the reader component chunk during idle after first paint so the first
+        // book open skips chunk load. Document engines (PDF.js, Foliate) are loaded
+        // on demand when a book of that format is opened.
         return scheduleIdleTask(() => {
             void prewarmReaderChunk();
-            void prewarmPdfJsRuntime();
-            void prewarmFoliateRuntime();
         });
     }, [storesHydrated]);
 
@@ -561,10 +558,9 @@ function App() {
     // virtualizer caches, and filter state instead of remounting.
     // The reader stays exclusive (heavy engines unmount on exit).
 
-    const isMobileDevice = isMobile();
-    const showLibraryRoute = currentRoute === "library" || (currentRoute === "opds" && isMobileDevice);
+    const showLibraryRoute = currentRoute === "library";
     const showAnnotationsRoute = currentRoute === "annotations" || currentRoute === "vocabulary";
-    const showOpdsRoute = currentRoute === "opds" && !isMobileDevice;
+    const showOpdsRoute = currentRoute === "opds";
 
     // Mount-on-first-visit keep-alive: wrappers stay in the DOM, but a
     // page's chunk and effects only load the first time its route shows.
@@ -603,7 +599,7 @@ function App() {
         <div className="flex h-screen min-h-[100dvh] bg-[var(--color-background)]">
             
             <div className="hidden md:block">
-                <Sidebar isMobile={isMobileDevice} />
+                <Sidebar />
             </div>
 
             <div className="relative flex-1 flex flex-col min-w-0">
@@ -674,17 +670,15 @@ function App() {
                         </RouteErrorBoundary>
                         )}
                     </div>
-                    {!isMobileDevice && (
-                        <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
-                            {visitedRoutes.has("opds") && (
-                            <RouteErrorBoundary>
-                                <Suspense fallback={<PageLoader />}>
-                                    <OPDSBrowserPage />
-                                </Suspense>
-                            </RouteErrorBoundary>
-                            )}
-                        </div>
-                    )}
+                    <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
+                        {visitedRoutes.has("opds") && (
+                        <RouteErrorBoundary>
+                            <Suspense fallback={<PageLoader />}>
+                                <OPDSBrowserPage />
+                            </Suspense>
+                        </RouteErrorBoundary>
+                        )}
+                    </div>
                 </main>
             </div>
 

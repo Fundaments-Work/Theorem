@@ -1,8 +1,11 @@
 
-import { useCallback, useId } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn } from "../core/lib/utils";
 import { useAndroidBackButton } from "../core/lib/env";
+
+/** Lets a `ModalHeader` tell its `Modal` that the dialog already has a visible title to be named by. */
+const ModalHeaderContext = createContext<((present: boolean) => void) | null>(null);
 
 export interface ModalProps {
     isOpen: boolean;
@@ -12,6 +15,8 @@ export interface ModalProps {
     size?: "sm" | "md" | "lg" | "xl" | "fullscreen";
     showCloseButton?: boolean;
     ariaLabelledby?: string;
+    /** Name for a dialog that has no `ModalHeader`. */
+    ariaLabel?: string;
 }
 
 const sizeClasses: Record<string, string> = {
@@ -29,9 +34,11 @@ export function Modal({
     className,
     size = "md",
     ariaLabelledby,
+    ariaLabel,
 }: ModalProps) {
-    const autoHeaderId = useId();
-    const headerId = ariaLabelledby || autoHeaderId;
+    // The dialog is named by its visible `ModalHeader` title (Radix wires them together). A dialog
+    // without one gets an off-screen title so it is never announced as an unnamed "dialog".
+    const [hasHeader, setHasHeader] = useState(false);
 
     useAndroidBackButton(
         useCallback(() => {
@@ -48,7 +55,8 @@ export function Modal({
             <Dialog.Portal>
                 <Dialog.Overlay className="fixed inset-0 z-[var(--z-modal)] bg-[var(--color-overlay-strong)]" />
                 <Dialog.Content
-                    aria-labelledby={headerId}
+                    // Only override Radix's own wiring when a caller names a specific element.
+                    {...(ariaLabelledby ? { "aria-labelledby": ariaLabelledby } : {})}
                     className={cn(
                         "fixed left-1/2 top-1/2 z-[calc(var(--z-modal)+1)] -translate-x-1/2 -translate-y-1/2",
                         "flex w-full max-h-[var(--layout-modal-max-height)] max-w-[var(--layout-modal-width-md)] flex-col overflow-hidden",
@@ -58,9 +66,9 @@ export function Modal({
                         className,
                     )}
                 >
-                    <Dialog.Title id={headerId} className="sr-only" />
+                    {!hasHeader && !ariaLabelledby && <Dialog.Title className="sr-only">{ariaLabel ?? "Dialog"}</Dialog.Title>}
                     <Dialog.Description className="sr-only" />
-                    {children}
+                    <ModalHeaderContext.Provider value={setHasHeader}>{children}</ModalHeaderContext.Provider>
                 </Dialog.Content>
             </Dialog.Portal>
         </Dialog.Root>
@@ -74,6 +82,11 @@ interface ModalHeaderProps {
 }
 
 export function ModalHeader({ title, onClose, showCloseButton = true }: ModalHeaderProps) {
+    const setHasHeader = useContext(ModalHeaderContext);
+    useEffect(() => {
+        setHasHeader?.(true);
+        return () => setHasHeader?.(false);
+    }, [setHasHeader]);
     return (
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-4">
             <Dialog.Title className="text-base text-[color:var(--color-text-primary)]">

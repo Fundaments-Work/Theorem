@@ -12,18 +12,16 @@ export async function initSentry(
         return;
     }
 
-    const Sentry = await import("@sentry/react");
+    // Named imports let the bundler drop Replay and the rest of the namespace.
+    const { init, browserTracingIntegration } = await import("@sentry/react");
 
-    Sentry.init({
+    init({
         dsn: resolvedDsn,
         environment,
         integrations: [
-            Sentry.browserTracingIntegration(),
-            Sentry.replayIntegration(),
+            browserTracingIntegration(),
         ],
         tracesSampleRate: environment === "production" ? 0.1 : 1.0,
-        replaysSessionSampleRate: 0.1,
-        replaysOnErrorSampleRate: 1.0,
         beforeSend(event) {
             if (event.breadcrumbs) {
                 for (const crumb of event.breadcrumbs) {

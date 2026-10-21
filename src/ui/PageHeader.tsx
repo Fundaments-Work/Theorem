@@ -1,12 +1,15 @@
 import type { ReactNode } from "react";
+import { cn } from "../core/lib/utils";
 
 interface PageHeaderProps {
     title: string;
     description?: ReactNode;
     children?: ReactNode;
+    /** Extra classes for the actions row (e.g. `w-full sm:w-auto` to let it span a phone). */
+    actionsClassName?: string;
 }
 
-export function PageHeader({ title, description, children }: PageHeaderProps) {
+export function PageHeader({ title, description, children, actionsClassName }: PageHeaderProps) {
     return (
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -19,7 +22,7 @@ export function PageHeader({ title, description, children }: PageHeaderProps) {
                     </p>
                 )}
             </div>
-            {children && <div className="flex items-center gap-2 sm:gap-4 ml-auto">{children}</div>}
+            {children && <div className={cn("flex items-center gap-2 sm:gap-4 ml-auto", actionsClassName)}>{children}</div>}
         </div>
     );
 }

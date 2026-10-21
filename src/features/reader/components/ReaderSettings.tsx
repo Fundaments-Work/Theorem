@@ -215,7 +215,7 @@ export function ReaderSettings({
         <>
             <Backdrop visible={visible} onClick={onClose} />
 
-            <FloatingPanel visible={visible} className={cn("overflow-hidden bg-[var(--color-surface)]", className)}>
+            <FloatingPanel visible={visible} label="Reading settings" className={cn("overflow-hidden bg-[var(--color-surface)]", className)}>
                 <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
                     <div className="flex items-center gap-2.5">
                         <span className="inline-flex h-10 w-10 items-center justify-center bg-[var(--color-surface-muted)]">
@@ -287,6 +287,7 @@ export function ReaderSettings({
                                         max={brightnessSlider.max}
                                         step={brightnessSlider.step}
                                         value={brightnessSlider.value}
+                                        aria-label="Brightness"
                                         onChange={brightnessSlider.handleChange}
                                         onMouseDown={brightnessSlider.handleMouseDown}
                                         onMouseUp={brightnessSlider.handleMouseUp}
@@ -328,7 +329,7 @@ export function ReaderSettings({
                                                         color: theme.id === 'dark' ? '#e5e5e5' : theme.id === 'sepia' ? '#5f4b32' : '#1a1a1a',
                                                     }}
                                                 >
-                                                    <div className="flex flex-col items-center gap-1.5 opacity-70">
+                                                    <div className="flex flex-col items-center gap-1.5">
                                                         <span className="block text-lg leading-none">Aa</span>
                                                         <span className="block text-[8px] leading-none">{theme.label}</span>
                                                     </div>
@@ -398,6 +399,7 @@ export function ReaderSettings({
                                         max={fontSizeSlider.max}
                                         step={fontSizeSlider.step}
                                         value={fontSizeSlider.value}
+                                        aria-label="Font size"
                                         onChange={fontSizeSlider.handleChange}
                                         onMouseDown={fontSizeSlider.handleMouseDown}
                                         onMouseUp={fontSizeSlider.handleMouseUp}
@@ -434,6 +436,7 @@ export function ReaderSettings({
                                             max={lineHeightSlider.max}
                                             step={lineHeightSlider.step}
                                             value={lineHeightSlider.value}
+                                            aria-label="Line spacing"
                                             onChange={lineHeightSlider.handleChange}
                                             onMouseDown={lineHeightSlider.handleMouseDown}
                                             onMouseUp={lineHeightSlider.handleMouseUp}
@@ -491,6 +494,7 @@ export function ReaderSettings({
                                         max={zoomSlider.max}
                                         step={zoomSlider.step}
                                         value={zoomSlider.value}
+                                        aria-label="Zoom"
                                         onChange={zoomSlider.handleChange}
                                         onMouseDown={zoomSlider.handleMouseDown}
                                         onMouseUp={zoomSlider.handleMouseUp}
@@ -592,6 +596,7 @@ export function ReaderSettings({
                                         max={zoomSlider.max}
                                         step={zoomSlider.step}
                                         value={zoomSlider.value}
+                                        aria-label="Zoom"
                                         onChange={zoomSlider.handleChange}
                                         onMouseDown={zoomSlider.handleMouseDown}
                                         onMouseUp={zoomSlider.handleMouseUp}

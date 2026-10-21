@@ -76,6 +76,20 @@ fn runtime_asset() -> TtsAsset {
     TtsAsset::new("unsupported", "runtime/unsupported", 0, "")
 }
 
+/// Operating system / CPU pairs for which an ONNX Runtime build is published as an asset above.
+/// Anything else (Intel Macs, Windows or Linux on ARM, ...) cannot run the neural voice.
+pub fn is_supported(os: &str, arch: &str) -> bool {
+    matches!(
+        (os, arch),
+        ("linux", "x86_64") | ("macos", "aarch64") | ("windows", "x86_64")
+    )
+}
+
+/// Can this machine run the neural voice at all?
+pub fn platform_supported() -> bool {
+    is_supported(std::env::consts::OS, std::env::consts::ARCH)
+}
+
 /// Models + config + license (shared across desktop OSes). SHA-256s are of
 /// the published release assets (upstream Supertone/supertonic-3 files).
 fn model_assets() -> Vec<TtsAsset> {
@@ -208,7 +222,7 @@ pub fn tts_model_status(app: AppHandle) -> Result<TtsModelStatus, String> {
         .collect();
     let missing_count = assets.iter().filter(|a| !a.installed).count();
     let installed_bytes = dir_size(&tts_dir(&app));
-    let platform_supported = tts_dir(&app).join(runtime_asset().dest).parent().is_some();
+    let platform_supported = platform_supported();
 
     Ok(TtsModelStatus {
         installed: missing_count == 0,
@@ -245,6 +259,14 @@ pub async fn tts_model_download_asset(
     name: String,
 ) -> Result<TtsAssetStatus, String> {
     use futures::StreamExt;
+
+    if !platform_supported() {
+        return Err(format!(
+            "Neural voice is not available on {}/{}.",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+    }
 
     let asset = all_assets()
         .into_iter()
@@ -354,4 +376,31 @@ pub fn tts_model_remove(app: AppHandle) -> Result<u64, String> {
             .map_err(|e| format!("Failed to remove {}: {e}", dir.display()))?;
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+
+    #[test]
+    fn only_platforms_with_a_runtime_asset_are_supported() {
+        assert!(is_supported("linux", "x86_64"));
+        assert!(is_supported("macos", "aarch64"));
+        assert!(is_supported("windows", "x86_64"));
+        // Intel Macs have no runtime build in the asset set.
+        assert!(!is_supported("macos", "x86_64"));
+        assert!(!is_supported("windows", "aarch64"));
+        assert!(!is_supported("linux", "aarch64"));
+        assert!(!is_supported("android", "aarch64"));
+        assert!(!is_supported("freebsd", "x86_64"));
+    }
+
+    #[test]
+    fn the_support_flag_agrees_with_the_compiled_asset_table() {
+        // runtime_asset() is chosen at compile time; the flag must never disagree with it.
+        assert_eq!(
+            platform_supported(),
+            runtime_asset().remote != "unsupported"
+        );
+    }
 }

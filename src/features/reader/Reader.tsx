@@ -56,6 +56,7 @@ import { ReaderSearch } from "./components/ReaderSearch";
 import { BookInfoPopover } from "./components/BookInfoPopover";
 import { ReaderNavbar } from "./components/progress/ReaderNavbar";
 import { ReaderViewport } from "./components/ReaderViewport";
+import { findAnnotationForSelection, findMergeTargets, pickVisibleAnchorRect, unionCfis } from "./foliate/selection-anchor";
 import { resolvePdfDisplayTitle } from "./engines/pdf-display-title";
 import { HighlightColorPicker } from "./components/highlights/HighlightColorPicker";
 import { NoteEditor } from "./components/highlights/NoteEditor";
@@ -1392,13 +1393,17 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     // Desktop only: probe once whether the Supertonic neural engine is installed.
     const [neuralReady, setNeuralReady] = useState(false);
-    const showNeuralInstall = isTauriDesktop() && !neuralReady;
+    // Starts false so the install offer never flashes up before the probe answers, and stays
+    // false on machines that have no neural runtime (e.g. Intel Macs).
+    const [neuralSupported, setNeuralSupported] = useState(false);
+    const showNeuralInstall = isTauriDesktop() && neuralSupported && !neuralReady;
     useEffect(() => {
         if (!isTauriDesktop()) return;
         let cancelled = false;
         getNeuralStatus().then((status) => {
             if (cancelled) return;
             setNeuralReady(status.available);
+            setNeuralSupported(status.supported);
         });
         return () => { cancelled = true; };
     }, []);
@@ -1732,15 +1737,6 @@ const BookReaderPage = memo(function BookReaderPage() {
         const m = new Map<number, Annotation>();
         for (const a of annotations) {
             if (a.type === 'bookmark' && a.pageNumber !== undefined) m.set(a.pageNumber, a);
-        }
-        return m;
-    }, [annotations]);
-    const annotationsBySelectedText = useMemo(() => {
-        const m = new Map<string, Annotation>();
-        for (const a of annotations) {
-            if ((a.type === 'highlight' || a.type === 'note') && a.selectedText) {
-                m.set(a.selectedText.trim(), a);
-            }
         }
         return m;
     }, [annotations]);
@@ -2139,29 +2135,39 @@ const BookReaderPage = memo(function BookReaderPage() {
 
         const resolvePickerPosition = (anchor?: Range | MouseEvent) => {
             if (anchor && 'getBoundingClientRect' in anchor) {
-                const clientRects = Array.from(anchor.getClientRects()).filter(
-                    (r) => r.width > 0 && r.height > 0,
-                );
-                const targetRect = clientRects.length > 0
-                    ? clientRects[clientRects.length - 1]
-                    : anchor.getBoundingClientRect();
-
-                let normalizedLeft = targetRect.left;
-                let normalizedTop = targetRect.top;
-
                 const rangeDocument = anchor.startContainer?.ownerDocument;
                 const frameElement = rangeDocument?.defaultView?.frameElement;
-                if (frameElement instanceof HTMLElement) {
-                    const frameRect = frameElement.getBoundingClientRect();
-                    normalizedLeft += frameRect.left;
-                    normalizedTop += frameRect.top;
-                }
+                const frameRect = frameElement instanceof HTMLElement
+                    ? frameElement.getBoundingClientRect()
+                    : null;
+                const offsetX = frameRect?.left ?? 0;
+                const offsetY = frameRect?.top ?? 0;
 
-                return {
-                    x: normalizedLeft + targetRect.width / 2,
-                    y: normalizedTop,
-                    height: Math.max(targetRect.height, 24),
-                };
+                // Rects of a selection that runs onto the next page lie outside the
+                // viewport; anchor to one the reader can see.
+                const rects = Array.from(anchor.getClientRects()).map((r) => ({
+                    left: r.left + offsetX,
+                    top: r.top + offsetY,
+                    width: r.width,
+                    height: r.height,
+                }));
+                const fallback = anchor.getBoundingClientRect();
+                const targetRect = pickVisibleAnchorRect(
+                    rects.length > 0 ? rects : [{
+                        left: fallback.left + offsetX,
+                        top: fallback.top + offsetY,
+                        width: fallback.width,
+                        height: fallback.height,
+                    }],
+                    { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight },
+                );
+                if (targetRect) {
+                    return {
+                        x: targetRect.left + targetRect.width / 2,
+                        y: targetRect.top,
+                        height: Math.max(targetRect.height, 24),
+                    };
+                }
             }
 
             if (anchor && 'clientX' in anchor) {
@@ -2177,29 +2183,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             };
         };
 
-        let existingAnnotation = annotationsByLocation.get(cfi);
-        if (!existingAnnotation && text && text.length > 3) {
-            existingAnnotation = annotationsBySelectedText.get(text.trim());
-        }
-        if (!existingAnnotation) {
-            existingAnnotation = freshAnnotations.find(a => {
-                if (a.location === cfi && (a.type === 'highlight' || a.type === 'note')) {
-                    return true;
-                }
-                if (text && text.length > 3 && a.selectedText &&
-                    a.type !== 'bookmark' &&
-                    (a.selectedText.trim() === text.trim() ||
-                     a.selectedText.includes(text.trim()) ||
-                     text.trim().includes(a.selectedText.trim()))) {
-                    return true;
-                }
-                if (cfi && a.location && (a.type === 'highlight' || a.type === 'note') &&
-                    (cfi.startsWith(a.location) || a.location.startsWith(cfi))) {
-                    return true;
-                }
-                return false;
-            });
-        }
+        const existingAnnotation = findAnnotationForSelection(freshAnnotations, cfi, text);
 
         if (existingAnnotation) {
             
@@ -2246,7 +2230,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             setDictionaryLookupSaved(false);
             setShowColorPicker(true);
         }
-    }, [activeDocId, getBookAnnotations, annotationsByLocation, annotationsBySelectedText]); 
+    }, [activeDocId, getBookAnnotations]);
 
     const handleLookupWord = useCallback(async (word: string) => {
         const term = word.trim();
@@ -2336,6 +2320,65 @@ const BookReaderPage = memo(function BookReaderPage() {
     }), [dictionaryLookupTerm, dictionaryLookupResult, dictionaryLookupLoading, dictionaryLookupError, dictionaryLookupSaved,
         settings.vocabulary.vocabularyEnabled, handleSaveDictionaryResult, handleLookupWord]);
 
+    /**
+     * A selection that overlaps or touches existing highlights (e.g. the second
+     * half of a sentence that runs onto the next page) extends them into ONE
+     * highlight instead of creating a neighbour. The oldest keeps its id and
+     * notes; the others are removed (with sync tombstones). Null when there is
+     * nothing to merge with.
+     */
+    const mergeSelectionIntoHighlights = useCallback(async (color: HighlightColor, noteContent?: string): Promise<Annotation | null> => {
+        if (!activeDocId || !selectedCfi) return null;
+        const targets = findMergeTargets(getBookAnnotations(activeDocId), selectedCfi);
+        if (targets.length === 0) return null;
+        const location = unionCfis([selectedCfi, ...targets.map(t => t.location)]);
+        if (!location) return null;
+
+        const ordered = [...targets].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
+        const base = ordered[0];
+        const rest = ordered.slice(1);
+
+        const resolvedText = await readerRef.current?.resolveCfiText?.(location);
+        const text = resolvedText
+            || [selectedText, ...targets.map(t => t.selectedText ?? '')].reduce((longest, t) => t.length > longest.length ? t : longest, '');
+        const notes = [...new Set([...targets.map(t => t.noteContent), noteContent]
+            .filter((n): n is string => Boolean(n?.trim())))];
+        const mergedNote = notes.length > 0 ? notes.join('\n\n') : undefined;
+
+        const updated: Annotation = {
+            ...base,
+            location,
+            selectedText: text,
+            color,
+            type: mergedNote ? 'note' : 'highlight',
+            noteContent: mergedNote,
+            updatedAt: new Date(),
+        };
+
+        try {
+            for (const other of rest) {
+                await readerRef.current?.removeHighlight?.(other.id);
+                removeAnnotation(other.id);
+            }
+            await readerRef.current?.removeHighlight?.(base.id);
+            updateAnnotation(base.id, {
+                location,
+                selectedText: text,
+                color,
+                type: updated.type,
+                noteContent: mergedNote,
+            });
+            const removed = new Set(rest.map(r => r.id));
+            setAnnotations(prev => prev
+                .filter(a => !removed.has(a.id))
+                .map(a => a.id === base.id ? updated : a));
+            await readerRef.current?.addAnnotation?.(updated);
+        } catch {
+            return null;
+        }
+        return updated;
+    }, [activeDocId, selectedCfi, selectedText, getBookAnnotations, removeAnnotation, updateAnnotation]);
+
     const handleColorSelect = useCallback(async (color: HighlightColor) => {
         if (!selectedCfi || !activeDocId) return;
 
@@ -2370,27 +2413,10 @@ const BookReaderPage = memo(function BookReaderPage() {
             return;
         }
 
-        const existingHighlight = annotationsByLocation.get(selectedCfi) ||
-            (selectedText ? annotationsBySelectedText.get(selectedText.trim()) : undefined) ||
-            freshAnnotations.find(a =>
-                (a.type === 'highlight' || a.type === 'note') &&
-                (a.location === selectedCfi || (a.selectedText && a.selectedText.trim() === selectedText.trim()))
-            );
+        const merged = await mergeSelectionIntoHighlights(color);
 
-        if (existingHighlight) {
-            
-            debug('[Reader] Found existing highlight, updating color instead of creating duplicate:', existingHighlight.id);
-            updateAnnotation(existingHighlight.id, { color });
-            setAnnotations(prev => prev.map(a =>
-                a.id === existingHighlight.id ? { ...a, color, updatedAt: new Date() } : a
-            ));
-
-            try {
-                await readerRef.current?.removeHighlight?.(existingHighlight.id);
-                const updatedAnnotation: Annotation = { ...existingHighlight, color, updatedAt: new Date() };
-                await readerRef.current?.addAnnotation?.(updatedAnnotation);
-            } catch (err) {
-            }
+        if (merged) {
+            debug('[Reader] Merged selection into highlight:', merged.id);
             } else {
                 
                 try {
@@ -2430,7 +2456,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         setSelectedCfi('');
 
         readerRef.current?.clearSelection?.();
-    }, [selectedCfi, selectedText, activeDocId, addAnnotation, editingHighlightId, annotations, updateAnnotation, removeAnnotation, getCurrentChapterInfo]);
+    }, [selectedCfi, selectedText, activeDocId, addAnnotation, editingHighlightId, annotations, updateAnnotation, removeAnnotation, getCurrentChapterInfo, mergeSelectionIntoHighlights]);
 
     const handleAddNote = useCallback(() => {
         if (!selectedCfi || !activeDocId) return;
@@ -2462,14 +2488,22 @@ const BookReaderPage = memo(function BookReaderPage() {
             : null;
 
         if (!existingHighlight) {
-            existingHighlight = annotationsByLocation.get(selectedCfi) ?? null;
+            existingHighlight = findAnnotationForSelection(annotations, selectedCfi, selectedText) ?? null;
         }
 
-        if (!existingHighlight && selectedText) {
-            existingHighlight = annotations.find(a =>
-                (a.type === 'highlight' || a.type === 'note') &&
-                a.selectedText?.trim() === selectedText.trim()
-            ) ?? null;
+        if (!existingHighlight && noteContent) {
+            const merged = await mergeSelectionIntoHighlights(pendingHighlightColor ?? 'yellow', noteContent);
+            if (merged) {
+                setShowNoteEditor(false);
+                setEditingHighlightId(null);
+                setActiveAnnotation(null);
+                setSelectedText('');
+                setSelectedCfi('');
+                setEditingNote('');
+                setPendingHighlightColor('yellow');
+                readerRef.current?.clearSelection?.();
+                return;
+            }
         }
 
         if (existingHighlight) {
@@ -2544,6 +2578,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         getCurrentChapterInfo,
         pendingHighlightColor,
         updateAnnotation,
+        mergeSelectionIntoHighlights,
     ]);
 
     const handleBookmarkFromSelection = useCallback(() => {
@@ -2850,6 +2885,8 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     return (
         <div
+            role="main"
+            aria-label="Reader"
             className={cn(
                 "fixed inset-0 overflow-clip",
                 !isPdfFormat && `theme-${settings.readerSettings.theme}`

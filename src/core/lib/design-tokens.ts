@@ -38,7 +38,7 @@ const APP_THEME_COLORS: Record<string, Record<string, string>> = {
         "--app-bg": "#141416",
         "--app-surface": "#1c1c20",
         "--app-surface-elevated": "#28282c",
-        "--app-surface-muted": "#353539",
+        "--app-surface-muted": "#2b2b2f",
         "--app-surface-variant": "#3d3d42",
         "--app-surface-hover": "#454549",
         "--app-text-primary": "#e8e6e1",

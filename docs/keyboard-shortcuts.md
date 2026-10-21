@@ -1,5 +1,10 @@
 # Keyboard Shortcuts
 
+> **`Ctrl` means the platform's primary key.** Declarations such as `Ctrl+1` are written once and
+> resolve at runtime: **Command (⌘)** on macOS and other Apple platforms, **Control** everywhere
+> else. The help dialog and Settings show the real key (`⌘ + 1` on a Mac, `Ctrl + 1` elsewhere).
+> A literal `Meta`/`Cmd` in a declaration stays the physical Command/Windows key.
+
 ## Global (Universal)
 
 | Shortcut | Action |
@@ -9,6 +14,7 @@
 | `Ctrl+3` | Go to Feeds |
 | `Ctrl+4` | Go to Workbench (Annotations & Vocab) |
 | `Ctrl+5` | Go to Statistics |
+| `Ctrl+6` | Go to Discover |
 | `Ctrl+7` | Go to Bookmarks |
 | `Ctrl+,` | Go to Settings |
 | `Ctrl+F` | Focus search bar |
@@ -38,5 +44,13 @@ There are currently no library-specific keyboard shortcuts. Library view mode an
 ## Implementation
 
 Shortcut groups are registered via `registerShortcuts()` in `src/core/lib/keyboard-shortcuts.ts`. The system is route-scoped — shortcuts only fire when their route is active. Global shortcuts (navigation, help) always work.
+
+Matching (`matchesCombo`) is exact: the required modifiers must be down and no others
+(`⌘⇧1` does not fire `Ctrl+1`; on a Mac, plain Control does not fire it either). Letters are matched
+by `event.key` and, failing that, by physical key (`event.code`), so Option-modified letters on a Mac
+(`⌥O` types `ø`) still match `Alt+O`. Platform detection is evaluated per event
+(`isApplePlatform()`), which keeps it testable (`tests/keyboard-shortcuts.test.ts`).
+
+`formatShortcutKeys()` renders a declaration for display (`⌘ + ⇧ + K` / `Ctrl + Shift + K`).
 
 The `useKeyboardShortcuts()` hook attaches/detaches the single global `keydown` listener on mount/unmount, using `useEffect` cleanup. This prevents shortcuts from leaking across routes.

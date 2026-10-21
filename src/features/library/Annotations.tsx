@@ -15,6 +15,7 @@ import {
 } from "../../core/lib/annotation-source";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
 import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
+import { WorkbenchTabs } from "./components/WorkbenchTabs";
 import {
     Highlighter,
     StickyNote,
@@ -167,13 +168,6 @@ const AnnotationCard = memo(function AnnotationCard({
     );
 });
 
-const filterTabs = [
-    { id: "all" as const, label: "All", icon: Highlighter },
-    { id: "highlights" as const, label: "Highlights", icon: Highlighter },
-    { id: "notes" as const, label: "Notes", icon: StickyNote },
-    { id: "vocabulary" as const, label: "Words", icon: BookOpenText },
-];
-
 export function AnnotationsPage() {
     const annotations = useLibraryStore((state) => state.annotations);
     const getBook = useLibraryStore((state) => state.getBook);
@@ -201,6 +195,14 @@ export function AnnotationsPage() {
     const workbenchSavedState = savedViewState.current;
 
     const [activeFilter, setActiveFilter] = useState<"all" | "highlights" | "notes" | "vocabulary">(workbenchSavedState.activeFilter ?? "all");
+    // The Bookmarks page's tabs ask for a specific Workbench tab; honour it once.
+    const workbenchFilterRequest = useUIStore((state) => state.workbenchFilterRequest);
+    const requestWorkbenchFilter = useUIStore((state) => state.requestWorkbenchFilter);
+    useEffect(() => {
+        if (!workbenchFilterRequest) return;
+        setActiveFilter(workbenchFilterRequest);
+        requestWorkbenchFilter(undefined);
+    }, [workbenchFilterRequest, requestWorkbenchFilter]);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">(workbenchSavedState.sortBy ?? "newest");
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
@@ -504,6 +506,7 @@ export function AnnotationsPage() {
     if (!hasAnyContent) {
         return (
             <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+                <WorkbenchTabs active="all" onSelect={(tab) => { if (tab === "bookmarks") setRoute("bookmarks"); }} />
                 <EmptyAnnotations type="all" />
             </div>
         );
@@ -538,22 +541,13 @@ export function AnnotationsPage() {
 
             <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 
-                <div className="flex items-center gap-1 w-fit">
-                    {filterTabs.map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveFilter(tab.id)}
-                            className={cn(
-                                "border border-[var(--color-border)] px-3 py-2 font-sans text-xs transition-colors",
-                                activeFilter === tab.id
-                                    ? "ui-selected"
-                                    : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                            )}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
+                <WorkbenchTabs
+                    active={activeFilter}
+                    onSelect={(tab) => {
+                        if (tab === "bookmarks") setRoute("bookmarks");
+                        else setActiveFilter(tab);
+                    }}
+                />
 
                 <div className="flex items-center gap-2">
                     {activeFilter !== "vocabulary" && (

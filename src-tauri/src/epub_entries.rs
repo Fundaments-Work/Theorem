@@ -58,8 +58,8 @@ fn open_archive(path: &Path) -> Result<SharedArchive, String> {
     // Stale entry for the same path (file rewritten) or a new book.
     cache.retain(|entry| entry.lock().map(|a| a.path != path).unwrap_or(false));
     let file = File::open(path).map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-    let archive =
-        ZipArchive::new(BufReader::new(file)).map_err(|e| format!("Not a valid zip: {e}"))?;
+    let archive = crate::zip_util::open_zip_archive(BufReader::new(file))
+        .map_err(|e| format!("Not a valid zip: {e}"))?;
     let opened = Arc::new(Mutex::new(OpenArchive {
         path: path.to_path_buf(),
         len,
@@ -90,12 +90,15 @@ fn find_entry<R: std::io::Read + std::io::Seek>(
     if let Some(index) = archive.index_for_name(&decoded) {
         return Some(index);
     }
-    archive.file_names().position(|candidate| {
-        candidate
-            .trim_start_matches('/')
-            .trim_start_matches("./")
-            .eq_ignore_ascii_case(&decoded)
-    })
+    archive
+        .file_names()
+        .filter_map(|candidate| candidate.ok())
+        .position(|candidate| {
+            candidate
+                .trim_start_matches('/')
+                .trim_start_matches("./")
+                .eq_ignore_ascii_case(&decoded)
+        })
 }
 
 /// Decompressed bytes of one entry, or `Ok(None)` when the entry is absent.

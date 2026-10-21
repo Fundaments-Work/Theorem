@@ -9,6 +9,17 @@ export function wasm_normalize_speech_text(text: string, lang?: string | null): 
 
 export function wasm_number_to_words(n: bigint): string;
 
+/**
+ * Expand an OPDS/OpenSearch search URL template with a query.
+ */
+export function wasm_opds_expand_search(template: string, query: string): string;
+
+/**
+ * Parse an OPDS document fetched by the browser. Returns the `Outcome` as JSON, the same shape
+ * the desktop app gets from its native loader, so the UI has one code path.
+ */
+export function wasm_opds_parse(body: Uint8Array, content_type: string, base_url: string): string;
+
 export function wasm_ordinal_to_words(n: bigint): string;
 
 export function wasm_safe_vault_filename(title: string): string;
@@ -23,6 +34,8 @@ export interface InitOutput {
     readonly wasm_markdown_to_html: (a: number, b: number, c: number) => void;
     readonly wasm_normalize_speech_text: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasm_number_to_words: (a: number, b: bigint) => void;
+    readonly wasm_opds_expand_search: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly wasm_opds_parse: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasm_ordinal_to_words: (a: number, b: bigint) => void;
     readonly wasm_safe_vault_filename: (a: number, b: number, c: number) => void;
     readonly wasm_year_to_words: (a: number, b: number) => void;

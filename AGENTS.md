@@ -29,7 +29,6 @@ The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upst
 | Typecheck | `pnpm typecheck` |
 | Tests | `pnpm test` |
 | Single test | `pnpm test tests/some.test.ts` |
-| Content sync check | `pnpm check:content` |
 | Rust fmt | `cd src-tauri && cargo fmt` |
 | Rust lint | `cd src-tauri && cargo clippy` |
 | Rust check | `cd src-tauri && cargo check` |
@@ -43,7 +42,6 @@ Run all that apply:
 
 - TypeScript: `pnpm typecheck` — zero errors
 - Vitest: `pnpm test` — all unit and integration tests must pass
-- Content: `pnpm check:content` — no Buy Me Momo URL here has drifted from `Fundaments-Work/content`
 - Rust (if any `.rs` changed): `cd src-tauri && cargo fmt && cargo clippy && cargo check` — fmt must produce no diff, clippy zero warnings
 - Rust touching Android-only code or dependencies: `cargo clippy --target aarch64-linux-android` (CI runs it; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers locally)
 
@@ -62,13 +60,15 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 ## Architecture
 
-**Routing**: Zustand-driven via `useUIStore.currentRoute` and `AppRoute` union type (`src/core/types/index.ts:403`). No React Router. Additions require updating: `src/App.tsx` (route switch + lazy load), `src/core/types/index.ts` (type), `src/shell/layout/Sidebar.tsx`, `src/shell/AppTitlebar.tsx`.
+**Routing**: Zustand-driven via `useUIStore.currentRoute` and `AppRoute` union type (`src/core/types/index.ts:445`). No React Router. Additions require updating: `src/App.tsx` (route switch + lazy load), `src/core/types/index.ts` (type), `src/shell/layout/Sidebar.tsx` (desktop rail), `src/shell/layout/BottomNav.tsx` (phones: five tabs only, so a new page usually belongs *inside* an existing tab, as Bookmarks does in Workbench), `src/shell/AppTitlebar.tsx`.
 
 **Stores**: One file per slice in `src/core/store/`, barrel-rexported from `src/core/store/index.ts`. Always import from the barrel (`"../../core/store"`), not individual slice files. Import stores with individual selectors (`useUIStore(s => s.x)`), never destructuring.
 
 **Imports**: Never import from the top-level barrel `src/core/index.ts` — it prevents tree-shaking. Import directly: `"../../core/store"` (stores), `"../../core/types"` (types), `"../../core/lib/env"` (env utils), `"../../core/lib/utils"` (cn). No path aliases.
 
-**App entry**: `src/App.tsx` lazy-loads all route components (`React.lazy`). The reader chunk is pre-warmed via `prewarmReaderChunk()` in `src/App.tsx` after store hydration (scheduled idle task). PDF.js is also pre-warmed.
+**App entry**: `src/App.tsx` lazy-loads all route components (`React.lazy`). The reader chunk is pre-warmed via `prewarmReaderChunk()` in `src/App.tsx` after store hydration (scheduled idle task). PDF.js and Foliate are *not* pre-warmed: each engine loads on demand when a book of that format opens.
+
+**URL safety**: every URL that originates off-device (feed links, extracted article markup, book covers, catalog entries) goes through the scheme allowlists in `src/core/lib/url-safety.ts` before reaching `href`/`src`; HTML goes through `sanitizeHtml` (DOMPurify). Never hand-roll a scheme check or regex sanitizer.
 
 **Reader**: Two rendering paths. Non-PDF: `ReaderViewport → useDocumentReader → FoliateEngine`. PDF: `PDFReader → PDFJsEngine`. `Reader.tsx` orchestrates both. **Theorem Lens** (`src/features/reader/components/FootnotePopover.tsx`): Anchored peek portal popover for footnotes and citations. **PDF Engine**: Uses strict on-demand range reading, worker destruction on unmount via `loadingTask.destroy()`, immediate canvas deallocation (`width = 0, height = 0`), and per-book `PdfViewState` persistence.
 
@@ -86,7 +86,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 - Docs: `docs/tts.md`.
 
 **Notifications**: Reading goal + sync completion notifications active:
-- Rust: `tauri-plugin-notification` registered in `lib.rs:1177`; `sqlite_check_goal_reminder` reads daily stats from `kv_store`
+- Rust: `tauri-plugin-notification` registered in `lib.rs:1638`; `sqlite_check_goal_reminder` reads daily stats from `kv_store`
 - Frontend: `src/core/lib/notifications.ts` exports `notify()`, `notifyIfGranted()`, `requestNotificationPermission()`
 - Goal met detection: `src/features/reader/hooks/useReadingTime.ts` after each flush
 - Scheduled reminder: `src/features/reader/hooks/useDailyGoalReminder.ts` — 5-min interval calling Rust command
@@ -103,9 +103,12 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 - **UI**: `src/features/settings/DictionaryDownloadModal.tsx` — download/install UI with 1.35M-word MDX and StarDict releases; vocabulary workspace in Workbench.
 
 **Discover & Catalogs**:
-- **Storefront**: `src/features/catalogs/DiscoverPage.tsx` provides an editorial discovery experience with curated sections (Gutenberg, Standard Ebooks) and custom OPDS 1.2 feeds.
-- **Service**: `src/core/services/DiscoverService.ts` queries OPDS 1.2 XML / Atom feeds with Dublin Core metadata and EPUB acquisition links.
-- **Virtualization**: Search results use `@tanstack/react-virtual` for fast rendering across 75,000+ public domain titles.
+- **Page**: `src/features/catalogs/CatalogsPage.tsx` is Discover: a row of sources (the curated storefront `DiscoverPage.tsx`, the built-in Gutenberg and Standard Ebooks catalogs, and every catalog the user adds) with the selected source shown below. It is a bottom-bar tab on phones. `OpdsBrowser` (`src/features/catalogs/opds/`) browses one catalog: sections, shelves, facets, search, trail/Back, load-as-you-scroll, a virtualized grid, `OpdsEntrySheet` (purchase/loan/DRM are explained, never faked), HTTP Basic sign-in, and an add-catalog dialog that checks the address first. State lives in `useOpdsBrowser`, not the store.
+- **One Rust parser**: `src-tauri/crates/theorem-core/src/opds/` parses Atom/OPDS 1.x, OPDS 2.0 JSON, OpenSearch descriptions, HTML autodiscovery and authentication documents into one model (`src/core/types/opds.ts` mirrors it field for field). Desktop/mobile call it natively; the web build calls it through WebAssembly (`wasm_opds_parse`, regenerate the glue per `docs/discover.md`). Do not add a second parser in TypeScript.
+- **Network**: `src-tauri/src/opds_net.rs` (`opds_load`, `opds_search`, `opds_download`, `opds_cleanup_download`): negotiated fetch, Basic auth, typed errors, size caps, streamed downloads that refuse web pages posing as books. `src/core/services/OpdsService.ts` is the TS facade (web fetch path, 5-minute cache, `OpdsError`); `opds-quirks.ts` holds per-catalog adapters (Gutenberg).
+- **Downloads** go through the Library's own import pipeline (`importBooksIncremental` / `importBooksFromFilesIncremental`), so metadata, covers and duplicate handling match "Add Books".
+- **Security**: catalog credentials stay on the catalog record in `theorem-opds`, are never synced, and are saved only after the server accepts them; catalog HTML always goes through `sanitizeHtml`.
+- **Tests**: parser fixtures are real documents in `theorem-core/tests/fixtures/opds/`; `cargo test --lib live_ -- --ignored` hits live catalogs. See `docs/discover.md`.
 - **Cover system**: `src/ui/TheoremBookCover.tsx` renders a deterministic clothbound fallback cover for books without bundled artwork.
 
 **Comics (CBR/CBZ)**: Comic books are first-class library items. `src-tauri/src/cbr.rs` parses CBR (RAR) archives natively in Rust using the `rars` crate, streaming entries into an in-memory ZIP (stored, no recompression) so CBRs open on every shipped platform including Android — no external `unrar` binary. Metadata comes from `ComicInfo.xml` (series name, volume index) with a filename-parse fallback. Wired through batch ingest, folder scanning (`FolderScanPlugin.kt` on Android), and the reader for full parity with other formats. CBZ metadata is handled in `batch_ingest.rs`.
@@ -120,7 +123,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 **Companion Audiobooks**: attach human-narrated audio to any book. `src-tauri/src/audiobook.rs` (`extract_audiobook_metadata`) parses `.m4b/.m4a/.mp3` duration, tags, cover and chapters (M4B chapters via a hand-rolled QuickTime chapter-track walker — no crate exposes them). Optional `Book.audioTrack` (`BookAudioTrack` in types) lives in the library store and syncs; attach/detach via the library context menu. Playback: `src/features/reader/audio/AudiobookBar.tsx` (HTMLAudioElement via asset protocol, chapters, speed, sleep timer, mediaSession, position auto-save). Generation: `src-tauri/src/audiobook_gen.rs` (`generate_audiobook`, desktop only) narrates EPUB sections through Supertonic and encodes one Ogg Opus per book (36kbps mono, hand-rolled Ogg muxer + `audiopus`/libopus static) with chapter marks, then attaches it as the book's `audioTrack` (format `opus`). Docs: `docs/audiobook.md`.
 
-182 `#[tauri::command]` attributes (163 distinct command names registered in `generate_handler!`; some have desktop/mobile `cfg` variants, and `offload_commands.rs` re-exposes blocking commands as async wrappers) across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (SQLite persistence, surfaced through `offload_commands.rs`), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion, SIMD cover extraction, series metadata), `cbr.rs` (native CBR/RAR→CBZ comic archive parsing via `rars`), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_parser.rs` (native streaming OPDS 1.2 catalog parsing), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), `audio_player.rs` (native rodio playback, desktop-only), `smart_shelves.rs` + `vault_export.rs` (rule evaluation and Rayon vault export), `fuzzy_search.rs` + `stemmer.rs` (SIMD ranking and lemmatization), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
+185 `#[tauri::command]` attributes (166 distinct command names registered in `generate_handler!`; some have desktop/mobile `cfg` variants, and `offload_commands.rs` re-exposes blocking commands as async wrappers) across `lib.rs` (file I/O, network, TTS, multi-window, misc), `database.rs` (SQLite persistence, surfaced through `offload_commands.rs`), `sync_commands.rs` (15 sync commands), `epub_parser.rs` (pre-fetch ZIP metadata, pre-inflate initial spine chapters and CSS), `epub_rewriter.rs` (metadata/cover write-back), `file_transfer.rs`, `batch_ingest.rs` (parallel batch library ingestion, SIMD cover extraction, series metadata), `cbr.rs` (native CBR/RAR→CBZ comic archive parsing via `rars`), `mdict.rs` (native memory-mapped MDict .mdx parser, zlib block cache, entry:// link handling), `stardict.rs` (native memory-mapped StarDict lookup, DictZip auto-inflation, POS segmentation), `book_search.rs` (multi-threaded streaming in-book search), `mobi_parser.rs` (native PalmDOC LZ77 decompressor and PDB unpacker), `article_extractor.rs` (native web article fetch and readability extraction), `opds_net.rs` (native OPDS catalog fetch with Basic auth, search and streamed downloads; parsing is in `theorem-core::opds`), `epubcfi.rs` (EPUB CFI parser/resolver used by the CLI), `audiobook.rs` + `audiobook_gen.rs` (companion audiobook metadata parsing and Ogg Opus generation), `tts_model.rs` + `supertonic.rs` (neural voice download and fp32 inference), `audio_player.rs` (native rodio playback, desktop-only), `smart_shelves.rs` + `vault_export.rs` (rule evaluation and Rayon vault export), `fuzzy_search.rs` + `stemmer.rs` (SIMD ranking and lemmatization), and `cli.rs`/`cli_tui.rs` (headless CLI + ratatui TUI, desktop-only). To find all: `grep -r '#\[tauri::command\]' src-tauri/src/`. When signatures change, update both Rust and TS call sites.
 
 ## Persistence
 
@@ -171,7 +174,7 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 
 2. **Run full local quality gates**:
    - TypeScript: `pnpm typecheck` — zero errors
-   - Vitest: `pnpm test` — all suites must pass (currently 114 files / 1046 tests)
+   - Vitest: `pnpm test` — all suites must pass (currently 128 files / 1301 tests)
    - Production bundle: `pnpm build` — verifies bundle, WebAssembly modules, and PDF.js assets
    - Rust: `cd src-tauri && cargo fmt --check && cargo clippy && cargo check` — zero warnings/errors
    - Foliate runtime: `pnpm foliate:check` — clean pass
@@ -310,15 +313,8 @@ Machine-readable facts that more than one product must agree on. One
   nudge) and `.github/FUNDING.yml` (the Sponsor button). Both are deliberate
   literals — an Obsidian-style manifest and a compiled bundle cannot depend on
   a sibling repo at build time without real fragility in the release pipeline.
-- `pnpm check:content` compares every Buy Me Momo URL here against the canonical
-  one and fails on drift. CI runs it in the `content-check` job.
-- **To change the link: change `content/support.json` first**, push it, then
-  update the literals here. Fixing only this repo leaves three other repos
-  advertising a dead URL.
-- The check needs the content repo or the network. It resolves a sibling
-  checkout (`../content`), then `--from <path>` / `CONTENT_DIR`, then
-  `raw.githubusercontent`. It is a script rather than a vitest case on purpose:
-  `pnpm test` stays hermetic and offline-capable.
+- There is no automated drift check (the `check:content` script and its CI job
+  were removed in 1.6.0). When the link changes, update both literals by hand.
 
 ### `Fundaments-Work/design-system` — visual language
 

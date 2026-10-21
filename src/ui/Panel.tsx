@@ -55,6 +55,8 @@ export function Panel({
 
 interface FloatingPanelProps {
     visible: boolean;
+    /** The dialog's accessible name ("Reading settings", "Search in book"...). */
+    label: string;
     children: ReactNode;
     className?: string;
     anchor?: 'top-left' | 'top-right' | 'bottom';
@@ -62,6 +64,7 @@ interface FloatingPanelProps {
 
 export function FloatingPanel({
     visible,
+    label,
     children,
     className,
     anchor = 'top-right',
@@ -70,7 +73,12 @@ export function FloatingPanel({
     return (
         <div
             role="dialog"
-            aria-modal="true"
+            aria-modal={visible || undefined}
+            aria-label={label}
+            // A closed panel is only transparent; without this its controls stay in the tab order
+            // and the accessibility tree as invisible, unnamed dialogs.
+            aria-hidden={!visible || undefined}
+            inert={!visible}
             className={cn(
                 'fixed z-[150] flex flex-col reader-sheet border-2',
                 

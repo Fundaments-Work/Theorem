@@ -55,9 +55,9 @@ function Section({
                     {icon}
                 </div>
                 <div>
-                    <h3 className="text-[color:var(--color-text-primary)]">
+                    <h2 className="text-[color:var(--color-text-primary)]">
                         {title}
-                    </h3>
+                    </h2>
                     {description && (
                         <p className="text-xs text-[color:var(--color-text-muted)] mt-0.5">
                             {description}

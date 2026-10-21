@@ -9,6 +9,7 @@ import {
     FILTER_CHIP_UNSELECTED_ON_SURFACE,
 } from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
+import { sanitizeHtml } from "../../core/lib/sanitize";
 import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
 import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncremental, pickAndImportBooksIncremental, scanFolderForBooks } from "../../core/lib/import";
 import { pickLibraryFolderMobile, scanLibraryFolderMobile } from "../../core/lib/mobile-folder-scan";
@@ -52,7 +53,8 @@ const TOOLBAR_BUTTON_BASE =
     "ui-btn disabled:opacity-50";
 const TOOLBAR_BUTTON_PRIMARY =
     "ui-btn-primary disabled:opacity-50";
-const TOOLBAR_ICON_BUTTON = "h-10 w-10 px-0";
+/** 44px on touch screens (the minimum comfortable target), 40px with a pointer. */
+const TOOLBAR_ICON_BUTTON = "h-11 w-11 px-0 sm:h-10 sm:w-10";
 
 /**
  * Width at which a context-menu submenu has room to open beside its parent.
@@ -101,14 +103,6 @@ function normalizeMetadataText(value: string | undefined): string {
 
 function isBookMarkedRead(book: Book): boolean {
     return !!book.completedAt;
-}
-
-function sanitizeHtml(html: string): string {
-    return html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-        .replace(/on\w+\s*=\s*"[^"]*"/gi, "")
-        .replace(/on\w+\s*=\s*'[^']*'/gi, "");
 }
 
 
@@ -711,7 +705,7 @@ function ImportButton({
         <button
             onClick={onImport}
             disabled={isLoading}
-            className={cn(TOOLBAR_BUTTON_PRIMARY, "px-3 py-2 sm:px-4")}
+            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 flex-1 justify-center px-3 py-2 sm:h-auto sm:flex-none sm:px-4")}
         >
             {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -2146,6 +2140,8 @@ export function LibraryPage() {
             <PageHeader
                 title={selectedShelf ? selectedShelf.name : showFavoritesOnly ? "Favorites" : showUnshelvedOnly ? "Unshelved" : "Library"}
                 description={`${sortedBooks.length} ${sortedBooks.length === 1 ? 'book' : 'books'}${(selectedShelf || showFavoritesOnly || showUnshelvedOnly) ? '' : ''}`}
+                // On a phone the actions use the whole row: Add stretches, the icon buttons sit at the end.
+                actionsClassName="w-full sm:w-auto"
             >
                 {(selectedShelf || showFavoritesOnly || showUnshelvedOnly) && (
                     <button
@@ -2172,7 +2168,7 @@ export function LibraryPage() {
                             setIsSelecting((prev) => !prev);
                         }}
                         className={cn(
-                            TOOLBAR_BUTTON_BASE, "h-10 w-10 px-0 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
+                            TOOLBAR_BUTTON_BASE, "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
                             isSelecting && FILTER_CHIP_SELECTED
                         )}
                         title={isSelecting ? "Exit selection mode (Esc)" : "Select books"}
@@ -2186,6 +2182,7 @@ export function LibraryPage() {
                         onClick={toggleViewMode}
                         className={cn(TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2")}
                         title={`View: ${settings.libraryViewMode}`}
+                        aria-label={`Change view (now ${settings.libraryViewMode})`}
                     >
                         {viewModeIcons[settings.libraryViewMode]}
                     </button>
@@ -2206,8 +2203,10 @@ export function LibraryPage() {
 
                     <button
                         onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                        aria-label="Filter and sort"
+                        aria-expanded={showFilterDropdown}
                         className={cn(
-                            "ui-btn h-10 px-3 sm:px-5 transition-colors duration-200 border-2",
+                            "ui-btn h-11 px-3 sm:h-10 sm:px-5 transition-colors duration-200 border-2",
                             showFilterDropdown
                                 ? FILTER_CHIP_SELECTED
                                 : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-primary)]"

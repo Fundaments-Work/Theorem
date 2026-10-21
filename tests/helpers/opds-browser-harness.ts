@@ -118,11 +118,70 @@ export function clickAriaLabel(container: HTMLElement, label: string): HTMLEleme
  * coverless entry.
  */
 export function shownTitles(container: HTMLElement): string[] {
-    return Array.from(container.querySelectorAll("[data-opds-card] [data-opds-card-title]")).map(
+    return Array.from(container.querySelectorAll("[data-catalog-card] [data-catalog-card-title]")).map(
         (el) => el.textContent ?? "",
     );
 }
 
 export function cardCount(container: HTMLElement): number {
-    return container.querySelectorAll("[data-opds-card]").length;
+    return container.querySelectorAll("[data-catalog-card]").length;
+}
+
+// ── model factories (the shape the Rust parser produces) ─────────────────────────────────────
+
+import { createElement, useRef } from "react";
+import type { OpdsCatalog, OpdsEntry, OpdsFeed } from "../../src/core/types";
+import { OpdsBrowser } from "../../src/features/catalogs/opds/OpdsBrowser";
+
+export function makeEntry(index: number, over: Partial<OpdsEntry> = {}): OpdsEntry {
+    return {
+        id: `urn:book:${index}`,
+        title: `Volume ${index}`,
+        authors: [`Author ${index}`],
+        acquisitions: [
+            {
+                href: `https://example.com/dl/${index}.epub`,
+                kind: "openAccess",
+                mime: "application/epub+zip",
+                format: "epub",
+                drm: false,
+                downloadable: true,
+            },
+        ],
+        primary: 0,
+        ...over,
+    };
+}
+
+export function makeFeed(over: Partial<OpdsFeed> = {}): OpdsFeed {
+    const entries = over.entries ?? [makeEntry(1), makeEntry(2)];
+    const navigation = over.navigation ?? [];
+    return {
+        id: "https://example.com/opds",
+        title: "Test Catalog",
+        dialect: "atom",
+        kind: navigation.length && entries.length ? "mixed" : navigation.length ? "navigation" : "acquisition",
+        selfUrl: "https://example.com/opds",
+        facets: [],
+        navigation,
+        groups: [],
+        entries,
+        ...over,
+    };
+}
+
+export const CATALOG: OpdsCatalog = { id: "c1", title: "Test Catalog", url: "https://example.com/opds" };
+
+function BrowserHarness({ catalog }: { catalog: OpdsCatalog }) {
+    const ref = useRef<HTMLDivElement>(null);
+    return createElement(
+        "div",
+        { ref, "data-scroll-root": "", style: { height: 800, overflow: "auto" } },
+        createElement(OpdsBrowser, { catalog, scrollRef: ref }),
+    );
+}
+
+/** Render the browser inside a scroll container, as the page does. */
+export function renderBrowser(catalog: OpdsCatalog = CATALOG): HTMLElement {
+    return render(createElement(BrowserHarness, { catalog }));
 }

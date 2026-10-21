@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn, normalizeAuthor } from '../../../core/lib/utils';
 import { isMobile } from '../../../core/lib/env';
+import { formatShortcutKeys } from '../../../core/lib/keyboard-shortcuts';
 import type { DocMetadata, DocLocation } from '../../../core/types';
 
 interface ReaderToolbarProps {
@@ -131,7 +132,7 @@ export function ReaderToolbar({
                     <button
                         onClick={onAddBookmark}
                         className={READER_BUTTON_CLASS}
-                        title="Bookmark current page (Ctrl+D)"
+                        title={`Bookmark current page (${formatShortcutKeys("Ctrl+D")})`}
                         aria-label="Bookmark current page"
                     >
                         <BookmarkIcon className="w-5 h-5" />
