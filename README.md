@@ -88,6 +88,8 @@ All builds on the [Releases page](https://github.com/fundaments-work/theorem/rel
 
 ---
 
+New to Theorem? Read the [user guide](docs/user/index.md).
+
 ## Quick Start (Development)
 
 ```bash

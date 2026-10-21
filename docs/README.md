@@ -9,6 +9,10 @@ pnpm dev          # web (limited — some features need Tauri)
 pnpm dev:tauri    # desktop (full experience)
 ```
 
+## User Guide
+
+Task-oriented guides for readers (install, import, reading, highlights, Discover, sync, troubleshooting) live in [user/](user/index.md).
+
 ## Architecture
 
 | Document | What it covers |
