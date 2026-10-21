@@ -92,7 +92,7 @@ jobs:
 
       # `pnpm build` re-runs typecheck, which already has its own job.
       - name: Build
-        run: pnpm exec vite build && node scripts/verify-pdfjs-assets.mjs
+        run: pnpm exec vite build && node scripts/verify-pdfjs-assets.mjs && node scripts/check-startup-bundle.mjs
 
   rust-check:
     name: Rust Check

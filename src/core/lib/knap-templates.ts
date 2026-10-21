@@ -30,33 +30,7 @@ export interface KnapBookData {
     tags: string[];
 }
 
-export const DEFAULT_KNAP_TEMPLATE = `---
-title: {{ title | yaml }}
-author: {{ author | yaml }}
-format: {{ format | yaml }}
-total_highlights: {{ highlights | length }}
-tags:
-  - reading/highlights
-  - theorem
----
-
-# {{ title }}
-{% if author %}
-*By {{ author | wikilink }}*
-{% endif %}
-
-## Highlights
-
-{% for item in highlights %}
-{% if item.text %}
-> {{ item.text | highlight }}
-{% endif %}
-{% if item.note %}
-
-**Note**: {{ item.note }}
-{% endif %}
-
-{% endfor %}`.trim();
+export { DEFAULT_KNAP_TEMPLATE } from "./knap-default-template";
 
 let cachedEngine: TemplateEngine | null = null;
 

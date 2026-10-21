@@ -1,5 +1,5 @@
 import { localDateKey } from "../lib/date-keys";
-import { DEFAULT_KNAP_TEMPLATE } from "../lib/knap-templates";
+import { DEFAULT_KNAP_TEMPLATE } from "../lib/knap-default-template";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { applyAppTheme, applyReaderStyles, initReaderStyles } from "../lib/design-tokens";
