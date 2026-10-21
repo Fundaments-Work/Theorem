@@ -4,7 +4,7 @@ import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } f
 import { invoke } from "@tauri-apps/api/core";
 import { PageHeader } from "../../ui";
 import { cn, formatFileSize } from "../../core/lib/utils";
-import { isTauri, isTauriDesktop } from "../../core/lib/env";
+import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { getAllShortcuts, formatShortcutKeys } from "../../core/lib/keyboard-shortcuts";
 import {
     showOpenDirectoryDialog,
@@ -345,6 +345,9 @@ export const SettingsPage = memo(function SettingsPage() {
     const importStarDict = useVocabularyStore((state) => state.importStarDict);
     const removeDictionary = useVocabularyStore((state) => state.removeDictionary);
     const installedDictionaries = useVocabularyStore((state) => state.installedDictionaries);
+    // Phones and tablets have no keyboard to press shortcuts on, so the tab is desktop and
+    // desktop-web only.
+    const showShortcuts = !isMobile();
     const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
         if (typeof window === "undefined") {
             return "general";
@@ -355,7 +358,7 @@ export const SettingsPage = memo(function SettingsPage() {
             persisted === "dictionary" ||
             persisted === "integrations" ||
             persisted === "storage" ||
-            persisted === "shortcuts" ||
+            (persisted === "shortcuts" && showShortcuts) ||
             persisted === "about"
         ) {
             return persisted;
@@ -728,7 +731,7 @@ export const SettingsPage = memo(function SettingsPage() {
         { id: "dictionary" as const, label: "Dictionary" },
         { id: "integrations" as const, label: canExportMarkdown ? "Devices & Export" : "Devices" },
         { id: "storage" as const, label: "Data & Storage" },
-        { id: "shortcuts" as const, label: "Shortcuts" },
+        ...(showShortcuts ? [{ id: "shortcuts" as const, label: "Shortcuts" }] : []),
         { id: "about" as const, label: "About" },
     ];
 
@@ -1341,7 +1344,7 @@ export const SettingsPage = memo(function SettingsPage() {
                 <StorageTab onClearData={handleClearData} onExportData={handleExportData} />
             </div>}
 
-            {(activeTab === "shortcuts" || visitedTabs.has("shortcuts")) && <div className={activeTab === "shortcuts" ? "space-y-8" : "hidden"}>
+            {showShortcuts && (activeTab === "shortcuts" || visitedTabs.has("shortcuts")) && <div className={activeTab === "shortcuts" ? "space-y-8" : "hidden"}>
                     <Section
                         title="Keyboard Shortcuts"
                         description="Available shortcuts throughout the app"
