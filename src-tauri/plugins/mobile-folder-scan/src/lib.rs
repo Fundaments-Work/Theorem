@@ -283,3 +283,21 @@ pub fn configure_reminder<R: Runtime>(
         .map(|_| ())
         .map_err(|error| error.to_string())
 }
+
+/// Space taken by the system bars and the camera cutout at each edge, in CSS pixels.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq)]
+pub struct SystemInsets {
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub left: f64,
+}
+
+#[cfg(target_os = "android")]
+pub fn system_insets<R: Runtime>(app: &AppHandle<R>) -> Result<SystemInsets, String> {
+    let state = get_scan_state(app)?;
+    state
+        .handle
+        .run_mobile_plugin::<SystemInsets>("systemInsets", serde_json::json!({}))
+        .map_err(|error| error.to_string())
+}

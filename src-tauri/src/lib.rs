@@ -1936,6 +1936,7 @@ pub fn run() {
             sync_commands::clear_sync_databases,
             set_android_fingerprint,
             reminder_status,
+            system_insets,
             configure_reading_reminder,
             open_exact_alarm_settings,
             open_notification_settings,
@@ -1968,6 +1969,23 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// The system bars' and cutout's size at each edge (Android). Elsewhere the webview's own
+/// `env(safe-area-inset-*)` is right, so this reports nothing.
+#[tauri::command]
+fn system_insets(
+    app: tauri::AppHandle,
+) -> Result<tauri_plugin_mobile_folder_scan::SystemInsets, String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::system_insets(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(tauri_plugin_mobile_folder_scan::SystemInsets::default())
+    }
 }
 
 /// Whether daily reading reminders fire at the exact minute (Android "Alarms & reminders").

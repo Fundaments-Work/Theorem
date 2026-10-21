@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.result.ActivityResult
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.documentfile.provider.DocumentFile
 import app.tauri.Logger
 import app.tauri.annotation.ActivityCallback
@@ -347,6 +349,26 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
       invoke.resolve()
     } catch (error: Exception) {
       invoke.reject(error.message ?: "Could not schedule the reminder")
+    }
+  }
+
+  /**
+   * The space the status bar, navigation bar and camera cutout take at each edge, in CSS
+   * pixels. Android's WebView reports only the cutout through env(safe-area-inset-*), so with
+   * edge-to-edge (always on from Android 15) the page would otherwise draw under the bars.
+   */
+  @Command
+  fun systemInsets(invoke: Invoke) {
+    activity.runOnUiThread {
+      val response = JSObject()
+      val insets = ViewCompat.getRootWindowInsets(activity.window.decorView)
+        ?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+      val density = activity.resources.displayMetrics.density
+      response.put("top", (insets?.top ?: 0) / density)
+      response.put("right", (insets?.right ?: 0) / density)
+      response.put("bottom", (insets?.bottom ?: 0) / density)
+      response.put("left", (insets?.left ?: 0) / density)
+      invoke.resolve(response)
     }
   }
 
