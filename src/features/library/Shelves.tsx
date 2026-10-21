@@ -1,3 +1,4 @@
+import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, memo } from "react";
@@ -394,6 +395,17 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
 
     const handleSelectAll = useCallback(() => {
         setSelectedBooks(shelfBooks.map((b) => b.id));
+    }, [shelfBooks, setSelectedBooks]);
+
+    // Ctrl/Cmd+A: enter selection mode and select every book on this shelf.
+    useEffect(() => {
+        const onSelectAll = () => {
+            if (useUIStore.getState().currentRoute !== "shelves" || shelfBooks.length === 0) return;
+            setIsSelecting(true);
+            setSelectedBooks(shelfBooks.map((b) => b.id));
+        };
+        window.addEventListener(SELECT_ALL_EVENT, onSelectAll);
+        return () => window.removeEventListener(SELECT_ALL_EVENT, onSelectAll);
     }, [shelfBooks, setSelectedBooks]);
 
     const handleToggleSelectMode = useCallback(() => {

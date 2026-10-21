@@ -17,6 +17,15 @@ Rust library with consistent quality. Each platform has its own backend:
 | Windows | PowerShell `System.Speech` | .NET speech synthesis |
 | Android | Native TTS plugin | Android's TextToSpeech API |
 
+Desktop OS voices are hardened in `src-tauri/src/tts_desktop.rs`. Book text is
+untrusted, so it never reaches a shell or script string: `say` and `spd-say`
+receive it as one argument after `--` (a page that starts with `-` is spoken,
+not parsed as an option) and Windows reads it from **stdin** into a constant
+PowerShell script (voice and rate travel in environment variables). The
+narration process is tracked, so Stop kills only Theorem's own `say` /
+`powershell` — not every one on the machine. `tts_speak` takes an optional
+`speed`, mapped to `say -r`, `spd-say -r` and `SpeechSynthesizer.Rate`.
+
 Backend wiring: `tts_speak` / `tts_stop` in `src-tauri/src/lib.rs` dispatch to
 the platform implementation (`src-tauri/src/tts_linux.rs` on Linux, the
 `tauri-plugin-android-tts-audio` plugin on Android). Desktop OS voices report

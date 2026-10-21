@@ -35,6 +35,8 @@ pub mod stemmer;
 pub mod supertonic;
 mod sync_commands;
 pub mod text_normalizer;
+#[cfg(not(target_os = "android"))]
+mod tts_desktop;
 #[cfg(target_os = "linux")]
 mod tts_linux;
 pub mod tts_model;
@@ -1238,29 +1240,37 @@ fn apply_linux_webkit_workarounds() {
 
 #[tauri::command]
 #[allow(unused_variables, unreachable_code)]
-fn tts_speak(app: tauri::AppHandle, text: String, voice: String) -> Result<(), String> {
+fn tts_speak(
+    app: tauri::AppHandle,
+    text: String,
+    voice: String,
+    speed: Option<f32>,
+) -> Result<(), String> {
     #[cfg(target_os = "android")]
     return tauri_plugin_android_tts_audio::tts_speak(&app, text, voice);
     #[cfg(target_os = "linux")]
-    return tts_linux::linux_tts_speak(&text);
+    return tts_linux::linux_tts_speak(&text, speed);
     #[cfg(target_os = "macos")]
     {
-        let mut c = std::process::Command::new("say");
-        if !voice.is_empty() {
-            c.arg("-v").arg(&voice);
-        }
-        c.arg(&text)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        c.spawn().map_err(|e| format!("say: {e}"))?;
+        let mut cmd = std::process::Command::new("say");
+        cmd.args(tts_desktop::mac_say_args(&text, &voice, speed));
+        tts_desktop::spawn_tracked(cmd, None).map_err(|e| format!("say: {e}"))?;
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("powershell").args([
-            "-NoProfile", "-Command",
-            &format!(r#"Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Speak('{}')"#, text.replace('"', "'")),
-        ]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-        .spawn().map_err(|e| format!("TTS: {e}"))?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            tts_desktop::WINDOWS_SPEECH_SCRIPT,
+        ])
+        .env(
+            "THEOREM_TTS_RATE",
+            tts_desktop::windows_rate(speed).to_string(),
+        )
+        .env("THEOREM_TTS_VOICE", &voice);
+        tts_desktop::spawn_tracked(cmd, Some(text)).map_err(|e| format!("TTS: {e}"))?;
     }
     Ok(())
 }
@@ -1272,24 +1282,9 @@ fn tts_stop(app: tauri::AppHandle) -> Result<(), String> {
     return tauri_plugin_android_tts_audio::tts_stop(&app);
     #[cfg(target_os = "linux")]
     return tts_linux::linux_tts_stop();
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("killall")
-            .arg("say")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .ok();
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("taskkill")
-            .args(["/F", "/IM", "powershell.exe"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .ok();
-    }
+    // macOS/Windows: stop only the narration process we started.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    tts_desktop::stop_tracked();
     Ok(())
 }
 
@@ -1820,6 +1815,7 @@ pub fn run() {
             audio_player::tts_audio_status,
             audiobook_gen::generate_audiobook,
             audiobook_gen::generate_audiobook_cancel,
+            audiobook_gen::delete_generated_audiobook,
             supertonic::tts_prefetch,
             offload_commands::tts_neural_status,
             offload_commands::tts_engine_unload,

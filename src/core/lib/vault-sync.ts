@@ -15,11 +15,9 @@ import type {
     VaultIntegrationSettings,
     VocabularyTerm,
 } from "../types";
-import {
-    DEFAULT_KNAP_TEMPLATE,
-    renderKnapBookPage,
-    type KnapBookData,
-} from "./knap-templates";
+import { DEFAULT_KNAP_TEMPLATE } from "./knap-default-template";
+// The template engine (`knap`, ~74 kB) loads on first export, not at app start.
+import type { KnapBookData } from "./knap-templates";
 
 const DEFAULT_HIGHLIGHTS_FOLDER_NAME = "Books";
 const DEFAULT_VOCABULARY_FILE_NAME = "Vocabulary.md";
@@ -678,6 +676,7 @@ export async function syncVaultMarkdownSnapshot({
                 syncDate: generatedAt,
                 tags: ["reading/highlights", "theorem"],
             };
+            const { renderKnapBookPage } = await import("./knap-templates");
             const rendered = await renderKnapBookPage(template, bookData);
             if (rendered.output) {
                 customPages[page.source.id] = rendered.output;

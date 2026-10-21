@@ -60,7 +60,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["deb", "appimage", "nsis", "dmg"],
+    "targets": ["deb", "appimage", "nsis", "msi", "dmg"],
     "category": "Education",
     "publisher": "Fundamentals",
     "homepage": "https://github.com/fundaments-work/Theorem",

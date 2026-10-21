@@ -81,14 +81,14 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 | Linux | `.deb` or `.AppImage` |
 | macOS (Intel) | `.dmg` |
 | macOS (Apple Silicon) | `.dmg` |
-| Windows | `.exe` (NSIS) |
+| Windows | `.exe` (NSIS) or `.msi` |
 | Android | `.apk` |
 
 All builds on the [Releases page](https://github.com/fundaments-work/theorem/releases/latest). Website and docs at [theorem.fundaments.work](https://theorem.fundaments.work). Try the [web demo](https://read.fundaments.work) without installing.
 
 ---
 
-New to Theorem? Read the [user guide](docs/user/index.md).
+New to Theorem? Read the [user guide](docs/user/index.md), or see [everything it can do](docs/user/features.md).
 
 ## Quick Start (Development)
 
@@ -194,7 +194,7 @@ Project updates, advisories, and release notes delivered to every install from a
 Export your data as one JSON file: library (book metadata, collections, annotations), settings, statistics, vocabulary, and RSS feeds. Book files are not included and there is no in-app restore yet. Storage usage breakdown. Cache size configuration.
 
 ### Cross-Platform
-Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.exe NSIS). Mobile: Android (.apk). Web: browser fallback for development. All from a single TypeScript + Rust codebase.
+Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.exe NSIS, .msi). Mobile: Android (.apk). Web: browser fallback for development. All from a single TypeScript + Rust codebase.
 
 ---
 

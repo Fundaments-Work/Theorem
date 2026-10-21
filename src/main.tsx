@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./shell";
-import { GlobalLoader } from "./ui";
+import { GlobalLoader } from "./ui/loading";
 import { initSentry } from "./core/lib/sentry";
 import "./index.css";
 

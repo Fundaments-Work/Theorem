@@ -7,7 +7,7 @@ Theorem distribution: the **Tauri Updater key** (Ed25519) and the **Android APK 
 
 ## 1. Tauri Updater Signing Key (Ed25519)
 
-The updater plugin signs AppImage, DMG, and NSIS `.exe` installer files so the app can verify
+The updater plugin signs AppImage, DMG, NSIS `.exe` and `.msi` installer files so the app can verify
 that updates come from a trusted source.
 
 ### Generate the keypair (requires interactive terminal)

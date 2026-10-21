@@ -45,6 +45,22 @@ describe("filtered bulk selection", () => {
         act(() => { selection.clearSelection(); });
         expect(selection.selectedBooks).toEqual([]);
     });
+    it("reports whether selectAll took effect so callers can retry", () => {
+        render({ enabled: false });
+        let result = true;
+        act(() => { result = selection.selectAll(); });
+        expect(result).toBe(false);
+        render({ ready: false });
+        act(() => { result = selection.selectAll(); });
+        expect(result).toBe(false);
+        render();
+        act(() => { result = selection.selectAll(); });
+        expect(result).toBe(true);
+        render({ items: [] });
+        act(() => { result = selection.selectAll(); });
+        expect(result).toBe(true);
+        expect(selection.selectedBooks).toEqual([]);
+    });
     it("honors combined shelf, source folder, favorites, status, and search filters", () => {
         const items = [book("a", { isFavorite: true }), book("b", { isFavorite: true, progress: 1 }), book("c")];
         const filtered = getFilteredAndSortedBooks({ books: items, searchQuery: "a", ftsSearchIds: ["a", "b"],

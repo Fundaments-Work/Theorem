@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { RouteErrorBoundary, KeyboardShortcutsHelp, AlertDialog, PageLoader, SplashScreen } from "./ui";
+import { RouteErrorBoundary } from "./ui/RouteErrorBoundary";
+import { PageLoader, SplashScreen } from "./ui/loading";
 import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
@@ -9,8 +10,7 @@ import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
 import { normalizeFilePath } from "./core/lib/utils";
-import { registerShortcuts, useKeyboardShortcuts } from "./core/lib/keyboard-shortcuts";
-import { initI18n } from "./core/lib/i18n";
+import { registerShortcuts, useKeyboardShortcuts, SELECT_ALL_EVENT } from "./core/lib/keyboard-shortcuts";
 import { initLogger } from "./core/lib/debug";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
@@ -19,6 +19,14 @@ import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
 import { Toaster } from "sonner";
+
+// Closed at startup and built on Radix: load on first use, not with the app shell.
+const KeyboardShortcutsHelp = lazy(() =>
+    import("./ui/KeyboardShortcutsHelp").then((m) => ({ default: m.KeyboardShortcutsHelp })),
+);
+const AlertDialog = lazy(() =>
+    import("./ui/ConfirmDialog").then((m) => ({ default: m.AlertDialog })),
+);
 
 const LibraryPage = lazy(() =>
     import("./features/library").then((module) => ({ default: module.LibraryPage })),
@@ -81,6 +89,11 @@ function App() {
     const autoSyncEnabled = useSettingsStore((state) => state.settings.deviceSync?.autoSyncEnabled ?? true);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
     const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+    // Keep the dialog mounted once opened so its close transition still plays.
+    const [shortcutsHelpLoaded, setShortcutsHelpLoaded] = useState(false);
+    useEffect(() => {
+        if (showShortcutsHelp) setShortcutsHelpLoaded(true);
+    }, [showShortcutsHelp]);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
 
     useDailyGoalReminder();
@@ -156,11 +169,8 @@ function App() {
             
             { label: "Select all",          keys: "Ctrl+A", category: "Library",    handler: () => {
                 const route = useUIStore.getState().currentRoute;
-                if (route !== "library" && route !== "shelves" && route !== "bookmarks") return;
-                const visiblePane = document.querySelector('#app-main > div:not(.hidden)');
-                const toggleSelectMode = (visiblePane?.querySelector('[data-action="toggle-select-mode"]')
-                    ?? document.querySelector('[data-action="toggle-select-mode"]')) as HTMLButtonElement | null;
-                if (toggleSelectMode) toggleSelectMode.click();
+                if (route !== "library" && route !== "shelves") return;
+                window.dispatchEvent(new Event(SELECT_ALL_EVENT));
             }},
         ]);
     }, [setRoute]);
@@ -428,7 +438,9 @@ function App() {
     }, []);
 
     useEffect(() => {
-        void initI18n();
+        // Nothing translates at first paint, so keep i18next and the locale files
+        // (~50 kB) out of the startup bundle.
+        void import("./core/lib/i18n").then((m) => m.initI18n());
     }, []);
 
     useEffect(() => {
@@ -684,22 +696,28 @@ function App() {
 
             <BottomNav />
 
-            <KeyboardShortcutsHelp
-                isOpen={showShortcutsHelp}
-                onClose={() => setShowShortcutsHelp(false)}
-            />
+            {shortcutsHelpLoaded && (
+                <Suspense fallback={null}>
+                    <KeyboardShortcutsHelp
+                        isOpen={showShortcutsHelp}
+                        onClose={() => setShowShortcutsHelp(false)}
+                    />
+                </Suspense>
+            )}
             
         </div>
             <Toaster position="bottom-right" />
 
             {alertInfo && (
-                <AlertDialog
-                    isOpen={!!alertInfo}
-                    title={alertInfo.title}
-                    message={alertInfo.message}
-                    okLabel="OK"
-                    onClose={() => setAlertInfo(null)}
-                />
+                <Suspense fallback={null}>
+                    <AlertDialog
+                        isOpen={!!alertInfo}
+                        title={alertInfo.title}
+                        message={alertInfo.message}
+                        okLabel="OK"
+                        onClose={() => setAlertInfo(null)}
+                    />
+                </Suspense>
             )}
         </>
     );

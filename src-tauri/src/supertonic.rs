@@ -396,8 +396,10 @@ pub mod desktop {
                 }
             }
         }
-        if chunks.is_empty() {
-            chunks.push(text.trim().to_string());
+        // Text without a sentence boundary is one chunk; blank text has nothing to say.
+        let trimmed = text.trim();
+        if chunks.is_empty() && !trimmed.is_empty() {
+            chunks.push(trimmed.to_string());
         }
         chunks
     }
@@ -813,6 +815,30 @@ pub mod desktop {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn blank_text_has_no_chunks() {
+            for blank in ["", "   ", "\n\n", " \t\n "] {
+                assert!(chunk_text(blank, 300).is_empty(), "{blank:?}");
+            }
+        }
+
+        #[test]
+        fn text_without_sentence_punctuation_is_one_chunk() {
+            assert_eq!(
+                chunk_text("  no punctuation here  ", 300),
+                ["no punctuation here"]
+            );
+        }
+
+        #[test]
+        fn long_runs_are_wrapped_within_the_limit() {
+            let words = vec!["word"; 200].join(" ");
+            let chunks = chunk_text(&words, 100);
+            assert!(chunks.len() > 1);
+            assert!(chunks.iter().all(|c| c.chars().count() <= 100));
+            assert_eq!(chunks.join(" ").split_whitespace().count(), 200);
+        }
 
         #[test]
         #[ignore]

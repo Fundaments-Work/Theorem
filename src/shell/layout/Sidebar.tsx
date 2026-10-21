@@ -1,6 +1,5 @@
 import { type ReactNode, memo } from "react";
 import {
-    Bookmark,
     Flame,
     Compass,
     FolderOpen,
@@ -21,12 +20,14 @@ interface SidebarItem {
     id: AppRoute;
     label: string;
     icon: ReactNode;
+    /** Other routes that belong to this item, so it stays lit on them. */
+    alsoActiveOn?: ReadonlyArray<AppRoute>;
 }
 
 const mainNavItems: SidebarItem[] = [
     { id: "library", label: "Library", icon: <Library className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
-    { id: "annotations", label: "Workbench", icon: <NotebookPen className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
-    { id: "bookmarks", label: "Bookmarks", icon: <Bookmark className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
+    // Bookmarks is a tab inside Workbench (with Highlights, Notes and Words), not a rail destination.
+    { id: "annotations", label: "Workbench", icon: <NotebookPen className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" />, alsoActiveOn: ["bookmarks", "vocabulary"] },
     { id: "shelves", label: "Shelves", icon: <FolderOpen className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
     { id: "feeds", label: "Snapshots", icon: <Rss className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
     { id: "opds", label: "Discover", icon: <Compass className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" /> },
@@ -53,8 +54,8 @@ export const Sidebar = memo(function Sidebar() {
 
     // Same rule as the Fundaments.work activity bar: the open item is marked by a
     // lime edge, hover is the signal colour and never a background.
-    const railButton = (id: AppRoute, label: string, icon: ReactNode, onClick: () => void) => {
-        const isActive = currentRoute === id;
+    const railButton = (id: AppRoute, label: string, icon: ReactNode, onClick: () => void, alsoActiveOn?: ReadonlyArray<AppRoute>) => {
+        const isActive = currentRoute === id || (alsoActiveOn?.includes(currentRoute) ?? false);
         return (
             <button
                 key={id}
@@ -88,7 +89,7 @@ export const Sidebar = memo(function Sidebar() {
                 <TheoremLogo size={24} className="shrink-0" />
             </div>
             <nav aria-label="Main navigation"className="flex flex-1 flex-col min-h-0">
-                {items.map((item) => railButton(item.id, item.label, item.icon, () => select(item.id)))}
+                {items.map((item) => railButton(item.id, item.label, item.icon, () => select(item.id), item.alsoActiveOn))}
             </nav>
             <div className="mt-auto flex flex-col">
                 {displayStreak && (

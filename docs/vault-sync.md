@@ -151,3 +151,4 @@ Vault sync is configured in **Settings → Markdown Export**:
    theorem export --out ~/backup/reading_data.json
    ```
 
+4. **Custom templates (`knap`)**: The `custom` preset renders each book page through the `knap` template engine (`src/core/lib/knap-templates.ts`). To keep the engine (~74 kB) out of the startup bundle it is imported dynamically on the first custom export; the built-in presets never load it. The default template text lives in `src/core/lib/knap-default-template.ts` so the settings store can use it without pulling the engine in. Auto-sync and manual export behave identically either way.

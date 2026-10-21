@@ -28,7 +28,7 @@ You can also open a book directly from your file manager. Theorem registers itse
 
 ![The Theorem library page with the sidebar on the left, the search box at the top and the book grid](../screenshots/library-grid.png)
 
-- **Sidebar.** A narrow icon rail on the left. Hover over an icon to see its name. From top to bottom the pages are Library, Workbench, Bookmarks, Shelves, Feeds and Discover. Settings is at the bottom. The feeds icon is labeled Snapshots in its tooltip, but it opens the Feeds page. A flame icon with a number appears above Settings when you have a reading streak.
+- **Sidebar.** A narrow icon rail on the left. Hover over an icon to see its name. From top to bottom the pages are Library, Workbench, Shelves, Feeds and Discover (Bookmarks is a tab inside Workbench; the Workbench icon stays lit on it). Settings is at the bottom. The feeds icon is labeled Snapshots in its tooltip, but it opens the Feeds page. A flame icon with a number appears above Settings when you have a reading streak.
 - **Top bar.** Shows the current page name and a search box. Two icons sit on the right: Sync devices and Statistics.
 - **Search box.** Searches the page you are on. On Library it reads "Search books, authors, or tags...". On Workbench it searches highlights, notes and books. On Feeds it searches articles. Press `Ctrl+F` to jump to it.
 - **Page toolbar.** Library has Add Books, Select, a view button, Scan and Filter. Other pages have their own buttons.

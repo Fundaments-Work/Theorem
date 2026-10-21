@@ -219,3 +219,9 @@ export function useKeyboardShortcuts(activeRoute?: string, enabled = true): void
         return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
     }, [enabled, handleKeyDown]);
 }
+
+/**
+ * Fired on `window` by the global Ctrl/Cmd+A shortcut. The visible Library or
+ * Shelves page enters selection mode and selects everything in its filtered view.
+ */
+export const SELECT_ALL_EVENT = "theorem:select-all";

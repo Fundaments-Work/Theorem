@@ -1,3 +1,4 @@
+import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, memo } from "react";
@@ -1516,6 +1517,23 @@ export function LibraryPage() {
         showUnshelvedOnly, statusFilter]);
     const { selectedBooks, selectedBookIds, selectAll, clearSelection, toggleBookSelection, allSelected } =
         useFilteredSelection(sortedBooks, selectionScope, isSelecting, selectionReady);
+
+    // Ctrl/Cmd+A: enter selection mode and select everything in the filtered view.
+    // Selection only becomes available a render after the mode switches on, so the
+    // request stays pending until `selectAll` reports success.
+    const [selectAllPending, setSelectAllPending] = useState(false);
+    useEffect(() => {
+        const onSelectAll = () => {
+            if (useUIStore.getState().currentRoute !== "library") return;
+            setIsSelecting(true);
+            setSelectAllPending(true);
+        };
+        window.addEventListener(SELECT_ALL_EVENT, onSelectAll);
+        return () => window.removeEventListener(SELECT_ALL_EVENT, onSelectAll);
+    }, []);
+    useEffect(() => {
+        if (selectAllPending && isSelecting && selectAll()) setSelectAllPending(false);
+    }, [selectAllPending, isSelecting, selectAll]);
 
     const allSelectedCompleted = useMemo(() => {
         if (selectedBooks.length === 0) return false;

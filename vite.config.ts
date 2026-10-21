@@ -100,14 +100,29 @@ export default defineConfig(async () => ({
         rolldownOptions: {
             output: {
                 manualChunks(id: string) {
-                    // Separate PDF.js into its own chunk for better caching
-                    if (id.includes("pdfjs-dist")) return "pdfjs";
+                    // PDF.js is deliberately NOT a manual chunk. Forcing it into one made the
+                    // bundler fold Vite's dynamic-import helper into it, so every lazy import in
+                    // the app statically depended on (and modulepreloaded) the 430 kB library at
+                    // startup. Left to the default splitting it is reached only through the
+                    // dynamic imports in pdfjs-runtime and the lazy PDF engine.
+                    // React itself is needed by every chunk. Unassigned, its shared jsx-runtime was
+                    // folded into whichever vendor chunk came first (the Radix one), making that
+                    // chunk a startup dependency.
+                    if (/node_modules\/(?:react|react-dom|scheduler)\//.test(id)) return "react-vendor";
+                    // Tiny helpers used by everything (isTauri, cn): pin them so no vendor group absorbs
+                    // them and becomes a dependency of every chunk.
+                    if (/\/src\/core\/lib\/(?:env|utils|keyboard-shortcuts)\.ts$/.test(id)) return "shared-utils";
+                    // Radix-based overlays + their libraries load only when a menu or dialog is used.
+                    if (/\/src\/ui\/(?:ContextMenu|Dropdown|Modal|ConfirmDialog|KeyboardShortcutsHelp)\.tsx$/.test(id) || id.includes("@radix-ui") || id.includes("@floating-ui") || id.includes("react-remove-scroll")) return "ui-overlays";
                     // Separate icon library and error reporting to keep main app chunk lean
                     if (id.includes("lucide-react")) return "lucide";
                     if (id.includes("@sentry")) return "sentry";
                     // Virtualizer, toast, and Radix primitives change rarely — own cache entry
                     if (id.includes("@tanstack")) return "tanstack";
-                    if (id.includes("sonner") || id.includes("@radix-ui")) return "ui-vendors";
+                    // sonner (toasts) is needed at startup. Radix/floating-ui are deliberately left to
+                    // the default splitting: grouping them put shared helpers in the group and turned
+                    // it into a startup dependency.
+                    if (id.includes("sonner")) return "sonner";
                 },
             },
         },

@@ -17,6 +17,9 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 
 ## Guide pages
 
+- **[All features](features.md)**
+  One page listing everything Theorem can do, grouped by task, with a link to the guide page for each.
+
 - **[Install Theorem](install.md)**
   Download Theorem for Linux, macOS, Windows or Android, use the Linux install script, and update the app.
 

@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Phones & Navigation
 
 - **Discover and Bookmarks on phones** — The 2026-02 removal of the mobile drawer left both without an entry point. The bottom bar is now Library, Shelves, Discover, Workbench, Feeds; Settings moved to the top bar beside Statistics; Bookmarks is a Workbench tab (with Highlights, Notes and Words). The tab row never scrolls away on small phones: below `sm` only the active tab shows its label.
+- **One Bookmarks entry point on desktop** — The sidebar no longer has a separate Bookmarks icon; Bookmarks is a Workbench tab on every screen size, and the Workbench icon stays lit while you are on it. `Ctrl+7` still opens it.
 - **Keyboard shortcuts follow the platform** — `Ctrl` in a shortcut now means Command on macOS and Control elsewhere; labels show ⌘/⇧/⌥ on a Mac. `Ctrl+6` opens Discover (it duplicated Workbench).
 
 ### Accessibility & Responsiveness
@@ -68,6 +69,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ctrl/Cmd+A now selects all** — In the Library and inside a shelf it enters selection mode and selects every book in the current filtered view (previously it only toggled the mode, and did nothing on Bookmarks, which has no selection mode). In text fields it keeps its normal meaning.
+- **Windows MSI installer** — Releases now also build a WiX `.msi` next to the NSIS `.exe`, for Group Policy / Intune / `msiexec` deployments. The in-app updater keeps using the NSIS installer.
+- **Faster startup (about 53% less JavaScript before first paint)** — The app shell loaded 1.34 MB of JavaScript; it now loads 0.63 MB. PDF.js (430 kB) was being preloaded on every launch because a bundler chunk group had absorbed Vite's shared dynamic-import helper; the note-template engine (`knap`, 74 kB), i18next (about 50 kB, not yet used by any screen) and the Radix menu/dialog libraries (about 100 kB) also loaded eagerly. They now load on first use. `pnpm build` and CI fail if the startup bundle exceeds 700 kB or a lazy library creeps back in (`scripts/check-startup-bundle.mjs`).
+- **Faster CI** — Superseded runs are cancelled, the Rust check caches its build, pnpm uses setup-node's store cache, the Build job no longer repeats the Typecheck job, and jobs have timeouts.
+- **Audio reliability pass (Immersion Reading, companion audiobooks, Save as Audiobook)**
+  - *Speed changes no longer freeze neural narration* — changing the speed while the native player held its lock called back into the same lock and deadlocked the player.
+  - *Replaying a page can't double-start narration* — a stale run for the same text could take over after stop + replay; runs are now tracked by session. Stopping while playback is starting no longer leaves audio running, blank pages complete instead of erroring, and the end of the book stops instead of re-reading the last page.
+  - *OS voices (macOS, Windows, Linux) hardened* — book text was spliced into a PowerShell script on Windows (an apostrophe broke narration, and crafted text could run commands), and a page starting with `-` was parsed as an option by `say`/`spd-say`. Text now travels via stdin or after `--`; Stop kills only Theorem's own process instead of every `powershell`/`say` on the machine; the chosen speed is applied.
+  - *Attaching audiobooks* — MP3s without an ID3 tag attach instead of failing, MP3 duration is read from Xing/VBRI/bitrate instead of being 0, and a corrupt MP4 box can no longer wrap a size.
+  - *Audiobook player* — closing before the file loaded no longer resets your position to 0; an unplayable or missing file shows a message instead of a dead Play button; finished recordings restart; end-of-chapter sleep stops at the real boundary at any speed; the scrubber supports dragging and the keyboard.
+  - *Save as Audiobook* — the Ogg Opus `OpusTags` packet was missing its comment count (strict decoders reject it), pages could overflow the 255-segment limit or lack an end-of-stream page, text was always normalised as English, cancel only took effect between chapters (and there was no Cancel button), progress events from other books leaked in, partial files were left behind, and generated files were never deleted on detach or book delete.
+- **Native PDFium RFC withdrawn** — The proposal to replace PDF.js with a native PDFium engine was removed from the docs; PDF.js stays the PDF engine.
 - **Maintenance** — The Buy Me Momo content-drift check (`pnpm check:content` and its CI job) was removed; the two URL literals are now kept in sync by hand. CodeQL runs on a schedule rather than on every push, and the landing-page hook also fires on documentation changes.
 - **Tauri IPC access control check on memory trim** — Added wildcard window capability in `src-tauri/capabilities/default.json` and allowed IPC localhost origins in CSP, resolving Tauri v2 IPC ACL denials (`trim_memory`) on sub-windows and reloaded webviews.
 - **PDF Viewer Stability & Zoom Convergence** — Eliminated PDF zoom jumping, dropped TOC jumps, and page-pill layout squeezing on document load.
@@ -114,7 +127,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - Replaced the README screenshot set with a current, organized gallery (desktop and mobile), and pointed the web demo link at `read.fundaments.work`.
-- Added an RFC evaluating a native PDFium engine for PDF rendering.
 
 ## [1.5.8] - 2026-09-28 (Beta)
 

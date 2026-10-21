@@ -410,37 +410,53 @@ mod imp {
         })
     }
 
+    /// Which queued chunk `seconds` falls in, and the offset inside it. Targets
+    /// past the end land at the end of the last chunk.
+    pub(super) fn locate_chunk(durations: &[f64], seconds: f64) -> Option<(usize, f64)> {
+        if durations.is_empty() {
+            return None;
+        }
+        let total: f64 = durations.iter().sum();
+        let target = if seconds.is_finite() {
+            seconds.clamp(0.0, total)
+        } else {
+            0.0
+        };
+        let mut chunk_start = 0.0;
+        for (i, duration) in durations.iter().enumerate() {
+            if target < chunk_start + *duration || i == durations.len() - 1 {
+                return Some((i, (target - chunk_start).max(0.0)));
+            }
+            chunk_start += *duration;
+        }
+        None
+    }
+
+    /// Seeks an already-locked player. `set_speed` also needs this while it
+    /// holds the player lock, so it must not go through [`seek`] (the mutex is
+    /// not re-entrant: that would deadlock the whole player).
+    fn seek_locked(p: &mut NativePlayer, seconds: f64) -> Result<(), String> {
+        let Some((idx, offset)) = locate_chunk(&p.durations, seconds) else {
+            return Ok(());
+        };
+        let was_paused = p.paused;
+        p.player.clear();
+        for path in &p.paths[idx..] {
+            let source = open_source_with_speed(path, p.speed)?;
+            p.player.append(source);
+        }
+        if was_paused {
+            p.player.pause();
+        } else {
+            p.player.play();
+        }
+        p.player
+            .try_seek(Duration::from_secs_f64(offset))
+            .map_err(|e| format!("Seek failed: {e}"))
+    }
+
     pub fn seek(seconds: f64) -> Result<(), String> {
-        with_player(|p| {
-            if p.durations.is_empty() {
-                return Ok(());
-            }
-            let target = seconds.max(0.0).min(p.total_duration());
-            let mut idx = 0;
-            let mut chunk_start = 0.0;
-            for (i, duration) in p.durations.iter().enumerate() {
-                if target < chunk_start + *duration || i == p.durations.len() - 1 {
-                    idx = i;
-                    break;
-                }
-                chunk_start += *duration;
-            }
-            let offset = (target - chunk_start).max(0.0);
-            let was_paused = p.paused;
-            p.player.clear();
-            for path in &p.paths[idx..] {
-                let source = open_source_with_speed(path, p.speed)?;
-                p.player.append(source);
-            }
-            if was_paused {
-                p.player.pause();
-            } else {
-                p.player.play();
-            }
-            p.player
-                .try_seek(Duration::from_secs_f64(offset))
-                .map_err(|e| format!("Seek failed: {e}"))
-        })?
+        with_player(|p| seek_locked(p, seconds))?
     }
 
     pub fn set_speed(speed: f32) -> Result<(), String> {
@@ -454,7 +470,8 @@ mod imp {
             }
             if !p.paths.is_empty() && !p.player.empty() {
                 let current_pos = p.absolute_position();
-                let _ = seek(current_pos);
+                // Rebuild the queue at the new speed from where playback is now.
+                let _ = seek_locked(p, current_pos);
             }
             Ok(())
         })?
@@ -653,6 +670,26 @@ pub fn tts_audio_status() -> Result<AudioPlayerStatus, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn locate_chunk_finds_chunk_and_offset() {
+        use super::imp::locate_chunk;
+        let d = [2.0, 3.0, 1.0];
+        assert_eq!(locate_chunk(&d, 0.0), Some((0, 0.0)));
+        assert_eq!(locate_chunk(&d, 1.5), Some((0, 1.5)));
+        assert_eq!(locate_chunk(&d, 2.0), Some((1, 0.0))); // boundary belongs to the next chunk
+        assert_eq!(locate_chunk(&d, 4.5), Some((1, 2.5)));
+        assert_eq!(locate_chunk(&d, 5.5), Some((2, 0.5)));
+        // Past the end lands at the end of the last chunk; negative and NaN clamp to the start.
+        assert_eq!(locate_chunk(&d, 99.0), Some((2, 1.0)));
+        assert_eq!(locate_chunk(&d, -3.0), Some((0, 0.0)));
+        assert_eq!(locate_chunk(&d, f64::NAN), Some((0, 0.0)));
+        // Nothing queued: nothing to seek.
+        assert_eq!(locate_chunk(&[], 1.0), None);
+        // A zero-length chunk is skipped rather than selected.
+        assert_eq!(locate_chunk(&[0.0, 2.0], 0.5), Some((1, 0.5)));
+    }
 
     #[test]
     fn test_wsola_identity_at_unit_speed() {
