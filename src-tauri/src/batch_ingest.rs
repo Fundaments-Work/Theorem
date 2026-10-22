@@ -194,6 +194,36 @@ pub(crate) struct ParsedMetadata {
     pub(crate) series_index: Option<f64>,
 }
 
+/// Check that `path` is an EPUB a reader can open: a ZIP archive with an OPF
+/// package. Cheap (no cover decode), for importers that do not parse
+/// metadata natively; the error reads like the desktop importer's.
+pub(crate) fn check_epub_readable(path: &Path) -> Result<(), String> {
+    let fail = |reason: String| format!("Could not read this book: {reason}");
+    let file = File::open(path).map_err(|e| fail(format!("Failed to open EPUB: {e}")))?;
+    let mut archive = crate::zip_util::open_zip_archive(file)
+        .map_err(|e| fail(format!("Invalid EPUB ZIP: {e}")))?;
+    let mut container = String::new();
+    if let Ok(mut entry) = archive.by_name("META-INF/container.xml") {
+        let _ = entry.read_to_string(&mut container);
+    }
+    let opf = extract_opf_path_from_container(&container);
+    if !opf.is_empty() && archive.by_name(&opf).is_ok() {
+        return Ok(());
+    }
+    let has_opf = (0..archive.len()).any(|i| {
+        archive
+            .by_index(i)
+            .ok()
+            .and_then(|entry| entry.name().ok().map(|n| n.ends_with(".opf")))
+            .unwrap_or(false)
+    });
+    if has_opf {
+        Ok(())
+    } else {
+        Err(fail("OPF rootfile not found in EPUB".to_string()))
+    }
+}
+
 /// Extract metadata & cover from an EPUB file using streaming XML
 fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open EPUB: {e}"))?;
@@ -1317,6 +1347,35 @@ mod tests {
         assert_eq!(parsed.series, Some("Saga".to_string()));
         assert_eq!(parsed.series_index, Some(1.0));
         assert!(parsed.cover_data_url.is_some());
+    }
+
+    #[test]
+    fn epub_check_accepts_real_epubs_and_rejects_damaged_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = fixture("epub/multi-chapter.epub");
+        assert_eq!(check_epub_readable(&good), Ok(()));
+        let junk = put(dir.path(), "junk.epub", b"this is not a zip archive at all");
+        assert!(check_epub_readable(Path::new(&junk))
+            .unwrap_err()
+            .starts_with("Could not read this book"));
+        let bytes = std::fs::read(&good).unwrap();
+        let truncated = put(dir.path(), "cut.epub", &bytes[..bytes.len() / 2]);
+        assert!(check_epub_readable(Path::new(&truncated)).is_err());
+        // A ZIP that is not an EPUB (no package document).
+        let mut zip = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut zip));
+            writer
+                .start_file("notes.txt", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut writer, b"hello").unwrap();
+            writer.finish().unwrap();
+        }
+        let plain = put(dir.path(), "plain.epub", &zip);
+        assert!(check_epub_readable(Path::new(&plain))
+            .unwrap_err()
+            .contains("OPF"));
+        assert!(check_epub_readable(&dir.path().join("gone.epub")).is_err());
     }
 
     // ── Cover thumbnails ────────────────────────────────────────────────────

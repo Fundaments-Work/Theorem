@@ -32,6 +32,11 @@ pub fn finish_book_import(
         if size == 0 || size != expected_size {
             return Err("Incomplete book upload".into());
         }
+        // A damaged EPUB is reported now, as the desktop importer does,
+        // instead of becoming a book that cannot be opened.
+        if format == "epub" {
+            crate::batch_ingest::check_epub_readable(&source)?;
+        }
         let content_hash = crate::batch_ingest::compute_file_sha256(&source)
             .ok_or_else(|| "Failed to hash imported book".to_string())?;
         let final_format = if format == "cbr" {
