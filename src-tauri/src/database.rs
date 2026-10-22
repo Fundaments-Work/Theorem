@@ -675,6 +675,9 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS idx_book_annotations_book_id
         ON book_annotations(book_id);
+    -- A book's annotations are read in edit order (`ORDER BY updated_at`).
+    CREATE INDEX IF NOT EXISTS idx_book_annotations_book_updated
+        ON book_annotations(book_id, updated_at);
 
     CREATE TABLE IF NOT EXISTS rss_feeds (
         id TEXT PRIMARY KEY,
@@ -1439,14 +1442,66 @@ pub fn sqlite_delete_kv(app: AppHandle, key: String) -> Result<(), String> {
     with_connection(&app, |connection| sqlite_delete_kv_inner(connection, &key))
 }
 
+// Key-prefix queries are a range on the primary key (`key >= ?1 AND key <
+// ?2`), which SQLite answers from the index. `LIKE ?1 || '%'` scanned every
+// row (LIKE is case-insensitive, so it cannot use the index), and it read `%`
+// and `_` in the prefix as wildcards. Each statement has a twin without the
+// upper bound for a prefix that has none (see `prefix_upper_bound`).
+const KV_COUNT_BY_PREFIX_SQL: &str = "SELECT COUNT(*) FROM kv_store WHERE key >= ?1 AND key < ?2";
+const KV_COUNT_FROM_SQL: &str = "SELECT COUNT(*) FROM kv_store WHERE key >= ?1";
+const KV_DELETE_BY_PREFIX_SQL: &str = "DELETE FROM kv_store WHERE key >= ?1 AND key < ?2";
+const KV_DELETE_FROM_SQL: &str = "DELETE FROM kv_store WHERE key >= ?1";
+const BLOB_DELETE_BY_PREFIX_SQL: &str = "DELETE FROM blob_store WHERE key >= ?1 AND key < ?2";
+const BLOB_DELETE_FROM_SQL: &str = "DELETE FROM blob_store WHERE key >= ?1";
+const BLOB_STATS_BY_PREFIX_SQL: &str =
+    "SELECT COUNT(*), COALESCE(SUM(length(data)), 0) FROM blob_store WHERE key >= ?1 AND key < ?2";
+const BLOB_STATS_FROM_SQL: &str =
+    "SELECT COUNT(*), COALESCE(SUM(length(data)), 0) FROM blob_store WHERE key >= ?1";
+
+/// The smallest string greater than every string that starts with `prefix`,
+/// or `None` when there is none (an empty prefix, or one made only of
+/// U+10FFFF): the exclusive upper bound of a prefix range scan.
+///
+/// SQLite compares TEXT keys bytewise (BINARY collation) and UTF-8 byte order
+/// is code point order, so the bound is the prefix with its last character
+/// replaced by the next code point (skipping the surrogate gap). A last
+/// character with no successor is dropped and the one before it advanced.
+fn prefix_upper_bound(prefix: &str) -> Option<String> {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    while let Some(last) = chars.pop() {
+        let next = match last {
+            '\u{D7FF}' => Some('\u{E000}'),
+            c => char::from_u32(c as u32 + 1),
+        };
+        if let Some(next) = next {
+            chars.push(next);
+            return Some(chars.into_iter().collect());
+        }
+    }
+    None
+}
+
+/// Runs `bounded` with `(prefix, upper bound)`, or `open_ended` with
+/// `(prefix)` when the prefix has no upper bound.
+fn with_prefix_range<T>(
+    prefix: &str,
+    bounded: impl FnOnce(&str, &str) -> rusqlite::Result<T>,
+    open_ended: impl FnOnce(&str) -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    match prefix_upper_bound(prefix) {
+        Some(upper) => bounded(prefix, &upper),
+        None => open_ended(prefix),
+    }
+}
+
 pub fn sqlite_count_kv_by_prefix_inner(
     connection: &Connection,
     prefix: &str,
 ) -> rusqlite::Result<u64> {
-    connection.query_row(
-        "SELECT COUNT(*) FROM kv_store WHERE key LIKE ?1 || '%'",
-        params![prefix],
-        |row| row.get(0),
+    with_prefix_range(
+        prefix,
+        |from, to| connection.query_row(KV_COUNT_BY_PREFIX_SQL, params![from, to], |r| r.get(0)),
+        |from| connection.query_row(KV_COUNT_FROM_SQL, params![from], |r| r.get(0)),
     )
 }
 
@@ -1460,9 +1515,10 @@ pub fn sqlite_delete_kv_by_prefix_inner(
     connection: &Connection,
     prefix: &str,
 ) -> rusqlite::Result<u64> {
-    let affected = connection.execute(
-        "DELETE FROM kv_store WHERE key LIKE ?1 || '%'",
-        params![prefix],
+    let affected = with_prefix_range(
+        prefix,
+        |from, to| connection.execute(KV_DELETE_BY_PREFIX_SQL, params![from, to]),
+        |from| connection.execute(KV_DELETE_FROM_SQL, params![from]),
     )?;
     Ok(affected as u64)
 }
@@ -1529,9 +1585,10 @@ pub fn sqlite_delete_blobs_by_prefix_inner(
     connection: &Connection,
     prefix: &str,
 ) -> rusqlite::Result<u64> {
-    let affected = connection.execute(
-        "DELETE FROM blob_store WHERE key LIKE ?1 || '%'",
-        params![prefix],
+    let affected = with_prefix_range(
+        prefix,
+        |from, to| connection.execute(BLOB_DELETE_BY_PREFIX_SQL, params![from, to]),
+        |from| connection.execute(BLOB_DELETE_FROM_SQL, params![from]),
     )?;
     Ok(affected as u64)
 }
@@ -1547,10 +1604,11 @@ pub fn sqlite_get_blob_stats_inner(
     prefix: Option<String>,
 ) -> rusqlite::Result<SqliteBlobStats> {
     let (count, total_size): (u64, u64) = if let Some(prefix) = prefix {
-        connection.query_row(
-            "SELECT COUNT(*), COALESCE(SUM(length(data)), 0) FROM blob_store WHERE key LIKE ?1 || '%'",
-            params![prefix],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+        let stats = |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?));
+        with_prefix_range(
+            &prefix,
+            |from, to| connection.query_row(BLOB_STATS_BY_PREFIX_SQL, params![from, to], stats),
+            |from| connection.query_row(BLOB_STATS_FROM_SQL, params![from], stats),
         )?
     } else {
         connection.query_row(
@@ -2979,19 +3037,38 @@ pub struct BookWindowResult {
     pub total_count: u32,
 }
 
+/// The number of books in `books_fts`. FTS5 keeps one `books_fts_docsize`
+/// row per document in an ordinary table, which SQLite counts from its
+/// b-tree; `COUNT(*)` on the virtual table reads every document instead.
+fn count_indexed_books(connection: &Connection) -> rusqlite::Result<u32> {
+    connection
+        .query_row("SELECT COUNT(*) FROM books_fts_docsize", [], |row| {
+            row.get(0)
+        })
+        .or_else(|_| connection.query_row("SELECT COUNT(*) FROM books_fts", [], |row| row.get(0)))
+}
+
+/// One page of the indexed books, in index order (FTS rowid: the order the
+/// scan reads anyway, so no sort; a re-indexed book moves to the end), with
+/// the total. Without an ORDER BY, pages could overlap or skip books.
 pub fn sqlite_query_books_window_inner(
     connection: &Connection,
     limit: u32,
     offset: u32,
 ) -> rusqlite::Result<BookWindowResult> {
-    let total_count: u32 = connection
-        .query_row("SELECT COUNT(*) FROM books_fts", [], |row| row.get(0))
-        .unwrap_or(0);
-
-    let mut stmt = connection.prepare("SELECT id FROM books_fts LIMIT ?1 OFFSET ?2")?;
+    let mut stmt =
+        connection.prepare_cached("SELECT id FROM books_fts ORDER BY rowid LIMIT ?1 OFFSET ?2")?;
     let rows = stmt.query_map(params![limit, offset], |row| row.get::<_, String>(0))?;
-
     let book_ids = rows.collect::<rusqlite::Result<Vec<String>>>()?;
+
+    // A short, non-empty page (or a short first page) ends the list, so the
+    // total is known without counting.
+    let fetched = book_ids.len() as u32;
+    let total_count = if fetched < limit && (fetched > 0 || offset == 0) {
+        offset + fetched
+    } else {
+        count_indexed_books(connection)?
+    };
     Ok(BookWindowResult {
         book_ids,
         total_count,
@@ -6545,5 +6622,254 @@ mod tests {
         .unwrap();
         assert_eq!(meta_b3["title"], "Third Book");
         assert_eq!(meta_b3["syncedWithoutFile"], true);
+    }
+
+    // ---- Prefix range scans, the books window, the annotations index ----
+
+    fn migrated_store() -> (tempfile::TempDir, DataStore) {
+        let dir = tempfile::tempdir().unwrap();
+        run_schema_migrations_in(dir.path()).unwrap();
+        let store = DataStore::open(dir.path()).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn prefix_upper_bound_is_the_next_string_after_every_prefixed_key() {
+        assert_eq!(prefix_upper_bound(""), None);
+        assert_eq!(prefix_upper_bound("abc").as_deref(), Some("abd"));
+        assert_eq!(prefix_upper_bound("a%").as_deref(), Some("a&"));
+        assert_eq!(prefix_upper_bound("a_").as_deref(), Some("a`"));
+        assert_eq!(prefix_upper_bound("é").as_deref(), Some("ê"));
+        // The successor skips the surrogate gap.
+        assert_eq!(
+            prefix_upper_bound("x\u{D7FF}").as_deref(),
+            Some("x\u{E000}")
+        );
+        // The last code point has no successor: carry into the one before.
+        assert_eq!(prefix_upper_bound("ab\u{10FFFF}").as_deref(), Some("ac"));
+        assert_eq!(prefix_upper_bound("\u{10FFFF}\u{10FFFF}"), None);
+    }
+
+    /// A prefix is matched exactly: `%` and `_` are not wildcards, case
+    /// matters, and non-ASCII prefixes work.
+    #[test]
+    fn kv_and_blob_prefix_operations_match_the_prefix_exactly() {
+        let (_dir, store) = migrated_store();
+        let keys = [
+            "theorem-stardict:a:ifo",
+            "theorem-stardict:b:idx",
+            "theorem-stardict",
+            "THEOREM-STARDICT:c",
+            "theorem-stardict;next",
+            "100%:a",
+            "100x:a",
+            "a_b:1",
+            "axb:1",
+            "日本:1",
+            "日本語:2",
+            "日本\u{10FFFF}",
+            "日朝:3",
+            "\u{10FFFF}\u{10FFFF}z",
+        ];
+        store
+            .with_connection(|c| {
+                for key in keys {
+                    sqlite_set_kv_inner(c, key, "v")?;
+                    sqlite_set_blob_inner(c, key, b"1234")?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let count = |prefix: &str| {
+            store
+                .with_connection(|c| sqlite_count_kv_by_prefix_inner(c, prefix))
+                .unwrap()
+        };
+        assert_eq!(count("theorem-stardict:"), 2);
+        assert_eq!(count("100%"), 1);
+        assert_eq!(count("a_b"), 1);
+        assert_eq!(count("日本"), 3);
+        assert_eq!(count("日本語"), 1);
+        assert_eq!(count("\u{10FFFF}"), 1);
+        // An empty prefix is every key (migrations add some of their own).
+        let all: u64 = store
+            .with_connection(|c| c.query_row("SELECT COUNT(*) FROM kv_store", [], |r| r.get(0)))
+            .unwrap();
+        assert!(all >= keys.len() as u64);
+        assert_eq!(count(""), all);
+
+        let stats = store
+            .with_connection(|c| sqlite_get_blob_stats_inner(c, Some("日本".into())))
+            .unwrap();
+        assert_eq!((stats.count, stats.total_size), (3, 12));
+
+        assert_eq!(
+            store
+                .with_connection(|c| sqlite_delete_blobs_by_prefix_inner(c, "a_"))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .with_connection(|c| sqlite_delete_kv_by_prefix_inner(c, "theorem-stardict:"))
+                .unwrap(),
+            2
+        );
+        assert_eq!(count("THEOREM-STARDICT"), 1, "other case is kept");
+        assert_eq!(count("theorem-stardict"), 2, "neighbours are kept");
+        assert!(store
+            .with_connection(|c| sqlite_get_blob_inner(c, "axb:1"))
+            .unwrap()
+            .is_some());
+    }
+
+    fn query_plan(c: &Connection, sql: &str) -> String {
+        let mut stmt = c.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        rows.join("\n")
+    }
+
+    #[test]
+    fn prefix_queries_and_annotation_reads_use_indexes() {
+        let (_dir, store) = migrated_store();
+        store
+            .with_connection(|c| {
+                for (sql, table) in [
+                    (KV_COUNT_BY_PREFIX_SQL, "kv_store"),
+                    (KV_DELETE_BY_PREFIX_SQL, "kv_store"),
+                    (BLOB_DELETE_BY_PREFIX_SQL, "blob_store"),
+                    (BLOB_STATS_BY_PREFIX_SQL, "blob_store"),
+                ] {
+                    let sql = sql.replace("?1", "'a'").replace("?2", "'b'");
+                    let plan = query_plan(c, &sql);
+                    assert!(
+                        plan.contains(&format!("SEARCH {table}")) && plan.contains("key>? AND key<?"),
+                        "{sql}: {plan}"
+                    );
+                }
+                let plan = query_plan(
+                    c,
+                    "SELECT annotation_json FROM book_annotations WHERE book_id = 'b' ORDER BY updated_at",
+                );
+                assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn books_window_pages_in_a_stable_order_with_the_total() {
+        let (_dir, store) = migrated_store();
+        let ids: Vec<String> = (0..25)
+            .map(|i| format!("book-{:02}", (i * 7) % 25))
+            .collect();
+        store
+            .with_connection(|c| {
+                for id in &ids {
+                    c.execute(
+                        "INSERT INTO books_fts(id, title, author) VALUES(?1, 'T', 'A')",
+                        params![id],
+                    )?;
+                }
+                // Re-indexing a book (an edit) moves it to the end.
+                c.execute("DELETE FROM books_fts WHERE id = 'book-00'", [])?;
+                c.execute(
+                    "INSERT INTO books_fts(id, title, author) VALUES('book-00', 'T2', 'A')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let mut expected: Vec<String> = ids.iter().filter(|id| *id != "book-00").cloned().collect();
+        expected.push("book-00".into());
+        let mut seen = Vec::new();
+        for offset in (0..30).step_by(10) {
+            let page = store
+                .with_connection(|c| sqlite_query_books_window_inner(c, 10, offset))
+                .unwrap();
+            assert_eq!(page.total_count, 25, "offset {offset}");
+            seen.extend(page.book_ids);
+        }
+        // Every book once, in index order: pages neither overlap nor skip.
+        assert_eq!(seen, expected);
+        let past_end = store
+            .with_connection(|c| sqlite_query_books_window_inner(c, 10, 100))
+            .unwrap();
+        assert!(past_end.book_ids.is_empty());
+        assert_eq!(past_end.total_count, 25);
+        let none = store
+            .with_connection(|c| sqlite_query_books_window_inner(c, 0, 0))
+            .unwrap();
+        assert!(none.book_ids.is_empty());
+        assert_eq!(none.total_count, 25);
+    }
+
+    /// `cargo test --release --lib db_query_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn db_query_bench() {
+        use std::time::Instant;
+        let (_dir, store) = migrated_store();
+        store
+            .with_connection(|c| {
+                c.execute_batch("BEGIN")?;
+                for i in 0..20_000 {
+                    let id = format!("book-{i:05}");
+                    sqlite_save_book_metadata_inner(c, &id, &format!(r#"{{"id":"{id}"}}"#))?;
+                    c.execute(
+                        "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, 'Author')",
+                        params![id, format!("Title {i}")],
+                    )?;
+                }
+                for i in 0..50_000 {
+                    c.execute(
+                        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, '{}', ?3)",
+                        params![format!("a{i}"), format!("book-{:05}", i % 20_000), (i * 7919) % 100_000],
+                    )?;
+                }
+                for i in 0..5_000 {
+                    let prefix = ["theorem-stardict:", "zustand:", "theorem-rss-", "reader:"][i % 4];
+                    sqlite_set_kv_inner(c, &format!("{prefix}{i}"), "v")?;
+                    sqlite_set_blob_inner(c, &format!("{prefix}{i}"), b"data")?;
+                }
+                c.execute_batch("COMMIT")
+            })
+            .unwrap();
+        let time = |label: &str, runs: u32, f: &dyn Fn(&Connection)| {
+            store
+                .with_connection(|c| {
+                    f(c);
+                    let start = Instant::now();
+                    for _ in 0..runs {
+                        f(c);
+                    }
+                    let per = start.elapsed().as_secs_f64() * 1e6 / runs as f64;
+                    println!("{label:<40} {per:>10.1} us/call");
+                    Ok(())
+                })
+                .unwrap();
+        };
+        time("kv count by prefix", 200, &|c| {
+            sqlite_count_kv_by_prefix_inner(c, "theorem-stardict:").unwrap();
+        });
+        time("blob stats by prefix", 200, &|c| {
+            sqlite_get_blob_stats_inner(c, Some("theorem-stardict:".into())).unwrap();
+        });
+        time("books window first page (50)", 100, &|c| {
+            sqlite_query_books_window_inner(c, 50, 0).unwrap();
+        });
+        time("books window mid page (50 @ 10k)", 100, &|c| {
+            sqlite_query_books_window_inner(c, 50, 10_000).unwrap();
+        });
+        time("books window last page (50 @ 19980)", 100, &|c| {
+            sqlite_query_books_window_inner(c, 50, 19_980).unwrap();
+        });
+        time("annotations of one book", 1000, &|c| {
+            sqlite_get_book_annotations_inner(c, "book-01234").unwrap();
+        });
     }
 }
