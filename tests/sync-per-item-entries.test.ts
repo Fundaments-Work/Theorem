@@ -168,6 +168,39 @@ describe("provisioning writes one entry per item", () => {
     });
 });
 
+describe("provisioning never writes over a deletion it has not seen", () => {
+    it("an item deleted elsewhere is deleted here instead of being sent back", async () => {
+        ipc.docs_set_entries = (args) => {
+            const keys = (args.entries as Array<{ key: string }>).map((e) => e.key);
+            return { written: keys.length - 1, deleted: keys.includes("book:b1") ? [{ key: "book:b1", at: Date.now() }] : [] };
+        };
+        ipc.sqlite_merge_sync_entries = (args) => {
+            const tombs = JSON.parse((args.entries as Record<string, string>).deletion_tombstones ?? "[]") as DeletionTombstone[];
+            return { ...emptyReport, deletedBooks: tombs.filter((t) => t.entityType === "book").map((t) => t.entityId) };
+        };
+        await orch.provisionToIrohDocs();
+        expect(lib().getBook("b1")).toBeUndefined();
+        expect(lib().deletionTombstones).toEqual([expect.objectContaining({ entityType: "book", entityId: "b1" })]);
+        expect(ipcCalls.filter((c) => c.cmd === "docs_set_entries" && c.args.force === true)).toHaveLength(0);
+    });
+
+    it("an item changed here after the deletion is written anyway", async () => {
+        stores.useLibraryStore.setState({ books: [book("b1", { lastReadAt: new Date("2026-06-02") })] });
+        ipc.docs_set_entries = (args) => (args.force
+            ? { written: 1, deleted: [] }
+            : { written: 0, deleted: [{ key: "book:b1", at: new Date("2026-06-01").getTime() }] });
+        await orch.provisionToIrohDocs();
+        expect(lib().getBook("b1")).toBeDefined();
+        const forced = ipcCalls.filter((c) => c.cmd === "docs_set_entries" && c.args.force === true);
+        expect(forced).toHaveLength(1);
+        expect((forced[0].args.entries as Array<{ key: string }>).map((e) => e.key)).toEqual(["book:b1"]);
+        // Written now: the next provisioning has nothing more to send for it.
+        ipcCalls.length = 0;
+        await orch.provisionToIrohDocs();
+        expect(ipcCalls.filter((c) => c.cmd === "docs_set_entries")).toHaveLength(0);
+    });
+});
+
 describe("the live bridge writes one entry per item", () => {
     it("a new word is its own entry, and a deletion sends no list to current devices", async () => {
         await orch.ensureResponderSyncReady();

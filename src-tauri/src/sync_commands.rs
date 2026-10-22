@@ -951,7 +951,8 @@ async fn sync_doc_targets(
 async fn write_own_entries(
     app: &tauri::AppHandle,
     entries: &[(String, String)],
-) -> Result<usize, String> {
+    respect_deletions: bool,
+) -> Result<DocWriteResult, String> {
     let snapshot = get_docs_snapshot(app).await?;
     let targets = sync_doc_targets(app).await?;
 
@@ -959,6 +960,7 @@ async fn write_own_entries(
     // frontend knows the sync doc wasn't updated and can retry.
     let mut first_error: Option<String> = None;
     let mut written = 0usize;
+    let mut deleted: Vec<DeletedDocKey> = Vec::new();
     for (doc_id, protocol) in &targets {
         let doc = match snapshot.api.open(*doc_id).await {
             Ok(Some(doc)) => doc,
@@ -971,8 +973,15 @@ async fn write_own_entries(
                 continue;
             }
         };
-        let (n, error) = write_entries_to_doc(&doc, snapshot.author, *protocol, entries).await;
+        let (n, found, error) =
+            write_entries_to_doc(&doc, snapshot.author, *protocol, entries, respect_deletions)
+                .await;
         written += n;
+        for d in found {
+            if !deleted.iter().any(|x| x.key == d.key) {
+                deleted.push(d);
+            }
+        }
         if let Some(e) = error {
             let msg = format!("{doc_id}: {e}");
             eprintln!("[iroh-sync] {msg}");
@@ -982,19 +991,32 @@ async fn write_own_entries(
 
     match first_error {
         Some(err) => Err(err),
-        None => Ok(written),
+        None => Ok(DocWriteResult { written, deleted }),
     }
 }
 
+#[derive(serde::Serialize, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocWriteResult {
+    pub written: usize,
+    /// Items not written because another device deleted them since this
+    /// device last wrote them (see [`write_own_entries`]).
+    pub deleted: Vec<DeletedDocKey>,
+}
+
 /// [`write_own_entries`] for one doc, shared with a device on `protocol`.
-/// Returns how many entries were written, and the first failure.
+/// Returns how many entries were written, the items left unwritten because
+/// their newest entry is a deletion (with `respect_deletions`), and the
+/// first failure.
 async fn write_entries_to_doc(
     doc: &iroh_docs::api::Doc,
     author: iroh_docs::AuthorId,
     protocol: u8,
     entries: &[(String, String)],
-) -> (usize, Option<String>) {
+    respect_deletions: bool,
+) -> (usize, Vec<DeletedDocKey>, Option<String>) {
     let mut written = 0usize;
+    let mut deleted = Vec::new();
     let mut error = None;
     for (key, value) in entries {
         if is_legacy_list_key(key) && !reads_legacy_lists(protocol) {
@@ -1007,6 +1029,17 @@ async fn write_entries_to_doc(
         if unchanged {
             continue;
         }
+        if respect_deletions && is_deletable_key(key) {
+            if let Some(at) = newest_deletion(doc, key).await {
+                // Deleted since this device last wrote it (or before it ever
+                // did): writing now would undo that. The app decides.
+                deleted.push(DeletedDocKey {
+                    key: key.clone(),
+                    at: at / 1000,
+                });
+                continue;
+            }
+        }
         match doc
             .set_bytes(author, key.clone().into_bytes(), value.clone().into_bytes())
             .await
@@ -1017,7 +1050,22 @@ async fn write_entries_to_doc(
             }
         }
     }
-    (written, error)
+    (written, deleted, error)
+}
+
+/// When `key`'s newest entry in `doc` (by any device) is a deletion, when
+/// that deletion was made (microseconds).
+async fn newest_deletion(doc: &iroh_docs::api::Doc, key: &str) -> Option<u64> {
+    let newest = doc
+        .get_one(
+            iroh_docs::store::Query::single_latest_per_key()
+                .key_exact(key.as_bytes())
+                .include_empty()
+                .build(),
+        )
+        .await
+        .ok()??;
+    (newest.content_hash() == iroh_blobs::Hash::EMPTY).then(|| newest.timestamp())
 }
 
 #[tauri::command]
@@ -1026,7 +1074,10 @@ pub async fn docs_set_entry(
     key: String,
     value: String,
 ) -> Result<(), String> {
-    write_own_entries(&app, &[(key, value)]).await.map(|_| ())
+    // A change made on this device just now: newer than any deletion.
+    write_own_entries(&app, &[(key, value)], false)
+        .await
+        .map(|_| ())
 }
 
 #[derive(serde::Deserialize)]
@@ -1036,14 +1087,18 @@ pub struct DocEntryInput {
 }
 
 /// Several entries in one call (provisioning sends every item at once);
-/// see [`write_own_entries`]. Returns how many were actually written.
+/// see [`write_own_entries`]. Provisioning writes what this device holds,
+/// which may predate a deletion made elsewhere: an item whose newest entry is
+/// a deletion is not written but returned in `deleted`, for the app to apply
+/// the deletion, or (the item changed here since) to write it with `force`.
 #[tauri::command]
 pub async fn docs_set_entries(
     app: tauri::AppHandle,
     entries: Vec<DocEntryInput>,
-) -> Result<usize, String> {
+    force: Option<bool>,
+) -> Result<DocWriteResult, String> {
     let entries: Vec<(String, String)> = entries.into_iter().map(|e| (e.key, e.value)).collect();
-    write_own_entries(&app, &entries).await
+    write_own_entries(&app, &entries, !force.unwrap_or(false)).await
 }
 
 /// Removes this device's entries under `prefix` whose keys are not in `keep`
@@ -2113,6 +2168,18 @@ mod tests {
             }
         }
 
+        /// Writes as provisioning does; how many were written (none failing).
+        async fn written(
+            doc: &iroh_docs::api::Doc,
+            author: iroh_docs::AuthorId,
+            protocol: u8,
+            entries: &[(String, String)],
+        ) -> usize {
+            let (n, _, error) = write_entries_to_doc(doc, author, protocol, entries, true).await;
+            assert_eq!(error, None);
+            n
+        }
+
         fn entry(key: &str, value: &str) -> (String, String) {
             (key.to_string(), value.to_string())
         }
@@ -2125,49 +2192,28 @@ mod tests {
         async fn an_unchanged_value_is_not_written_again() {
             let f = fixture().await;
             let book = [entry("book:1", r#"{"title":"Dune"}"#)];
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &book).await,
-                (1, None)
-            );
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &book).await,
-                (0, None)
-            );
+            assert_eq!(written(&f.doc, f.here, 2, &book).await, 1);
+            assert_eq!(written(&f.doc, f.here, 2, &book).await, 0);
             let edited = [entry("book:1", r#"{"title":"Dune Messiah"}"#)];
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &edited).await,
-                (1, None)
-            );
+            assert_eq!(written(&f.doc, f.here, 2, &edited).await, 1);
             // The same value from the other device is a different entry: ours is written.
             let theirs = [entry("book:2", "x")];
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.there, 2, &theirs).await,
-                (1, None)
-            );
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &theirs).await,
-                (1, None)
-            );
+            assert_eq!(written(&f.doc, f.there, 2, &theirs).await, 1);
+            assert_eq!(written(&f.doc, f.here, 2, &theirs).await, 1);
         }
 
         #[tokio::test]
         async fn whole_lists_go_only_to_devices_on_older_versions() {
             let f = fixture().await;
             let lists = [entry("annotations", "[]"), entry("anno:b:a", "{}")];
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &lists).await,
-                (1, None)
-            );
+            assert_eq!(written(&f.doc, f.here, 2, &lists).await, 1);
             assert!(f
                 .doc
                 .get_exact(f.here, "annotations", false)
                 .await
                 .unwrap()
                 .is_none());
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 0, &lists).await,
-                (1, None)
-            );
+            assert_eq!(written(&f.doc, f.here, 0, &lists).await, 1);
             assert!(f
                 .doc
                 .get_exact(f.here, "annotations", false)
@@ -2180,7 +2226,7 @@ mod tests {
         async fn a_device_back_after_months_does_not_bring_back_what_was_deleted() {
             let f = fixture().await;
             let book = [entry("book:1", r#"{"title":"Dune"}"#)];
-            write_entries_to_doc(&f.doc, f.here, 2, &book).await;
+            written(&f.doc, f.here, 2, &book).await;
             assert!(deleted_now(&f.doc).await.is_empty());
 
             // Deleted on the other device while this one was away.
@@ -2190,20 +2236,46 @@ mod tests {
 
             // This device starts again and provisions its unchanged copy: not
             // rewritten, so the deletion stays the newest entry.
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &book).await,
-                (0, None)
-            );
+            assert_eq!(written(&f.doc, f.here, 2, &book).await, 0);
             assert_eq!(deleted_now(&f.doc).await, vec!["book:1".to_string()]);
 
-            // An edit made after the deletion is a newer write: the item stays.
+            // A changed copy is not written over the deletion either: it is
+            // reported, for the app to decide.
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
             let edited = [entry("book:1", r#"{"title":"Dune","rating":5}"#)];
-            assert_eq!(
-                write_entries_to_doc(&f.doc, f.here, 2, &edited).await,
-                (1, None)
-            );
+            let (n, reported, error) = write_entries_to_doc(&f.doc, f.here, 2, &edited, true).await;
+            assert_eq!((n, error), (0, None));
+            assert_eq!(reported.len(), 1);
+            assert_eq!(reported[0].key, "book:1");
+            assert_eq!(deleted_now(&f.doc).await, vec!["book:1".to_string()]);
+
+            // Edited here after the deletion: the app writes it anyway and it stays.
+            let (n, _, error) = write_entries_to_doc(&f.doc, f.here, 2, &edited, false).await;
+            assert_eq!((n, error), (1, None));
             assert!(deleted_now(&f.doc).await.is_empty());
+        }
+
+        #[tokio::test]
+        async fn a_device_that_never_sent_an_item_does_not_bring_it_back() {
+            let f = fixture().await;
+            // Written and deleted by the other device before this one wrote it.
+            written(&f.doc, f.there, 2, &[entry("book:7", r#"{"title":"Old"}"#)]).await;
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            f.doc.del(f.there, "book:7").await.unwrap();
+
+            let copy = [entry("book:7", r#"{"title":"Old"}"#), entry("book:8", "{}")];
+            let (n, reported, error) = write_entries_to_doc(&f.doc, f.here, 2, &copy, true).await;
+            assert_eq!((n, error), (1, None));
+            assert_eq!(
+                reported.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(),
+                vec!["book:7"]
+            );
+            assert!(reported[0].at > 0);
+            assert_eq!(deleted_now(&f.doc).await, vec!["book:7".to_string()]);
+            // Settings and the like are never held back.
+            let (n, reported, _) =
+                write_entries_to_doc(&f.doc, f.here, 2, &[entry("settings", "{}")], true).await;
+            assert_eq!((n, reported.len()), (1, 0));
         }
     }
 }

@@ -52,7 +52,7 @@ Device A (shows QR)                      Device B (scans)
   write ticket  ──────────────────────────►  saves A, imports the doc
 ```
 
-Both sides also exchange their sync protocol (`SYNC_PROTOCOL`, 2 in this version). Declining, closing the dialog or waiting 90 s refuses. `close_pairing_qr` withdraws the secret when the QR dialog closes. Paired devices are stored in `sync-paired-devices.json` keyed by `device_id`; every change goes through `SyncTransportState::persist_paired`, which also updates the allowlist. A file that cannot be parsed is kept as `sync-paired-devices.json.corrupt` instead of being overwritten.
+Both sides also exchange their sync protocol (`SYNC_PROTOCOL`, 2 in this version). Declining, closing the dialog or waiting 90 s refuses. The approval is asked once per pairing; afterwards the device is recognised by its key on every connection. Only Device Sync shows a QR code, and leaving the page or closing the code withdraws its secret, so a request cannot arrive where the prompt would not be seen. `close_pairing_qr` withdraws the secret when the QR dialog closes. Paired devices are stored in `sync-paired-devices.json` keyed by `device_id`; every change goes through `SyncTransportState::persist_paired`, which also updates the allowlist. A file that cannot be parsed is kept as `sync-paired-devices.json.corrupt` instead of being overwritten.
 
 ## Sync lifecycle
 
@@ -114,7 +114,7 @@ A deletion creates a tombstone (deletion record, `tomb:` entry) that syncs and s
 
 Deletions also live in the docs themselves, and those never expire. `docs_purge_entities` removes this device's entries for every tombstoned item (a book takes its cover and annotations with it); iroh-docs records each removal as an empty entry, kept and synced like any other. Reads include these (`Query::single_latest_per_key().include_empty()`): a key whose newest entry in any doc is a deletion is reported as deleted (in `docs_get_changed_entries`, and live in `docs-entry-batch` after checking that nothing newer was written to the key). The app turns a deletion of an item it still has into a tombstone, unless the item changed here after it was deleted there (added, edited or read later), which keeps it, like an edit made after the deletion anywhere.
 
-So a device that comes back after more than 90 days, when every tombstone has expired, still drops what was deleted meanwhile: its unchanged copies are not rewritten (above), so the deletions stay newest. Tested with a real iroh-docs engine in `sync_commands.rs` (`a_device_back_after_months_does_not_bring_back_what_was_deleted`).
+So a device that comes back after more than 90 days, when every tombstone has expired, still drops what was deleted meanwhile: its unchanged copies are not rewritten (above), so the deletions stay newest. Provisioning goes further: `docs_set_entries` never writes over a key whose newest entry is a deletion (even one this device never wrote, or changed since). It returns those items in `deleted` instead, and the app deletes them here too, unless the item changed here after the deletion, in which case it writes it again with `force` and it stays everywhere. Live edits (`docs_set_entry`) are always written: they are newer than any deletion. Tested with a real iroh-docs engine in `sync_commands.rs` (`a_device_back_after_months_does_not_bring_back_what_was_deleted`).
 
 ### 6. Live updates
 

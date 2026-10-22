@@ -2126,15 +2126,46 @@ async function purgeDeletedDocEntries(tombstones: DeletionTombstone[]): Promise<
     }
 }
 
+/**
+ * Items provisioning held back because another device deleted them (their
+ * newest doc entry is a deletion; this device may never have sent them, or
+ * not since). Each is deleted here too, unless it changed here after the
+ * deletion: then it is written anyway, and stays everywhere. Returns how
+ * many could not be written.
+ */
+async function settleDeletedElsewhere(
+    deleted: DocDeletion[],
+    pending: Array<{ key: string; value: string; marker: string }>,
+): Promise<number> {
+    const byKey = new Map(pending.map((e) => [e.key, e]));
+    const keep = deleted.filter((d) => tombstonesForDocDeletions([d]).length === 0);
+    const drop = deleted.filter((d) => !keep.includes(d));
+    if (drop.length > 0) await mergeIncomingData({}, undefined, drop);
+    const rewrite = keep.map((d) => byKey.get(d.key)).filter((e): e is NonNullable<typeof e> => Boolean(e));
+    if (rewrite.length === 0) return 0;
+    if (!(await docsSetEntries(rewrite.map(({ key, value }) => ({ key, value })), true))) return rewrite.length;
+    for (const e of rewrite) rememberProvisioned(e.key, e.marker);
+    return 0;
+}
+
 /** Entries per IPC call when provisioning (a large library goes in parts). */
 const PROVISION_BATCH = 400;
 
-async function docsSetEntries(entries: Array<{ key: string; value: string }>): Promise<boolean> {
+/**
+ * Writes entries; null when that failed. Unless `force`, items whose newest
+ * doc entry is another device's deletion are not written but returned.
+ */
+async function docsSetEntries(
+    entries: Array<{ key: string; value: string }>,
+    force = false,
+): Promise<{ deleted: DocDeletion[] } | null> {
     try {
         const { invoke } = await import("@tauri-apps/api/core");
-        await invoke<number>("docs_set_entries", { entries });
-        return true;
-    } catch { return false; }
+        const result = await invoke<{ written: number; deleted?: DocDeletion[] } | null>(
+            "docs_set_entries", { entries, force },
+        );
+        return { deleted: result?.deleted ?? [] };
+    } catch { return null; }
 }
 
 export async function provisionToIrohDocs(): Promise<boolean> {
@@ -2219,14 +2250,21 @@ export async function provisionToIrohDocs(): Promise<boolean> {
         }
 
         let failed = 0;
+        const deletedElsewhere: DocDeletion[] = [];
         for (let i = 0; i < pending.length; i += PROVISION_BATCH) {
             const batch = pending.slice(i, i + PROVISION_BATCH);
             for (const e of batch) rememberOwnWrite(e.key, e.value);
-            if (await docsSetEntries(batch.map(({ key, value }) => ({ key, value })))) {
-                for (const e of batch) rememberProvisioned(e.key, e.marker);
+            const result = await docsSetEntries(batch.map(({ key, value }) => ({ key, value })));
+            if (result) {
+                const held = new Set(result.deleted.map((d) => d.key));
+                deletedElsewhere.push(...result.deleted);
+                for (const e of batch) if (!held.has(e.key)) rememberProvisioned(e.key, e.marker);
             } else {
                 failed += batch.length;
             }
+        }
+        if (deletedElsewhere.length > 0) {
+            failed += await settleDeletedElsewhere(deletedElsewhere, pending);
         }
         if (failed > 0) {
             console.error(`[sync] Provisioning: ${failed} of ${pending.length} entries could not be written; they are sent again next time`);
