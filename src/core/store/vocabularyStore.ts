@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { isTauri } from "../lib/env";
+import { writeAllReportingFailures } from "../lib/legacy-sqlite-move";
 import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import {
     sqliteDeleteVocabularyTerm,
@@ -43,6 +44,62 @@ export function toSqliteVocabularyTerm(term: VocabularyTerm): SqliteVocabularyTe
             ? (term.updatedAt instanceof Date ? term.updatedAt.getTime() : new Date(term.updatedAt).getTime())
             : undefined,
     };
+}
+
+function reportVocabularyWriteFailure(error: unknown): void {
+    console.error("[VocabularyStore] SQLite write failed:", error);
+}
+
+/**
+ * Terms that stores older than v6 kept in the persisted KV copy
+ * (desktop/mobile). The KV copy keeps them (see `partialize`) until SQLite is
+ * confirmed to hold every one, so a failed write is retried on the next launch
+ * instead of losing the terms. Reset at the start of each hydration.
+ */
+let legacyPendingTerms: VocabularyTerm[] | null = null;
+
+function normalizeLegacyTerms(terms: unknown[]): VocabularyTerm[] {
+    const normalized: VocabularyTerm[] = [];
+    for (const term of terms) {
+        if (!term || typeof term !== "object" || !("id" in term)) continue;
+        try {
+            normalized.push(normalizeVocabularyTerm(term as VocabularyTerm));
+        } catch (error) {
+            console.error("[VocabularyStore] Skipping an unreadable saved term:", error);
+        }
+    }
+    return normalized;
+}
+
+/** Wraps the post-hydration callback; runs when a hydration starts. */
+function startingVocabularyHydration<F>(afterHydration: F): F {
+    legacyPendingTerms = null;
+    return afterHydration;
+}
+
+/**
+ * Write the legacy terms SQLite does not hold yet (rows already there may be
+ * newer and are left alone) and return them so they show this session.
+ */
+async function moveMissingLegacyTerms(storedIds: ReadonlySet<string>): Promise<VocabularyTerm[]> {
+    if (!legacyPendingTerms || legacyPendingTerms.length === 0) return [];
+    const deleted = new Set(
+        useLibraryStore.getState().deletionTombstones
+            .filter((t) => t.entityType === "vocabulary")
+            .map((t) => t.entityId),
+    );
+    const missing = legacyPendingTerms.filter((term) => !storedIds.has(term.id) && !deleted.has(term.id));
+    const moved = missing.length === 0 || await writeAllReportingFailures(
+        "legacy vocabulary terms",
+        missing,
+        (term) => sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term)),
+    );
+    if (moved) {
+        legacyPendingTerms = null;
+        // Rewrite the persisted copy without the terms SQLite now holds.
+        useVocabularyStore.setState({});
+    }
+    return missing;
 }
 
 export function fromSqliteVocabularyTerm(st: SqliteVocabularyTerm): VocabularyTerm {
@@ -177,7 +234,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
                         vocabularyTerms: [...state.vocabularyTerms, termToSave],
                     }));
                     if (isTauri()) {
-                        void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(termToSave));
+                        void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(termToSave)).catch(reportVocabularyWriteFailure);
                     }
                     triggerVaultAutoSync();
                     scheduleMutationSync();
@@ -221,7 +278,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     )),
                 }));
                 if (isTauri()) {
-                    void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(mergedTerm));
+                    void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(mergedTerm)).catch(reportVocabularyWriteFailure);
                 }
                 triggerVaultAutoSync();
                 scheduleMutationSync();
@@ -233,7 +290,7 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     vocabularyTerms: state.vocabularyTerms.filter((term) => term.id !== termId),
                 }));
                 if (isTauri()) {
-                    void sqliteDeleteVocabularyTerm(termId);
+                    void sqliteDeleteVocabularyTerm(termId).catch(reportVocabularyWriteFailure);
                 }
                 const tombstone: DeletionTombstone = {
                     entityId: termId,
@@ -362,14 +419,14 @@ export const useVocabularyStore = create<VocabularyStore>()(
                     : [];
                 const lookupCache = normalizeVocabularyLookupCache(persisted.lookupCache);
 
-                // When upgrading from < 6 on native platforms, migrate existing vocabulary into SQLite
-                if (version < 6 && isTauri() && vocabularyTerms.length > 0) {
-                    for (const term of vocabularyTerms) {
-                        if (term && typeof term === "object" && "id" in term) {
-                            try {
-                                const norm = normalizeVocabularyTerm(term as VocabularyTerm);
-                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(norm)).catch(() => {});
-                            } catch {}
+                // On native platforms terms live in SQLite. Any still in the KV copy stay
+                // there until hydration confirms SQLite holds them.
+                if (isTauri() && vocabularyTerms.length > 0) {
+                    legacyPendingTerms = normalizeLegacyTerms(vocabularyTerms);
+                    // When upgrading from < 6, start the move now (hydration retries the rest).
+                    if (version < 6) {
+                        for (const norm of legacyPendingTerms) {
+                            void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(norm)).catch(reportVocabularyWriteFailure);
                         }
                     }
                 }
@@ -383,15 +440,21 @@ export const useVocabularyStore = create<VocabularyStore>()(
                 } as VocabularyStore;
             },
             partialize: memoizePartialize(
-                (state) => [isTauri() ? [] : state.vocabularyTerms, state.installedDictionaries],
+                (state) => [isTauri() ? legacyPendingTerms : state.vocabularyTerms, state.installedDictionaries],
                 (state) => ({
-                    vocabularyTerms: isTauri() ? [] : state.vocabularyTerms,
+                    vocabularyTerms: isTauri() ? legacyPendingTerms ?? [] : state.vocabularyTerms,
                     installedDictionaries: state.installedDictionaries,
                 }),
             ),
-            onRehydrateStorage: () => (state) => {
+            onRehydrateStorage: () => startingVocabularyHydration((state: VocabularyStore | undefined) => {
                 if (!state) {
                     return;
+                }
+
+                // A KV copy at the current version (migrate did not run) can still hold
+                // terms whose move failed on an earlier launch: retry them.
+                if (isTauri() && !legacyPendingTerms && (state.vocabularyTerms?.length ?? 0) > 0) {
+                    legacyPendingTerms = normalizeLegacyTerms(state.vocabularyTerms);
                 }
 
                 state.installedDictionaries = (state.installedDictionaries || []).map((dictionary) => ({
@@ -403,19 +466,21 @@ export const useVocabularyStore = create<VocabularyStore>()(
                 state.activeDownload = null;
 
                 if (isTauri()) {
-                    void sqliteGetVocabularyTerms().then((sqliteTerms) => {
-                        if (sqliteTerms) {
-                            useVocabularyStore.setState({
-                                vocabularyTerms: sqliteTerms.map(fromSqliteVocabularyTerm),
-                            });
-                        }
-                    }).catch(() => {});
+                    void sqliteGetVocabularyTerms().then(async (sqliteTerms) => {
+                        const stored = (sqliteTerms ?? []).map(fromSqliteVocabularyTerm);
+                        const legacy = await moveMissingLegacyTerms(new Set(stored.map((term) => term.id)));
+                        const terms = legacy.length > 0 ? [...stored, ...legacy] : stored;
+                        useVocabularyStore.setState({ vocabularyTerms: terms });
+                    }).catch((error) => {
+                        // Keep what is in memory: an empty list here would hide every term.
+                        console.error("[VocabularyStore] Loading terms from SQLite failed:", error);
+                    });
                 } else {
                     state.vocabularyTerms = (state.vocabularyTerms || []).map((term) => (
                         normalizeVocabularyTerm(term)
                     ));
                 }
-            },
+            }),
         },
     ),
 );

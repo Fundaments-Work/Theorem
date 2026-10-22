@@ -91,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lower memory on desktop** — PDF.js and Foliate are no longer pre-warmed at startup (they load when a book of that format opens), the PDF offscreen page cache dropped from 6 pages / ~96 MB to 4 pages / ~48 MB and is cleared on unmount, and session Replay was removed from Sentry.
 - **Sentry bundle** — Named imports let the bundler drop session Replay: the Sentry chunk is 158 KB instead of 446 KB (54 KB instead of 149 KB gzipped).
 - **Feed changes that fail to save are reported** — Marking an article read, favouriting, saving, reading progress, extracted text and feed add/remove/refresh wrote to SQLite with every error discarded, so a failed write was only noticed when the change was gone after a restart. Each failure is now logged with the operation that failed; a failure in one article no longer hides the others.
+- **Upgrading from an old version can no longer lose books, highlights or words** — When books (before v8), annotations (before v7) and vocabulary (before v6) moved from the saved app state into their own SQLite tables, the saved copy was emptied without waiting for SQLite, so a failed write lost them. The saved copy now keeps them until SQLite holds every one, a failed move is retried on the next launch (never overwriting a newer row, never bringing back a deleted one), and they stay visible meanwhile. A failed vocabulary read no longer empties the word list either.
 
 ## [1.5.9] - 2026-10-04 (Beta)
 

@@ -481,11 +481,12 @@ async function mergeIncomingData(
                         if (isTauri()) {
                             // Only what changed (was: every term, one IPC each, on every merge),
                             // and removals too, so deleted terms cannot resurrect on next launch.
+                            const report = (e: unknown) => console.error("[Sync] Saving a synced vocabulary change failed:", e);
                             for (const term of upserts) {
-                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term));
+                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term)).catch(report);
                             }
                             for (const id of deletes) {
-                                void sqliteDeleteVocabularyTerm(id);
+                                void sqliteDeleteVocabularyTerm(id).catch(report);
                             }
                         }
                         markUpdated("vocabulary");
@@ -493,6 +494,7 @@ async function mergeIncomingData(
                 }
             }
         } catch (e) {
+            console.error("[Sync] Applying synced vocabulary failed:", e);
         }
     }
 
