@@ -131,5 +131,72 @@ describe("Text Normalization for Speech Synthesis (Issue #76)", () => {
                 "Add one half cup of milk."
             );
         });
+
+        it("says decades as decades", () => {
+            expect(normalizeTextForAudio("Back in the 1990s and the 1840s.")).toBe(
+                "Back in the nineteen nineties and the eighteen forties."
+            );
+            expect(normalizeTextForAudio("The 1960s, 1970s, 1980s, 2020s and 1910s.")).toBe(
+                "The nineteen sixties, nineteen seventies, nineteen eighties, twenty twenties and nineteen tens."
+            );
+            expect(normalizeTextForAudio("The 1900s and the 2000s.")).toBe(
+                "The nineteen hundreds and the two thousands."
+            );
+        });
+
+        it("leaves digit groups joined by hyphens (ISBNs, phone numbers) alone", () => {
+            expect(normalizeTextForAudio("ISBN 978-0-14-044913-6 or call 555-1234.")).toBe(
+                "ISBN 978-0-14-044913-6 or call 555-1234."
+            );
+            expect(normalizeTextForAudio("ISBN 0-306-40615-X today")).toBe("ISBN 0-306-40615-X today");
+            // A lone number next to them is still read out.
+            expect(normalizeTextForAudio("Dial 555-1234 twice, 2 times.")).toBe(
+                "Dial 555-1234 twice, two times."
+            );
+        });
+
+        it("keeps paragraph breaks and line breaks", () => {
+            expect(normalizeTextForAudio("First paragraph ends here.\n\nSecond   paragraph starts.")).toBe(
+                "First paragraph ends here.\n\nSecond paragraph starts."
+            );
+            expect(normalizeTextForAudio("Chapter IV\nIt began.\r\n\r\n\n\nNext \t part.")).toBe(
+                "Chapter four\nIt began.\n\nNext part."
+            );
+            expect(normalizeTextForAudio("  \n\n  ")).toBe("");
+        });
+    });
+
+    describe("normalizeTextForAudio in other languages", () => {
+        it("does not read French numbers in English", () => {
+            expect(normalizeTextForAudio("En 1984, il avait 25 ans et 3,5 % de chances.", "fr")).toBe(
+                "En 1984, il avait 25 ans et 3,5 % de chances."
+            );
+            expect(normalizeTextForAudio("Le Dr. Martin, M. Dupont & Cie.", "fr")).toBe(
+                "Le Dr. Martin, M. Dupont & Cie."
+            );
+        });
+
+        it("does not read German prices in English", () => {
+            expect(normalizeTextForAudio("Er kaufte 2 Äpfel für 3,50 € am 1. Mai.", "de")).toBe(
+                "Er kaufte 2 Äpfel für 3,50 € am 1. Mai."
+            );
+            expect(normalizeTextForAudio("Es kostet €12 im Jahr 1990s.", "de-DE")).toBe(
+                "Es kostet €12 im Jahr 1990s."
+            );
+        });
+
+        it("still tidies whitespace and keeps paragraphs for every language", () => {
+            expect(normalizeTextForAudio("吾輩は猫である。\n\n  名前はまだ無い。", "ja")).toBe(
+                "吾輩は猫である。\n\n名前はまだ無い。"
+            );
+            expect(normalizeTextForAudio("Il   dit\tbonjour.", "fr")).toBe("Il dit bonjour.");
+        });
+
+        it("treats English variants and a missing language as English", () => {
+            expect(normalizeTextForAudio("It costs $50.", "en-GB")).toBe("It costs fifty dollars.");
+            expect(normalizeTextForAudio("It costs $50.", "EN")).toBe("It costs fifty dollars.");
+            expect(normalizeTextForAudio("It costs $50.", "")).toBe("It costs fifty dollars.");
+            expect(normalizeTextForAudio("It costs $50.")).toBe("It costs fifty dollars.");
+        });
     });
 });

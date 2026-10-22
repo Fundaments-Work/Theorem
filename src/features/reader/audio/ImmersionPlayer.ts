@@ -220,7 +220,7 @@ class ImmersionPlayer {
         const trimmed = text.trim();
         if (!trimmed || !isTauri()) return;
 
-        const normalized = normalizeTextForAudio(trimmed);
+        const normalized = normalizeTextForAudio(trimmed, opts.lang);
         const sid = this.session;
         const neural = await getNeuralStatus();
         // Superseded by a newer speak()/stop() while awaiting the status probe.
@@ -618,7 +618,7 @@ class ImmersionPlayer {
         if (!isTauri() || !text.trim()) return;
         const neural = await getNeuralStatus();
         if (!neural.available) return;
-        const normalized = normalizeTextForAudio(text.trim());
+        const normalized = normalizeTextForAudio(text.trim(), opts.lang);
         const voice = resolveNeuralVoice(opts.voice);
         const lang = opts.lang || "en";
         try {

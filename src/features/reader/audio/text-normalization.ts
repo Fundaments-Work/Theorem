@@ -142,13 +142,51 @@ export function romanToNumber(roman: string): number | null {
     return sum > 0 && sum < 4000 ? sum : null;
 }
 
-/**
- * Normalizes text for speech synthesis, converting numbers, symbols,
- * currencies, dates, and abbreviations into pronounceable English prose.
- */
-export function normalizeTextForAudio(text: string): string {
-    if (!text || !text.trim()) return '';
+/** Whether a book language tag (`en`, `en-GB`, …) is English. A missing language counts as English. */
+export function isEnglishLanguage(lang: string | null | undefined): boolean {
+    const tag = (lang ?? '').trim().toLowerCase();
+    return tag === '' || tag === 'en' || tag.startsWith('en-') || tag.startsWith('en_');
+}
 
+/** Spoken English decade for a year ending in 0 (1990 -> "nineteen nineties", 1900 -> "nineteen hundreds"). */
+function decadeToWords(year: number): string {
+    if (year === 2000) return 'two thousands';
+    const century = integerToWords(Math.floor(year / 100));
+    const decade = Math.floor((year % 100) / 10);
+    if (decade === 0) return `${century} hundreds`;
+    if (decade === 1) return `${century} tens`;
+    return `${century} ${TENS[decade].slice(0, -1)}ies`;
+}
+
+/** Collapse spaces and tabs, but keep line and paragraph breaks (the chunker uses them). */
+function tidyWhitespace(text: string): string {
+    return text
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/ ?\n ?/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+// Private-use markers for digit groups that must be read as written.
+const KEEP_OPEN = '\uE000';
+const KEEP_BASE = 0xE100;
+
+/**
+ * Normalizes text for speech synthesis. For English (the default, and any
+ * `en-*` tag) numbers, symbols, currencies, dates and abbreviations become
+ * pronounceable prose; other languages are passed through, since those rules
+ * would read them in English. Every language keeps its paragraph breaks.
+ */
+export function normalizeTextForAudio(text: string, lang: string = 'en'): string {
+    if (!text || !text.trim()) return '';
+    let out = text.replace(/\r\n?/g, '\n');
+    if (isEnglishLanguage(lang)) out = expandEnglish(out);
+    // Em-dashes get spaces so every engine pauses on them.
+    out = out.replace(/—/g, ' — ').replace(/--/g, ' — ');
+    return tidyWhitespace(out);
+}
+
+function expandEnglish(text: string): string {
     let out = text;
 
     // 1. Common abbreviations & honorifics (preserve sentence flow)
@@ -166,6 +204,13 @@ export function normalizeTextForAudio(text: string): string {
     out = out.replace(/\bNo\.\s*(\d+)/gi, 'number $1');
     out = out.replace(/\bp\.\s*(\d+)/g, 'page $1');
     out = out.replace(/\bpp\.\s*(\d+)/g, 'pages $1');
+
+    // Digit groups joined by hyphens (ISBNs, phone numbers, ranges) are read as written.
+    const kept: string[] = [];
+    out = out.replace(/\b\d+(?:-[\dX]+)+\b/g, (m) => {
+        kept.push(m);
+        return KEEP_OPEN + String.fromCharCode(KEEP_BASE + kept.length - 1);
+    });
 
     // 2. Headings & Titles with Roman numerals
     out = out.replace(
@@ -239,13 +284,7 @@ export function normalizeTextForAudio(text: string): string {
     out = out.replace(/\b3\/4\b/g, 'three quarters');
 
     // 8. Decades (e.g. 1990s -> "nineteen nineties")
-    out = out.replace(/\b([12]\d{3})s\b/g, (_m, yStr) => {
-        const y = parseInt(yStr, 10);
-        const century = Math.floor(y / 100);
-        const decade = y % 100;
-        const decadeWord = TENS[Math.floor(decade / 10)] + 'ies';
-        return `${integerToWords(century)} ${decadeWord}`;
-    });
+    out = out.replace(/\b([12]\d{2}0)s\b/g, (_m, yStr) => decadeToWords(parseInt(yStr, 10)));
 
     // 9. Four-digit years in context (e.g. "in 1984", "since 2005")
     out = out.replace(/\b(?:in|since|by|from|until|circa|c\.)\s+([12]\d{3})\b/gi, (match, yStr) => {
@@ -276,13 +315,11 @@ export function normalizeTextForAudio(text: string): string {
         return m;
     });
 
-    // 11. Em-dash and symbols: ensure em-dash has whitespace around it for natural speech pauses
-    out = out.replace(/—/g, ' — ');
-    out = out.replace(/--/g, ' — ');
-    out = out.replace(/\s*&\s*/g, ' and ');
+    // 11. Ampersands
+    out = out.replace(/[^\S\n]*&[^\S\n]*/g, ' and ');
 
-    // Normalize whitespace
-    return out.replace(/\s+/g, ' ').trim();
+    return out.replace(new RegExp(`${KEEP_OPEN}([\\uE100-\\uF8FF])`, 'g'),
+        (_m, marker: string) => kept[marker.charCodeAt(0) - KEEP_BASE] ?? '');
 }
 
 function normalizeNumberString(str: string): string {

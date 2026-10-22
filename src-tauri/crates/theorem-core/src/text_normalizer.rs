@@ -242,7 +242,30 @@ fn parse_roman_numeral(s: &str) -> Option<u32> {
 }
 
 /// Normalize titles, abbreviations, symbols, currency, and numbers for TTS.
+/// Line breaks are kept (one blank line at most between paragraphs) so the
+/// sentence chunker can end a chunk at headings and paragraphs; spaces and
+/// tabs within a line collapse to one space.
 pub fn normalize_speech_text(text: &str, lang: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    let mut pending_break = 0u8; // 1 = line break, 2 = paragraph break
+    for line in text.split('\n') {
+        let normalized = normalize_speech_line(line, lang);
+        if normalized.is_empty() {
+            if !out.is_empty() {
+                pending_break = 2;
+            }
+            continue;
+        }
+        if !out.is_empty() {
+            out.push_str(if pending_break == 2 { "\n\n" } else { "\n" });
+        }
+        out.push_str(&normalized);
+        pending_break = 1;
+    }
+    out
+}
+
+fn normalize_speech_line(text: &str, lang: &str) -> String {
     // Only English has deep phonetic rules for now; other languages get symbol/spacing passes
     let is_english = lang.is_empty() || lang.starts_with("en");
 
@@ -346,6 +369,16 @@ fn normalize_single_token(token: &str, prev_token: Option<&str>) -> String {
         return format!("{} degrees", rest);
     }
 
+    // 4a. Decades: 1990s, 1900s
+    if let Some(year) = token
+        .strip_suffix('s')
+        .filter(|y| y.len() == 4 && y.ends_with('0'))
+        .and_then(|y| y.parse::<u32>().ok())
+        .filter(|y| (1000..=2990).contains(y))
+    {
+        return decade_to_words(year);
+    }
+
     // 4. Ordinals: 1st, 2nd, 3rd, 4th, 21st, 100th
     if let Some(num_str) = strip_ordinal_suffix(token) {
         if let Ok(n) = num_str.parse::<u64>() {
@@ -447,6 +480,22 @@ fn normalize_single_token(token: &str, prev_token: Option<&str>) -> String {
     }
 
     token.to_string()
+}
+
+/// "nineteen nineties", "nineteen hundreds", "two thousands", "nineteen tens".
+fn decade_to_words(year: u32) -> String {
+    if year == 2000 {
+        return "two thousands".to_string();
+    }
+    let century = number_to_words((year / 100) as u64);
+    match (year % 100) / 10 {
+        0 => format!("{century} hundreds"),
+        1 => format!("{century} tens"),
+        d => {
+            let tens = TENS[d as usize];
+            format!("{century} {}ies", &tens[..tens.len() - 1])
+        }
+    }
 }
 
 fn strip_ordinal_suffix(s: &str) -> Option<&str> {
@@ -572,5 +621,38 @@ mod tests {
             normalize_speech_text("It grew by 25% on the 1st day.", "en"),
             "It grew by twenty-five percent on the first day."
         );
+    }
+
+    #[test]
+    fn keeps_line_and_paragraph_breaks() {
+        assert_eq!(
+            normalize_speech_text(
+                "Chapter IV\nIt cost $5.\r\n\r\n\n\nThe   end  was 3 days later.",
+                "en"
+            ),
+            "Chapter four\nIt cost five dollars.\n\nThe end was three days later."
+        );
+        assert_eq!(
+            normalize_speech_text(
+                "Premier paragraphe.\n\n  Second   paragraphe, 25 ans.",
+                "fr"
+            ),
+            "Premier paragraphe.\n\nSecond paragraphe, 25 ans."
+        );
+        assert_eq!(normalize_speech_text(" \n\n \t", "en"), "");
+    }
+
+    #[test]
+    fn decades_are_read_as_decades() {
+        assert_eq!(
+            normalize_speech_text("In the 1990s, the 1840s and the 2020s.", "en"),
+            "In the nineteen nineties, the eighteen forties and the twenty twenties."
+        );
+        assert_eq!(
+            normalize_speech_text("The 1900s, 1910s and 2000s.", "en"),
+            "The nineteen hundreds, nineteen tens and two thousands."
+        );
+        // Other languages are left alone.
+        assert_eq!(normalize_speech_text("Die 1990s.", "de"), "Die 1990s.");
     }
 }
