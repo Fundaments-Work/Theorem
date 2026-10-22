@@ -74,12 +74,15 @@ impl TuiApp {
             .collect();
         books.sort_by_key(|a| a.title.to_lowercase());
         let filtered = (0..books.len()).collect();
+        // The first book is selected, so Enter works without moving first.
+        let library_state =
+            TableState::default().with_selected((!books.is_empty()).then_some(0));
         Ok(Self {
             books,
             filtered,
             filter: String::new(),
             filter_mode: false,
-            library_state: TableState::default(),
+            library_state,
             view: View::Library,
             show_help: false,
             status: String::new(),
@@ -107,7 +110,8 @@ impl TuiApp {
                 .map(|(i, _)| i)
                 .collect();
         }
-        self.library_state.select(Some(0));
+        self.library_state
+            .select((!self.filtered.is_empty()).then_some(0));
     }
 
     fn selected_book(&self) -> Option<&BookRow> {
@@ -205,19 +209,28 @@ pub(crate) fn run_tui(app: &Ctx) -> i32 {
 }
 
 fn tui_loop(terminal: &mut DefaultTerminal, tui: &mut TuiApp, app: &Ctx) -> Result<(), String> {
+    // Draw only when something changed: a key press or a resize. Nothing
+    // else changes the screen, so waiting for the next event costs no CPU.
+    let mut dirty = true;
     loop {
-        let _ = terminal
-            .draw(|frame| draw(frame, tui, app))
-            .map_err(|e| e.to_string())?;
-        if !event::poll(std::time::Duration::from_millis(200)).map_err(|e| e.to_string())? {
-            continue;
+        if dirty {
+            terminal
+                .draw(|frame| draw(frame, tui, app))
+                .map_err(|e| e.to_string())?;
+            dirty = false;
         }
-        let Event::Key(key) = event::read().map_err(|e| e.to_string())? else {
-            continue;
+        let key = match event::read().map_err(|e| e.to_string())? {
+            Event::Key(key) => key,
+            Event::Resize(..) => {
+                dirty = true;
+                continue;
+            }
+            _ => continue,
         };
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        dirty = true;
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Ok(());
         }
@@ -537,5 +550,61 @@ fn truncate(text: &str, max: usize) -> String {
     } else {
         let cut: String = text.chars().take(max.saturating_sub(1)).collect();
         format!("{}…", cut.trim_end())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tui_with(titles: &[&str]) -> TuiApp {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::open_at(dir.path()).unwrap();
+        let mut tui = TuiApp::load(&ctx).unwrap();
+        tui.books = titles
+            .iter()
+            .map(|t| BookRow {
+                id: t.to_string(),
+                title: t.to_string(),
+                author: String::new(),
+                format: "epub".into(),
+                progress: 0.0,
+                is_favorite: false,
+            })
+            .collect();
+        tui.apply_filter();
+        tui
+    }
+
+    #[test]
+    fn first_book_is_selected_and_an_empty_filter_selects_nothing() {
+        let empty = tui_with(&[]);
+        assert_eq!(empty.library_state.selected(), None);
+        let mut tui = tui_with(&["Alpha", "Beta"]);
+        assert_eq!(tui.selected_book().map(|b| b.id.as_str()), Some("Alpha"));
+        tui.filter = "zzz".into();
+        tui.apply_filter();
+        assert_eq!(tui.library_state.selected(), None);
+        assert!(tui.selected_book().is_none());
+        tui.filter = "bet".into();
+        tui.apply_filter();
+        assert_eq!(tui.selected_book().map(|b| b.id.as_str()), Some("Beta"));
+    }
+
+    #[test]
+    fn a_fresh_library_opens_with_its_first_book_selected() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::open_at(dir.path()).unwrap();
+        ctx.store
+            .with_connection(|conn| {
+                crate::database::sqlite_save_book_metadata_inner(
+                    conn,
+                    "b1",
+                    r#"{"id":"b1","title":"Only Book","author":"A","format":"epub"}"#,
+                )
+            })
+            .unwrap();
+        let tui = TuiApp::load(&ctx).unwrap();
+        assert_eq!(tui.selected_book().map(|b| b.id.as_str()), Some("b1"));
     }
 }

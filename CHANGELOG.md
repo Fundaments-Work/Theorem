@@ -129,6 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`theorem stats` shows the right reading time** — The app counts reading time in minutes, but the CLI divided it by 60 again, so 10 hours showed as 10 minutes. Reading time is now shown in hours and minutes, streaks in days and the goal in minutes a day, and a library with no reading yet shows zeros instead of an error.
 - **`theorem search` takes any text** — A quote, a hyphen or a word like AND in the search failed with a database syntax error, and only whole words matched. Every word you type now has to appear in the title or author, as a whole word or the start of one, and `--limit` sets how many results are printed (50 by default).
 - **Exit codes and errors scripts can use** — `theorem` now exits with 2 for a command line that does not make sense, 3 when a book, shelf, highlight, feed or catalog entry does not exist, 4 when the network failed and 5 when the app is running; other errors stay 1. With `--json`, errors are printed on standard error as `{"error": …, "exitCode": …}`. Setting `NO_COLOR` turns colors off.
+- **The text interface starts with the first book selected and stays idle** — Enter did nothing until you moved the selection, and the screen was redrawn five times a second while nothing happened. The first book is now selected, and the screen is drawn only after a key press or a resize.
 
 ### Fixed
 
