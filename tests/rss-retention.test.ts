@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectPersistedRssArticles } from "../src/core/store/rssStore";
+import { selectPersistedRssArticles, withPersistedUnreadCounts } from "../src/core/store/rssStore";
 import type { RssArticle } from "../src/core/types";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -80,5 +80,22 @@ describe("selectPersistedRssArticles", () => {
 
     it("returns an empty list for empty input", () => {
         expect(selectPersistedRssArticles([], NOW)).toEqual([]);
+    });
+});
+
+describe("withPersistedUnreadCounts (browser build)", () => {
+    it("counts unread articles that are actually saved, so a reload shows the right number", () => {
+        const feeds = [
+            { id: "f", title: "Old archive", url: "https://x/f", unreadCount: 100 },
+            { id: "g", title: "Empty", url: "https://x/g", unreadCount: 3 },
+        ] as never;
+        const saved = [article("a", 1), article("b", 2, { isRead: true }), article("c", 3)];
+        const out = withPersistedUnreadCounts(feeds, saved) as Array<{ id: string; unreadCount: number }>;
+        expect(out.map((f) => [f.id, f.unreadCount])).toEqual([["f", 2], ["g", 0]]);
+    });
+
+    it("returns the same feeds when the counts already match", () => {
+        const feeds = [{ id: "f", title: "F", url: "https://x/f", unreadCount: 1 }] as never;
+        expect(withPersistedUnreadCounts(feeds, [article("a", 1)])).toBe(feeds);
     });
 });

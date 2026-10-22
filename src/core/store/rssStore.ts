@@ -183,6 +183,24 @@ export function selectPersistedRssArticles(
     );
 }
 
+/**
+ * Feeds with their unread counts recomputed from the articles that are saved.
+ * The browser build keeps only recent articles, so a count taken before that
+ * cut (100 for a feed with years of items) would otherwise survive the reload
+ * while most of its articles do not.
+ */
+export function withPersistedUnreadCounts(feeds: RssFeed[], articles: RssArticle[]): RssFeed[] {
+    const unread = new Map<string, number>();
+    for (const article of articles) {
+        if (!article.isRead) unread.set(article.feedId, (unread.get(article.feedId) ?? 0) + 1);
+    }
+    if (feeds.every((feed) => feed.unreadCount === (unread.get(feed.id) ?? 0))) return feeds;
+    return feeds.map((feed) => {
+        const count = unread.get(feed.id) ?? 0;
+        return feed.unreadCount === count ? feed : { ...feed, unreadCount: count };
+    });
+}
+
 function sortRssArticlesByDateDesc(articles: RssArticle[]): RssArticle[] {
     const sortable = articles.map((article, index) => ({
         article,
@@ -927,7 +945,7 @@ export const useRssStore = create<RssStore>()(
                 }));
 
                 return {
-                    feeds: state.feeds,
+                    feeds: withPersistedUnreadCounts(state.feeds, filteredArticles),
                     articles: truncatedArticles,
                 };
             }),
