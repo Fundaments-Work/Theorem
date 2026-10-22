@@ -169,6 +169,12 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     run_v159_database_migrations(&conn)
         .map_err(|e| format!("Failed to run v1.5.9 migrations: {e}"))?;
 
+    match normalize_rss_timestamp_units(&conn) {
+        Ok(0) => {}
+        Ok(n) => eprintln!("[database] Converted {n} RSS timestamps from seconds to ms"),
+        Err(e) => eprintln!("[database] RSS timestamp repair failed: {e}"),
+    }
+
     if let Err(e) = reconcile_books_fts(&conn) {
         eprintln!("[database] books_fts reconcile failed: {e}");
     }
@@ -445,6 +451,10 @@ fn init_db_pool(db_path: &Path) -> Result<&DbPool, String> {
 const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
+    -- Per-connection: this only affects the one-off migration connection.
+    -- Pooled connections run with foreign keys OFF, so the ON DELETE CASCADE
+    -- clauses below never fire in normal use; deletes clear related rows
+    -- explicitly (see `delete_book_rows`).
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS books (
@@ -709,16 +719,38 @@ pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String>
     crate::epub_entries::clear_cache();
     remove_materialized_cache_file(&app, &id);
 
-    with_connection(&app, |connection| {
-        connection.execute(
-            "DELETE FROM materialized_books WHERE book_id = ?1",
-            params![id],
-        )?;
-        connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
+    with_connection(&app, |connection| sqlite_delete_book_inner(connection, &id))
+}
+
+/// Remove a book and everything stored for it, in one transaction.
+pub fn sqlite_delete_book_inner(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    delete_book_rows(&tx, id)?;
+    tx.commit()
+}
+
+/// Delete every row that belongs to book `id`. Runs no transaction of its
+/// own: callers wrap it in one (the sync merge runs it inside its own).
+///
+/// Foreign keys are deliberately OFF on pooled connections, so the
+/// `ON DELETE CASCADE` clauses in the schema never fire and each table is
+/// cleared here explicitly. They stay off because synced books legitimately
+/// carry `book_metadata` (and annotations) without a `books` row until their
+/// file arrives; enforcing the foreign keys would reject those rows. Any new
+/// table keyed by book id must be added here.
+pub(crate) fn delete_book_rows(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    for sql in [
+        "DELETE FROM covers WHERE book_id = ?1",
+        "DELETE FROM materialized_books WHERE book_id = ?1",
+        "DELETE FROM book_metadata WHERE book_id = ?1",
+        "DELETE FROM book_annotations WHERE book_id = ?1",
         // Deleted books must leave library search too.
-        connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
-        Ok(())
-    })
+        "DELETE FROM books_fts WHERE id = ?1",
+        "DELETE FROM books WHERE id = ?1",
+    ] {
+        connection.execute(sql, params![id])?;
+    }
+    Ok(())
 }
 
 pub fn sqlite_get_materialized_book_path(
@@ -1001,12 +1033,16 @@ pub fn sqlite_cleanup_orphaned_storage(
 }
 
 pub fn sqlite_clear_all_storage_inner(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute("DELETE FROM covers", [])?;
-    connection.execute("DELETE FROM materialized_books", [])?;
-    connection.execute("DELETE FROM books", [])?;
-    connection.execute("DELETE FROM blob_store", [])?;
-    connection.execute("DELETE FROM kv_store", [])?;
-    Ok(())
+    let tx = connection.unchecked_transaction()?;
+    tx.execute("DELETE FROM covers", [])?;
+    tx.execute("DELETE FROM materialized_books", [])?;
+    tx.execute("DELETE FROM book_metadata", [])?;
+    tx.execute("DELETE FROM book_annotations", [])?;
+    tx.execute("DELETE FROM books_fts", [])?;
+    tx.execute("DELETE FROM books", [])?;
+    tx.execute("DELETE FROM blob_store", [])?;
+    tx.execute("DELETE FROM kv_store", [])?;
+    tx.commit()
 }
 
 pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), String> {
@@ -1538,7 +1574,10 @@ pub fn sqlite_save_book_annotations_inner(
     book_id: &str,
     annotations_json: &[String],
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    // Replace the book's annotations atomically: a failing insert must not
+    // leave the book with its old highlights deleted and the new ones missing.
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM book_annotations WHERE book_id = ?1",
         params![book_id],
     )?;
@@ -1551,12 +1590,18 @@ pub fn sqlite_save_book_annotations_inner(
                     .map(String::from)
             })
             .unwrap_or_else(|| format!("auto:{}:{}", book_id, i));
-        connection.execute(
-            "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch())",
+        // Ids are unique across books. A repeated id (in this list, or one
+        // still stored under another book) is an update: the last one wins.
+        tx.execute(
+            "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch())
+             ON CONFLICT(id) DO UPDATE SET
+                book_id = excluded.book_id,
+                annotation_json = excluded.annotation_json,
+                updated_at = excluded.updated_at",
             params![id, book_id, ann_json],
         )?;
     }
-    Ok(())
+    tx.commit()
 }
 
 pub fn sqlite_save_book_annotations(
@@ -1867,7 +1912,7 @@ fn upsert_sync_rss_article(
             id, feed_id, title, author, url, summary,
             content_source, image_url, published_at, fetched_at,
             is_read, is_favorite, progress, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, unixepoch())
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch() * 1000), ?11, ?12, ?13, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             feed_id = excluded.feed_id,
             title = excluded.title,
@@ -2383,13 +2428,36 @@ pub fn sqlite_merge_sync_entries_inner(
     sqlite_merge_sync_entries_with_dir(connection, entries, None)
 }
 
+/// Merge a batch of sync entries in one transaction: if any write fails the
+/// whole batch rolls back (it is retried on the next sync) instead of
+/// leaving, say, a book half-deleted. Cached files of books deleted by a
+/// tombstone are removed after the commit.
 pub fn sqlite_merge_sync_entries_with_dir(
     connection: &Connection,
     entries: std::collections::HashMap<String, String>,
     app_data_dir: Option<&Path>,
 ) -> rusqlite::Result<SyncMergeResult> {
-    // All or nothing: a merge that fails halfway leaves the database as it was.
     let tx = connection.unchecked_transaction()?;
+    let result = merge_sync_entries_rows(&tx, entries, app_data_dir)?;
+    tx.commit()?;
+
+    if let Some(dir) = app_data_dir {
+        if !result.deleted_books.is_empty() {
+            // Close cached EPUB archives first: Windows cannot delete an open file.
+            crate::epub_entries::clear_cache();
+            for id in &result.deleted_books {
+                let _ = fs::remove_file(materialized_book_path_in_dir(dir, id));
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn merge_sync_entries_rows(
+    connection: &Connection,
+    entries: std::collections::HashMap<String, String>,
+    app_data_dir: Option<&Path>,
+) -> rusqlite::Result<SyncMergeResult> {
     let mut domains_updated: Vec<String> = Vec::new();
     let mut books_count = 0usize;
     let mut annotations_count = 0usize;
@@ -2426,35 +2494,27 @@ pub fn sqlite_merge_sync_entries_with_dir(
                 match entity_type {
                     "book" => {
                         tombstoned_books.insert(id.to_string());
-                        let _ = connection.execute("DELETE FROM books WHERE id = ?1", params![id]);
-                        let _ = connection
-                            .execute("DELETE FROM book_metadata WHERE book_id = ?1", params![id]);
-                        let _ =
-                            connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id]);
-                        let _ = connection.execute(
-                            "DELETE FROM book_annotations WHERE book_id = ?1",
-                            params![id],
-                        );
+                        // Errors propagate so the merge transaction rolls back.
+                        delete_book_rows(connection, id)?;
                         deleted_books.push(id.to_string());
                     }
                     "annotation" => {
                         tombstoned_annotations.insert(id.to_string());
-                        let _ = connection
-                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id]);
+                        connection
+                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id])?;
                         deleted_annotations.push(id.to_string());
                     }
                     "vocabulary" => {
-                        let _ =
-                            connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id]);
+                        connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id])?;
                         deleted_vocabulary.push(id.to_string());
                     }
                     "rss_article" => {
-                        let _ = connection.execute(
+                        connection.execute(
                             "DELETE FROM rss_article_content WHERE article_id = ?1",
                             params![id],
-                        );
-                        let _ = connection
-                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id]);
+                        )?;
+                        connection
+                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id])?;
                         deleted_rss_articles.push(id.to_string());
                     }
                     _ => {}
@@ -2645,7 +2705,6 @@ pub fn sqlite_merge_sync_entries_with_dir(
     dedup(&mut updated_rss_articles);
     dedup(&mut deleted_rss_articles);
 
-    tx.commit()?;
     Ok(SyncMergeResult {
         domains_updated,
         books_count,
@@ -2802,7 +2861,7 @@ pub fn sqlite_save_rss_feed_inner(
         INSERT INTO rss_feeds (
             id, title, url, site_url, description, icon_url,
             last_fetched, added_at, error_message, unread_count, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, unixepoch()), ?9, ?10, unixepoch())
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, unixepoch() * 1000), ?9, ?10, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             url = excluded.url,
@@ -2838,16 +2897,17 @@ pub fn sqlite_delete_rss_feed_inner(
     connection: &Connection,
     feed_id: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM rss_article_content WHERE article_id IN (SELECT id FROM rss_articles WHERE feed_id = ?1)",
         params![feed_id],
     )?;
-    connection.execute(
+    tx.execute(
         "DELETE FROM rss_articles WHERE feed_id = ?1",
         params![feed_id],
     )?;
-    connection.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
-    Ok(())
+    tx.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
+    tx.commit()
 }
 
 pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), String> {
@@ -2981,7 +3041,7 @@ pub fn sqlite_save_rss_article_inner(
             id, feed_id, title, author, url, summary,
             content_source, image_url, published_at, fetched_at,
             is_read, is_favorite, is_saved, progress, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, ?14, unixepoch())
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch() * 1000), ?11, ?12, ?13, ?14, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             feed_id = excluded.feed_id,
             title = excluded.title,
@@ -3092,15 +3152,17 @@ pub fn sqlite_delete_rss_article_inner(
     connection: &Connection,
     article_id: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    // Foreign keys are off (see `delete_book_rows`): content goes explicitly.
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM rss_article_content WHERE article_id = ?1",
         params![article_id],
     )?;
-    connection.execute(
+    tx.execute(
         "DELETE FROM rss_articles WHERE id = ?1",
         params![article_id],
     )?;
-    Ok(())
+    tx.commit()
 }
 
 pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
@@ -3131,64 +3193,84 @@ pub fn sqlite_mark_article_saved(
     })
 }
 
-/// Delete read articles (not saved, not favorite) older than `retention_days` days.
-/// If `retention_days` is 0, nothing is deleted.
-/// Content rows for read, non-saved articles older than `retention_days` are also pruned.
+/// Delete read articles (not saved, not favorite) older than `retention_days`
+/// days, and unread ones too unless `keep_unread`. Articles with annotations
+/// are kept. If `retention_days` is 0, nothing is deleted. Returns the number
+/// of articles deleted.
 pub fn sqlite_cleanup_old_rss_articles(
     app: AppHandle,
     retention_days: u32,
     keep_unread: bool,
 ) -> Result<u32, String> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    with_connection(&app, |conn| {
+        sqlite_cleanup_old_rss_articles_inner(conn, retention_days, keep_unread, now_ms)
+    })
+}
+
+/// Below this, an RSS timestamp is in seconds, not milliseconds: 1e11 ms is
+/// March 1973, 1e11 s is the year 5138.
+const RSS_SECONDS_THRESHOLD: i64 = 100_000_000_000;
+
+/// RSS times (`fetched_at`, `published_at`, `last_fetched`, `added_at`) are
+/// milliseconds, as the frontend writes them. Older fallbacks stored
+/// `unixepoch()` seconds instead (and peers on older versions still sync
+/// them); scale those up. Idempotent. Returns the number of rows changed.
+pub(crate) fn normalize_rss_timestamp_units(conn: &Connection) -> rusqlite::Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let mut changed = 0;
+    for (table, column) in [
+        ("rss_articles", "fetched_at"),
+        ("rss_articles", "published_at"),
+        ("rss_feeds", "last_fetched"),
+        ("rss_feeds", "added_at"),
+    ] {
+        changed += tx.execute(
+            &format!(
+                "UPDATE {table} SET {column} = {column} * 1000 \
+                 WHERE {column} > 0 AND {column} < ?1"
+            ),
+            params![RSS_SECONDS_THRESHOLD],
+        )?;
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
+pub fn sqlite_cleanup_old_rss_articles_inner(
+    conn: &Connection,
+    retention_days: u32,
+    keep_unread: bool,
+    now_ms: i64,
+) -> rusqlite::Result<u32> {
     if retention_days == 0 {
         return Ok(0);
     }
-    with_connection(&app, |conn| {
-        let cutoff_secs = retention_days as i64 * 86_400;
-        // Prune content for read, non-saved articles beyond retention window
-        conn.execute(
-            r#"
-            DELETE FROM rss_article_content
-            WHERE article_id IN (
-                SELECT id FROM rss_articles
-                WHERE is_saved = 0
-                  AND is_favorite = 0
-                  AND is_read = 1
-                  AND (unixepoch() - fetched_at) > ?1
-                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
-            )
-            "#,
-            params![cutoff_secs],
-        )?;
-        // Delete metadata rows for read, non-saved, non-favorite articles beyond retention
-        let deleted = conn.execute(
-            r#"
-            DELETE FROM rss_articles
-            WHERE is_saved = 0
-              AND is_favorite = 0
-              AND is_read = 1
-              AND (unixepoch() - fetched_at) > ?1
-              AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
-            "#,
-            params![cutoff_secs],
-        )?;
-        // If keep_unread=false, also drop unread non-saved articles beyond retention
-        let deleted_unread = if !keep_unread {
-            conn.execute(
-                r#"
-                DELETE FROM rss_articles
-                WHERE is_saved = 0
-                  AND is_favorite = 0
-                  AND is_read = 0
-                  AND (unixepoch() - fetched_at) > ?1
-                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
-                "#,
-                params![cutoff_secs],
-            )?
-        } else {
-            0
-        };
-        Ok((deleted + deleted_unread) as u32)
-    })
+    // `fetched_at` is milliseconds; compare against a cutoff computed here so
+    // the `fetched_at` index can serve the range.
+    let cutoff_ms = now_ms.saturating_sub(i64::from(retention_days) * 86_400_000);
+    const EXPIRED: &str = r#"
+        SELECT id FROM rss_articles
+        WHERE fetched_at < ?1
+          AND is_saved = 0
+          AND is_favorite = 0
+          AND (is_read = 1 OR ?2 = 0)
+          AND id NOT IN (
+              SELECT substr(book_id, 5) FROM book_annotations WHERE book_id LIKE 'rss:%'
+          )
+    "#;
+    let keep_unread = i64::from(keep_unread);
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        &format!("DELETE FROM rss_article_content WHERE article_id IN ({EXPIRED})"),
+        params![cutoff_ms, keep_unread],
+    )?;
+    let deleted = tx.execute(
+        &format!("DELETE FROM rss_articles WHERE id IN ({EXPIRED})"),
+        params![cutoff_ms, keep_unread],
+    )?;
+    tx.commit()?;
+    Ok(deleted as u32)
 }
 
 pub fn sqlite_record_reading_session_inner(
@@ -3290,34 +3372,50 @@ pub fn sqlite_get_reading_sessions(
     })
 }
 
-/// Bring `books_fts` in line with the library (the `zustand:theorem-library`
-/// blob): index missing books, refresh renamed ones, drop deleted ones. Only
-/// differing rows are written. Returns the number of rows changed.
+/// KV key where the frontend records the hash of the book list it last
+/// indexed (`FTS_HASH_KV_KEY` in `libraryStore.ts`). Cleared whenever the
+/// index is repaired here, so the frontend re-indexes instead of trusting it.
+const FTS_HASH_KV_KEY: &str = "fts:booksHash";
+
+/// Bring `books_fts` in line with the library: index missing books, refresh
+/// renamed ones, drop deleted ones. Only differing rows are written. Returns
+/// the number of rows changed.
+///
+/// The source of truth is `book_metadata` (what `sqlite_load_all_books`
+/// returns), never the `zustand:theorem-library` KV blob: on Tauri that blob
+/// has persisted `state.books` as an empty array since library store v8, and
+/// reconciling against it wiped the whole index at every startup.
 pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<usize> {
-    let Some(lib_json) = connection
-        .query_row(
-            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-library'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-    else {
-        return Ok(0);
+    let rows: Vec<(String, String)> = {
+        let mut stmt = connection.prepare("SELECT book_id, metadata_json FROM book_metadata")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
     };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&lib_json) else {
+    // An empty library is never a reason to clear the index: the delete paths
+    // remove their own rows, and an empty source more likely means a library
+    // that has not been migrated yet.
+    if rows.is_empty() {
         return Ok(0);
-    };
-    let Some(books) = parsed["state"]["books"].as_array() else {
-        return Ok(0);
-    };
-    let wanted: HashMap<&str, (&str, &str)> = books
-        .iter()
-        .filter_map(|b| {
-            let id = b["id"].as_str().filter(|s| !s.is_empty())?;
-            let title = b["title"].as_str().unwrap_or("");
-            Some((id, (title, b["author"].as_str().unwrap_or(""))))
-        })
-        .collect();
+    }
+
+    // Books whose metadata cannot be parsed keep whatever row they have.
+    let mut unparsable: HashSet<String> = HashSet::new();
+    let mut wanted: HashMap<String, (String, String)> = HashMap::with_capacity(rows.len());
+    for (id, json) in rows {
+        if id.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(&json) {
+            Ok(value) => {
+                let title = value["title"].as_str().unwrap_or("").to_string();
+                let author = value["author"].as_str().unwrap_or("").to_string();
+                wanted.insert(id, (title, author));
+            }
+            Err(_) => {
+                unparsable.insert(id);
+            }
+        }
+    }
 
     let mut existing: HashMap<String, (String, String)> = HashMap::new();
     {
@@ -3340,13 +3438,13 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
     let tx = connection.unchecked_transaction()?;
     let mut changed = 0;
     for id in existing.keys() {
-        if !wanted.contains_key(id.as_str()) {
+        if !wanted.contains_key(id) && !unparsable.contains(id) {
             tx.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
             changed += 1;
         }
     }
     for (id, (title, author)) in &wanted {
-        let current = existing.get(*id);
+        let current = existing.get(id);
         if current.is_some_and(|(t, a)| t == title && a == author) {
             continue;
         }
@@ -3358,6 +3456,12 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
             params![id, title, author],
         )?;
         changed += 1;
+    }
+    if changed > 0 {
+        tx.execute(
+            "DELETE FROM kv_store WHERE key = ?1",
+            params![FTS_HASH_KV_KEY],
+        )?;
     }
     tx.commit()?;
     Ok(changed)
@@ -3405,7 +3509,7 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                             INSERT OR IGNORE INTO rss_feeds (
                                 id, title, url, site_url, description, icon_url,
                                 unread_count, error_message, added_at, updated_at
-                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch() * 1000, unixepoch())
                             "#,
                             params![
                                 id,
@@ -3453,7 +3557,7 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                                 id, feed_id, title, author, url, summary,
                                 content_source, image_url, is_read, is_favorite,
                                 progress, fetched_at, updated_at
-                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch(), unixepoch())
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch() * 1000, unixepoch())
                             "#,
                             params![
                                 id,
@@ -4412,6 +4516,258 @@ mod tests {
         let result = sqlite_get_book_annotations_inner(&conn, "book1").unwrap();
         assert_eq!(result.len(), 1);
         assert!(result[0].contains("ann2"));
+    }
+
+    fn annotation_texts(conn: &Connection, book_id: &str) -> Vec<String> {
+        let mut texts: Vec<String> = sqlite_get_book_annotations_inner(conn, book_id)
+            .unwrap()
+            .iter()
+            .map(|json| {
+                serde_json::from_str::<serde_json::Value>(json).unwrap()["text"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        texts.sort();
+        texts
+    }
+
+    /// A duplicate id in the list made the second INSERT fail after the
+    /// DELETE had already run, leaving the book with no highlights at all.
+    #[test]
+    fn save_book_annotations_with_duplicate_ids_keeps_the_last() {
+        let conn = setup_db();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[r#"{"id":"keep","text":"existing"}"#.to_string()],
+        )
+        .unwrap();
+        let anns = vec![
+            r#"{"id":"dup","text":"first"}"#.to_string(),
+            r#"{"id":"other","text":"other"}"#.to_string(),
+            r#"{"id":"dup","text":"second"}"#.to_string(),
+        ];
+        sqlite_save_book_annotations_inner(&conn, "book1", &anns).unwrap();
+        assert_eq!(annotation_texts(&conn, "book1"), ["other", "second"]);
+    }
+
+    /// An id already stored under another book is taken over by this save
+    /// instead of failing it.
+    #[test]
+    fn save_book_annotations_takes_over_an_id_from_another_book() {
+        let conn = setup_db();
+        sqlite_upsert_annotation_inner(&conn, "x", "book2", r#"{"id":"x","text":"old"}"#).unwrap();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[r#"{"id":"x","text":"moved"}"#.to_string()],
+        )
+        .unwrap();
+        assert_eq!(annotation_texts(&conn, "book1"), ["moved"]);
+        assert!(annotation_texts(&conn, "book2").is_empty());
+    }
+
+    /// Any failing insert rolls the whole save back: the previous highlights stay.
+    #[test]
+    fn save_book_annotations_failure_keeps_previous_highlights() {
+        let conn = setup_db();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[
+                r#"{"id":"a","text":"one"}"#.to_string(),
+                r#"{"id":"b","text":"two"}"#.to_string(),
+            ],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_insert BEFORE INSERT ON book_annotations
+             WHEN NEW.annotation_json LIKE '%boom%'
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let result = sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[
+                r#"{"id":"c","text":"three"}"#.to_string(),
+                r#"{"id":"d","text":"boom"}"#.to_string(),
+            ],
+        );
+        assert!(result.is_err());
+        assert_eq!(annotation_texts(&conn, "book1"), ["one", "two"]);
+    }
+
+    fn seed_book(conn: &Connection, id: &str, title: &str) {
+        sqlite_register_materialized_book_inner(conn, id).unwrap();
+        sqlite_save_book_metadata_inner(conn, id, &format!(r#"{{"id":"{id}","title":"{title}"}}"#))
+            .unwrap();
+        sqlite_save_cover_image_inner(conn, id, "data:image/png;base64,AAAA").unwrap();
+        sqlite_upsert_annotation_inner(conn, &format!("{id}-ann"), id, r#"{"text":"t"}"#).unwrap();
+    }
+
+    fn rows_for_book(conn: &Connection, id: &str) -> Vec<(&'static str, i64)> {
+        [
+            ("books", "SELECT COUNT(*) FROM books WHERE id = ?1"),
+            ("covers", "SELECT COUNT(*) FROM covers WHERE book_id = ?1"),
+            (
+                "materialized_books",
+                "SELECT COUNT(*) FROM materialized_books WHERE book_id = ?1",
+            ),
+            (
+                "book_metadata",
+                "SELECT COUNT(*) FROM book_metadata WHERE book_id = ?1",
+            ),
+            (
+                "book_annotations",
+                "SELECT COUNT(*) FROM book_annotations WHERE book_id = ?1",
+            ),
+            ("books_fts", "SELECT COUNT(*) FROM books_fts WHERE id = ?1"),
+        ]
+        .into_iter()
+        .map(|(table, sql)| {
+            (
+                table,
+                conn.query_row(sql, params![id], |r| r.get(0)).unwrap(),
+            )
+        })
+        .filter(|(_, n)| *n > 0)
+        .collect()
+    }
+
+    /// Foreign keys are off on pooled connections, so ON DELETE CASCADE never
+    /// ran: deleting a book left its cover, metadata and highlights behind.
+    #[test]
+    fn delete_book_removes_every_related_row() {
+        let conn = setup_db();
+        seed_book(&conn, "gone", "Gone");
+        seed_book(&conn, "kept", "Kept");
+        sqlite_upsert_annotation_inner(&conn, "rss-ann", "rss:gone", "{}").unwrap();
+
+        sqlite_delete_book_inner(&conn, "gone").unwrap();
+
+        assert_eq!(rows_for_book(&conn, "gone"), []);
+        assert_eq!(rows_for_book(&conn, "kept").len(), 6);
+        assert_eq!(
+            sqlite_get_book_annotations_inner(&conn, "rss:gone")
+                .unwrap()
+                .len(),
+            1
+        );
+        // Deleting a book that is not there is fine.
+        sqlite_delete_book_inner(&conn, "missing").unwrap();
+    }
+
+    #[test]
+    fn delete_book_is_atomic() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_books_delete BEFORE DELETE ON books
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(sqlite_delete_book_inner(&conn, "b1").is_err());
+        assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+    }
+
+    fn book_tombstone(id: &str) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::from([(
+            "deletion_tombstones".to_string(),
+            format!(
+                r#"[{{"entityId":"{id}","entityType":"book","deletedAt":"2026-10-01T00:00:00Z"}}]"#
+            ),
+        )])
+    }
+
+    #[test]
+    fn sync_book_tombstone_removes_every_related_row_and_cache_file() {
+        let conn = setup_db();
+        let dir = tempfile::tempdir().unwrap();
+        seed_book(&conn, "gone", "Gone");
+        seed_book(&conn, "kept", "Kept");
+        let cache = materialized_book_path_in_dir(dir.path(), "gone");
+        fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        fs::write(&cache, b"epub").unwrap();
+
+        let result =
+            sqlite_merge_sync_entries_with_dir(&conn, book_tombstone("gone"), Some(dir.path()))
+                .unwrap();
+
+        assert_eq!(result.deleted_books, ["gone"]);
+        assert_eq!(rows_for_book(&conn, "gone"), []);
+        assert_eq!(rows_for_book(&conn, "kept").len(), 6);
+        assert!(!cache.exists());
+    }
+
+    /// Tombstone deletes ignored their errors (`let _ =`), so a failure left
+    /// the book half-deleted while the merge reported success.
+    #[test]
+    fn sync_tombstone_failure_rolls_back_the_merge() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_meta_delete BEFORE DELETE ON book_metadata
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let mut entries = book_tombstone("b1");
+        entries.insert("vocab:v1".into(), r#"{"id":"v1","term":"word"}"#.into());
+
+        assert!(sqlite_merge_sync_entries_with_dir(&conn, entries, None).is_err());
+        assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+        let kv_tombstones: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM kv_store WHERE key = 'deletion_tombstones'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kv_tombstones, 0, "nothing of the failed merge is kept");
+    }
+
+    #[test]
+    fn clear_all_storage_removes_library_tables() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        sqlite_clear_all_storage_inner(&conn).unwrap();
+        assert_eq!(rows_for_book(&conn, "b1"), []);
+    }
+
+    #[test]
+    fn delete_rss_feed_is_atomic() {
+        let conn = setup_db();
+        sqlite_save_rss_article_inner(&conn, &rss_article("a1", Some(1), true), Some("x"), None)
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_feed_delete BEFORE DELETE ON rss_feeds
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;
+             INSERT INTO rss_feeds (id, title, url, added_at) VALUES ('f1', 'F', 'u', 1);",
+        )
+        .unwrap();
+        assert!(sqlite_delete_rss_feed_inner(&conn, "f1").is_err());
+        assert_eq!(rss_ids(&conn), ["a1"]);
+        assert!(sqlite_get_rss_article_content_inner(&conn, "a1")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn clear_all_storage_is_atomic() {
+        let conn = setup_db();
+        sqlite_set_kv_inner(&conn, "k1", "v1").unwrap();
+        sqlite_save_cover_image_inner(&conn, "book1", "data:,").unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_kv_delete BEFORE DELETE ON kv_store
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(sqlite_clear_all_storage_inner(&conn).is_err());
+        assert!(sqlite_get_cover_image_inner(&conn, "book1")
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -5473,18 +5829,65 @@ mod tests {
             .is_empty());
     }
 
+    /// Since library store v8 the Tauri build persists `state.books` as an
+    /// empty array; the books live in `book_metadata`. Reconciling against the
+    /// KV list wiped the whole search index at every startup.
     #[test]
-    fn reconcile_books_fts_adds_renames_and_prunes() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
-             CREATE VIRTUAL TABLE books_fts USING fts5(id UNINDEXED, title, author);",
+    fn reconcile_books_fts_keeps_index_when_kv_library_is_empty() {
+        let conn = setup_db();
+        sqlite_set_kv_inner(
+            &conn,
+            "zustand:theorem-library",
+            r#"{"state":{"books":[],"collections":[],"annotations":[]},"version":8}"#,
         )
         .unwrap();
-        let set_library = |books: &str| {
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "a",
+            r#"{"id":"a","title":"Dune","author":"Herbert"}"#,
+        )
+        .unwrap();
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "b",
+            r#"{"id":"b","title":"Emma","author":"Austen"}"#,
+        )
+        .unwrap();
+        sqlite_set_kv_inner(&conn, "fts:booksHash", "123").unwrap();
+
+        reconcile_books_fts(&conn).unwrap();
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Austen", 10)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // A book missing from the index is restored, and the frontend's
+        // "already indexed" hash is invalidated so it re-indexes too.
+        conn.execute("DELETE FROM books_fts WHERE id = 'b'", [])
+            .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 1);
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Emma", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(sqlite_get_kv_inner(&conn, "fts:booksHash").unwrap(), None);
+    }
+
+    #[test]
+    fn reconcile_books_fts_adds_renames_and_prunes() {
+        // The library lives in `book_metadata`. Written raw (not via
+        // `sqlite_save_book_metadata_inner`) so the index starts out of date.
+        let conn = setup_db();
+        let set_meta = |id: &str, json: &str| {
             conn.execute(
-                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('zustand:theorem-library', ?1)",
-                params![format!(r#"{{"state":{{"books":{books}}}}}"#)],
+                "INSERT OR REPLACE INTO book_metadata (book_id, metadata_json) VALUES (?1, ?2)",
+                params![id, json],
             )
             .unwrap();
         };
@@ -5501,9 +5904,18 @@ mod tests {
         // No library yet: nothing to do.
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
 
-        set_library(
-            r#"[{"id":"a","title":"Dune","author":"Herbert"},{"id":"b","title":"Emma","author":"Austen"},{"id":"","title":"x"}]"#,
-        );
+        // Nor when there is no library at all, even with stray index rows.
+        conn.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES ('stray', 'Kept', '')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
+        conn.execute("DELETE FROM books_fts", []).unwrap();
+
+        set_meta("a", r#"{"id":"a","title":"Dune","author":"Herbert"}"#);
+        set_meta("b", r#"{"id":"b","title":"Emma","author":"Austen"}"#);
+        set_meta("", r#"{"id":"","title":"x"}"#);
         conn.execute(
             "INSERT INTO books_fts(id, title, author) VALUES ('gone', 'Deleted Book', '')",
             [],
@@ -5519,18 +5931,198 @@ mod tests {
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
 
         // Rename one, delete the other.
-        set_library(r#"[{"id":"a","title":"Dune Messiah","author":"Herbert"}]"#);
+        set_meta(
+            "a",
+            r#"{"id":"a","title":"Dune Messiah","author":"Herbert"}"#,
+        );
+        conn.execute("DELETE FROM book_metadata WHERE book_id = 'b'", [])
+            .unwrap();
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 2);
         assert_eq!(rows(), [("a".into(), "Dune Messiah".into())]);
 
-        // Corrupt blob is ignored, index untouched.
-        conn.execute(
-            "UPDATE kv_store SET value = '{not json' WHERE key = 'zustand:theorem-library'",
-            [],
-        )
-        .unwrap();
+        // Corrupt metadata is ignored: its index row is neither changed nor pruned.
+        set_meta("a", "{not json");
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
         assert_eq!(rows().len(), 1);
+    }
+
+    fn rss_article(id: &str, fetched_at: Option<i64>, read: bool) -> RssArticleDto {
+        RssArticleDto {
+            id: id.into(),
+            feed_id: "f1".into(),
+            title: id.into(),
+            author: None,
+            url: format!("https://example.com/{id}").into(),
+            summary: None,
+            content_source: None,
+            image_url: None,
+            published_at: None,
+            fetched_at,
+            is_read: read,
+            is_favorite: false,
+            is_saved: false,
+            progress: None,
+        }
+    }
+
+    fn rss_ids(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT id FROM rss_articles ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    /// `fetched_at` is stored in milliseconds (the frontend writes
+    /// `Date.getTime()`); retention compared it with `unixepoch()` seconds,
+    /// so nothing was ever old enough to delete.
+    #[test]
+    fn rss_retention_deletes_old_articles_stored_in_milliseconds() {
+        let conn = setup_db();
+        const DAY_MS: i64 = 86_400_000;
+        let now_ms: i64 = 1_790_000_000_000; // 2026-09
+        let save = |id: &str, age_days: i64, read: bool| {
+            sqlite_save_rss_article_inner(
+                &conn,
+                &rss_article(id, Some(now_ms - age_days * DAY_MS), read),
+                Some("<p>body</p>"),
+                None,
+            )
+            .unwrap();
+        };
+        save("old-read", 40, true);
+        save("new-read", 2, true);
+        save("old-unread", 40, false);
+        save("edge-read", 30, true); // exactly at the cutoff: kept
+        save("old-saved", 40, true);
+        sqlite_mark_article_saved_inner(&conn, "old-saved", true).unwrap();
+        save("old-fav", 40, true);
+        sqlite_mark_article_favorite_inner(&conn, "old-fav", true).unwrap();
+        save("old-annotated", 40, true);
+        sqlite_upsert_annotation_inner(&conn, "n1", "rss:old-annotated", "{}").unwrap();
+
+        // Retention 0 means "keep forever".
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 0, true, now_ms).unwrap(),
+            0
+        );
+
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 30, true, now_ms).unwrap(),
+            1
+        );
+        assert_eq!(
+            rss_ids(&conn),
+            [
+                "edge-read",
+                "new-read",
+                "old-annotated",
+                "old-fav",
+                "old-saved",
+                "old-unread"
+            ]
+        );
+        assert!(sqlite_get_rss_article_content_inner(&conn, "old-read")
+            .unwrap()
+            .is_none());
+
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 30, false, now_ms).unwrap(),
+            1
+        );
+        assert!(!rss_ids(&conn).contains(&"old-unread".to_string()));
+        assert!(sqlite_get_rss_article_content_inner(&conn, "old-unread")
+            .unwrap()
+            .is_none());
+    }
+
+    /// Rows that fell back to `unixepoch()` (seconds) when no fetch time was
+    /// given must be stored in milliseconds like every other row, and rows
+    /// already written in seconds are converted on startup.
+    #[test]
+    fn rss_fetched_at_fallback_and_repair_use_milliseconds() {
+        let conn = setup_db();
+        let before_ms = chrono::Utc::now().timestamp_millis();
+        sqlite_save_rss_article_inner(&conn, &rss_article("no-time", None, true), None, None)
+            .unwrap();
+        let stored: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'no-time'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(stored >= before_ms - 1_000, "stored {stored} is not ms");
+
+        // A freshly fetched article without a time is not pruned at once.
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 15, true, before_ms + 1_000).unwrap(),
+            0
+        );
+
+        // Legacy seconds rows are repaired; ms rows are left alone.
+        sqlite_save_rss_article_inner(
+            &conn,
+            &rss_article("legacy", Some(1_780_000_000), true),
+            None,
+            None,
+        )
+        .unwrap();
+        sqlite_save_rss_feed_inner(
+            &conn,
+            &RssFeedDto {
+                id: "f1".into(),
+                title: "Feed".into(),
+                url: "https://example.com/feed".into(),
+                site_url: None,
+                description: None,
+                icon_url: None,
+                last_fetched: Some(1_780_000_000),
+                added_at: Some(1_770_000_000),
+                error_message: None,
+                unread_count: 0,
+            },
+        )
+        .unwrap();
+        normalize_rss_timestamp_units(&conn).unwrap();
+        let legacy: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy, 1_780_000_000_000);
+        let (last_fetched, added_at): (i64, i64) = conn
+            .query_row(
+                "SELECT last_fetched, added_at FROM rss_feeds WHERE id = 'f1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (last_fetched, added_at),
+            (1_780_000_000_000, 1_770_000_000_000)
+        );
+        let again: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'no-time'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(again, stored, "ms rows must not be scaled again");
+        normalize_rss_timestamp_units(&conn).unwrap();
+        let legacy_again: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_again, 1_780_000_000_000, "repair is idempotent");
     }
 
     #[test]

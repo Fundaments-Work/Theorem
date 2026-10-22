@@ -20,10 +20,10 @@ Inside your export folder, Theorem creates a `Theorem` folder:
 
 | Path | Contents |
 | :--- | :--- |
-| `Theorem/Books/<book title>.md` | One file per book (or RSS article source) that has highlights |
+| `Theorem/Books/<title> - <author> (<id>).md` | One file per book (or RSS article source) that has highlights. The short id keeps two books with the same title apart |
 | `Theorem/Vocabulary.md` | Your saved words |
 
-Each book file starts with front matter (title, author, number of highlights and tags), followed by your highlighted passages. Notes appear with their highlight. If two books would get the same file name, Theorem adds a number to keep them apart.
+Each book file starts with front matter (title, author, number of highlights and tags), followed by your highlighted passages. Notes appear with their highlight. If two books would still get the same file name, Theorem adds a number to keep them apart. Theorem also keeps a hidden `.theorem-export-manifest.json` file in the `Theorem` folder to remember what it wrote; leave it in place.
 
 Things to know:
 

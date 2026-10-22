@@ -2,11 +2,11 @@
 
 Download Theorem for Linux, macOS, Windows or Android from the GitHub releases page, use the one-line Linux installer, and update the app from Settings.
 
-Every build is listed on the [latest release page](https://github.com/fundaments-work/theorem/releases/latest). Pick the file for your system from the table below.
+Every build is listed on the [releases page](https://github.com/fundaments-work/theorem/releases). Pick the file for your system from the table below.
 
 | System | File to download |
 | :--- | :--- |
-| Windows (64-bit) | `Theorem_<version>_x64-setup.exe` (or `Theorem_<version>_x64_en-US.msi` for managed deployments) |
+| Windows (64-bit) | `Theorem_<version>_x64-setup.exe` |
 | macOS, Apple Silicon | `Theorem_<version>_aarch64.dmg` |
 | macOS, Intel | `Theorem_<version>_x64.dmg` |
 | Linux, Debian and Ubuntu | `Theorem_<version>_amd64.deb` |
@@ -18,7 +18,7 @@ The release page also lists x86 and x86_64 Android builds. Those are meant for e
 
 ## Install on Windows
 
-1. Download the `.exe` setup file from the release page. IT administrators can use the `.msi` package instead.
+1. Download the `.exe` setup file from the release page. The v1.5.9 release has no `.msi` package.
 2. Run it and follow the installer.
 3. Start Theorem from the Start menu.
 
@@ -40,13 +40,13 @@ Run this command in a terminal:
 curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash
 ```
 
-The script downloads the latest stable release and installs it. It uses the `.deb` package when `apt` or `dpkg` is available, and asks for root access through `sudo`. On other distributions it installs the AppImage under `~/.local/lib/theorem` and puts a `theorem` launcher in `~/.local/bin`. Make sure `~/.local/bin` is on your `PATH`.
+The script downloads the latest stable release and installs it (see [Stable and beta releases](#stable-and-beta-releases): right now that is not the newest version). It uses the `.deb` package when `apt` or `dpkg` is available, and asks for root access through `sudo`. On other distributions it installs the AppImage under `~/.local/lib/theorem` and puts a `theorem` launcher in `~/.local/bin`. Make sure `~/.local/bin` is on your `PATH`.
 
 These options go after `bash -s --`:
 
 | Option | What it does |
 | :--- | :--- |
-| `--version 1.6.0` | Install one specific version |
+| `--version 1.5.9` | Install one specific version |
 | `--beta` | Install the newest beta (pre-release) instead of the newest stable release |
 | `--bundle deb` or `--bundle appimage` | Force a package format |
 | `--print-latest` | Print the latest version number and stop |
@@ -78,7 +78,9 @@ Theorem for Android needs Android 7.0 (API level 24) or newer. Android updates a
 
 ## Stable and beta releases
 
-Versions that end in `.0`, such as 1.6.0, are stable releases. Other versions, such as 1.5.9, are published as betas (pre-releases). The Linux install script installs the latest stable release unless you pass `--beta`.
+Versions that end in `.0`, such as 1.5.0, are stable releases. Other versions, such as 1.5.9, are published as betas (pre-releases). The Linux install script installs the latest stable release unless you pass `--beta`.
+
+As of October 2026 every release after 1.5.0 has been published as a beta, so the latest stable release is 1.5.0 and the plain install command installs 1.5.0. To get the newest version, pass `--beta` (currently 1.5.9) or `--version 1.5.9`. Once a stable release is published, the plain command installs that one.
 
 ## Update Theorem
 
