@@ -16,6 +16,7 @@ pub mod cli;
 pub mod cli_tui;
 pub mod cover_protocol;
 mod database;
+mod diagnostics;
 pub mod epub_entries;
 mod epub_parser;
 mod epub_rewriter;
@@ -1595,6 +1596,10 @@ fn cli_symlink_path() -> Result<PathBuf, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // First, so a panic anywhere below is written to the log file once the
+    // log plugin is up (and still reaches the default hook before that).
+    diagnostics::install_panic_hook();
+
     #[cfg(target_os = "linux")]
     apply_linux_webkit_workarounds();
 
@@ -1631,15 +1636,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                // JNI/network trace output can overwhelm Android during startup.
-                .level(tauri_plugin_log::log::LevelFilter::Info)
-                .targets([tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::Stdout,
-                )])
-                .build(),
-        )
+        // Info and up in shipped builds (JNI/network trace output can overwhelm
+        // Android during startup), to stdout/logcat and a rotating log file.
+        .plugin(diagnostics::log_plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_mobile_folder_scan::init())
         .plugin(tauri_plugin_android_tts_audio::init());
@@ -1697,22 +1696,29 @@ pub fn run() {
                 .or_else(|_| app.path().app_cache_dir())
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
 
-            eprintln!("[startup] Running database schema migrations...");
+            log::info!(
+                "[startup] Theorem {} on {} {}",
+                app.package_info().version,
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            );
+            log::info!("[startup] Running database schema migrations...");
             if let Err(e) = database::run_schema_migrations(app.handle()) {
-                eprintln!("[database] Schema migration failed: {e}");
+                log::error!("[database] Schema migration failed: {e}");
             }
 
             let device_name = std::env::var("HOSTNAME")
                 .or_else(|_| std::env::var("COMPUTERNAME"))
                 .unwrap_or_else(|_| "Theorem Device".to_string());
 
-            eprintln!("[startup] Initializing device sync for: {}", device_name);
+            // The device name is the host name: not written to the log.
+            log::info!("[startup] Initializing device sync");
             match sync_commands::init_sync(app_data_dir, device_name, app.handle().clone()) {
                 Ok(sync_state) => {
                     app.manage(sync_state);
                 }
                 Err(e) => {
-                    eprintln!("[theorem] Warning: Failed to initialize sync: {}", e);
+                    log::warn!("[startup] Failed to initialize sync: {e}");
                 }
             }
 
@@ -1787,17 +1793,16 @@ pub fn run() {
                 })();
 
                 if let Err(e) = tray_result {
-                    eprintln!(
-                        "[tray] Warning: System tray not initialized (continuing anyway): {e}"
-                    );
+                    log::warn!("[tray] System tray not initialized (continuing anyway): {e}");
                 }
             }
 
-            eprintln!("[startup] Theorem ready.");
+            log::info!("[startup] Theorem ready.");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             smart_shelves::evaluate_smart_shelves,
+            diagnostics::export_logs_bundle,
             setup_linux_cli_symlink,
             print_webview,
             tts_get_engines,
@@ -1976,7 +1981,7 @@ async fn set_android_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
         match tauri_plugin_mobile_folder_scan::get_android_id(&app) {
             Ok(android_id) if !android_id.is_empty() => {
                 theorem_sync_core::sync_crypto::set_fingerprint_from_frontend(&android_id);
-                eprintln!("[sync] Android fingerprint set from ANDROID_ID");
+                log::info!("[sync] Android fingerprint set from ANDROID_ID");
             }
             _ => {
                 theorem_sync_core::sync_crypto::set_fingerprint_from_frontend("android:unknown");
@@ -2013,11 +2018,11 @@ pub extern "C" fn Java_work_fundamentals_theorem_MainActivity_initNdkContext<'ca
     let (jvm_ptr, raw_ptr) = match outcome {
         jni::Outcome::Ok(ptrs) => ptrs,
         jni::Outcome::Err(e) => {
-            eprintln!("[ndk-context] Failed to initialize: {e}");
+            log::error!("[ndk-context] Failed to initialize: {e}");
             return;
         }
         jni::Outcome::Panic(_) => {
-            eprintln!("[ndk-context] Panicked while initializing");
+            log::error!("[ndk-context] Panicked while initializing");
             return;
         }
     };
@@ -2025,7 +2030,7 @@ pub extern "C" fn Java_work_fundamentals_theorem_MainActivity_initNdkContext<'ca
     unsafe {
         ndk_context::initialize_android_context(jvm_ptr, raw_ptr);
     }
-    eprintln!("[ndk-context] Initialized via applicationContext");
+    log::info!("[ndk-context] Initialized via applicationContext");
 }
 
 #[tauri::command]

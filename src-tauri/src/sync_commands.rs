@@ -131,7 +131,7 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
     const MAX_DB_BYTES: u64 = 100 * 1024 * 1024;
     if let Ok(meta) = std::fs::metadata(&docs_db_path) {
         if meta.len() > MAX_DB_BYTES {
-            eprintln!(
+            log::warn!(
                 "[iroh-sync] redb database is {} MB — exceeding {} MB threshold. Wiping and recreating...",
                 meta.len() / (1024 * 1024),
                 MAX_DB_BYTES / (1024 * 1024)
@@ -196,7 +196,7 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
         }
 
         if attempt == 0 {
-            eprintln!("[iroh-sync] Database corrupted — wiping and retrying");
+            log::warn!("[iroh-sync] Database corrupted — wiping and retrying");
 
             let blobs_path = data_dir.join("iroh-blobs");
             let docs_path = data_dir.join("iroh-docs");
@@ -479,7 +479,7 @@ pub async fn submit_pairing_code(
         }
         devices.insert(paired_device.device_id.clone(), paired_device);
         iroh_sync::save_paired_devices_to_disk(&sync_state.transport_state.app_data_dir, &devices)
-            .unwrap_or_else(|e| eprintln!("[sync] Failed to save paired devices: {e}"));
+            .unwrap_or_else(|e| log::error!("[sync] Failed to save paired devices: {e}"));
     }
 
     {
@@ -556,12 +556,14 @@ pub async fn submit_pairing_code(
                             &sync_state.transport_state.app_data_dir,
                             &devices,
                         )
-                        .unwrap_or_else(|e| eprintln!("[sync] Failed to save paired devices: {e}"));
+                        .unwrap_or_else(|e| {
+                            log::error!("[sync] Failed to save paired devices: {e}")
+                        });
                     }
                 }
-                Err(e) => eprintln!("[sync] Failed to import docs doc: {e}"),
+                Err(e) => log::warn!("[sync] Failed to import docs doc: {e}"),
             },
-            Err(e) => eprintln!("[sync] Failed to parse docs ticket: {e}"),
+            Err(e) => log::warn!("[sync] Failed to parse docs ticket: {e}"),
         }
     }
 
@@ -602,7 +604,7 @@ pub async fn get_device_identity(app: tauri::AppHandle) -> Result<DeviceIdentity
 #[tauri::command]
 pub async fn set_device_fingerprint(fingerprint: String) -> Result<(), String> {
     theorem_sync_core::sync_crypto::set_fingerprint_from_frontend(&fingerprint);
-    eprintln!("[sync] Device fingerprint set from frontend: {fingerprint}");
+    log::debug!("[sync] Device fingerprint set from frontend");
     Ok(())
 }
 
@@ -774,7 +776,7 @@ pub async fn docs_set_entry(
         }
         .await;
         if let Err(msg) = outcome {
-            eprintln!("[iroh-sync] {msg}");
+            log::warn!("[iroh-sync] {msg}");
             if first_error.is_none() {
                 first_error = Some(msg);
             }
@@ -842,7 +844,7 @@ pub async fn docs_get_all_entries(
                                 }
                                 tokio::time::sleep(std::time::Duration::from_millis(80)).await;
                             }
-                            eprintln!(
+                            log::debug!(
                                 "[iroh-sync] docs_get_all_entries: blob not available for key={key}"
                             );
                             continue 'entries;
@@ -850,7 +852,7 @@ pub async fn docs_get_all_entries(
                         per_key.entry(key).or_default().push(value);
                     }
                 }
-                eprintln!(
+                log::debug!(
                     "[iroh-sync] docs_get_all_entries: {doc_entries_read}/{doc_entries_seen} entries read from doc {doc_id}"
                 );
             }
@@ -910,7 +912,7 @@ async fn get_docs_api_or_init(app: &tauri::AppHandle) -> Result<iroh_docs::api::
     match get_docs_api(app).await {
         Ok(api) => Ok(api),
         Err(e) => {
-            eprintln!("[iroh-sync] {e} — restarting sync endpoint with database cleanup");
+            log::warn!("[iroh-sync] {e} — restarting sync endpoint with database cleanup");
 
             let _ = iroh_start(app.clone()).await;
 
@@ -938,7 +940,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
 
         let doc_id: iroh_docs::NamespaceId = if sync_doc_id.is_empty() {
             if !sync_doc_ticket.is_empty() {
-                eprintln!(
+                log::warn!(
                     "[iroh-sync] sync_doc_id empty for {peer_device_id} — \
                      attempting recovery from stored ticket"
                 );
@@ -1001,7 +1003,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
             };
 
             if let Ok(ticket) = ticket_str.parse::<iroh_docs::DocTicket>() {
-                eprintln!("[iroh-sync] Re-importing doc from stored ticket...");
+                log::info!("[iroh-sync] Re-importing doc from stored ticket...");
                 match api.import(ticket).await {
                     Ok(imported) => {
                         let new_doc_id = imported.id().to_string();
@@ -1024,7 +1026,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
                         imported
                     }
                     Err(e) => {
-                        eprintln!("[iroh-sync] Re-import from ticket failed: {e}. Ticket preserved for retry.");
+                        log::warn!("[iroh-sync] Re-import from ticket failed: {e}. Ticket preserved for retry.");
                         return Err(format!("Sync doc recovery failed — will retry: {e}"));
                     }
                 }
@@ -1088,6 +1090,6 @@ pub async fn clear_sync_databases(app: tauri::AppHandle) -> Result<(), String> {
     let _ = std::fs::remove_file(&key_path);
     let _ = std::fs::remove_file(&paired_path);
 
-    eprintln!("[iroh-sync] Cleared sync databases, identity key, and paired devices");
+    log::info!("[iroh-sync] Cleared sync databases, identity key, and paired devices");
     Ok(())
 }

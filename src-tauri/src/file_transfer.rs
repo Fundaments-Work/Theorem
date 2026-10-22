@@ -439,19 +439,19 @@ impl ProtocolHandler for FileTransferHandler {
                 Ok(_) => line.trim().to_string(),
             };
 
-            eprintln!("[file-transfer] Incoming request for book '{request}'");
+            log::debug!("[file-transfer] Incoming request for book '{request}'");
             let result = Self::locate_book(&self.data_dir, &request).await;
 
             match result {
                 Ok(BookSource::File(mut file, len)) => {
-                    eprintln!("[file-transfer] Serving book '{request}' from file ({len} bytes)");
+                    log::debug!("[file-transfer] Serving book '{request}' from file ({len} bytes)");
                     let header = format!("OK {}\n", len);
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut send, header.as_bytes()).await;
                     let _ = tokio::io::copy(&mut file, &mut send).await;
                     let _ = send.finish();
                 }
                 Ok(BookSource::Memory(data)) => {
-                    eprintln!(
+                    log::debug!(
                         "[file-transfer] Serving book '{request}' from memory ({} bytes)",
                         data.len()
                     );
@@ -461,7 +461,7 @@ impl ProtocolHandler for FileTransferHandler {
                     let _ = send.finish();
                 }
                 Err(e) => {
-                    eprintln!("[file-transfer] Failed to locate book '{request}': {e}");
+                    log::warn!("[file-transfer] Failed to locate book '{request}': {e}");
                     let msg = format!("ERR {}\n", e);
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut send, msg.as_bytes()).await;
                     let _ = send.finish();

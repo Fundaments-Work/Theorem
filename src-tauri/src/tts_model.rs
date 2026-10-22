@@ -351,8 +351,8 @@ pub async fn tts_model_download_asset(
             ));
         }
     } else {
-        eprintln!(
-            "[tts] WARNING: sha256 for {} is unpinned — verification skipped",
+        log::warn!(
+            "[tts] sha256 for {} is unpinned — verification skipped",
             asset.dest
         );
     }

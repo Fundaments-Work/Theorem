@@ -54,6 +54,18 @@ The Settings page (`Settings.tsx`) has 6 tabs:
   the `app_build_info` command). Desktop release binaries embed the web UI at
   compile time, so a binary can silently go stale after frontend changes —
   this stamp makes that visible at a glance.
+- **Export Logs** (desktop and Android): saves `theorem-logs-<date>.zip` with
+  the log files and a `diagnostics.txt` (app version, OS, architecture,
+  webview version). Built by `export_logs_bundle` in
+  `src-tauri/src/diagnostics.rs`; the home folder is written as `~`, and
+  nothing else about the device or the library is added. The logs live in the
+  platform log folder (`theorem.log`, rotated at 2 MB, four old files kept;
+  Linux `~/.local/share/work.fundamentals.theorem/logs`, macOS
+  `~/Library/Logs/work.fundamentals.theorem`, Windows
+  `%LOCALAPPDATA%\work.fundamentals.theorem\logs`). They hold Rust log output
+  at info and above (debug under `tauri dev`), every Rust panic, and errors
+  caught by the React error boundaries. Never log book text, notes, keys or
+  device identifiers: users attach these files to public issues.
 - **Refreshing a locally built binary**: `pnpm build && (cd src-tauri && cargo
   build --release)` re-embeds the current UI into the release binary. CI
   release artifacts remain the canonical install.

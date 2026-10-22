@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { AlertCircle } from "lucide-react";
+import { reportCaughtError } from "../core/lib/debug";
 
 interface Props {
     children: ReactNode;
@@ -22,7 +23,8 @@ export class RouteErrorBoundary extends Component<Props, State> {
         return { hasError: true, error };
     }
 
-    componentDidCatch(_error: Error, _info: React.ErrorInfo) {
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        void reportCaughtError("RouteErrorBoundary", error, info.componentStack);
     }
 
     componentDidUpdate(prevProps: Props) {

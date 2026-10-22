@@ -1044,7 +1044,7 @@ pub async fn stardict_lookup(
                     }
                 }
                 Err(e) => {
-                    eprintln!("[stardict] Failed to load dictionary {id}: {e}");
+                    log::warn!("[stardict] Failed to load dictionary {id}: {e}");
                 }
             }
         }
