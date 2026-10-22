@@ -94,6 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Onboarding that holds still** — Every step now has the same height, so Back and Next stay under the pointer, and sync is described as it works: directly between devices on any network, not "over LAN" (Settings → Devices said the same).
 - **Empty states that lead somewhere** — An empty library names the formats it takes and links to Discover for free books; the Workbench's empty state says "No Highlights or Notes Yet" instead of the internal word "annotations".
 - **Books open in the dark reading theme on new installs** — matching the dark interface instead of flashing a white page. A theme you already chose is kept.
+- **Text sizes on buttons and inputs finally apply** — A global style outside Tailwind's layers overrode the size, weight and line height set on every button, input and select since February, so chips, tabs and toggles rendered at body size. Element defaults now sit in the base layer, and links take the colour they are given.
+- **Workbench tabs are labelled on phones** — All, Highlights, Notes, Words and Bookmarks each show their name under the icon instead of icons that had to be guessed.
+- **"Last read" sort is complete** — Books never opened are ordered by when they were added instead of arbitrarily, and an unreadable date no longer scrambles the order. The old "Recent" button, which only re-selected the default sort and so seemed to do nothing, is gone.
 
 ### Fixed
 

@@ -429,3 +429,26 @@ describe("getFilteredAndSortedBooks", () => {
         });
     });
 });
+
+describe("last-read sort", () => {
+    it("puts read books first, newest first, and orders never-opened books by when they were added", () => {
+        const books = [
+            makeBook({ id: "old-unread", title: "A", addedAt: new Date("2025-01-01T00:00:00Z") }),
+            makeBook({ id: "read-1", title: "B", lastReadAt: new Date("2025-03-01T00:00:00Z") }),
+            makeBook({ id: "new-unread", title: "C", addedAt: new Date("2025-02-01T00:00:00Z") }),
+            makeBook({ id: "read-2", title: "D", lastReadAt: new Date("2025-04-01T00:00:00Z") }),
+        ];
+        const ids = runFilter({ books, sortBy: "lastRead", sortOrder: "desc" }).map((b) => b.id);
+        expect(ids).toEqual(["read-2", "read-1", "new-unread", "old-unread"]);
+    });
+
+    it("an unreadable date sorts as never read instead of scrambling the order", () => {
+        const books = [
+            makeBook({ id: "bad", title: "A", lastReadAt: "not a date" as unknown as Date }),
+            makeBook({ id: "read", title: "B", lastReadAt: new Date("2025-04-01T00:00:00Z") }),
+            makeBook({ id: "bad-added", title: "C", addedAt: "garbage" as unknown as Date, lastReadAt: new Date("2025-03-01T00:00:00Z") }),
+        ];
+        const ids = runFilter({ books, sortBy: "lastRead", sortOrder: "desc" }).map((b) => b.id);
+        expect(ids).toEqual(["read", "bad-added", "bad"]);
+    });
+});
