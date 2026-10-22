@@ -65,7 +65,7 @@ function EmptyAnnotations({ type }: { type: "all" | "highlights" | "notes" }) {
         notes: StickyNote,
     };
     const titles = {
-        all: "No Annotations Yet",
+        all: "No Highlights or Notes Yet",
         highlights: "No Highlights Yet",
         notes: "No Notes Yet",
     };

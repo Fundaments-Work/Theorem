@@ -20,7 +20,7 @@ import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
     Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
-    ChevronDown, Star, Check, CloudOff, Pencil, Download, ExternalLink, Headphones,
+    ChevronDown, Star, Check, Compass, CloudOff, Pencil, Download, ExternalLink, Headphones,
     ListOrdered, MoreHorizontal, X, CheckSquare
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
@@ -637,14 +637,16 @@ export const MemoizedBookCard = memo(BookCard, (prev, next) => {
         prev.authorHighlightIndices === next.authorHighlightIndices;
 });
 
-function EmptyLibrary({
+export function EmptyLibrary({
     onAddBooks,
     onScanFolder,
+    onBrowseDiscover,
     isImporting,
     isScanning,
 }: {
     onAddBooks: () => void;
     onScanFolder?: () => void;
+    onBrowseDiscover: () => void;
     isImporting: boolean;
     isScanning: boolean;
 }) {
@@ -654,10 +656,10 @@ function EmptyLibrary({
                 <BookOpen className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
             <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
-                No books yet
+                No Books Yet
             </h2>
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
-                Import books to start reading
+                Add EPUB, PDF, MOBI, FB2 or comic files from this device, or find free books in Discover.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
                 <button
@@ -688,6 +690,14 @@ function EmptyLibrary({
                     </button>
                 )}
             </div>
+            <button
+                type="button"
+                onClick={onBrowseDiscover}
+                className="mt-6 inline-flex items-center gap-2 text-sm text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)] transition-colors"
+            >
+                <Compass className="w-4 h-4" />
+                Browse free books in Discover
+            </button>
         </div>
     );
 }
@@ -2161,6 +2171,7 @@ export function LibraryPage() {
             <EmptyLibrary
                 onAddBooks={handleAddBooks}
                 onScanFolder={isTauri() ? () => setShowFolderImport(true) : undefined}
+                onBrowseDiscover={() => setRoute("opds")}
                 isImporting={isImporting || isScanning}
                 isScanning={isScanning || isImporting}
             />
