@@ -688,11 +688,11 @@ pub async fn ingest_books_native(
                     match crate::cbr::convert_cbr_to_cbz_file(path, &dest_path) {
                         Ok(()) => (Some(dest_path.to_string_lossy().into_owned()), "cbz".to_string()),
                         Err(e) => {
-                            eprintln!("[batch_ingest] Failed to convert CBR '{raw_path}' to CBZ: {e}");
+                            log::warn!("[batch_ingest] Failed to convert CBR '{raw_path}' to CBZ: {e}");
                             let fallback = match std::fs::copy(path, &dest_path) {
                                 Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
                                 Err(copy_err) => {
-                                    eprintln!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {copy_err}");
+                                    log::warn!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {copy_err}");
                                     None
                                 }
                             };
@@ -703,7 +703,7 @@ pub async fn ingest_books_native(
                     let sp = match std::fs::copy(path, &dest_path) {
                         Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
                         Err(e) => {
-                            eprintln!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {e}");
+                            log::warn!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {e}");
                             None
                         }
                     };

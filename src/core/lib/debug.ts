@@ -90,3 +90,53 @@ export async function logError(message: string) {
         console.error("[error]", message);
     }
 }
+
+/** Longest crash report written to the log; stacks can be huge. */
+const MAX_CAUGHT_ERROR_CHARS = 8_000;
+
+/**
+ * One log entry for an error a React error boundary caught: where, what,
+ * the JS stack and the component stack. Only the error itself is recorded,
+ * never app state.
+ */
+export function formatCaughtError(scope: string, error: unknown, componentStack?: string | null): string {
+    let text: string;
+    if (error instanceof Error) {
+        text = `[${scope}] ${error.name}: ${error.message}`;
+        if (error.stack) {
+            // V8 stacks repeat "Name: message" as their first line.
+            const frames = error.stack.startsWith(`${error.name}: ${error.message}`)
+                ? error.stack.slice(`${error.name}: ${error.message}`.length)
+                : `\n${error.stack}`;
+            text += frames;
+        }
+    } else {
+        text = `[${scope}] ${String(error)}`;
+    }
+    if (componentStack && componentStack.trim()) {
+        text += `\nComponent stack:${componentStack}`;
+    }
+    if (text.length > MAX_CAUGHT_ERROR_CHARS) {
+        text = `${text.slice(0, MAX_CAUGHT_ERROR_CHARS)}… [truncated]`;
+    }
+    return text;
+}
+
+/**
+ * Writes an error caught by an error boundary to the native log file, so it
+ * is in "Export logs". Never throws: a failing logger must not break the
+ * fallback UI.
+ */
+export async function reportCaughtError(scope: string, error: unknown, componentStack?: string | null): Promise<void> {
+    const message = formatCaughtError(scope, error, componentStack);
+    try {
+        await ensureLoggers();
+        if (_error) {
+            await _error(message);
+            return;
+        }
+    } catch {
+        /* fall through to the console */
+    }
+    console.error(message);
+}

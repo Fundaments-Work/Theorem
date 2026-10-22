@@ -357,7 +357,7 @@ impl MdxDictionary {
 
         // Check LRU Cache
         let decomp_data = {
-            let mut lru = self.record_lru.lock().unwrap();
+            let mut lru = self.record_lru.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(cached) = lru.get(block_idx) {
                 cached
             } else {
@@ -658,7 +658,7 @@ fn mdx_dict_cache() -> &'static RwLock<HashMap<String, Arc<MdxDictionary>>> {
 
 fn get_mdx_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<MdxDictionary>, String> {
     {
-        let cache = mdx_dict_cache().read().unwrap();
+        let cache = mdx_dict_cache().read().unwrap_or_else(|e| e.into_inner());
         if let Some(dict) = cache.get(dict_id) {
             return Ok(dict.clone());
         }
@@ -692,7 +692,7 @@ fn get_mdx_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<MdxDictionar
 
     let dict = Arc::new(MdxDictionary::open(&mdx_path)?);
 
-    let mut cache = mdx_dict_cache().write().unwrap();
+    let mut cache = mdx_dict_cache().write().unwrap_or_else(|e| e.into_inner());
     cache.insert(dict_id.to_string(), dict.clone());
 
     Ok(dict)
@@ -757,7 +757,61 @@ mod tests {
     fn test_synthetic_mdx_lookup() {
         let temp_dir = tempfile::tempdir().unwrap();
         let mdx_path = temp_dir.path().join("test.mdx");
+        write_synthetic_mdx(&mdx_path);
 
+        // 4. Test MdxDictionary
+        let dict = MdxDictionary::open(&mdx_path).unwrap();
+        assert_eq!(&*dict.header.title, "Synthetic Comprehensive Wiktionary");
+        assert_eq!(dict.header.num_entries, 3);
+
+        // Exact match
+        let res_epiphany = dict.lookup("epiphany").unwrap().unwrap();
+        assert!(res_epiphany.html.contains("revelation or insight"));
+
+        // Case insensitive match
+        let res_upper = dict.lookup("Ephemeral").unwrap().unwrap();
+        assert!(res_upper.html.contains("Lasting for a very short time"));
+
+        // Punctuation match
+        let res_punct = dict.lookup("\"ephemeral,\"").unwrap().unwrap();
+        assert!(res_punct.html.contains("Lasting for a very short time"));
+
+        // @@@LINK= redirect match
+        let res_redir = dict.lookup("epiphanies").unwrap().unwrap();
+        assert!(res_redir.html.contains("revelation or insight"));
+
+        // Unknown word
+        let res_none = dict.lookup("nonexistentwordxyz").unwrap();
+        assert!(res_none.is_none());
+    }
+
+    #[test]
+    fn lookup_survives_a_poisoned_record_cache() {
+        // A panic while a thread held the record-block cache poisons its mutex.
+        // Lookups must keep working instead of panicking on every later call.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mdx_path = temp_dir.path().join("poisoned.mdx");
+        write_synthetic_mdx(&mdx_path);
+        let dict = Arc::new(MdxDictionary::open(&mdx_path).unwrap());
+
+        let poisoner = Arc::clone(&dict);
+        let joined = std::thread::spawn(move || {
+            let _guard = poisoner.record_lru.lock().unwrap();
+            panic!("simulated panic while holding the record cache");
+        })
+        .join();
+        assert!(joined.is_err());
+        assert!(dict.record_lru.is_poisoned());
+
+        let res = dict.lookup("epiphany").unwrap().unwrap();
+        assert!(res.html.contains("revelation or insight"));
+        let res = dict.lookup("ephemeral").unwrap().unwrap();
+        assert!(res.html.contains("Lasting for a very short time"));
+    }
+
+    /// Writes a three-entry MDX (ephemeral, epiphany, and an `epiphanies`
+    /// redirect to epiphany) to `mdx_path`.
+    fn write_synthetic_mdx(mdx_path: &std::path::Path) {
         let mut file_bytes = Vec::new();
 
         // 1. Header
@@ -833,32 +887,7 @@ mod tests {
         file_bytes.extend_from_slice(&rec_info_raw); // raw, NOT compressed
         file_bytes.extend_from_slice(&comp_record_block);
 
-        std::fs::write(&mdx_path, file_bytes).unwrap();
-
-        // 4. Test MdxDictionary
-        let dict = MdxDictionary::open(&mdx_path).unwrap();
-        assert_eq!(&*dict.header.title, "Synthetic Comprehensive Wiktionary");
-        assert_eq!(dict.header.num_entries, 3);
-
-        // Exact match
-        let res_epiphany = dict.lookup("epiphany").unwrap().unwrap();
-        assert!(res_epiphany.html.contains("revelation or insight"));
-
-        // Case insensitive match
-        let res_upper = dict.lookup("Ephemeral").unwrap().unwrap();
-        assert!(res_upper.html.contains("Lasting for a very short time"));
-
-        // Punctuation match
-        let res_punct = dict.lookup("\"ephemeral,\"").unwrap().unwrap();
-        assert!(res_punct.html.contains("Lasting for a very short time"));
-
-        // @@@LINK= redirect match
-        let res_redir = dict.lookup("epiphanies").unwrap().unwrap();
-        assert!(res_redir.html.contains("revelation or insight"));
-
-        // Unknown word
-        let res_none = dict.lookup("nonexistentwordxyz").unwrap();
-        assert!(res_none.is_none());
+        std::fs::write(mdx_path, file_bytes).unwrap();
     }
 
     #[test]

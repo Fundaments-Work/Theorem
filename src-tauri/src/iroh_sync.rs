@@ -73,7 +73,7 @@ impl<R: tauri::Runtime> EntryBatcher<R> {
 
     fn push(self: &Arc<Self>, key: String, value: String) {
         let should_flush = {
-            let mut guard = self.pending.lock().unwrap();
+            let mut guard = self.pending.lock().unwrap_or_else(|e| e.into_inner());
             guard.deleted.retain(|d| d.key != key);
             match guard.entries.iter_mut().find(|e| e.key == key) {
                 Some(existing) => {
@@ -92,7 +92,7 @@ impl<R: tauri::Runtime> EntryBatcher<R> {
 
     fn push_deleted(self: &Arc<Self>, deleted: crate::sync_commands::DeletedDocKey) {
         let should_flush = {
-            let mut guard = self.pending.lock().unwrap();
+            let mut guard = self.pending.lock().unwrap_or_else(|e| e.into_inner());
             guard.entries.retain(|e| e.key != deleted.key);
             guard.deleted.retain(|d| d.key != deleted.key);
             guard.deleted.push(deleted);
@@ -121,7 +121,7 @@ impl<R: tauri::Runtime> EntryBatcher<R> {
     }
 
     fn flush(&self) {
-        let drained = std::mem::take(&mut *self.pending.lock().unwrap());
+        let drained = std::mem::take(&mut *self.pending.lock().unwrap_or_else(|e| e.into_inner()));
         if drained.is_empty() {
             return;
         }
@@ -243,7 +243,7 @@ impl IrohSyncEndpoint {
         let builder = if std::env::var("THEOREM_DISABLE_MDNS").is_err() {
             builder.address_lookup(MdnsAddressLookup::builder())
         } else {
-            eprintln!("[iroh-sync] mDNS disabled via THEOREM_DISABLE_MDNS env var");
+            log::info!("[iroh-sync] mDNS disabled via THEOREM_DISABLE_MDNS env var");
             builder
         };
         let endpoint = builder
@@ -289,7 +289,9 @@ pub fn load_or_create_key(path: &PathBuf) -> Result<SecretKey, String> {
                 return Ok(SecretKey::from_bytes(&arr));
             }
             Err(_) => {
-                eprintln!("[iroh-sync] Sync key file is malformed; keeping it as iroh-key.corrupt");
+                log::warn!(
+                    "[iroh-sync] Sync key file is malformed; keeping it as iroh-key.corrupt"
+                );
                 let _ = std::fs::rename(path, path.with_extension("corrupt"));
             }
         },
@@ -370,10 +372,10 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                 Err(e) => {
                     subscribe_failures += 1;
                     if subscribe_failures > MAX_SUBSCRIBE_RETRIES {
-                        eprintln!("[iroh-sync] Failed to subscribe to doc events after {MAX_SUBSCRIBE_RETRIES} retries: {e}. Giving up.");
+                        log::error!("[iroh-sync] Failed to subscribe to doc events after {MAX_SUBSCRIBE_RETRIES} retries: {e}. Giving up.");
                         break;
                     }
-                    eprintln!(
+                    log::warn!(
                         "[iroh-sync] Failed to subscribe to doc events: {e}, retrying in 1s..."
                     );
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -465,7 +467,7 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                                 .map_err(String::as_str),
                         );
                         if let Err(e) = &event.result {
-                            eprintln!(
+                            log::warn!(
                                 "[iroh-sync] sync with {} {}: {e:?}",
                                 event.peer,
                                 if synced {
@@ -517,7 +519,7 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         );
                     }
                     Err(err) => {
-                        eprintln!("[iroh-sync] doc event stream error: {err}");
+                        log::warn!("[iroh-sync] doc event stream error: {err}");
 
                         let msg = err.to_string();
                         if msg.contains("actor failed") || msg.contains("actor closed") {
@@ -539,12 +541,12 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
             }
             stream_deaths += 1;
             if stream_deaths > MAX_STREAM_DEATHS {
-                eprintln!(
+                log::error!(
                     "[iroh-sync] doc event stream died {MAX_STREAM_DEATHS} times. Giving up."
                 );
                 break;
             }
-            eprintln!(
+            log::warn!(
                 "[iroh-sync] doc event stream ended ({stream_deaths}/{MAX_STREAM_DEATHS}), re-subscribing in {}ms...",
                 backoff_ms
             );
@@ -712,7 +714,7 @@ pub fn start_accept_loop(
 
         let stale_docs = data_dir.join("iroh-docs").join("db.redb");
         if stale_docs.exists() {
-            eprintln!("[iroh-sync] Purging stale databases from pre-1.0.7...");
+            log::info!("[iroh-sync] Purging stale databases from pre-1.0.7...");
             let _ = std::fs::remove_dir_all(data_dir.join("iroh-docs"));
             let _ = std::fs::remove_dir_all(&blobs_path);
         }
@@ -735,7 +737,7 @@ pub fn start_accept_loop(
         let blobs = match blobs_load {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[iroh-sync] Failed to load blobs store: {e}");
+                log::error!("[iroh-sync] Failed to load blobs store: {e}");
 
                 let _ = std::fs::remove_dir_all(&blobs_path);
                 return;
@@ -770,9 +772,9 @@ pub fn start_accept_loop(
         let docs_handler = match docs_spawn {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("[iroh-sync] Failed to spawn iroh-docs: {e:?}");
+                log::warn!("[iroh-sync] Failed to spawn iroh-docs: {e:?}");
 
-                eprintln!("[iroh-sync] Removing corrupted databases and retrying...");
+                log::warn!("[iroh-sync] Removing corrupted databases and retrying...");
                 let _ = std::fs::remove_dir_all(&blobs_path);
                 let _ = std::fs::remove_dir_all(&docs_path);
 
@@ -796,7 +798,7 @@ pub fn start_accept_loop(
                     let msg = e.to_string();
                     // Already gone is done; anything else is retried next start.
                     if !msg.contains("not found") && !msg.contains("NotFound") {
-                        eprintln!("[iroh-sync] Could not delete an unpaired device's doc: {msg}");
+                        log::warn!("[iroh-sync] Could not delete an unpaired device's doc: {msg}");
                         kept.push(id);
                     }
                 }
@@ -808,7 +810,7 @@ pub fn start_accept_loop(
             Err(_) => match api.author_create().await {
                 Ok(a) => a,
                 Err(e) => {
-                    eprintln!("[iroh-sync] Failed to create docs author: {e}");
+                    log::error!("[iroh-sync] Failed to create docs author: {e}");
                     return;
                 }
             },
@@ -850,7 +852,7 @@ pub fn start_accept_loop(
                     let doc = match api_for_subscribe.open(doc_id).await {
                         Ok(Some(doc)) => Some(doc),
                         Err(e) => {
-                            eprintln!(
+                            log::warn!(
                                 "[iroh-sync] Failed to open sync doc for peer {node_id}: {e}. \
                                  Trying re-import from stored ticket..."
                             );
@@ -864,7 +866,7 @@ pub fn start_accept_loop(
                             match ticket_str.parse::<iroh_docs::DocTicket>() {
                                 Ok(ticket) => match api_for_subscribe.import(ticket).await {
                                     Ok(doc) => {
-                                        eprintln!(
+                                        log::info!(
                                             "[iroh-sync] Re-imported sync doc from ticket for peer {node_id}"
                                         );
 
@@ -872,14 +874,14 @@ pub fn start_accept_loop(
                                         Some(doc)
                                     }
                                     Err(e) => {
-                                        eprintln!(
+                                        log::warn!(
                                             "[iroh-sync] Failed to import sync doc ticket for peer {node_id}: {e}"
                                         );
                                         None
                                     }
                                 },
                                 Err(e) => {
-                                    eprintln!(
+                                    log::warn!(
                                         "[iroh-sync] Invalid sync doc ticket for peer {node_id}: {e}"
                                     );
                                     None
@@ -938,8 +940,8 @@ pub fn start_accept_loop(
                         match api_for_subscribe.import(ticket).await {
                             Ok(doc) => {
                                 let doc_id = doc.id().to_string();
-                                eprintln!(
-                                    "[iroh-sync] Recovered sync doc {doc_id} from ticket for peer {device_name}"
+                                log::info!(
+                                    "[iroh-sync] Recovered sync doc {doc_id} from ticket for peer device {device_id}"
                                 );
                                 subscribe_doc_events(
                                     state_clone.app_handle.clone(),
@@ -953,8 +955,8 @@ pub fn start_accept_loop(
                                 let _ = state_clone.persist_paired(&devices);
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "[iroh-sync] Recovery import failed for {device_name}: {e}"
+                                log::warn!(
+                                    "[iroh-sync] Recovery import failed for device {device_id}: {e}"
                                 );
                                 let _ = state_clone.app_handle.emit(
                                     "sync-doc-missing",
@@ -967,8 +969,8 @@ pub fn start_accept_loop(
                         }
                     }
                 } else {
-                    eprintln!(
-                        "[iroh-sync] Paired device {device_name} has no sync doc — re-pair required"
+                    log::warn!(
+                        "[iroh-sync] Paired device {device_id} has no sync doc — re-pair required"
                     );
                     let _ = state_clone.app_handle.emit(
                         "sync-doc-missing",
@@ -1000,7 +1002,7 @@ pub fn start_accept_loop(
             .spawn();
 
         let _ = cancel_rx.changed().await;
-        eprintln!("[iroh-sync] Router shutdown requested");
+        log::info!("[iroh-sync] Router shutdown requested");
         let _ = router.shutdown().await;
 
         // The engine's actor is now dead; drop the snapshot so no command
@@ -1299,7 +1301,12 @@ mod pairing_tests {
                     .unwrap()
                     .push(payload["code"].as_str().unwrap().to_string());
                 let id = payload["requestId"].as_str().unwrap().to_string();
-                if let Some(tx) = state.pairing_confirms.lock().unwrap().remove(&id) {
+                if let Some(tx) = state
+                    .pairing_confirms
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&id)
+                {
                     let _ = tx.send(accept);
                 }
             });

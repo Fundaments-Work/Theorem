@@ -29,7 +29,8 @@ pub fn init_sync(app_data_dir: PathBuf, app_handle: tauri::AppHandle) -> Result<
 
     let device_name = theorem_sync_core::sync_persistence::load_device_name(&app_data_dir)
         .unwrap_or_else(crate::device_name::system_device_name);
-    eprintln!("[sync] This device is \"{device_name}\"");
+    // The name is often the host name: kept out of the log.
+    log::info!("[sync] Device name loaded");
 
     let paired_devices = iroh_sync::load_paired_devices_from_disk(&app_data_dir);
     let allowlist = Arc::new(crate::sync_access::PeerAllowlist::from_devices(
@@ -68,7 +69,11 @@ pub(crate) fn get_sync_state(
 pub(crate) async fn get_or_init_iroh(
     app: &tauri::AppHandle,
 ) -> Result<Arc<IrohSyncEndpoint>, String> {
-    if let Some(ep) = IROH_ENDPOINT.lock().unwrap().clone() {
+    if let Some(ep) = IROH_ENDPOINT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         return Ok(ep);
     }
     let data_dir = app
@@ -88,19 +93,16 @@ pub(crate) async fn get_or_init_iroh(
         )
         .await?,
     );
-    let mut guard = IROH_ENDPOINT.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(ep);
-    }
+    let mut guard = IROH_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner());
     // Return the cached endpoint so every caller talks to the same transport
     // the accept loop uses (a concurrently-built endpoint would be orphaned).
-    Ok(guard.as_ref().unwrap().clone())
+    Ok(guard.get_or_insert(ep).clone())
 }
 
 pub fn get_iroh_relay_url() -> String {
     IROH_ENDPOINT
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|ep| {
             ep.endpoint
@@ -145,7 +147,7 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
     const MAX_DB_BYTES: u64 = 100 * 1024 * 1024;
     if let Ok(meta) = std::fs::metadata(&docs_db_path) {
         if meta.len() > MAX_DB_BYTES {
-            eprintln!(
+            log::warn!(
                 "[iroh-sync] redb database is {} MB — exceeding {} MB threshold. Wiping and recreating...",
                 meta.len() / (1024 * 1024),
                 MAX_DB_BYTES / (1024 * 1024)
@@ -235,13 +237,16 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
 
         if attempt == 0 {
             // The accept loop already removed the database it could not open.
-            eprintln!("[iroh-sync] Sync engine failed to start — retrying with a fresh database");
+            log::warn!("[iroh-sync] Sync engine failed to start — retrying with a fresh database");
 
-            let old_ep = IROH_ENDPOINT.lock().unwrap().clone();
+            let old_ep = IROH_ENDPOINT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             if let Some(ep) = old_ep {
                 ep.close().await;
             }
-            *IROH_ENDPOINT.lock().unwrap() = None;
+            *IROH_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
     }
 
@@ -262,11 +267,14 @@ pub async fn iroh_stop(app: tauri::AppHandle) -> Result<(), String> {
     // holds a handle to the now-dead iroh-docs actor (which would otherwise
     // surface as "sending to iroh_docs actor failed" on the next sync).
     *sync_state.transport_state.docs_api.lock().await = None;
-    let endpoint = IROH_ENDPOINT.lock().unwrap().clone();
+    let endpoint = IROH_ENDPOINT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     if let Some(ep) = endpoint {
         ep.close().await;
     }
-    *IROH_ENDPOINT.lock().unwrap() = None;
+    *IROH_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner()) = None;
     Ok(())
 }
 
@@ -501,7 +509,7 @@ pub async fn submit_pairing_code(
         sync_state
             .transport_state
             .persist_paired(&devices)
-            .unwrap_or_else(|e| eprintln!("[sync] Failed to save paired devices: {e}"));
+            .unwrap_or_else(|e| log::warn!("[sync] Failed to save paired devices: {e}"));
     }
 
     {
@@ -578,13 +586,13 @@ pub async fn submit_pairing_code(
                             .transport_state
                             .persist_paired(&devices)
                             .unwrap_or_else(|e| {
-                                eprintln!("[sync] Failed to save paired devices: {e}")
+                                log::warn!("[sync] Failed to save paired devices: {e}")
                             });
                     }
                 }
-                Err(e) => eprintln!("[sync] Failed to import docs doc: {e}"),
+                Err(e) => log::warn!("[sync] Failed to import docs doc: {e}"),
             },
-            Err(e) => eprintln!("[sync] Failed to parse docs ticket: {e}"),
+            Err(e) => log::warn!("[sync] Failed to parse docs ticket: {e}"),
         }
     }
 
@@ -601,7 +609,7 @@ pub async fn get_device_identity(app: tauri::AppHandle) -> Result<DeviceIdentity
     let sync_state = get_sync_state(&app)?;
     let public_key = IROH_ENDPOINT
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map(|ep| ep.public_key_string())
         .unwrap_or_default();
@@ -617,7 +625,7 @@ pub async fn get_device_identity(app: tauri::AppHandle) -> Result<DeviceIdentity
 #[tauri::command]
 pub async fn set_device_fingerprint(fingerprint: String) -> Result<(), String> {
     theorem_sync_core::sync_crypto::set_fingerprint_from_frontend(&fingerprint);
-    eprintln!("[sync] Device fingerprint set from frontend: {fingerprint}");
+    log::debug!("[sync] Device fingerprint set from frontend");
     Ok(())
 }
 
@@ -649,7 +657,7 @@ pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(
         }
     }
     if !crate::file_transfer::notify_unpaired(&app, &device_id).await {
-        eprintln!("[iroh-sync] {device_id} could not be told it was removed; it learns next time it connects");
+        log::warn!("[iroh-sync] {device_id} could not be told it was removed; it learns next time it connects");
     }
     forget_device(&app, &device_id, false).await
 }
@@ -683,9 +691,9 @@ pub(crate) async fn forget_device(
         theorem_sync_core::sync_persistence::save_docs_to_drop(dir, &to_drop)?;
     }
     if removed_by_peer {
-        eprintln!(
+        log::info!(
             "[iroh-sync] {} removed this device; forgetting it here too",
-            removed.device_name
+            removed.device_id
         );
         let _ = app.emit(
             "sync-peer-removed",
@@ -701,7 +709,7 @@ pub(crate) async fn forget_device(
     if was_running {
         iroh_stop(app.clone()).await?;
         if let Err(e) = iroh_start(app.clone()).await {
-            eprintln!("[iroh-sync] Sync restart after unpairing: {e}");
+            log::warn!("[iroh-sync] Sync restart after unpairing: {e}");
         }
     }
     Ok(())
@@ -984,7 +992,7 @@ async fn write_own_entries(
         }
         if let Some(e) = error {
             let msg = format!("{doc_id}: {e}");
-            eprintln!("[iroh-sync] {msg}");
+            log::warn!("[iroh-sync] {msg}");
             first_error.get_or_insert(msg);
         }
     }
@@ -1141,7 +1149,7 @@ pub async fn docs_retain_own_entries(
             }
             match doc.del(snapshot.author, key.clone().into_bytes()).await {
                 Ok(n) => removed += n,
-                Err(e) => eprintln!("[iroh-sync] could not remove {key}: {e}"),
+                Err(e) => log::warn!("[iroh-sync] could not remove {key}: {e}"),
             }
         }
     }
@@ -1213,7 +1221,7 @@ pub(crate) async fn drop_legacy_lists(app: &tauri::AppHandle, device_id: &str) {
             }
         }
         if let Err(e) = doc.del(snapshot.author, key.as_bytes().to_vec()).await {
-            eprintln!("[iroh-sync] could not remove the old {key} list: {e}");
+            log::warn!("[iroh-sync] could not remove the old {key} list: {e}");
         }
     }
 }
@@ -1392,7 +1400,7 @@ async fn read_doc_entries(
             }
         }
     }
-    eprintln!(
+    log::debug!(
         "[iroh-sync] read {} changed doc keys of {} ({} deleted, {} waiting for content)",
         changed.len(),
         current.len(),
@@ -1623,7 +1631,7 @@ pub async fn docs_purge_entities(
             }
             match doc.del(snapshot.author, key.clone().into_bytes()).await {
                 Ok(n) => removed += n,
-                Err(e) => eprintln!("[iroh-sync] could not remove {key}: {e}"),
+                Err(e) => log::warn!("[iroh-sync] could not remove {key}: {e}"),
             }
         }
     }
@@ -1700,7 +1708,7 @@ async fn get_docs_api_or_init(app: &tauri::AppHandle) -> Result<iroh_docs::api::
     match get_docs_api(app).await {
         Ok(api) => Ok(api),
         Err(e) => {
-            eprintln!("[iroh-sync] {e} — restarting sync endpoint with database cleanup");
+            log::warn!("[iroh-sync] {e} — restarting sync endpoint with database cleanup");
 
             let _ = iroh_start(app.clone()).await;
 
@@ -1728,7 +1736,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
 
         let doc_id: iroh_docs::NamespaceId = if sync_doc_id.is_empty() {
             if !sync_doc_ticket.is_empty() {
-                eprintln!(
+                log::warn!(
                     "[iroh-sync] sync_doc_id empty for {peer_device_id} — \
                      attempting recovery from stored ticket"
                 );
@@ -1788,7 +1796,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
             };
 
             if let Ok(ticket) = ticket_str.parse::<iroh_docs::DocTicket>() {
-                eprintln!("[iroh-sync] Re-importing doc from stored ticket...");
+                log::info!("[iroh-sync] Re-importing doc from stored ticket...");
                 match api.import(ticket).await {
                     Ok(imported) => {
                         let new_doc_id = imported.id().to_string();
@@ -1808,7 +1816,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
                         imported
                     }
                     Err(e) => {
-                        eprintln!("[iroh-sync] Re-import from ticket failed: {e}. Ticket preserved for retry.");
+                        log::warn!("[iroh-sync] Re-import from ticket failed: {e}. Ticket preserved for retry.");
                         return Err(format!("Sync doc recovery failed — will retry: {e}"));
                     }
                 }
@@ -1869,7 +1877,7 @@ pub async fn clear_sync_databases(app: tauri::AppHandle) -> Result<(), String> {
     let _ = std::fs::remove_file(&key_path);
     let _ = std::fs::remove_file(&paired_path);
 
-    eprintln!("[iroh-sync] Cleared sync databases, identity key, and paired devices");
+    log::info!("[iroh-sync] Cleared sync databases, identity key, and paired devices");
     Ok(())
 }
 

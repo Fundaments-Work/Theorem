@@ -30,6 +30,7 @@ const DeviceSyncSection = lazy(() => import("./DeviceSync").then(m => ({ default
 const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => ({ default: m.NeuralVoiceSection })));
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
 import { KnapTemplateEditor } from "./KnapTemplateEditor";
+import { ExportLogsButton } from "./ExportLogsButton";
 import { MomoIcon } from "../../ui/MomoIcon";
 import { BUY_ME_MOMO_URL } from "../../core/lib/support-prompt";
 import { openExternalUrl } from "../../core/lib/open-external-url";
@@ -1509,6 +1510,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 <AlertCircle className="w-4 h-4" />
                                 <span>Report an Issue</span>
                             </a>
+                            <ExportLogsButton />
                         </div>
                     </Section>
                 </div>}

@@ -52,7 +52,7 @@ If clippy is noisy, try `cargo clippy --fix --lib` first.
 - Tests must rigorously cover edge cases, boundaries, and outliers (e.g. 0-length inputs, rapid concurrent interactions, missing elements, corrupted data, boundary navigation).
 - **NEVER weaken, delete, loosen assertions, or edit tests simply to make them pass.** If a test or outlier fails, investigate and fix the underlying implementation code. The test exists to defend correctness.
 
-CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) on push to main.
+CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `cargo test --workspace --lib --tests`) on push to main.
 
 ### Known-flaky tests
 

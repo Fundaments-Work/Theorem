@@ -26,13 +26,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon", "devtools"] }
+# No "devtools" here, so release builds do not ship the web inspector; see
+# the `devtools` feature below.
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-barcode-scanner = "2"
 tauri-plugin-log = "2"
+log = "0.4"
 tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-global-shortcut = "2"
@@ -131,6 +134,12 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+
+[features]
+# Web inspector. `[profile.dev]` turns debug assertions off, so Tauri's own
+# debug-build default does not apply here: the `pnpm dev:*` scripts pass
+# `--features devtools`, release builds leave it out.
+devtools = ["tauri/devtools"]
 
 # Optimize for release (reduces binary size significantly)
 [profile.release]
