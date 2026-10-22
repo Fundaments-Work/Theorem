@@ -91,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lower memory on desktop** — PDF.js and Foliate are no longer pre-warmed at startup (they load when a book of that format opens), the PDF offscreen page cache dropped from 6 pages / ~96 MB to 4 pages / ~48 MB and is cleared on unmount, and session Replay was removed from Sentry.
 - **Sentry bundle** — Named imports let the bundler drop session Replay: the Sentry chunk is 158 KB instead of 446 KB (54 KB instead of 149 KB gzipped).
 - **Library search no longer emptied at every launch** — The startup search-index check compared the index with the library list in the settings blob, which the desktop and Android apps have kept empty since books moved to their own table, so every indexed book was removed and the app then skipped re-indexing. The check now reads the books table, never clears the index because the library looks empty, and tells the app to re-index after any repair.
+- **RSS retention deletes old articles again** — Articles store their fetch time in milliseconds, but the cleanup compared it with the current time in seconds, so no article was ever old enough to remove and feeds grew without limit. The cutoff is now computed in milliseconds (and can use the index), the article and its cached content go together in one transaction, and times that older versions stored in seconds are converted at startup.
 
 ## [1.5.9] - 2026-10-04 (Beta)
 
