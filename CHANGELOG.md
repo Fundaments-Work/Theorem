@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Support Placements** — Added an authentic crescent-dumpling `MomoIcon` to the desktop sidebar footer (both expanded and collapsed layouts), the mobile titlebar header cluster, and a permanent entry in Settings → Links.
 - **Safe External Opener** — Unified external link launching (`src/core/lib/open-external-url.ts`) dynamically invoking `@tauri-apps/plugin-opener` on native desktop/mobile platforms with fallback to `window.open` in browser environments.
 
+### Backup & Data Safety
+
+- **Startup integrity guard** — Once a day, and on every app update before migrations run, Theorem checks its database with `PRAGMA quick_check` and keeps a rolling copy of it (`db-snapshots/`, the two newest). A damaged database or a failed migration is no longer only logged while the app starts with an empty library: it is reported to the app, which can put a snapshot back. The check costs about 0.4 ms per MB of database (25 ms for a 56 MB library, 210 ms for 566 MB, warm cache).
+- **Streaming backups** — Backups are now one `.theorem-backup` file (a zip: manifest, a consistent SQLite snapshot, book files, generated audiobooks and, optionally, dictionaries) written entry by entry in Rust, so large libraries no longer run out of memory. A backup never carries this device's sync identity (device id, paired devices and their sync tickets) or OPDS catalog passwords. On Android the file is streamed into Downloads/Theorem.
+
 ### Discover & OPDS Catalogs
 
 - **Browse any OPDS catalog** — Discover is now one row of sources: the curated storefront, Project Gutenberg, Standard Ebooks and every catalog you add. Catalogs added in earlier versions were saved but never browsable (the full browser was unmounted); they all work now. Sections, shelves with *See all*, a trail with Back, server search with a local-filter fallback, sort/language/format filters, series and covers, and books that load as you scroll on a virtualized grid.
