@@ -621,34 +621,24 @@ export interface SqliteVocabularyTerm {
     updatedAt?: number;
 }
 
+/** Rejects when SQLite cannot be read: an empty list would read as "no terms". */
 export async function sqliteGetVocabularyTerms(): Promise<SqliteVocabularyTerm[]> {
     if (!isTauri()) return [];
-    try {
-        const invoke = await getInvoke();
-        return (await invoke('sqlite_get_vocabulary_terms')) as SqliteVocabularyTerm[];
-    } catch {
-        return [];
-    }
+    const invoke = await getInvoke();
+    return (await invoke('sqlite_get_vocabulary_terms')) as SqliteVocabularyTerm[];
 }
 
+/** Rejects when the write fails, so callers can report it or keep a copy. */
 export async function sqliteSaveVocabularyTerm(term: SqliteVocabularyTerm): Promise<void> {
     if (!isTauri()) return;
-    try {
-        const invoke = await getInvoke();
-        await invoke('sqlite_save_vocabulary_term', { term });
-    } catch {
-        // Non-blocking
-    }
+    const invoke = await getInvoke();
+    await invoke('sqlite_save_vocabulary_term', { term });
 }
 
 export async function sqliteDeleteVocabularyTerm(termId: string): Promise<void> {
     if (!isTauri()) return;
-    try {
-        const invoke = await getInvoke();
-        await invoke('sqlite_delete_vocabulary_term', { termId });
-    } catch {
-        // Non-blocking
-    }
+    const invoke = await getInvoke();
+    await invoke('sqlite_delete_vocabulary_term', { termId });
 }
 
 

@@ -360,7 +360,7 @@ describe("merge diagnostics", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         ipc.docs_get_changed_entries = () => ({ entries: { "book:broken": "{not json" }, token: 1 });
         await orch.hydrateFromIrohDocs();
-        expect(warn.mock.calls.some((c) => String(c[0]).includes("[sync-merge] book entry"))).toBe(true);
+        expect(warn.mock.calls.some((c) => String(c[0]).includes("Ignored sync entry book:broken"))).toBe(true);
     });
 });
 

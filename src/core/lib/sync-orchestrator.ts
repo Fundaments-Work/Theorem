@@ -12,7 +12,7 @@ import {
     toSqliteVocabularyTerm,
     fromSqliteVocabularyTerm,
 } from "../store";
-import type { Annotation, Book, DeletionTombstone, DeviceSyncStatus, RssArticle } from "../types";
+import type { Annotation, Book, Collection, DeletionTombstone, DeviceSyncStatus, RssArticle } from "../types";
 import {
     mergeBooks,
     mergeAnnotations,
@@ -25,6 +25,7 @@ import {
     mergeReadingStats,
 } from "./sync-import";
 import { isTauri } from "./env";
+import { parseSyncEntityEntry, reportMalformedSyncEntry } from "./sync-entries";
 import {
     sqliteDeleteAnnotation,
     sqliteDeleteVocabularyTerm,
@@ -322,7 +323,8 @@ export function withLocalTombstones(
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) incoming = parsed;
         } catch {
-            // fall through with no incoming tombstones
+            // Fall through with no incoming tombstones.
+            reportMalformedSyncEntry("deletion_tombstones", "not valid JSON");
         }
     }
     return {
@@ -401,31 +403,21 @@ async function mergeIncomingDataLocked(
 
     for (const key of Object.keys(safeMap)) {
         if (key.startsWith("book:") && key !== "books") {
-            try {
-                const parsed = JSON.parse(safeMap[key]);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    perEntityBooks.push(parsed);
-                }
-            } catch (e) { warnMergeFailure("book entry", e); }
+            const parsed = parseSyncEntityEntry(key, safeMap[key]);
+            if (parsed) perEntityBooks.push(parsed);
         } else if ((key.startsWith("annotation:") || key.startsWith("anno:")) && key !== "annotations") {
-            try {
-                const parsed = JSON.parse(safeMap[key]);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    perEntityAnnotations.push(parsed);
-                }
-            } catch (e) { warnMergeFailure("annotation entry", e); }
+            const parsed = parseSyncEntityEntry(key, safeMap[key]);
+            if (parsed) perEntityAnnotations.push(parsed);
         } else if (key.startsWith(RSS_ARTICLE_KEY_PREFIX)) {
-            try {
-                const parsed = RssArticleSchema.safeParse(JSON.parse(safeMap[key]));
+            const raw = parseSyncEntityEntry(key, safeMap[key]);
+            if (raw) {
+                const parsed = RssArticleSchema.safeParse(raw);
                 if (parsed.success) perEntityArticles.push(parsed.data);
-            } catch (e) { warnMergeFailure("rss article entry", e); }
+                else reportMalformedSyncEntry(key, "does not match the article schema");
+            }
         } else if (key.startsWith("collection:") && key !== "collections") {
-            try {
-                const parsed = JSON.parse(safeMap[key]);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    perEntityCollections.push(parsed);
-                }
-            } catch (e) { warnMergeFailure("collection entry", e); }
+            const parsed = parseSyncEntityEntry(key, safeMap[key]);
+            if (parsed) perEntityCollections.push(parsed);
         }
     }
 
@@ -756,11 +748,12 @@ async function mergeIncomingDataLocked(
                         if (isTauri()) {
                             // Only what changed (was: every term, one IPC each, on every merge),
                             // and removals too, so deleted terms cannot resurrect on next launch.
+                            const report = (e: unknown) => console.error("[Sync] Saving a synced vocabulary change failed:", e);
                             for (const term of upserts) {
-                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term));
+                                void sqliteSaveVocabularyTerm(toSqliteVocabularyTerm(term)).catch(report);
                             }
                             for (const id of deletes) {
-                                void sqliteDeleteVocabularyTerm(id);
+                                void sqliteDeleteVocabularyTerm(id).catch(report);
                             }
                         }
                         markUpdated("vocabulary");
@@ -1424,8 +1417,9 @@ async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
                         filePath: destPath,
                         storagePath: destPath,
                     });
-                } catch {
-                    // download failed silently for prefetch — will retry on-demand
+                } catch (e) {
+                    // Prefetch is best effort: the book downloads on demand when opened.
+                    debug(`[file-xfer] prefetch of ${book.id} failed: ${e}`);
                 }
             }
         }),
@@ -1438,7 +1432,7 @@ const _pendingDocsEntries = new Map<string, string>();
 
 const DOWNLOAD_CONCURRENCY = 3;
 
-let _progressiveBookBatch: any[] = [];
+let _progressiveBookBatch: Book[] = [];
 let _progressiveBookTimer: ReturnType<typeof setTimeout> | null = null;
 /** The entries behind the live batches, as received, for the native merge. */
 const _progressiveRawEntries = new Map<string, string>();
@@ -1447,9 +1441,9 @@ const _progressiveRawEntries = new Map<string, string>();
 // books: per-entry synchronous merges + setStates inside the gossip event
 // loop froze the UI (up to 64 full O(n) merges + store notifications per
 // batch). Batches coalesce over 200ms into one merge + one setState each.
-let _progressiveAnnoBatch: any[] = [];
+let _progressiveAnnoBatch: Annotation[] = [];
 let _progressiveAnnoTimer: ReturnType<typeof setTimeout> | null = null;
-let _progressiveCollectionBatch: any[] = [];
+let _progressiveCollectionBatch: Collection[] = [];
 let _progressiveCollectionTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Tombstone application re-merges the whole library and replaces three
@@ -1548,7 +1542,7 @@ async function _flushProgressiveBooks(): Promise<void> {
         }
     }
 
-    const mergedById = new Map(merged.map((b: any) => [b.id, b]));
+    const mergedById = new Map(merged.map((b) => [b.id, b]));
     for (const book of batch) {
         const added = mergedById.get(book.id);
         if (added && !added.blobHash) {
@@ -1627,6 +1621,8 @@ async function _flushPendingTombstonesNow(): Promise<void> {
                 if (keptIds.has(ann.id)) continue;
                 void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
             }
+        } else {
+            reportMalformedSyncEntry("deletion_tombstones", "not a list");
         }
         // Apply the deletions to SQLite too (books, their metadata and
         // annotations, words, articles), or a restart before the next
@@ -1708,39 +1704,41 @@ async function registerDocsLiveListener(): Promise<() => void> {
             return;
         }
 
+        // Entries are unvalidated peer JSON with an id; the merges tolerate
+        // missing fields, as they always have.
         if (key.startsWith("book:")) {
-            try {
-                const parsed = JSON.parse(value);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
+            {
+                const parsed = parseSyncEntityEntry(key, value, { requireId: true }) as unknown as Book | null;
+                if (parsed) {
                     _progressiveBookBatch.push(parsed);
                     _progressiveRawEntries.set(`book:${parsed.id}`, value);
                     if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
                     _progressiveBookTimer = setTimeout(() => void withMergeLock(_flushProgressiveBooks), 200);
                 }
-            } catch {}
+            }
             return;
         }
         if (key.startsWith("annotation:") || key.startsWith("anno:")) {
-            try {
-                const parsed = JSON.parse(value);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
+            {
+                const parsed = parseSyncEntityEntry(key, value, { requireId: true }) as unknown as Annotation | null;
+                if (parsed) {
                     _progressiveAnnoBatch.push(parsed);
                     _progressiveRawEntries.set(annotationEntryKey(parsed), value);
                     if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
                     _progressiveAnnoTimer = setTimeout(() => void withMergeLock(_flushProgressiveAnnos), 200);
                 }
-            } catch {}
+            }
             return;
         }
         if (key.startsWith("collection:")) {
-            try {
-                const parsed = JSON.parse(value);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
+            {
+                const parsed = parseSyncEntityEntry(key, value, { requireId: true }) as unknown as Collection | null;
+                if (parsed) {
                     _progressiveCollectionBatch.push(parsed);
                     if (_progressiveCollectionTimer) clearTimeout(_progressiveCollectionTimer);
                     _progressiveCollectionTimer = setTimeout(() => void withMergeLock(_flushProgressiveCollections), 200);
                 }
-            } catch {}
+            }
             return;
         }
 
@@ -1917,8 +1915,8 @@ export async function startAutoSync(): Promise<() => void> {
                 void autoSyncRound(true); 
             });
             cleanups.push(unlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Tray sync listener could not be set up:", e);
         }
     }
 
@@ -1926,8 +1924,8 @@ export async function startAutoSync(): Promise<() => void> {
         try {
             const unlisten = await initDocsLiveListener();
             cleanups.push(unlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Live sync listener could not be set up:", e);
         }
     }
 
@@ -1949,13 +1947,13 @@ export async function startAutoSync(): Promise<() => void> {
                         debug(`[sync] Peer ${matched.deviceName} (${matched.deviceId}) came online — auto-syncing`);
                         void runDeviceSync(matched.deviceId);
                     }
-                } catch {
-                    
+                } catch (e) {
+                    console.error("[sync] Syncing with a peer that came online failed:", e);
                 }
             });
             cleanups.push(peerOnlineUnlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Peer-online listener could not be set up:", e);
         }
     }
 
@@ -1968,8 +1966,8 @@ export async function startAutoSync(): Promise<() => void> {
                 void autoSyncRound(true);
             });
             cleanups.push(docReimportedUnlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Doc re-import listener could not be set up:", e);
         }
     }
 
@@ -2003,8 +2001,8 @@ export async function startAutoSync(): Promise<() => void> {
             cleanups.push(await listen("paired-devices-changed", () => {
                 void getPairedDevices().then(noteSyncProtocols).catch(() => {});
             }));
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Sync listeners could not be set up:", e);
         }
     }
 
@@ -2032,7 +2030,10 @@ export async function docsCreateSyncDoc(peerDeviceId: string): Promise<string | 
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         return await invoke<string>("docs_create_sync_doc", { peerDeviceId });
-    } catch { return null; }
+    } catch (e) {
+        console.error("[sync] Creating the sync doc failed:", e);
+        return null;
+    }
 }
 
 export async function docsImportSyncDoc(
@@ -2043,7 +2044,10 @@ export async function docsImportSyncDoc(
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("docs_import_sync_doc", { peerDeviceId, ticketStr: ticket });
         return true;
-    } catch { return false; }
+    } catch (e) {
+        console.error("[sync] Importing the sync doc failed:", e);
+        return false;
+    }
 }
 
 export async function docsSetEntry(key: string, value: string): Promise<boolean> {
@@ -2051,7 +2055,10 @@ export async function docsSetEntry(key: string, value: string): Promise<boolean>
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("docs_set_entry", { key, value });
         return true;
-    } catch { return false; }
+    } catch (e) {
+        console.error(`[sync] Writing sync entry ${key} failed:`, e);
+        return false;
+    }
 }
 
 /**
@@ -2078,7 +2085,10 @@ export async function docsGetAllEntries(): Promise<Record<string, string> | null
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         return await invoke<Record<string, string>>("docs_get_all_entries");
-    } catch { return null; }
+    } catch (e) {
+        console.error("[sync] Reading sync entries failed:", e);
+        return null;
+    }
 }
 
 export async function docsSyncNow(peerDeviceId: string): Promise<string | null> {
@@ -2314,7 +2324,8 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
         );
         if (persisted) await acknowledge();
         return domainsUpdated;
-    } catch {
+    } catch (e) {
+        console.error("[sync] Reading the sync doc failed:", e);
         return [];
     }
 }
