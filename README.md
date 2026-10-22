@@ -54,9 +54,10 @@
 </table>
 
 <p align="center">
-  <img src="./Screenshots/mobile-library.png" alt="Theorem on Android: the library grid" width="230">
-  &nbsp;&nbsp;
-  <img src="./Screenshots/mobile-reader.png" alt="Theorem on Android: reading an EPUB" width="230">
+  <img src="./Screenshots/mobile-library.png" alt="Theorem on Android: the library grid" width="200">
+  <img src="./Screenshots/mobile-reader.png" alt="Theorem on Android: reading an EPUB with a highlight" width="200">
+  <img src="./Screenshots/mobile-discover.png" alt="Theorem on Android: Discover with the newest restored editions" width="200">
+  <img src="./Screenshots/mobile-workbench.png" alt="Theorem on Android: the Workbench listing highlights" width="200">
 </p>
 
 ---
