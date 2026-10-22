@@ -327,12 +327,7 @@ pub mod desktop {
             total_step: usize,
             speed: f32,
         ) -> Result<Vec<f32>, String> {
-            let max_chars = if lang == "ko" || lang == "ja" {
-                120
-            } else {
-                300
-            };
-            let chunks = chunk_text(text, max_chars);
+            let chunks = chunk_text(text, max_chunk_chars(lang));
             let mut out: Vec<f32> = Vec::new();
             let silence_len = (0.08 * self.sample_rate as f32) as usize;
             for (index, chunk) in chunks.iter().enumerate() {
@@ -360,91 +355,290 @@ pub mod desktop {
         latent
     }
 
-    /// Split text into synthesis chunks: paragraphs → sentences → commas → words.
+    /// Longest chunk the model is given at once, in characters. Korean and
+    /// Japanese pack far more speech into each character, so they get less.
+    pub fn max_chunk_chars(lang: &str) -> usize {
+        if lang == "ko" || lang == "ja" {
+            120
+        } else {
+            300
+        }
+    }
+
+    /// Sentence-final punctuation in alphabetic scripts (a run such as `...`,
+    /// `?!` or `…` counts as one terminator).
+    const TERMINATORS: &[char] = &['.', '!', '?', '…', '‼', '⁇', '⁈', '⁉'];
+    /// Full-width terminators: CJK writes no space after them, so they always end a sentence.
+    const CJK_TERMINATORS: &[char] = &['。', '！', '？', '｡'];
+    /// Closing quotes and brackets that belong to the sentence they follow.
+    const CLOSERS: &[char] = &[
+        '"', '\'', '”', '’', ')', ']', '}', '»', '›', '」', '』', '）', '】', '〉', '》', '〕',
+        '］', '｝',
+    ];
+    /// Opening quotes and brackets, skipped when looking at the next word.
+    const OPENERS: &[char] = &[
+        '"', '\'', '“', '‘', '(', '[', '{', '«', '‹', '「', '『', '（', '【', '〈', '《', '〔',
+    ];
+    /// Where an over-long sentence may be divided (the mark stays on the left).
+    const CLAUSE_BREAKS: &[char] = &[',', ';', ':', '、', '，', '；', '：'];
+    /// A line this short with no closing punctuation, followed by a capitalised
+    /// line, is a heading rather than a wrapped line of prose.
+    const HEADING_MAX_CHARS: usize = 60;
+    /// Abbreviations that do not end a sentence even before a capital letter
+    /// (compared lowercase, without the final dot).
+    const NON_TERMINAL_ABBREVIATIONS: &[&str] = &[
+        "mr", "mrs", "ms", "mx", "dr", "prof", "st", "gen", "col", "lt", "capt", "cpt", "sgt",
+        "rev", "hon", "maj", "cmdr", "adm", "gov", "pres", "sen", "rep", "fr", "mt", "ft", "jr",
+        "sr", "vs", "v", "e.g", "i.e", "cf", "fig", "figs", "pp", "p", "ch", "chap", "vol", "vols",
+        "approx", "dept", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct",
+        "nov", "dec", "u.s", "u.k", "u.n", "u.s.a", "e.u",
+    ];
+    /// Abbreviations that only stay inside the sentence before a number ("No. 5"):
+    /// "no." is also an ordinary word that ends sentences.
+    const NUMBER_ABBREVIATIONS: &[&str] = &["no", "nos"];
+
+    fn is_terminator(c: char) -> bool {
+        TERMINATORS.contains(&c) || CJK_TERMINATORS.contains(&c)
+    }
+
+    fn has_speech(text: &str) -> bool {
+        text.chars().any(char::is_alphanumeric)
+    }
+
+    /// Split text into synthesis chunks, one sentence each: blocks (paragraphs
+    /// and headings) → sentences → for a sentence over `max_chars`, clauses
+    /// packed greedily → words → characters. Chunks are slices of the input,
+    /// trimmed; nothing is added, and chunks with nothing to say are dropped.
     pub fn chunk_text(text: &str, max_chars: usize) -> Vec<String> {
+        let max_chars = max_chars.max(1);
         let mut chunks = Vec::new();
-        for paragraph in text.split("\n\n") {
-            for sentence in split_sentences(paragraph) {
+        for block in split_blocks(text) {
+            for sentence in split_sentences(&block) {
                 if sentence.chars().count() <= max_chars {
-                    chunks.push(sentence);
-                    continue;
-                }
-                for part in sentence.split_in_place_by(|c| c == ',' || c == ';' || c == ':') {
-                    let part = part.trim();
-                    if part.is_empty() {
-                        continue;
-                    }
-                    if part.chars().count() <= max_chars {
-                        chunks.push(format!("{part},"));
-                        continue;
-                    }
-                    // Last resort: hard word-wrap.
-                    let mut current = String::new();
-                    for word in part.split_whitespace() {
-                        if current.chars().count() + word.len() + 1 > max_chars
-                            && !current.is_empty()
-                        {
-                            chunks.push(current.trim().to_string());
-                            current.clear();
-                        }
-                        current.push_str(word);
-                        current.push(' ');
-                    }
-                    if !current.trim().is_empty() {
-                        chunks.push(current.trim().to_string());
-                    }
+                    chunks.push(sentence.to_string());
+                } else {
+                    pack_long_sentence(sentence, max_chars, &mut chunks);
                 }
             }
         }
-        // Text without a sentence boundary is one chunk; blank text has nothing to say.
-        let trimmed = text.trim();
-        if chunks.is_empty() && !trimmed.is_empty() {
-            chunks.push(trimmed.to_string());
-        }
+        chunks.retain(|c| has_speech(c));
         chunks
     }
 
-    trait SplitInPlaceBy {
-        fn split_in_place_by(&self, pred: impl Fn(char) -> bool) -> Vec<&str>;
+    /// Paragraphs (blank lines) and headings (a short unpunctuated line before
+    /// a capitalised one) each start a new block; other line breaks are wraps.
+    fn split_blocks(text: &str) -> Vec<String> {
+        let lines: Vec<&str> = text.split('\n').map(str::trim).collect();
+        let mut blocks = Vec::new();
+        let mut current = String::new();
+        for (index, line) in lines.iter().enumerate() {
+            if line.is_empty() {
+                if !current.is_empty() {
+                    blocks.push(std::mem::take(&mut current));
+                }
+                continue;
+            }
+            if !current.is_empty() {
+                current.push(' ');
+            }
+            current.push_str(line);
+            if is_heading_line(line, lines.get(index + 1).copied()) {
+                blocks.push(std::mem::take(&mut current));
+            }
+        }
+        if !current.is_empty() {
+            blocks.push(current);
+        }
+        blocks
     }
-    impl SplitInPlaceBy for str {
-        fn split_in_place_by(&self, pred: impl Fn(char) -> bool) -> Vec<&str> {
-            self.split_terminator(pred).collect()
+
+    fn is_heading_line(line: &str, next: Option<&str>) -> bool {
+        let Some(next) = next.filter(|n| !n.is_empty()) else {
+            return false;
+        };
+        if line.chars().count() > HEADING_MAX_CHARS {
+            return false;
+        }
+        let core = line.trim_end_matches(CLOSERS);
+        match core.chars().last() {
+            Some(c) if is_terminator(c) || CLAUSE_BREAKS.contains(&c) || c == '-' => return false,
+            None => return false,
+            _ => {}
+        }
+        // Capitalised (or caseless, as in CJK) next line: a new block starts.
+        next.chars()
+            .find(|c| !OPENERS.contains(c))
+            .is_some_and(|c| (c.is_alphabetic() && !c.is_lowercase()) || c.is_numeric())
+    }
+
+    /// Sentences of one block, as trimmed slices. A terminator run ends a
+    /// sentence (with any closing quotes/brackets) when whitespace and a word
+    /// that is not lowercase follow, unless the word before it is an
+    /// abbreviation or an initial. Full-width terminators always end one.
+    fn split_sentences(block: &str) -> Vec<&str> {
+        let mut sentences: Vec<&str> = Vec::new();
+        let mut start = 0usize;
+        let mut i = 0usize;
+        while let Some(ch) = block[i..].chars().next() {
+            if !is_terminator(ch) {
+                i += ch.len_utf8();
+                continue;
+            }
+            let run_start = i;
+            let mut cjk = false;
+            let mut j = i;
+            while let Some(c) = block[j..].chars().next().filter(|c| is_terminator(*c)) {
+                cjk |= CJK_TERMINATORS.contains(&c);
+                j += c.len_utf8();
+            }
+            let run_end = j;
+            while let Some(c) = block[j..].chars().next().filter(|c| CLOSERS.contains(c)) {
+                j += c.len_utf8();
+            }
+            let end = j;
+            let rest = &block[end..];
+            let after = rest.trim_start();
+            let spaced = after.len() < rest.len();
+            // No space after it ("3.5", "example.com") or a lowercase word next
+            // ("Wait... what?", "\"Stop!\" she cried"): the sentence goes on.
+            let continues = !spaced
+                || after
+                    .chars()
+                    .find(|c| !OPENERS.contains(c))
+                    .is_some_and(char::is_lowercase);
+            let ends = if after.is_empty() || cjk {
+                true
+            } else if continues {
+                false
+            } else if &block[run_start..run_end] == "." && end == run_end {
+                !is_non_terminal_abbreviation(&block[start..run_start], after)
+            } else {
+                true
+            };
+            if ends {
+                push_sentence(&mut sentences, block, start, end);
+                start = end;
+            }
+            i = end;
+        }
+        push_sentence(&mut sentences, block, start, block.len());
+        sentences
+    }
+
+    /// Adds `block[start..end]`; a piece with nothing to say (a lone `...`)
+    /// joins the sentence before it instead of becoming a chunk.
+    fn push_sentence<'a>(sentences: &mut Vec<&'a str>, block: &'a str, start: usize, end: usize) {
+        let piece = block[start..end].trim();
+        if piece.is_empty() {
+            return;
+        }
+        if !has_speech(piece) {
+            if let Some(last) = sentences.last_mut() {
+                // Both are slices of `block`: widen the previous one over the piece.
+                let last_start = last.as_ptr() as usize - block.as_ptr() as usize;
+                *last = block[last_start..end].trim();
+            }
+            return;
+        }
+        sentences.push(piece);
+    }
+
+    fn is_non_terminal_abbreviation(before: &str, after: &str) -> bool {
+        let token = before
+            .rsplit(char::is_whitespace)
+            .next()
+            .unwrap_or("")
+            .trim_start_matches(OPENERS);
+        let mut letters = token.chars();
+        if let (Some(c), None) = (letters.next(), letters.next()) {
+            // An initial ("J. R. R. Tolkien"), but "I." is the pronoun.
+            return c.is_uppercase() && c != 'I';
+        }
+        let lower = token.to_lowercase();
+        if NON_TERMINAL_ABBREVIATIONS.contains(&lower.as_str()) {
+            return true;
+        }
+        NUMBER_ABBREVIATIONS.contains(&lower.as_str())
+            && after.chars().next().is_some_and(|c| c.is_ascii_digit())
+    }
+
+    /// Divide an over-long sentence at clause marks, packing as many clauses
+    /// into each chunk as fit; a clause that alone is too long is word-wrapped.
+    fn pack_long_sentence(sentence: &str, max_chars: usize, out: &mut Vec<String>) {
+        let mut clause_ends: Vec<usize> = sentence
+            .char_indices()
+            .filter(|(_, c)| CLAUSE_BREAKS.contains(c))
+            .map(|(i, c)| i + c.len_utf8())
+            .collect();
+        if clause_ends.last() != Some(&sentence.len()) {
+            clause_ends.push(sentence.len());
+        }
+        let mut chunk_start = 0usize;
+        let mut chunk_end = 0usize;
+        for clause_end in clause_ends {
+            let candidate = sentence[chunk_start..clause_end].trim();
+            if candidate.chars().count() <= max_chars {
+                chunk_end = clause_end;
+                continue;
+            }
+            if chunk_end > chunk_start {
+                out.push(sentence[chunk_start..chunk_end].trim().to_string());
+                chunk_start = chunk_end;
+            }
+            let clause = sentence[chunk_start..clause_end].trim();
+            if clause.chars().count() <= max_chars {
+                chunk_end = clause_end;
+            } else {
+                wrap_words(clause, max_chars, out);
+                chunk_start = clause_end;
+                chunk_end = clause_end;
+            }
+        }
+        if chunk_end > chunk_start {
+            let tail = sentence[chunk_start..chunk_end].trim();
+            if !tail.is_empty() {
+                out.push(tail.to_string());
+            }
         }
     }
 
-    fn split_sentences(text: &str) -> Vec<String> {
-        let abbreviations = [
-            "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "e.g.", "i.e.", "etc.", "vs.", "St.", "Sr.",
-            "Jr.",
-        ];
-        let mut sentences = Vec::new();
+    /// Last resort: wrap at spaces, and cut words (or unspaced CJK runs) longer
+    /// than the limit by characters.
+    fn wrap_words(text: &str, max_chars: usize, out: &mut Vec<String>) {
         let mut current = String::new();
-        let mut chars = text.chars().peekable();
-        while let Some(ch) = chars.next() {
-            current.push(ch);
-            if matches!(ch, '.' | '!' | '?') {
-                // Look ahead: sentence end unless followed by a lowercase letter,
-                // a digit, or an abbreviation.
-                let next_is_lower = chars.peek().map(|c| c.is_lowercase()).unwrap_or(false);
-                let next_is_digit = chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false);
-                let is_abbreviation = abbreviations
-                    .iter()
-                    .any(|abbr| current.trim_end().ends_with(abbr));
-                if !next_is_lower && !next_is_digit && !is_abbreviation {
-                    let trimmed = current.trim();
-                    if !trimmed.is_empty() {
-                        sentences.push(trimmed.to_string());
-                    }
-                    current.clear();
+        let mut current_len = 0usize;
+        for word in text.split_whitespace() {
+            let word_len = word.chars().count();
+            if word_len > max_chars {
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
                 }
+                current_len = 0;
+                for c in word.chars() {
+                    if current_len == max_chars {
+                        out.push(std::mem::take(&mut current));
+                        current_len = 0;
+                    }
+                    current.push(c);
+                    current_len += 1;
+                }
+                continue;
             }
+            let sep = usize::from(!current.is_empty());
+            if current_len + sep + word_len > max_chars {
+                out.push(std::mem::take(&mut current));
+                current_len = 0;
+            }
+            if !current.is_empty() {
+                current.push(' ');
+                current_len += 1;
+            }
+            current.push_str(word);
+            current_len += word_len;
         }
-        let trimmed = current.trim();
-        if !trimmed.is_empty() {
-            sentences.push(trimmed.to_string());
+        if !current.is_empty() {
+            out.push(current);
         }
-        sentences
     }
 
     /// Load the voice style vectors from `voices/<name>.json`.
@@ -782,12 +976,7 @@ pub mod desktop {
     /// Sentence-aware chunk list for streaming synthesis (frontend feeds
     /// chunks one by one so audio starts after the first one is ready).
     pub fn tts_text_chunks_impl(text: String, lang: String) -> Result<Vec<String>, String> {
-        let max_chars = if lang == "ko" || lang == "ja" {
-            120
-        } else {
-            300
-        };
-        Ok(chunk_text(&text, max_chars))
+        Ok(chunk_text(&text, max_chunk_chars(&lang)))
     }
 
     /// Engine readiness for the frontend.
@@ -838,6 +1027,201 @@ pub mod desktop {
             assert!(chunks.len() > 1);
             assert!(chunks.iter().all(|c| c.chars().count() <= 100));
             assert_eq!(chunks.join(" ").split_whitespace().count(), 200);
+        }
+
+        fn chunks(text: &str) -> Vec<String> {
+            chunk_text(text, 300)
+        }
+
+        /// No chunk may be only punctuation or whitespace: the model reads those as noise.
+        fn assert_speakable(chunks: &[String]) {
+            for c in chunks {
+                assert!(
+                    c.chars().any(char::is_alphanumeric),
+                    "punctuation-only chunk {c:?}"
+                );
+                assert_eq!(c.trim(), c, "untrimmed chunk {c:?}");
+            }
+        }
+
+        #[test]
+        fn closing_quotes_and_brackets_stay_with_their_sentence() {
+            assert_eq!(chunks("\"Hello.\" He said."), ["\"Hello.\"", "He said."]);
+            assert_eq!(
+                chunks("\u{201C}Stop!\u{201D} She ran. (He left.) Then she came."),
+                [
+                    "\u{201C}Stop!\u{201D}",
+                    "She ran.",
+                    "(He left.)",
+                    "Then she came."
+                ]
+            );
+            assert_eq!(
+                chunks("'Really?' asked Tom. [Sic.] Done."),
+                ["'Really?' asked Tom.", "[Sic.]", "Done."]
+            );
+        }
+
+        #[test]
+        fn ellipses_are_one_terminator_and_never_a_chunk_of_their_own() {
+            assert_eq!(
+                chunks("Wait... what? He paused... then left."),
+                ["Wait... what?", "He paused... then left."]
+            );
+            assert_eq!(chunks("Wait\u{2026} What?"), ["Wait\u{2026}", "What?"]);
+            assert_eq!(chunks("Really?! Yes."), ["Really?!", "Yes."]);
+            let c = chunks("Hello. ... World. \u{2026} Done.");
+            assert_speakable(&c);
+            assert_eq!(c.concat().matches("World").count(), 1);
+            assert!(chunks("...").is_empty());
+            assert!(chunks("* * *").is_empty());
+            assert!(chunks("\u{2026} ! ?").is_empty());
+        }
+
+        #[test]
+        fn continuation_is_judged_by_the_word_after_the_space() {
+            // A lowercase word after the gap continues the sentence.
+            assert_eq!(
+                chunks("\"Stop!\" she cried. Then quiet."),
+                ["\"Stop!\" she cried.", "Then quiet."]
+            );
+            assert_eq!(
+                chunks("He said \"Go.\" and left."),
+                ["He said \"Go.\" and left."]
+            );
+            // No space after the dot is not a sentence end (decimals, domains).
+            assert_eq!(
+                chunks("It grew 3.5 times at example.com today."),
+                ["It grew 3.5 times at example.com today."]
+            );
+        }
+
+        #[test]
+        fn abbreviations_and_initials_do_not_end_sentences() {
+            assert_eq!(
+                chunks("Gen. Grant met Lt. Col. Smith at 3 p.m. on Jan. 5, 1864. They spoke."),
+                [
+                    "Gen. Grant met Lt. Col. Smith at 3 p.m. on Jan. 5, 1864.",
+                    "They spoke."
+                ]
+            );
+            assert_eq!(
+                chunks("The U.S. economy grew. The U.K. Parliament met."),
+                ["The U.S. economy grew.", "The U.K. Parliament met."]
+            );
+            assert_eq!(
+                chunks(
+                    "See Fig. 3 and pp. 12-14 for details. Also cf. ch. 4 and vol. 2. No. 7 won."
+                ),
+                [
+                    "See Fig. 3 and pp. 12-14 for details.",
+                    "Also cf. ch. 4 and vol. 2.",
+                    "No. 7 won."
+                ]
+            );
+            assert_eq!(
+                chunks("J. R. R. Tolkien wrote it. George W. Bush read it."),
+                ["J. R. R. Tolkien wrote it.", "George W. Bush read it."]
+            );
+            assert_eq!(
+                chunks("Mr. and Mrs. Smith met Dr. Jones, Prof. Plum, Ms. Lee, St. John, Capt. Hook, Sgt. Pepper, Rev. Green and Hon. Ward. Mr. Smith Jr. and Sr. Ortiz came. Bob vs. Al, e.g. Paris, i.e. France."),
+                [
+                    "Mr. and Mrs. Smith met Dr. Jones, Prof. Plum, Ms. Lee, St. John, Capt. Hook, Sgt. Pepper, Rev. Green and Hon. Ward.",
+                    "Mr. Smith Jr. and Sr. Ortiz came.",
+                    "Bob vs. Al, e.g. Paris, i.e. France.",
+                ]
+            );
+            // Months, and the ones that can end a sentence still do before a capital.
+            assert_eq!(
+                chunks("Born on Feb. 3 and died Dec. 9. The meeting ended at 5 p.m. Everyone left, etc. Then quiet."),
+                ["Born on Feb. 3 and died Dec. 9.", "The meeting ended at 5 p.m.", "Everyone left, etc.", "Then quiet."]
+            );
+        }
+
+        #[test]
+        fn long_sentences_are_packed_at_commas_up_to_the_limit() {
+            let sentence = "He said, \"I have three things to say: first, that the long and winding road, which nobody had ever travelled before, led nowhere at all; second, that the old man, who had lived in the village for more than eighty years and had seen everything there was to see, knew this perfectly well; and third, that nobody would ever believe him, no matter how many times he said it, because that is simply how people are.\"";
+            assert!(sentence.chars().count() > 300);
+            let c = chunks(sentence);
+            assert_speakable(&c);
+            assert_eq!(c.len(), 2, "{c:?}");
+            assert!(c.iter().all(|x| x.chars().count() <= 300));
+            // Split only where the text has a comma, semicolon or colon; nothing added.
+            assert!(c[0].ends_with([',', ';', ':']), "{:?}", c[0]);
+            assert_eq!(c.join(" "), sentence);
+            // A sentence that fits is never split at its commas.
+            let short = "One, two, three, four, five, six, seven, eight, nine, ten.";
+            assert_eq!(chunks(short), [short]);
+        }
+
+        #[test]
+        fn cjk_splits_on_full_width_terminators_within_the_language_limit() {
+            let ja = "吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。吾輩はここで始めて人間というものを見た。しかもあとで聞くとそれは書生という人間中で一番獰悪な種族であったそうだ。この書生というのは時々我々を捕えて煮て食うという話である。しかしその当時は何という考もなかったから別段恐しいとも思わなかった。ただ彼の掌に載せられてスーと持ち上げられた時何だかフワフワした感じがあったばかりである。";
+            assert!(ja.chars().count() > 200);
+            let c = chunk_text(ja, max_chunk_chars("ja"));
+            assert_eq!(c.len(), ja.matches('。').count(), "{c:?}");
+            assert!(c
+                .iter()
+                .all(|x| x.ends_with('。') && x.chars().count() <= 120));
+            assert_eq!(c.concat(), ja);
+
+            assert_eq!(
+                chunks("这是第一句话。这是第二句话！这是第三句话？"),
+                ["这是第一句话。", "这是第二句话！", "这是第三句话？"]
+            );
+            assert_eq!(
+                chunks("「はい。」「いいえ。」"),
+                ["「はい。」", "「いいえ。」"]
+            );
+
+            // A run with no punctuation at all is cut by characters, not lost or left too long.
+            let run: String = "猫".repeat(250);
+            let c = chunk_text(&run, 120);
+            assert!(c.iter().all(|x| x.chars().count() <= 120), "{c:?}");
+            assert_eq!(c.concat(), run);
+            // Full-width commas are clause breaks for packing.
+            let long = format!(
+                "{}、{}、{}。",
+                "あ".repeat(70),
+                "い".repeat(70),
+                "う".repeat(70)
+            );
+            let c = chunk_text(&long, 120);
+            assert_eq!(c.len(), 3, "{c:?}");
+            assert_eq!(c.concat(), long);
+        }
+
+        #[test]
+        fn headings_and_paragraph_breaks_end_a_chunk() {
+            assert_eq!(
+                chunks("Chapter One\nIt was a dark and stormy night."),
+                ["Chapter One", "It was a dark and stormy night."]
+            );
+            assert_eq!(
+                chunks("CHAPTER IV\n\nThe Return\n\"Hello,\" said Tom."),
+                ["CHAPTER IV", "The Return", "\"Hello,\" said Tom."]
+            );
+            assert_eq!(
+                chunks("First paragraph without a stop\n\nsecond paragraph here."),
+                ["First paragraph without a stop", "second paragraph here."]
+            );
+            // A line wrapped inside a sentence is not a heading.
+            assert_eq!(
+                chunks("It was the best of times, it was the worst\nof times, it was the age of wisdom."),
+                ["It was the best of times, it was the worst of times, it was the age of wisdom."]
+            );
+            assert_eq!(
+                chunks("Line one\r\n\r\nLine two."),
+                ["Line one", "Line two."]
+            );
+        }
+
+        #[test]
+        fn language_limits() {
+            assert_eq!(max_chunk_chars("ja"), 120);
+            assert_eq!(max_chunk_chars("ko"), 120);
+            assert_eq!(max_chunk_chars("en"), 300);
+            assert_eq!(max_chunk_chars("fr"), 300);
         }
 
         #[test]

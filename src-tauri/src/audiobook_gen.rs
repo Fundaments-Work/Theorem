@@ -328,9 +328,10 @@ pub mod engine {
             let chunk_start_sec = granule as f64 / TARGET_SAMPLE_RATE as f64;
             let normalized_section =
                 crate::text_normalizer::normalize_speech_text(&section.text, lang);
-            for (chunk_idx, chunk) in desktop::chunk_text(&normalized_section, 300)
-                .into_iter()
-                .enumerate()
+            for (chunk_idx, chunk) in
+                desktop::chunk_text(&normalized_section, desktop::max_chunk_chars(lang))
+                    .into_iter()
+                    .enumerate()
             {
                 // A section can be many minutes of speech; honour cancel per chunk.
                 if cancel.load(Ordering::SeqCst) {

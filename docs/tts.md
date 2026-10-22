@@ -57,8 +57,14 @@ releases and verified against a SHA-256 manifest compiled into the app.
   `load-dynamic` runs the pipeline — preprocess (NFKD, symbol expansion,
   `<lang>` wrap) → unicode indexing → duration predictor → text encoder →
   8-step vector-estimator denoising → vocoder → 44.1kHz mono PCM.
-  Sentence-aware chunking (<300 chars) with abbreviation-aware splitting and
-  0.3s silence joins.
+  Sentence-aware chunking (`chunk_text`, at most 300 characters, 120 for
+  Japanese and Korean): paragraph breaks and headings end a chunk; a sentence
+  keeps its closing quotes and brackets; `...`/`…` is one terminator and a
+  chunk is never punctuation only; abbreviations (Mr., Gen., Lt., p.m.,
+  Jan., U.S., e.g. …) and initials do not end a sentence, nor does a stop
+  followed by a lowercase word; `。！？` always do. A sentence over the limit is
+  packed greedily at commas, semicolons and colons, then wrapped at words
+  (characters for unspaced CJK). Chunks are joined with short silences.
 - **Cache + prefetch**: synthesized audio is cached as WAV keyed by
   SHA-256(text + voice + speed) with a 1GB LRU cap — replays are instant and
   `tts_prefetch` warms the next chunk while the current one plays.
