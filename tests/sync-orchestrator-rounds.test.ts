@@ -517,3 +517,25 @@ describe("live book entries are saved", () => {
         expect(saved).toEqual(["b9"]);
     });
 });
+
+describe("live deletions reach SQLite", () => {
+    it("a deletion received between rounds is applied to the database, not only the store", async () => {
+        const merged: Array<Record<string, string>> = [];
+        ipc.sqlite_merge_sync_entries = (args) => {
+            merged.push(args.entries as Record<string, string>);
+            return {
+                domainsUpdated: ["deletion_tombstones"], booksCount: 0, annotationsCount: 0,
+                updatedBooks: [], deletedBooks: ["b1"], updatedAnnotations: [], deletedAnnotations: [],
+                updatedVocabulary: [], deletedVocabulary: [], updatedRssArticles: [], deletedRssArticles: [],
+            };
+        };
+        vi.useFakeTimers();
+        await orch.initDocsLiveListener();
+        const tomb = [{ entityType: "book", entityId: "b1", deletedAt: new Date().toISOString() }];
+        emit("docs-entry-batch", { entries: [{ key: "deletion_tombstones", value: JSON.stringify(tomb) }] });
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(lib().getBook("b1")).toBeUndefined();
+        expect(merged).toHaveLength(1);
+        expect(JSON.parse(merged[0].deletion_tombstones)).toEqual([expect.objectContaining({ entityId: "b1" })]);
+    });
+});

@@ -1396,7 +1396,7 @@ function _flushPendingTombstones() {
     void withMergeLock(_flushPendingTombstonesNow);
 }
 
-function _flushPendingTombstonesNow() {
+async function _flushPendingTombstonesNow(): Promise<void> {
     const value = _pendingTombstonesValue;
     _pendingTombstonesValue = null;
     if (value == null) return;
@@ -1420,6 +1420,13 @@ function _flushPendingTombstonesNow() {
                     if (keptIds.has(ann.id)) continue;
                     void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
                 }
+            }
+            // Apply the deletions to SQLite too (books, their metadata and
+            // annotations, words, articles), or a restart before the next
+            // round brings the deleted items back from the database.
+            if (isTauri()) {
+                await sqliteMergeSyncEntries({ deletion_tombstones: JSON.stringify(mergedTombstones) })
+                    .catch((e) => warnMergeFailure("deletion_tombstones (SQLite)", e));
             }
         }
     } catch (e) {
