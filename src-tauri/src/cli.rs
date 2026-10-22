@@ -17,9 +17,12 @@
 //! This module is desktop-only: on Android the GUI is the only surface, and
 //! keeping the CLI out of the build preserves the 0 MB APK footprint.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::io::{IsTerminal, Seek, SeekFrom, Write as _};
 use std::path::PathBuf;
+
+use rusqlite::OptionalExtension;
 
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -35,6 +38,9 @@ const LOGO: &str = r"
    ╚═╝   ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝";
 
 // ── Output ───────────────────────────────────────────────────────────────────
+
+/// Exit code for a command line that does not make sense (as clap uses).
+const EXIT_USAGE: i32 = 2;
 
 /// Shared output policy: `--json` for machine consumption, ANSI color only
 /// when writing to a real terminal (piped output stays machine-parseable).
@@ -774,109 +780,142 @@ pub(crate) fn resolve_book_path(ctx: &Ctx, book_id: &str) -> Result<Option<PathB
         .map(|opt| opt.map(PathBuf::from))
 }
 
-// ── library store (zustand:theorem-library kv envelope) ─────────────────────
+// ── library store ────────────────────────────────────────────────────────────
+//
+// Books live in SQLite, as the 1.6.0 app keeps them: one `book_metadata` row
+// per book (the book record as JSON), a `books` row, the file in
+// `book-cache/{id}.book`, the cover in `covers` and title/author in
+// `books_fts`. Annotations are `book_annotations` rows. Only shelves
+// (collections) and deletion tombstones are still in the app's persisted KV
+// copy of the library store, `zustand:theorem-library`; its `books` and
+// `annotations` lists are left alone (the app only keeps records there that
+// are still waiting to move into SQLite).
 
-/// The GUI's library list persists through the zustand↔SQLite adapter as a
-/// `zustand:theorem-library` kv row: `{"state": {books, collections,
-/// deletionTombstones, ...}, "version": N}`. The CLI mutates the same row so
-/// the GUI picks the changes up on its next launch.
 const LIBRARY_KV_KEY: &str = "zustand:theorem-library";
-const LIBRARY_KV_VERSION: u64 = 6;
+/// The persisted library store's version in 1.6.0 (`libraryStore.ts`).
+const LIBRARY_KV_VERSION: u64 = 11;
+const LIBRARY_STORE: &str = "Library store";
 
-pub(crate) struct LibraryKv {
-    envelope: serde_json::Value,
+fn empty_library_envelope() -> serde_json::Value {
+    serde_json::json!({
+        "state": {
+            "books": [],
+            "annotations": [],
+            "collections": [],
+            "deletionTombstones": [],
+        },
+        "version": LIBRARY_KV_VERSION,
+    })
 }
 
-impl LibraryKv {
-    pub(crate) fn load(ctx: &Ctx) -> Result<Self, String> {
-        let raw = ctx.kv_get(LIBRARY_KV_KEY)?;
-        let envelope = match raw {
-            Some(text) => serde_json::from_str(&text)
-                .map_err(|e| format!("Library store is malformed: {e}"))?,
-            None => serde_json::json!({
-                "state": { "books": [], "collections": [], "deletionTombstones": [] },
-                "version": LIBRARY_KV_VERSION,
-            }),
+/// The `state` object of a persisted zustand envelope. A missing `state` is
+/// created; anything that is not an object is an error, never a panic.
+fn envelope_state<'a>(
+    envelope: &'a mut serde_json::Value,
+    store: &str,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>, String> {
+    let root = envelope
+        .as_object_mut()
+        .ok_or_else(|| format!("{store} is malformed: it is not a JSON object"))?;
+    let state = root.entry("state").or_insert_with(|| serde_json::json!({}));
+    if state.is_null() {
+        *state = serde_json::json!({});
+    }
+    state
+        .as_object_mut()
+        .ok_or_else(|| format!("{store} is malformed: \"state\" is not an object"))
+}
+
+/// A list field of a store's state, created when missing or null.
+fn state_list<'a>(
+    state: &'a mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    store: &str,
+) -> Result<&'a mut Vec<serde_json::Value>, String> {
+    let value = state.entry(key).or_insert_with(|| serde_json::json!([]));
+    if value.is_null() {
+        *value = serde_json::json!([]);
+    }
+    value
+        .as_array_mut()
+        .ok_or_else(|| format!("{store} is malformed: \"{key}\" is not a list"))
+}
+
+/// Read a KV envelope for a read-only command.
+fn read_kv_envelope(
+    ctx: &Ctx,
+    key: &str,
+    store: &str,
+    empty: fn() -> serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match ctx.kv_get(key)? {
+        Some(text) => serde_json::from_str(&text).map_err(|e| format!("{store} is malformed: {e}")),
+        None => Ok(empty()),
+    }
+}
+
+/// Read-modify-write a KV envelope inside one `BEGIN IMMEDIATE` transaction:
+/// concurrent CLI writers queue on SQLite's write lock instead of reading the
+/// same old copy and overwriting each other's changes. `f` also gets the
+/// transaction's connection for checks that must see the same snapshot. When
+/// `f` fails nothing is written.
+fn update_kv_envelope<T>(
+    ctx: &Ctx,
+    key: &str,
+    store: &str,
+    empty: fn() -> serde_json::Value,
+    f: impl FnOnce(&rusqlite::Connection, &mut serde_json::Value) -> Result<T, String>,
+) -> Result<T, String> {
+    ctx.store.with_connection(|conn| {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+        let mut envelope = match crate::database::sqlite_get_kv_inner(&tx, key)? {
+            Some(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(value) => value,
+                Err(e) => return Ok(Err(format!("{store} is malformed: {e}"))),
+            },
+            None => empty(),
         };
-        let mut inst = Self { envelope };
-        if inst.books().is_empty() {
-            if let Ok(book_strings) = ctx
-                .store
-                .with_connection(crate::database::sqlite_load_all_books_inner)
-            {
-                let parsed: Vec<serde_json::Value> = book_strings
-                    .into_iter()
-                    .filter_map(|s| serde_json::from_str(&s).ok())
-                    .collect();
-                if !parsed.is_empty() {
-                    *inst.books() = parsed;
-                }
-            }
-        }
-        Ok(inst)
-    }
+        let value = match f(&tx, &mut envelope) {
+            Ok(value) => value,
+            Err(e) => return Ok(Err(e)),
+        };
+        let text = match serde_json::to_string(&envelope) {
+            Ok(text) => text,
+            Err(e) => return Ok(Err(format!("Failed to serialize {store}: {e}"))),
+        };
+        crate::database::sqlite_set_kv_inner(&tx, key, &text)?;
+        tx.commit()?;
+        Ok(Ok(value))
+    })?
+}
 
-    fn save(&self, ctx: &Ctx) -> Result<(), String> {
-        let text = serde_json::to_string(&self.envelope)
-            .map_err(|e| format!("Failed to serialize library store: {e}"))?;
-        ctx.kv_set(LIBRARY_KV_KEY, &text)
-    }
+fn update_library_kv<T>(
+    ctx: &Ctx,
+    f: impl FnOnce(&rusqlite::Connection, &mut serde_json::Value) -> Result<T, String>,
+) -> Result<T, String> {
+    update_kv_envelope(
+        ctx,
+        LIBRARY_KV_KEY,
+        LIBRARY_STORE,
+        empty_library_envelope,
+        f,
+    )
+}
 
-    fn state(&mut self) -> &mut serde_json::Value {
-        self.envelope
-            .as_object_mut()
-            .expect("library envelope is an object")
-            .entry("state")
-            .or_insert_with(|| serde_json::json!({}))
-    }
+fn library_collections(ctx: &Ctx) -> Result<Vec<serde_json::Value>, String> {
+    let mut envelope =
+        read_kv_envelope(ctx, LIBRARY_KV_KEY, LIBRARY_STORE, empty_library_envelope)?;
+    let state = envelope_state(&mut envelope, LIBRARY_STORE)?;
+    Ok(state_list(state, "collections", LIBRARY_STORE)?.clone())
+}
 
-    pub(crate) fn books(&mut self) -> &mut Vec<serde_json::Value> {
-        self.state()
-            .as_object_mut()
-            .expect("library state is an object")
-            .entry("books")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("books is an array")
-    }
-
-    fn collections(&mut self) -> &mut Vec<serde_json::Value> {
-        self.state()
-            .as_object_mut()
-            .expect("library state is an object")
-            .entry("collections")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("collections is an array")
-    }
-
-    fn book_position(&self, book_id: &str) -> Option<usize> {
-        self.envelope
-            .get("state")
-            .and_then(|s| s.get("books"))
-            .and_then(|b| b.as_array())
-            .and_then(|books| {
-                books
-                    .iter()
-                    .position(|b| b.get("id").and_then(|v| v.as_str()) == Some(book_id))
-            })
-    }
-
-    fn add_tombstone(&mut self, entity_id: &str, entity_type: &str) {
-        let tombstone = serde_json::json!({
-            "entityId": entity_id,
-            "entityType": entity_type,
-            "deletedAt": now_iso(),
-        });
-        self.state()
-            .as_object_mut()
-            .expect("library state is an object")
-            .entry("deletionTombstones")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("deletionTombstones is an array")
-            .push(tombstone);
-    }
+fn tombstone(entity_id: &str, entity_type: &str) -> serde_json::Value {
+    serde_json::json!({
+        "entityId": entity_id,
+        "entityType": entity_type,
+        "deletedAt": now_iso(),
+    })
 }
 
 pub(crate) fn now_iso() -> String {
@@ -893,6 +932,114 @@ pub(crate) fn book_title(book: &serde_json::Value) -> String {
 
 pub(crate) fn book_author(book: &serde_json::Value) -> String {
     book_str(book, "author").unwrap_or("").to_string()
+}
+
+/// Every book in the library (`book_metadata`), sorted by title. Rows that
+/// are not valid JSON objects are skipped.
+pub(crate) fn load_books(ctx: &Ctx) -> Result<Vec<serde_json::Value>, String> {
+    let rows = ctx
+        .store
+        .with_connection(crate::database::sqlite_load_all_books_inner)?;
+    let mut books: Vec<serde_json::Value> = rows
+        .iter()
+        .filter_map(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .filter(|book| book.is_object() && book_str(book, "id").is_some())
+        .collect();
+    books.sort_by_cached_key(|book| book_title(book).to_lowercase());
+    Ok(books)
+}
+
+/// One book's record, or `None` when the library has no such book.
+fn load_book(ctx: &Ctx, book_id: &str) -> Result<Option<serde_json::Value>, String> {
+    let raw = ctx
+        .store
+        .with_connection(|conn| crate::database::sqlite_get_book_metadata_inner(conn, book_id))?;
+    match raw {
+        None => Ok(None),
+        Some(text) => serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .filter(|book| book.is_object())
+            .map(Some)
+            .ok_or_else(|| format!("book '{book_id}' has a malformed record")),
+    }
+}
+
+fn book_not_found(book_id: &str) -> String {
+    format!("book '{book_id}' not found in library")
+}
+
+/// The details a user edits; sync treats them as one unit
+/// (`BOOK_EDITABLE_FIELDS` in `book-edit-stamp.ts`).
+const BOOK_EDITABLE_FIELDS: &[&str] = &[
+    "title",
+    "author",
+    "description",
+    "publisher",
+    "language",
+    "isbn",
+    "publishedDate",
+    "category",
+    "isFavorite",
+    "tags",
+    "rating",
+    "completedAt",
+    "manualCompletionState",
+    "series",
+    "seriesIndex",
+];
+
+/// Stamp an edit the way the app's `withMetadataStamp` does, so sync can tell
+/// it from a concurrent edit on another device.
+fn stamp_metadata_edit(before: &serde_json::Value, after: &mut serde_json::Value) {
+    let edited = BOOK_EDITABLE_FIELDS
+        .iter()
+        .any(|field| before.get(*field) != after.get(*field));
+    let Some(object) = after.as_object_mut() else {
+        return;
+    };
+    if !edited {
+        return;
+    }
+    object.remove("metadataBaseAt");
+    object.insert("metadataUpdatedAt".into(), serde_json::json!(now_iso()));
+    if let Some(previous) = before.get("metadataUpdatedAt").filter(|v| !v.is_null()) {
+        object.insert("metadataBaseAt".into(), previous.clone());
+    }
+}
+
+/// Edit one book's record inside a write transaction (no lost updates when
+/// commands run in parallel). `f` returns the edited record, or an error.
+fn update_book<T>(
+    ctx: &Ctx,
+    book_id: &str,
+    f: impl FnOnce(&mut serde_json::Value) -> Result<T, String>,
+) -> Result<T, String> {
+    ctx.store.with_connection(|conn| {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+        let Some(text) = crate::database::sqlite_get_book_metadata_inner(&tx, book_id)? else {
+            return Ok(Err(book_not_found(book_id)));
+        };
+        let Some(before) = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .filter(|b| b.is_object())
+        else {
+            return Ok(Err(format!("book '{book_id}' has a malformed record")));
+        };
+        let mut after = before.clone();
+        let value = match f(&mut after) {
+            Ok(value) => value,
+            Err(e) => return Ok(Err(e)),
+        };
+        stamp_metadata_edit(&before, &mut after);
+        let json = match serde_json::to_string(&after) {
+            Ok(json) => json,
+            Err(e) => return Ok(Err(e.to_string())),
+        };
+        crate::database::sqlite_save_book_metadata_inner(&tx, book_id, &json)?;
+        tx.commit()?;
+        Ok(Ok(value))
+    })?
 }
 
 // ── library ──────────────────────────────────────────────────────────────────
@@ -917,18 +1064,10 @@ fn run_library(output: &Output, ctx: &Ctx, command: LibraryCommand) -> i32 {
 }
 
 fn library_list(output: &Output, ctx: &Ctx, format: &str) -> i32 {
-    // The GUI's persisted books array is the authoritative library list; the
-    // book_metadata SQL table is only written on metadata edits.
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
+    let books = match load_books(ctx) {
+        Ok(books) => books,
         Err(e) => return output.error(&e),
     };
-    let mut books = kv.books().clone();
-    books.sort_by(|a, b| {
-        let ta = book_title(a).to_lowercase();
-        let tb = book_title(b).to_lowercase();
-        ta.cmp(&tb)
-    });
 
     if output.json || format == "json" {
         return output.print_json(&books);
@@ -958,19 +1097,10 @@ fn library_list(output: &Output, ctx: &Ctx, format: &str) -> i32 {
     0
 }
 
-fn load_kv_book(ctx: &Ctx, book_id: &str) -> Result<Option<serde_json::Value>, String> {
-    let mut kv = LibraryKv::load(ctx)?;
-    let position = match kv.book_position(book_id) {
-        Some(p) => p,
-        None => return Ok(None),
-    };
-    Ok(Some(kv.books()[position].clone()))
-}
-
 fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
-    let book = match load_kv_book(ctx, book_id) {
+    let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&format!("book '{book_id}' not found in library")),
+        Ok(None) => return output.error(&book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
 
@@ -1000,6 +1130,8 @@ fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
         "addedAt": book.get("addedAt"),
         "lastReadAt": book.get("lastReadAt"),
         "tags": book.get("tags"),
+        "series": book.get("series"),
+        "seriesIndex": book.get("seriesIndex"),
         "annotationCount": annotation_count,
         "materializedPath": materialized,
         "filePath": book.get("filePath"),
@@ -1014,8 +1146,14 @@ fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
         println!(
             "  {}: {}",
             output.dim("format"),
-            book.get("format").and_then(|v| v.as_str()).unwrap_or("?")
+            book_str(&book, "format").unwrap_or("?")
         );
+        if let Some(series) = book_str(&book, "series") {
+            match book.get("seriesIndex").and_then(|v| v.as_f64()) {
+                Some(index) => println!("  {}: {series} #{index}", output.dim("series")),
+                None => println!("  {}: {series}", output.dim("series")),
+            }
+        }
         println!(
             "  {}: {}",
             output.dim("progress"),
@@ -1039,149 +1177,183 @@ fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
 fn library_add(output: &Output, ctx: &Ctx, paths: &[String]) -> i32 {
     if paths.is_empty() {
         eprintln!("usage: theorem library add <files...> | theorem library import <dir>");
-        return 2;
+        return EXIT_USAGE;
     }
     ingest_and_register(output, ctx, paths)
 }
 
-fn library_import(output: &Output, ctx: &Ctx, dir: &str) -> i32 {
-    let walk = match std::fs::read_dir(dir) {
-        Ok(walk) => walk,
-        Err(e) => return output.error(&format!("Cannot read directory {dir}: {e}")),
-    };
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "epub", "mobi", "azw", "azw3", "fb2", "fbz", "pdf", "cbz", "cbr",
+];
 
-    const SUPPORTED: &[&str] = &[
-        ".epub", ".mobi", ".azw", ".azw3", ".fb2", ".fbz", ".pdf", ".cbz", ".cbr",
-    ];
+fn is_supported_book_file(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| SUPPORTED_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// Every supported book file under `root`, recursively, sorted. Symlinked
+/// folders are followed, but each real folder is visited once, so a symlink
+/// loop ends instead of recursing forever.
+fn collect_book_files(root: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+    let root = std::fs::canonicalize(root)
+        .map_err(|e| format!("Cannot read directory {}: {e}", root.display()))?;
+    if !root.is_dir() {
+        return Err(format!("{} is not a directory", root.display()));
+    }
+    let mut visited = std::collections::HashSet::new();
     let mut files = Vec::new();
-    let mut stack = vec![PathBuf::from(dir)];
-    while let Some(current) = stack.pop() {
-        let entries = match std::fs::read_dir(&current) {
-            Ok(entries) => entries,
-            Err(_) => continue,
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let Ok(real) = std::fs::canonicalize(&dir) else {
+            continue;
+        };
+        if !visited.insert(real) {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                let dotted = format!(".{}", ext.to_ascii_lowercase());
-                if SUPPORTED.contains(&dotted.as_str()) {
-                    files.push(path.to_string_lossy().into_owned());
-                }
+            // `metadata` follows symlinks: a link to a folder is a folder.
+            match std::fs::metadata(&path) {
+                Ok(meta) if meta.is_dir() => stack.push(path),
+                Ok(meta) if meta.is_file() && is_supported_book_file(&path) => files.push(path),
+                _ => {}
             }
         }
     }
-    let _ = walk;
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
 
+fn library_import(output: &Output, ctx: &Ctx, dir: &str) -> i32 {
+    let files = match collect_book_files(std::path::Path::new(dir)) {
+        Ok(files) => files,
+        Err(e) => return output.error(&e),
+    };
     if files.is_empty() {
         output.note(&format!("no supported book files found under {dir}"));
+        if output.json {
+            return output.print_json(&ImportReport::default());
+        }
         return 0;
     }
-    files.sort();
+    let files: Vec<String> = files
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
     ingest_and_register(output, ctx, &files)
 }
 
-/// Run the native parallel ingest, then register each result in the GUI's
-/// persisted library store + FTS index (mirrors the frontend import flow).
-fn ingest_and_register(output: &Output, ctx: &Ctx, paths: &[String]) -> i32 {
-    let records: Vec<crate::batch_ingest::NativeBookRecord> = ingest_files(ctx, paths)
-        .into_iter()
-        .filter_map(|(_, result)| result.ok())
-        .collect();
+/// What happened to each file of an import.
+#[derive(Default, Serialize)]
+struct ImportReport {
+    added: Vec<serde_json::Value>,
+    duplicates: Vec<ImportDuplicate>,
+    failed: Vec<ImportFailure>,
+}
 
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportDuplicate {
+    path: String,
+    existing_id: String,
+    title: String,
+}
 
-    let mut registered = Vec::new();
-    for record in &records {
-        let book = serde_json::json!({
-            "id": record.id,
-            "title": record.title,
-            "author": record.author,
-            "filePath": record.file_path,
-            "storagePath": record.storage_path,
-            "format": record.format,
-            "contentHash": record.content_hash,
-            "coverPath": record.cover_path,
-            "coverExtractionDone": record.cover_extraction_done,
-            "description": record.description,
-            "publisher": record.publisher,
-            "publishedDate": record.published_date,
-            "language": record.language,
-            "isbn": record.isbn,
-            "fileSize": record.file_size,
-            "addedAt": now_iso(),
-            "progress": 0,
-            "tags": [],
-            "isFavorite": false,
-        });
-        if let Err(e) = ctx.store.with_connection(|conn| {
-            crate::database::sqlite_index_book_fts_inner(
-                conn,
-                &record.id,
-                &record.title,
-                &record.author,
-            )
-        }) {
-            output.note(&format!("FTS index failed for '{}': {e}", record.title));
-        }
-        registered.push(book);
-    }
+#[derive(Serialize)]
+struct ImportFailure {
+    path: String,
+    error: String,
+}
 
-    kv.books().extend(registered);
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
-    }
+enum Ingested {
+    Added(Box<crate::batch_ingest::NativeBookRecord>),
+    Duplicate { existing_id: String, title: String },
+}
 
-    if output.json {
-        output.print_json(&records)
-    } else {
-        for record in &records {
-            println!(
-                "{} {}",
-                output.green("added"),
-                output.bold(&format!("{} — {}", record.title, record.author))
-            );
-        }
-        output.note(&format!(
-            "# {} imported, {} skipped (duplicates)",
-            records.len(),
-            paths.len() - records.len()
-        ));
-        0
-    }
+/// The absolute form of a path given on the command line (symlinks
+/// resolved), so the stored `filePath` still points at the file later.
+fn absolute_path(raw: &str) -> String {
+    let path = std::path::Path::new(raw);
+    std::fs::canonicalize(path)
+        .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(path)))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+/// Content hashes already in the library, mapped to (book id, title).
+fn library_content_hashes(ctx: &Ctx) -> Result<HashMap<String, (String, String)>, String> {
+    Ok(load_books(ctx)?
+        .iter()
+        .filter_map(|book| {
+            let hash = book_str(book, "contentHash")?.trim().to_ascii_lowercase();
+            if hash.is_empty() {
+                return None;
+            }
+            Some((
+                hash,
+                (
+                    book_str(book, "id").unwrap_or("").to_string(),
+                    book_title(book),
+                ),
+            ))
+        })
+        .collect())
 }
 
 /// Parse and copy each file into `book-cache/`, in parallel, the way the
 /// app's `ingest_books_native` command does (that command reports progress
-/// through an `AppHandle`, which the CLI has none of). Returns each path with
-/// its record or the reason it failed, in input order.
+/// through an `AppHandle`, which the CLI has none of, and drops the reasons
+/// files fail). A file whose content is already in the library is not
+/// copied. Returns each path with its outcome, in input order.
 fn ingest_files(
     ctx: &Ctx,
     paths: &[String],
-) -> Vec<(
-    String,
-    Result<crate::batch_ingest::NativeBookRecord, String>,
-)> {
+    known: &HashMap<String, (String, String)>,
+) -> Vec<(String, Result<Ingested, String>)> {
     use rayon::prelude::*;
     let cache_dir = ctx.dir().join("book-cache");
     let _ = std::fs::create_dir_all(&cache_dir);
     paths
         .par_iter()
-        .map(|raw_path| (raw_path.clone(), ingest_file(&cache_dir, raw_path)))
+        .map(|raw_path| {
+            let absolute = absolute_path(raw_path);
+            let outcome = ingest_file(&cache_dir, &absolute, known);
+            (absolute, outcome)
+        })
         .collect()
 }
 
 fn ingest_file(
     cache_dir: &std::path::Path,
-    raw_path: &str,
-) -> Result<crate::batch_ingest::NativeBookRecord, String> {
-    let path = std::path::Path::new(raw_path);
-    if !path.is_file() {
+    file_path: &str,
+    known: &HashMap<String, (String, String)>,
+) -> Result<Ingested, String> {
+    let path = std::path::Path::new(file_path);
+    if !path.exists() {
         return Err("file does not exist".to_string());
+    }
+    if !path.is_file() {
+        return Err("not a file".to_string());
+    }
+    if !is_supported_book_file(path) {
+        return Err(format!(
+            "unsupported file type (supported: {})",
+            SUPPORTED_EXTENSIONS.join(", ")
+        ));
+    }
+    let content_hash = crate::batch_ingest::compute_file_sha256(path)
+        .ok_or_else(|| "cannot read the file".to_string())?;
+    if let Some((existing_id, title)) = known.get(&content_hash) {
+        return Ok(Ingested::Duplicate {
+            existing_id: existing_id.clone(),
+            title: title.clone(),
+        });
     }
     let ext = path
         .extension()
@@ -1210,7 +1382,9 @@ fn ingest_file(
     };
 
     let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    let content_hash = crate::batch_ingest::compute_file_sha256(path);
+    if file_size == 0 {
+        return Err("the file is empty".to_string());
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let dest_path = cache_dir.join(format!("{id}.book"));
     let format = if ext == "cbr" {
@@ -1230,68 +1404,259 @@ fn ingest_file(
         ext
     };
 
-    Ok(crate::batch_ingest::NativeBookRecord {
-        id,
-        title: metadata.title,
-        author: metadata.author,
-        file_path: raw_path.to_string(),
-        storage_path: Some(dest_path.to_string_lossy().into_owned()),
-        format,
-        content_hash,
-        cover_extraction_done: metadata.cover_data_url.is_some(),
-        cover_path: metadata.cover_data_url,
-        description: metadata.description,
-        publisher: metadata.publisher,
-        published_date: metadata.published_date,
-        language: metadata.language,
-        isbn: metadata.isbn,
-        series: metadata.series,
-        series_index: metadata.series_index,
-        file_size,
-        added_at: chrono::Utc::now().to_rfc3339(),
-        progress: 0.0,
-        is_favorite: false,
-        tags: Vec::new(),
-    })
+    Ok(Ingested::Added(Box::new(
+        crate::batch_ingest::NativeBookRecord {
+            id,
+            title: metadata.title,
+            author: metadata.author,
+            file_path: file_path.to_string(),
+            storage_path: Some(dest_path.to_string_lossy().into_owned()),
+            format,
+            content_hash: Some(content_hash),
+            cover_extraction_done: metadata.cover_data_url.is_some(),
+            cover_path: metadata.cover_data_url,
+            description: metadata.description,
+            publisher: metadata.publisher,
+            published_date: metadata.published_date,
+            language: metadata.language,
+            isbn: metadata.isbn,
+            series: metadata.series,
+            series_index: metadata.series_index,
+            file_size,
+            added_at: now_iso(),
+            progress: 0.0,
+            is_favorite: false,
+            tags: Vec::new(),
+        },
+    )))
+}
+
+/// Covers shorter than this stay inline in the book record (the app's
+/// `INLINE_COVER_MAX_CHARS`); longer ones are served from the `covers` table,
+/// and the app fills in their display address when it loads the library.
+const INLINE_COVER_MAX_CHARS: usize = 5000;
+
+/// The book record the app stores for an imported file (`importBooksIncremental`).
+fn book_record_json(record: &crate::batch_ingest::NativeBookRecord) -> serde_json::Value {
+    let mut book = serde_json::json!({
+        "id": record.id,
+        "title": record.title,
+        "author": record.author,
+        "filePath": record.file_path,
+        "storagePath": record.storage_path,
+        "format": record.format,
+        "contentHash": record.content_hash,
+        "coverExtractionDone": record.cover_extraction_done,
+        "fileSize": record.file_size,
+        "readingTime": 0,
+        "addedAt": record.added_at,
+        "progress": 0,
+        "isFavorite": false,
+        "tags": [],
+    });
+    let optional = [
+        (
+            "description",
+            record.description.clone().map(serde_json::Value::from),
+        ),
+        (
+            "publisher",
+            record.publisher.clone().map(serde_json::Value::from),
+        ),
+        (
+            "publishedDate",
+            record.published_date.clone().map(serde_json::Value::from),
+        ),
+        (
+            "language",
+            record.language.clone().map(serde_json::Value::from),
+        ),
+        ("isbn", record.isbn.clone().map(serde_json::Value::from)),
+        ("series", record.series.clone().map(serde_json::Value::from)),
+        (
+            "seriesIndex",
+            record.series_index.map(serde_json::Value::from),
+        ),
+        (
+            "coverPath",
+            record
+                .cover_path
+                .clone()
+                .filter(|url| url.len() < INLINE_COVER_MAX_CHARS)
+                .map(serde_json::Value::from),
+        ),
+    ];
+    if let Some(object) = book.as_object_mut() {
+        for (key, value) in optional {
+            if let Some(value) = value {
+                object.insert(key.to_string(), value);
+            }
+        }
+    }
+    book
+}
+
+/// Register imported books exactly as the app does: the metadata row (which
+/// also inserts the `books` row and the search entry), the materialized-file
+/// row and the cover, all in one transaction.
+fn register_books(
+    ctx: &Ctx,
+    records: &[&crate::batch_ingest::NativeBookRecord],
+) -> Result<Vec<serde_json::Value>, String> {
+    let books: Vec<serde_json::Value> = records.iter().map(|r| book_record_json(r)).collect();
+    ctx.store.with_connection(|conn| {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+        for (record, book) in records.iter().zip(&books) {
+            let json = book.to_string();
+            crate::database::sqlite_save_book_metadata_inner(&tx, &record.id, &json)?;
+            crate::database::sqlite_register_materialized_book_inner(&tx, &record.id)?;
+            if let Some(cover) = &record.cover_path {
+                crate::database::sqlite_save_cover_image_inner(&tx, &record.id, cover)?;
+            }
+        }
+        tx.commit()
+    })?;
+    Ok(books)
+}
+
+fn ingest_and_register(output: &Output, ctx: &Ctx, paths: &[String]) -> i32 {
+    let known = match library_content_hashes(ctx) {
+        Ok(known) => known,
+        Err(e) => return output.error(&e),
+    };
+    let outcomes = ingest_files(ctx, paths, &known);
+
+    let mut report = ImportReport::default();
+    let mut seen: HashMap<String, (String, String)> = HashMap::new();
+    let mut to_register = Vec::new();
+    for (path, outcome) in &outcomes {
+        match outcome {
+            Ok(Ingested::Added(record)) => {
+                let hash = record.content_hash.clone().unwrap_or_default();
+                // The same content twice in one import: keep the first.
+                if let Some((existing_id, title)) = seen.get(&hash) {
+                    if let Some(storage) = &record.storage_path {
+                        let _ = std::fs::remove_file(storage);
+                    }
+                    report.duplicates.push(ImportDuplicate {
+                        path: path.clone(),
+                        existing_id: existing_id.clone(),
+                        title: title.clone(),
+                    });
+                    continue;
+                }
+                seen.insert(hash, (record.id.clone(), record.title.clone()));
+                to_register.push(record.as_ref());
+            }
+            Ok(Ingested::Duplicate { existing_id, title }) => {
+                report.duplicates.push(ImportDuplicate {
+                    path: path.clone(),
+                    existing_id: existing_id.clone(),
+                    title: title.clone(),
+                })
+            }
+            Err(error) => report.failed.push(ImportFailure {
+                path: path.clone(),
+                error: error.clone(),
+            }),
+        }
+    }
+
+    match register_books(ctx, &to_register) {
+        Ok(books) => report.added = books,
+        Err(e) => {
+            // Nothing was registered: do not leave orphaned copies behind.
+            for record in &to_register {
+                if let Some(storage) = &record.storage_path {
+                    let _ = std::fs::remove_file(storage);
+                }
+            }
+            return output.error(&e);
+        }
+    }
+
+    let code = if report.failed.is_empty() { 0 } else { 1 };
+    if output.json {
+        let printed = output.print_json(&report);
+        return if printed != 0 { printed } else { code };
+    }
+    for book in &report.added {
+        println!(
+            "{} {}",
+            output.green("added"),
+            output.bold(&format!("{} — {}", book_title(book), book_author(book)))
+        );
+    }
+    for duplicate in &report.duplicates {
+        println!(
+            "{} {} {}",
+            output.dim("skipped"),
+            duplicate.path,
+            output.dim(&format!(
+                "(already in the library as '{}', {})",
+                duplicate.title, duplicate.existing_id
+            ))
+        );
+    }
+    for failure in &report.failed {
+        eprintln!(
+            "{} {}: {}",
+            output.red("failed"),
+            failure.path,
+            failure.error
+        );
+    }
+    output.note(&format!(
+        "# {} imported, {} skipped (duplicates), {} failed",
+        report.added.len(),
+        report.duplicates.len(),
+        report.failed.len()
+    ));
+    code
 }
 
 fn library_remove(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
-    let book = match load_kv_book(ctx, book_id) {
+    let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&format!("book '{book_id}' not found in library")),
+        Ok(None) => return output.error(&book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
     let title = book_title(&book);
 
-    // Collect annotation ids first for tombstones (the row is about to vanish).
-    let annotation_ids: Vec<String> = ctx
-        .store
-        .with_connection(|conn| {
-            let mut stmt = conn.prepare("SELECT id FROM book_annotations WHERE book_id = ?1")?;
-            let rows = stmt.query_map(rusqlite::params![book_id], |row| row.get::<_, String>(0))?;
-            rows.collect::<rusqlite::Result<Vec<_>>>()
-        })
-        .unwrap_or_default();
+    // Collect annotation ids first for tombstones (the rows are about to go).
+    let annotation_ids: Vec<String> = match ctx.store.with_connection(|conn| {
+        let mut stmt = conn.prepare("SELECT id FROM book_annotations WHERE book_id = ?1")?;
+        let rows = stmt.query_map(rusqlite::params![book_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+    }) {
+        Ok(ids) => ids,
+        Err(e) => return output.error(&e),
+    };
 
     // Same path as the app: removes the cached file and, in one transaction,
-    // the book's covers, metadata, highlights and search row (foreign keys
-    // are off, so nothing cascades).
+    // the book's covers, metadata, highlights and search row.
     if let Err(e) = crate::database::delete_book_data_in(&ctx.store, book_id) {
         return output.error(&e);
     }
 
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
-    if let Some(position) = kv.book_position(book_id) {
-        kv.books().remove(position);
-    }
-    kv.add_tombstone(book_id, "book");
-    for annotation_id in &annotation_ids {
-        kv.add_tombstone(annotation_id, "annotation");
-    }
-    if let Err(e) = kv.save(ctx) {
+    // As the app's `removeBooks`: leave every shelf, and tombstones so sync
+    // removes the book and its highlights on other devices too.
+    let kv = update_library_kv(ctx, |_, envelope| {
+        let state = envelope_state(envelope, LIBRARY_STORE)?;
+        for collection in state_list(state, "collections", LIBRARY_STORE)?.iter_mut() {
+            if let Some(ids) = collection.get_mut("bookIds").and_then(|v| v.as_array_mut()) {
+                ids.retain(|id| id.as_str() != Some(book_id));
+            }
+        }
+        let tombstones = state_list(state, "deletionTombstones", LIBRARY_STORE)?;
+        tombstones.push(tombstone(book_id, "book"));
+        for annotation_id in &annotation_ids {
+            tombstones.push(tombstone(annotation_id, "annotation"));
+        }
+        Ok(())
+    });
+    if let Err(e) = kv {
         return output.error(&e);
     }
 
@@ -1304,51 +1669,28 @@ fn library_remove(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
 }
 
 fn library_favorite(output: &Output, ctx: &Ctx, book_id: &str, state: Option<&str>) -> i32 {
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
+    let wanted = match state.unwrap_or("toggle") {
+        "on" | "true" | "yes" => Some(true),
+        "off" | "false" | "no" => Some(false),
+        "toggle" => None,
+        other => {
+            eprintln!("error: invalid state '{other}' (expected on, off or toggle)");
+            return EXIT_USAGE;
+        }
+    };
+    let result = update_book(ctx, book_id, |book| {
+        let current = book
+            .get("isFavorite")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let next = wanted.unwrap_or(!current);
+        book["isFavorite"] = serde_json::Value::Bool(next);
+        Ok((next, book_title(book)))
+    });
+    let (next, title) = match result {
+        Ok(result) => result,
         Err(e) => return output.error(&e),
     };
-    let position = match kv.book_position(book_id) {
-        Some(p) => p,
-        None => return output.error(&format!("book '{book_id}' not found in library")),
-    };
-
-    let current = kv.books()[position]
-        .get("isFavorite")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let next = match state.unwrap_or("toggle") {
-        "on" | "true" | "yes" => true,
-        "off" | "false" | "no" => false,
-        "toggle" => !current,
-        other => {
-            return output.error(&format!(
-                "invalid state '{other}' (expected on, off or toggle)"
-            ))
-        }
-    };
-    kv.books()[position]["isFavorite"] = serde_json::Value::Bool(next);
-
-    let title = book_title(&kv.books()[position]);
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
-    }
-    // Mirror into the metadata row the GUI reads for editing.
-    let _ = ctx.store.with_connection(|conn| {
-        if let Ok(Some(mut metadata)) =
-            crate::database::sqlite_get_book_metadata_inner(conn, book_id)
-        {
-            if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(&metadata) {
-                parsed["isFavorite"] = serde_json::Value::Bool(next);
-                if let Ok(updated) = serde_json::to_string(&parsed) {
-                    metadata = updated;
-                    let _ =
-                        crate::database::sqlite_save_book_metadata_inner(conn, book_id, &metadata);
-                }
-            }
-        }
-        Ok(())
-    });
 
     if output.json {
         output.print_json(&serde_json::json!({ "id": book_id, "isFavorite": next }))
@@ -1360,19 +1702,17 @@ fn library_favorite(output: &Output, ctx: &Ctx, book_id: &str, state: Option<&st
 }
 
 fn library_export(output: &Output, ctx: &Ctx, book_id: &str, out: Option<PathBuf>) -> i32 {
-    let book = match load_kv_book(ctx, book_id) {
+    let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&format!("book '{book_id}' not found in library")),
+        Ok(None) => return output.error(&book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
 
     let format = book_str(&book, "format").unwrap_or("epub").to_string();
-    let bytes: Vec<u8> = match crate::database::get_materialized_book_path_in(&ctx.store, book_id) {
-        Ok(Some(path)) => match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(e) => return output.error(&format!("Failed to read {path}: {e}")),
-        },
-        _ => return output.error("book file not found on disk or in storage"),
+    let source = match crate::database::get_materialized_book_path_in(&ctx.store, book_id) {
+        Ok(Some(path)) => PathBuf::from(path),
+        Ok(None) => return output.error("book file not found on disk or in storage"),
+        Err(e) => return output.error(&e),
     };
 
     let target = out.unwrap_or_else(|| {
@@ -1389,6 +1729,11 @@ fn library_export(output: &Output, ctx: &Ctx, book_id: &str, out: Option<PathBuf
             .split_whitespace()
             .collect::<Vec<_>>()
             .join("_");
+        let title = if title.is_empty() {
+            book_id.to_string()
+        } else {
+            title
+        };
         PathBuf::from(format!("{title}.{format}"))
     });
     if let Some(parent) = target.parent() {
@@ -1398,22 +1743,23 @@ fn library_export(output: &Output, ctx: &Ctx, book_id: &str, out: Option<PathBuf
             }
         }
     }
-    if let Err(e) = std::fs::write(&target, &bytes) {
-        return output.error(&format!("Failed to write {}: {e}", target.display()));
-    }
+    let bytes = match std::fs::copy(&source, &target) {
+        Ok(bytes) => bytes,
+        Err(e) => return output.error(&format!("Failed to write {}: {e}", target.display())),
+    };
 
     if output.json {
         output.print_json(&serde_json::json!({
             "id": book_id,
             "path": target.display().to_string(),
-            "bytes": bytes.len(),
+            "bytes": bytes,
         }))
     } else {
         println!(
             "{} {} ({} bytes)",
             output.green("exported"),
             output.bold(&target.display().to_string()),
-            bytes.len()
+            bytes
         );
         0
     }
@@ -1428,85 +1774,67 @@ fn library_edit_meta(
 ) -> i32 {
     if title.is_none() && author.is_none() {
         eprintln!("usage: theorem library edit-meta <book-id> --title <title> --author <author>");
-        return 2;
+        return EXIT_USAGE;
     }
 
-    let book = match load_kv_book(ctx, book_id) {
+    let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&format!("book '{book_id}' not found in library")),
+        Ok(None) => return output.error(&book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
     let is_epub = book_str(&book, "format")
         .map(|f| f.eq_ignore_ascii_case("epub"))
         .unwrap_or(false);
 
+    let mut file_rewritten = false;
     if is_epub {
-        let edit = crate::epub_rewriter::EpubMetadataEdit {
-            title: title.clone(),
-            author: author.clone(),
-            ..Default::default()
-        };
-        let path = match ctx.store.materialized_book_path(book_id) {
-            Ok(path) => path,
+        match crate::database::get_materialized_book_path_in(&ctx.store, book_id) {
+            Ok(Some(path)) => {
+                let edit = crate::epub_rewriter::EpubMetadataEdit {
+                    title: title.clone(),
+                    author: author.clone(),
+                    ..Default::default()
+                };
+                if let Err(e) = crate::epub_rewriter::rewrite_epub_metadata_at(
+                    std::path::Path::new(&path),
+                    book_id,
+                    Some(edit),
+                    None,
+                ) {
+                    return output.error(&e);
+                }
+                file_rewritten = true;
+            }
+            Ok(None) => {
+                output.note("the book's file is not on this device — updating the library only")
+            }
             Err(e) => return output.error(&e),
-        };
-        if let Err(e) =
-            crate::epub_rewriter::rewrite_epub_metadata_at(&path, book_id, Some(edit), None)
-        {
-            return output.error(&e);
         }
     } else {
         output.note("file is not an EPUB — updating the library index only");
     }
 
-    // Update the persisted library store + metadata row + FTS index.
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
+    // The metadata save also refreshes the search entry.
+    let updated = update_book(ctx, book_id, |book| {
+        if let Some(t) = &title {
+            book["title"] = serde_json::Value::String(t.clone());
+        }
+        if let Some(a) = &author {
+            book["author"] = serde_json::Value::String(a.clone());
+        }
+        Ok((book_title(book), book_author(book)))
+    });
+    let (new_title, new_author) = match updated {
+        Ok(updated) => updated,
         Err(e) => return output.error(&e),
     };
-    let position = match kv.book_position(book_id) {
-        Some(p) => p,
-        None => return output.error(&format!("book '{book_id}' not found in library")),
-    };
-    if let Some(t) = &title {
-        kv.books()[position]["title"] = serde_json::Value::String(t.clone());
-    }
-    if let Some(a) = &author {
-        kv.books()[position]["author"] = serde_json::Value::String(a.clone());
-    }
-    let updated = kv.books()[position].clone();
-    let new_title = book_title(&updated);
-    let new_author = book_author(&updated);
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
-    }
-
-    let _ = ctx.store.with_connection(|conn| {
-        if let Some(mut metadata) = crate::database::sqlite_get_book_metadata_inner(conn, book_id)?
-        {
-            if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(&metadata) {
-                if let Some(t) = &title {
-                    parsed["title"] = serde_json::Value::String(t.clone());
-                }
-                if let Some(a) = &author {
-                    parsed["author"] = serde_json::Value::String(a.clone());
-                }
-                metadata = serde_json::to_string(&parsed).unwrap_or(metadata);
-                crate::database::sqlite_save_book_metadata_inner(conn, book_id, &metadata)?;
-            }
-        }
-        Ok(())
-    });
-    let _ = ctx.store.with_connection(|conn| {
-        crate::database::sqlite_index_book_fts_inner(conn, book_id, &new_title, &new_author)
-    });
 
     if output.json {
         output.print_json(&serde_json::json!({
             "id": book_id,
             "title": new_title,
             "author": new_author,
-            "fileRewritten": is_epub,
+            "fileRewritten": file_rewritten,
         }))
     } else {
         println!("{} {}", output.green("updated"), output.bold(&new_title));
@@ -1527,11 +1855,10 @@ fn run_shelf(output: &Output, ctx: &Ctx, command: ShelfCommand) -> i32 {
 }
 
 fn shelf_list(output: &Output, ctx: &Ctx) -> i32 {
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
+    let collections = match library_collections(ctx) {
+        Ok(collections) => collections,
         Err(e) => return output.error(&e),
     };
-    let collections = kv.collections().clone();
 
     if output.json {
         output.print_json(&collections)
@@ -1572,28 +1899,33 @@ fn find_collection_position(collections: &[serde_json::Value], shelf: &str) -> O
 }
 
 fn shelf_create(output: &Output, ctx: &Ctx, name: &str) -> i32 {
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
-    if kv.collections().iter().any(|c| {
-        book_str(c, "name")
-            .map(|n| n.eq_ignore_ascii_case(name))
-            .unwrap_or(false)
-    }) {
-        return output.error(&format!("shelf '{name}' already exists"));
+    let name = name.trim();
+    if name.is_empty() {
+        eprintln!("error: a shelf needs a name");
+        return EXIT_USAGE;
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let collection = serde_json::json!({
-        "id": id,
-        "name": name,
-        "bookIds": [],
-        "kind": "general",
-        "createdAt": now_iso(),
-        "updatedAt": now_iso(),
+    let created = update_library_kv(ctx, |_, envelope| {
+        let state = envelope_state(envelope, LIBRARY_STORE)?;
+        let collections = state_list(state, "collections", LIBRARY_STORE)?;
+        if collections.iter().any(|c| {
+            book_str(c, "name")
+                .map(|n| n.eq_ignore_ascii_case(name))
+                .unwrap_or(false)
+        }) {
+            return Err(format!("shelf '{name}' already exists"));
+        }
+        collections.push(serde_json::json!({
+            "id": id,
+            "name": name,
+            "bookIds": [],
+            "kind": "general",
+            "createdAt": now_iso(),
+            "updatedAt": now_iso(),
+        }));
+        Ok(())
     });
-    kv.collections().push(collection);
-    if let Err(e) = kv.save(ctx) {
+    if let Err(e) = created {
         return output.error(&e);
     }
 
@@ -1606,23 +1938,24 @@ fn shelf_create(output: &Output, ctx: &Ctx, name: &str) -> i32 {
 }
 
 fn shelf_delete(output: &Output, ctx: &Ctx, shelf: &str) -> i32 {
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
+    let deleted = update_library_kv(ctx, |_, envelope| {
+        let state = envelope_state(envelope, LIBRARY_STORE)?;
+        let collections = state_list(state, "collections", LIBRARY_STORE)?;
+        let position = find_collection_position(collections, shelf)
+            .ok_or_else(|| format!("shelf '{shelf}' not found"))?;
+        let removed = collections.remove(position);
+        let removed_id = book_str(&removed, "id").unwrap_or("?").to_string();
+        let removed_name = book_str(&removed, "name")
+            .unwrap_or("(unnamed)")
+            .to_string();
+        state_list(state, "deletionTombstones", LIBRARY_STORE)?
+            .push(tombstone(&removed_id, "collection"));
+        Ok((removed_id, removed_name))
+    });
+    let (removed_id, removed_name) = match deleted {
+        Ok(deleted) => deleted,
         Err(e) => return output.error(&e),
     };
-    let position = match find_collection_position(kv.collections(), shelf) {
-        Some(p) => p,
-        None => return output.error(&format!("shelf '{shelf}' not found")),
-    };
-    let removed = kv.collections().remove(position);
-    let removed_id = book_str(&removed, "id").unwrap_or("?").to_string();
-    let removed_name = book_str(&removed, "name")
-        .unwrap_or("(unnamed)")
-        .to_string();
-    kv.add_tombstone(&removed_id, "collection");
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
-    }
 
     if output.json {
         output.print_json(&serde_json::json!({ "deleted": removed_id, "name": removed_name }))
@@ -1632,52 +1965,66 @@ fn shelf_delete(output: &Output, ctx: &Ctx, shelf: &str) -> i32 {
     }
 }
 
-fn shelf_add(output: &Output, ctx: &Ctx, shelf: &str, book_id: &str, add: bool) -> i32 {
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
-    let position = match find_collection_position(kv.collections(), shelf) {
-        Some(p) => p,
-        None => return output.error(&format!("shelf '{shelf}' not found")),
-    };
-    if kv.book_position(book_id).is_none() {
-        return output.error(&format!("book '{book_id}' not found in library"));
-    }
+fn book_exists(conn: &rusqlite::Connection, book_id: &str) -> Result<bool, String> {
+    crate::database::sqlite_get_book_metadata_inner(conn, book_id)
+        .map(|row| row.is_some())
+        .map_err(|e| e.to_string())
+}
 
-    {
-        let collection = &mut kv.collections()[position];
-        let book_ids = collection
-            .as_object_mut()
-            .expect("collection is an object")
-            .entry("bookIds")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("bookIds is an array");
+fn shelf_add(output: &Output, ctx: &Ctx, shelf: &str, book_id: &str, add: bool) -> i32 {
+    let changed = update_library_kv(ctx, |conn, envelope| {
+        let state = envelope_state(envelope, LIBRARY_STORE)?;
+        let collections = state_list(state, "collections", LIBRARY_STORE)?;
+        let position = find_collection_position(collections, shelf)
+            .ok_or_else(|| format!("shelf '{shelf}' not found"))?;
+        if add && !book_exists(conn, book_id)? {
+            return Err(book_not_found(book_id));
+        }
+        let collection = collections[position].as_object_mut().ok_or_else(|| {
+            format!("{LIBRARY_STORE} is malformed: shelf '{shelf}' is not an object")
+        })?;
+        let collection_id = collection
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let book_ids = state_list(collection, "bookIds", LIBRARY_STORE)?;
         let already = book_ids.iter().any(|b| b.as_str() == Some(book_id));
-        if add && !already {
+        if add == already {
+            return Ok(false);
+        }
+        if add {
             book_ids.push(serde_json::Value::String(book_id.to_string()));
-        } else if !add && already {
-            book_ids.retain(|b| b.as_str() != Some(book_id));
         } else {
+            book_ids.retain(|b| b.as_str() != Some(book_id));
+        }
+        collection.insert("updatedAt".into(), serde_json::json!(now_iso()));
+        if !add {
+            state_list(state, "deletionTombstones", LIBRARY_STORE)?.push(tombstone(
+                &format!("{collection_id}:{book_id}"),
+                "collection_book",
+            ));
+        }
+        Ok(true)
+    });
+    match changed {
+        Ok(true) => {}
+        Ok(false) => {
             output.note(if add {
                 "book already on shelf"
             } else {
                 "book not on shelf"
             });
+            if output.json {
+                return output.print_json(&serde_json::json!({
+                    "shelf": shelf,
+                    "bookId": book_id,
+                    "action": "none",
+                }));
+            }
             return 0;
         }
-        collection["updatedAt"] = serde_json::Value::String(now_iso());
-    }
-
-    if !add {
-        let collection_id = book_str(&kv.collections()[position], "id")
-            .unwrap_or("?")
-            .to_string();
-        kv.add_tombstone(&format!("{collection_id}:{book_id}"), "collection_book");
-    }
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
+        Err(e) => return output.error(&e),
     }
 
     if output.json {
@@ -1697,13 +2044,11 @@ fn shelf_add(output: &Output, ctx: &Ctx, shelf: &str, book_id: &str, add: bool) 
     }
 }
 
-// ── highlights ───────────────────────────────────────────────────────────────
-
-// ── highlights add/delete + bookmarks ────────────────────────────────────────
+// ── highlights + bookmarks ───────────────────────────────────────────────────
 
 fn run_highlights(output: &Output, ctx: &Ctx, command: HighlightsCommand) -> i32 {
     match command {
-        HighlightsCommand::List { book } => highlights_list(output, ctx, book.as_deref()),
+        HighlightsCommand::List { book } => highlights_list(output, ctx, book.as_deref(), false),
         HighlightsCommand::Add {
             book_id,
             text,
@@ -1725,23 +2070,9 @@ fn run_highlights(output: &Output, ctx: &Ctx, command: HighlightsCommand) -> i32
     }
 }
 
-fn load_annotations_rows(ctx: &Ctx, book_id: &str) -> Result<Vec<serde_json::Value>, String> {
-    ctx.store.with_connection(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT annotation_json FROM book_annotations WHERE book_id = ?1 ORDER BY updated_at",
-        )?;
-        let rows = stmt
-            .query_map(rusqlite::params![book_id], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows
-            .iter()
-            .filter_map(|j| serde_json::from_str::<serde_json::Value>(j).ok())
-            .collect())
-    })
-}
-
-fn highlights_list(output: &Output, ctx: &Ctx, book: Option<&str>) -> i32 {
-    let annotations: Vec<(String, String)> = match ctx.store.with_connection(|conn| {
+/// Annotations from `book_annotations`, each with its `bookId`.
+fn load_annotations(ctx: &Ctx, book: Option<&str>) -> Result<Vec<serde_json::Value>, String> {
+    let rows: Vec<(String, String)> = ctx.store.with_connection(|conn| {
         let mut stmt = conn.prepare(
             "SELECT book_id, annotation_json FROM book_annotations \
              WHERE (?1 IS NULL OR book_id = ?1) ORDER BY book_id, updated_at",
@@ -1750,23 +2081,30 @@ fn highlights_list(output: &Output, ctx: &Ctx, book: Option<&str>) -> i32 {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         mapped.collect::<rusqlite::Result<Vec<_>>>()
-    }) {
-        Ok(rows) => rows,
-        Err(e) => return output.error(&e),
-    };
-
-    let items: Vec<serde_json::Value> = annotations
+    })?;
+    Ok(rows
         .into_iter()
         .filter_map(|(book_id, json)| {
-            serde_json::from_str::<serde_json::Value>(&json)
-                .ok()
-                .map(|mut v| {
-                    v["bookId"] = serde_json::Value::String(book_id);
-                    v
-                })
+            let mut value = serde_json::from_str::<serde_json::Value>(&json).ok()?;
+            value
+                .as_object_mut()?
+                .insert("bookId".into(), serde_json::Value::String(book_id));
+            Some(value)
         })
-        .collect();
-    output.print_json(&items)
+        .collect())
+}
+
+fn highlights_list(output: &Output, ctx: &Ctx, book: Option<&str>, bookmarks: bool) -> i32 {
+    match load_annotations(ctx, book) {
+        Ok(items) => {
+            let items: Vec<serde_json::Value> = items
+                .into_iter()
+                .filter(|a| !bookmarks || book_str(a, "type") == Some("bookmark"))
+                .collect();
+            output.print_json(&items)
+        }
+        Err(e) => output.error(&e),
+    }
 }
 
 fn highlights_add(
@@ -1780,58 +2118,39 @@ fn highlights_add(
 ) -> i32 {
     let annotation_type = match annotation_type {
         "highlight" | "note" => annotation_type.to_string(),
-        other => return output.error(&format!("invalid --type '{other}' (highlight or note)")),
+        other => {
+            eprintln!("error: invalid --type '{other}' (highlight or note)");
+            return EXIT_USAGE;
+        }
     };
-
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
-    if kv.book_position(book_id).is_none() {
-        return output.error(&format!("book '{book_id}' not found in library"));
-    }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = now_iso();
-    let annotation = serde_json::json!({
+    let mut annotation = serde_json::json!({
         "id": id,
         "bookId": book_id,
         "type": annotation_type,
         "location": "",
         "selectedText": text,
-        "noteContent": note,
         "color": color,
-        "createdAt": now,
+        "createdAt": now_iso(),
     });
-
-    // Append to the per-book rows (the table stores one JSON per row).
-    let mut rows = match load_annotations_rows(ctx, book_id) {
-        Ok(rows) => rows,
-        Err(e) => return output.error(&e),
-    };
-    rows.push(annotation.clone());
-    let serialized: Vec<String> = rows
-        .iter()
-        .map(|v| serde_json::to_string(v).unwrap_or_default())
-        .collect();
-    if let Err(e) = ctx.store.with_connection(|conn| {
-        crate::database::sqlite_save_book_annotations_inner(conn, book_id, &serialized)
-    }) {
-        return output.error(&e);
+    if let Some(note) = note {
+        annotation["noteContent"] = serde_json::Value::String(note.to_string());
     }
+    let json = annotation.to_string();
 
-    // Mirror into the GUI's persisted annotations array.
-    let state = kv.state();
-    state
-        .as_object_mut()
-        .expect("library state is an object")
-        .entry("annotations")
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .expect("annotations is an array")
-        .push(annotation);
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
+    // As the app's `addAnnotation`: one `book_annotations` row.
+    let added = ctx.store.with_connection(|conn| {
+        if crate::database::sqlite_get_book_metadata_inner(conn, book_id)?.is_none() {
+            return Ok(false);
+        }
+        crate::database::sqlite_upsert_annotation_inner(conn, &id, book_id, &json)?;
+        Ok(true)
+    });
+    match added {
+        Ok(true) => {}
+        Ok(false) => return output.error(&book_not_found(book_id)),
+        Err(e) => return output.error(&e),
     }
 
     if output.json {
@@ -1843,53 +2162,30 @@ fn highlights_add(
 }
 
 fn highlights_delete(output: &Output, ctx: &Ctx, annotation_id: &str) -> i32 {
-    // Locate the annotation in the GUI store to find its book.
-    let mut kv = match LibraryKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
-    let state = kv.state();
-    let annotations = state
-        .as_object_mut()
-        .expect("library state is an object")
-        .entry("annotations")
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .expect("annotations is an array");
-
-    let position = annotations
-        .iter()
-        .position(|a| a.get("id").and_then(|v| v.as_str()) == Some(annotation_id));
-    let Some(position) = position else {
-        return output.error(&format!("annotation '{annotation_id}' not found"));
-    };
-    let removed = annotations.remove(position);
-    let book_id = removed
-        .get("bookId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    if let Err(e) = kv.save(ctx) {
+    // As the app's `removeAnnotation`: delete the row and leave a tombstone.
+    let deleted = update_library_kv(ctx, |conn, envelope| {
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM book_annotations WHERE id = ?1",
+                rusqlite::params![annotation_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if !exists {
+            return Err(format!("annotation '{annotation_id}' not found"));
+        }
+        crate::database::sqlite_delete_annotation_inner(conn, annotation_id)
+            .map_err(|e| e.to_string())?;
+        let state = envelope_state(envelope, LIBRARY_STORE)?;
+        state_list(state, "deletionTombstones", LIBRARY_STORE)?
+            .push(tombstone(annotation_id, "annotation"));
+        Ok(())
+    });
+    if let Err(e) = deleted {
         return output.error(&e);
     }
-
-    if !book_id.is_empty() {
-        let mut rows = load_annotations_rows(ctx, &book_id).unwrap_or_default();
-        rows.retain(|a| a.get("id").and_then(|v| v.as_str()) != Some(annotation_id));
-        let serialized: Vec<String> = rows
-            .iter()
-            .map(|v| serde_json::to_string(v).unwrap_or_default())
-            .collect();
-        let _ = ctx.store.with_connection(|conn| {
-            crate::database::sqlite_save_book_annotations_inner(conn, &book_id, &serialized)
-        });
-    }
-
-    let mut kv = LibraryKv::load(ctx).ok().unwrap_or_else(|| LibraryKv {
-        envelope: serde_json::json!({"state": {}, "version": LIBRARY_KV_VERSION}),
-    });
-    kv.add_tombstone(annotation_id, "annotation");
-    let _ = kv.save(ctx);
 
     if output.json {
         output.print_json(&serde_json::json!({ "deleted": annotation_id }))
@@ -1901,34 +2197,7 @@ fn highlights_delete(output: &Output, ctx: &Ctx, annotation_id: &str) -> i32 {
 
 fn run_bookmarks(output: &Output, ctx: &Ctx, command: BookmarksCommand) -> i32 {
     let BookmarksCommand::List { book } = command;
-
-    let annotations: Vec<(String, String)> = match ctx.store.with_connection(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT book_id, annotation_json FROM book_annotations \
-             WHERE (?1 IS NULL OR book_id = ?1) ORDER BY book_id, updated_at",
-        )?;
-        let mapped = stmt.query_map(rusqlite::params![book], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        mapped.collect::<rusqlite::Result<Vec<_>>>()
-    }) {
-        Ok(rows) => rows,
-        Err(e) => return output.error(&e),
-    };
-
-    let bookmarks: Vec<serde_json::Value> = annotations
-        .into_iter()
-        .filter_map(|(book_id, json)| {
-            serde_json::from_str::<serde_json::Value>(&json)
-                .ok()
-                .filter(|a| a.get("type").and_then(|v| v.as_str()) == Some("bookmark"))
-                .map(|mut v| {
-                    v["bookId"] = serde_json::Value::String(book_id);
-                    v
-                })
-        })
-        .collect();
-    output.print_json(&bookmarks)
+    highlights_list(output, ctx, book.as_deref(), true)
 }
 
 // ── feeds (RSS) ──────────────────────────────────────────────────────────────
@@ -2758,13 +3027,29 @@ fn run_stats(output: &Output, ctx: &Ctx) -> i32 {
 }
 
 fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBuf>) -> i32 {
-    let library = ctx
-        .kv_get("zustand:theorem-library")
-        .ok()
-        .flatten()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|envelope| envelope.get("state").cloned())
-        .unwrap_or_else(|| serde_json::json!({}));
+    let books = match load_books(ctx) {
+        Ok(books) => books,
+        Err(e) => return output.error(&e),
+    };
+    let annotations = match load_annotations(ctx, None) {
+        Ok(annotations) => annotations,
+        Err(e) => return output.error(&e),
+    };
+    let mut library =
+        match read_kv_envelope(ctx, LIBRARY_KV_KEY, LIBRARY_STORE, empty_library_envelope) {
+            Ok(envelope) => envelope,
+            Err(e) => return output.error(&e),
+        };
+    let (collections, tombstones) =
+        match envelope_state(&mut library, LIBRARY_STORE).and_then(|state| {
+            Ok((
+                state_list(state, "collections", LIBRARY_STORE)?.clone(),
+                state_list(state, "deletionTombstones", LIBRARY_STORE)?.clone(),
+            ))
+        }) {
+            Ok(lists) => lists,
+            Err(e) => return output.error(&e),
+        };
 
     let rss = ctx
         .kv_get("zustand:theorem-rss")
@@ -2774,37 +3059,12 @@ fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBuf>) -> i32 
         .and_then(|envelope| envelope.get("state").cloned())
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let annotations: Vec<serde_json::Value> = ctx
-        .store
-        .with_connection(|conn| {
-            let mut stmt = conn.prepare(
-            "SELECT book_id, annotation_json FROM book_annotations ORDER BY book_id, updated_at",
-        )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
-            let collected = rows
-                .collect::<rusqlite::Result<Vec<_>>>()?
-                .into_iter()
-                .filter_map(|(book_id, json)| {
-                    serde_json::from_str::<serde_json::Value>(&json)
-                        .ok()
-                        .map(|mut v| {
-                            v["bookId"] = serde_json::Value::String(book_id);
-                            v
-                        })
-                })
-                .collect();
-            Ok(collected)
-        })
-        .unwrap_or_default();
-
     let snapshot = serde_json::json!({
         "exportedAt": now_iso(),
         "version": env!("CARGO_PKG_VERSION"),
-        "books": library.get("books"),
-        "collections": library.get("collections"),
-        "tombstones": library.get("deletionTombstones"),
+        "books": books,
+        "collections": collections,
+        "tombstones": tombstones,
         "annotations": annotations,
         "feeds": rss.get("feeds"),
         "rssArticles": rss.get("articles"),
@@ -2849,8 +3109,10 @@ fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBuf>) -> i32 
 // ── open (GUI bridge) ────────────────────────────────────────────────────────
 
 fn run_open(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
-    if load_kv_book(ctx, book_id).ok().flatten().is_none() {
-        return output.error(&format!("book '{book_id}' not found in library"));
+    match load_book(ctx, book_id) {
+        Ok(Some(_)) => {}
+        Ok(None) => return output.error(&book_not_found(book_id)),
+        Err(e) => return output.error(&e),
     }
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,

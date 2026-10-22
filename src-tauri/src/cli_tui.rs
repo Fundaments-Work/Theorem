@@ -58,9 +58,7 @@ struct TuiApp {
 
 impl TuiApp {
     fn load(app: &Ctx) -> Result<Self, String> {
-        let mut kv = crate::cli::LibraryKv::load(app)?;
-        let mut books: Vec<BookRow> = kv
-            .books()
+        let mut books: Vec<BookRow> = crate::cli::load_books(app)?
             .iter()
             .map(|b| BookRow {
                 id: crate::cli::book_str(b, "id").unwrap_or("?").to_string(),

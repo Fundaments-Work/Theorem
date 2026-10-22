@@ -18,7 +18,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem extract <url>` | Fetches a web page and prints the article text |
 | `theorem library list [--format table\|json]` | Lists your books |
 | `theorem library info <book_id>` | Shows details for one book |
-| `theorem library add <files...>` | Imports book files |
+| `theorem library add <files...>` | Imports book files. Every file is reported as added, skipped (its content is already in the library) or failed, with the reason. The exit code is 1 when a file failed |
 | `theorem library import <dir>` | Imports every supported file under a folder, including subfolders |
 | `theorem library remove <book_id>` | Removes a book, its covers and its annotations |
 | `theorem library favorite <book_id> [on\|off\|toggle]` | Sets or toggles the favorite flag |
@@ -147,8 +147,6 @@ An agent that can run shell commands, such as Claude Code, can read your books t
 To give an agent standing instructions, put a short note in its project file, for example in `CLAUDE.md`: use `theorem --json` for all commands, read with `search` then `read`, and never run commands that change the library unless asked. Chapters can be long, so ask the agent to search first and read only the chapters it needs.
 
 Commands that change data are: `library add`, `import`, `remove`, `favorite`, `edit-meta`, `shelf` create, delete, add and remove, `highlights add` and `delete`, `feeds add`, `remove` and `refresh`, `opds download`, `storage cleanup`, and `sync pair`, `unpair` and `now`. `library edit-meta` rewrites the EPUB file itself. If you let an agent run commands with an allow list, allow the read commands only. The source says the app picks up changes made from the CLI the next time it starts, so close the Theorem window before running commands that write.
-
-In the test, `highlights add` failed on a book that had been imported with the CLI, with `SQLite operation failed: FOREIGN KEY constraint failed`. It was not tested on a book imported in the app, so treat `highlights add` as unverified.
 
 ## What does the text interface do?
 

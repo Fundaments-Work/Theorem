@@ -117,6 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Command line
 
 - **The `theorem` command runs without a display** — It built a hidden app window just to find the library folder, so on a server, over SSH or in a container every command crashed. It now finds the folder itself and opens the database directly. `theorem sync` still needs the app's sync engine and says so instead of crashing when there is no graphical session.
+- **The command line sees the library the app keeps** — Since 1.6.0 the app stores books and highlights in SQLite, but the CLI still read and wrote the old list in the app's settings copy, so it showed an empty library, and books it imported were missing from the app or rejected highlights with a FOREIGN KEY error. It now lists, edits and removes the same books and highlights as the app, registers imports the way the app does (book row, file, cover, search entry) and stamps edits so sync can tell them apart. Shelf changes run in one write transaction, so two commands at once no longer lose each other's changes.
+- **`library add` and `library import` say what happened to every file** — Files that fail are listed with the reason and the command exits with 1; files already in the library (same content) are skipped and named; paths are stored as absolute paths; series and volume number are kept; a folder that links back to itself no longer loops forever; and a big import is written in one transaction (3,000 books took 21 seconds).
 
 ### Fixed
 
