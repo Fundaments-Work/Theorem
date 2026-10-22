@@ -69,3 +69,39 @@ describe("addBooks with duplicates in the batch", () => {
         expect(indexedIds()).toEqual([]);
     });
 });
+
+describe("updateBooks", () => {
+    it("applies many updates in one store change and persists only the books that changed", () => {
+        const books = Array.from({ length: 500 }, (_, i) => book(`b${i}`));
+        useLibraryStore.setState({ books });
+        const listener = vi.fn();
+        const unsubscribe = useLibraryStore.subscribe(listener);
+        const folders = (i: number) => [{ root: "/Books", name: "Books", relativePath: `s/${i}.epub` }];
+        useLibraryStore.getState().updateBooks([
+            ...books.slice(0, 300).map((b, i) => [b.id, { sourceFolders: folders(i) }] as const),
+            ["missing", { title: "nobody" }] as const,
+            ["b400", { filePath: "/moved/b400.epub", fileSize: 11 }] as const,
+        ]);
+        unsubscribe();
+        expect(listener).toHaveBeenCalledTimes(1);
+        const state = useLibraryStore.getState();
+        expect(state.books).toHaveLength(500);
+        expect(state.books[299].sourceFolders).toEqual(folders(299));
+        expect(state.books[300]).toBe(books[300]);
+        expect(state.getBook("b400")).toMatchObject({ filePath: "/moved/b400.epub", fileSize: 11 });
+        expect(savedIds()).toHaveLength(301);
+        expect(savedIds()).not.toContain("missing");
+    });
+
+    it("merges two updates for the same book and does nothing for an empty list", () => {
+        useLibraryStore.setState({ books: [book("a")] });
+        const listener = vi.fn();
+        const unsubscribe = useLibraryStore.subscribe(listener);
+        useLibraryStore.getState().updateBooks([]);
+        expect(listener).not.toHaveBeenCalled();
+        useLibraryStore.getState().updateBooks([["a", { filePath: "/x.epub" }], ["a", { fileSize: 99 }]]);
+        unsubscribe();
+        expect(useLibraryStore.getState().books[0]).toMatchObject({ filePath: "/x.epub", fileSize: 99 });
+        expect(savedIds()).toEqual(["a"]);
+    });
+});

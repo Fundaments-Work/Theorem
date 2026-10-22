@@ -47,9 +47,11 @@ function harness(library: Book[], scan: FolderImportDeps["scan"], importBooks = 
         importBooks: importBooks as unknown as FolderImportDeps["importBooks"],
         getBooks: () => books,
         addBooks: vi.fn((batch: Book[]) => { books.push(...batch); }),
-        updateBook: vi.fn((id: string, updates: Partial<Book>) => {
-            const i = books.findIndex((b) => b.id === id);
-            books[i] = { ...books[i], ...updates };
+        updateBooks: vi.fn((updates: ReadonlyArray<readonly [string, Partial<Book>]>) => {
+            for (const [id, update] of updates) {
+                const i = books.findIndex((b) => b.id === id);
+                books[i] = { ...books[i], ...update };
+            }
         }),
         onBooksAdded: vi.fn(),
         onProgress: vi.fn(),
@@ -85,9 +87,21 @@ describe("importFolder", () => {
         expect(importBooks).toHaveBeenCalledWith([], expect.any(Function), expect.any(Function), expect.any(Object));
         expect(result).toMatchObject({ found: 2, imported: 0, alreadyInLibrary: 2, failures: [] });
         expect(deps.addBooks).not.toHaveBeenCalled();
-        expect(deps.updateBook).not.toHaveBeenCalled();
+        expect(deps.updateBooks).not.toHaveBeenCalled();
         expect(books).toEqual(library);
         expect(describeFolderImport(result)).toBeNull();
+    });
+
+    it("records the folder of many books already in the library in one store update", async () => {
+        const library = Array.from({ length: 300 }, (_, i) => book(`b${i}`, { filePath: `/Books/s/${i}.epub` }));
+        const files = library.map((_, i) => file(`s/${i}.epub`));
+        const { deps, books, importBooks } = harness(library, scanOf(files));
+        const result = await importFolder("/Books", true, deps);
+        expect(result).toMatchObject({ found: 300, imported: 0, alreadyInLibrary: 300 });
+        expect(importBooks.mock.calls[0]?.[0] ?? []).toEqual([]);
+        expect(deps.updateBooks).toHaveBeenCalledTimes(1);
+        expect((deps.updateBooks as ReturnType<typeof vi.fn>).mock.calls[0][0]).toHaveLength(300);
+        expect(books[299].sourceFolders).toEqual([{ root: "/Books", name: "Books", relativePath: "s/299.epub" }]);
     });
 
     it("re-imports a file whose size changed, and passes only same-size library books as known", async () => {
@@ -141,7 +155,7 @@ describe("importFolder", () => {
         const result = await importFolder("/Books", false, deps);
         expect(result.alreadyInLibrary).toBe(2);
         expect(books[0].filePath).toBe("/Books/a.epub");
-        expect(deps.updateBook).not.toHaveBeenCalled();
+        expect(deps.updateBooks).not.toHaveBeenCalled();
     });
 
     it("imports names that cannot be preserved without their folder instead of failing the whole folder", async () => {

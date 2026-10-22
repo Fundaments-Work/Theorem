@@ -607,6 +607,8 @@ interface LibraryStore {
     removeBook: (bookId: string) => void;
     removeBooks: (bookIds: string[]) => void;
     updateBook: (bookId: string, updates: Partial<Book>) => void;
+    /** Many `updateBook`s in one store change (a folder rescan can touch thousands). */
+    updateBooks: (updates: ReadonlyArray<readonly [string, Partial<Book>]>) => void;
     updateProgress: (bookId: string, progress: number, location: string, lastClickFraction?: number, pageProgress?: { currentPage: number; endPage?: number; totalPages: number; range: string }) => void;
     updatePdfReadingState: (bookId: string, state: PdfViewState) => void;
     toggleFavorite: (bookId: string) => void;
@@ -902,6 +904,36 @@ export const useLibraryStore = create<LibraryStore>()(
                         ? { books }
                         : { books, recentBooksCache };
                 }),
+
+            updateBooks: (updates) => {
+                if (updates.length === 0) return;
+                const merged = new Map<string, Partial<Book>>();
+                for (const [bookId, update] of updates) {
+                    merged.set(bookId, { ...(merged.get(bookId) ?? {}), ...update });
+                }
+                set((state) => {
+                    const lookup = new Map(state.books.map((book, index) => [book.id, index]));
+                    let books = state.books;
+                    let recentBooksCache = state.recentBooksCache;
+                    const changed: Book[] = [];
+                    for (const [bookId, update] of merged) {
+                        const index = lookup.get(bookId);
+                        if (index === undefined) continue;
+                        const current = books[index];
+                        const next = withMetadataStamp(current, { ...current, ...update });
+                        if (next === current) continue;
+                        if (books === state.books) books = books.slice();
+                        books[index] = next;
+                        changed.push(next);
+                        recentBooksCache = syncRecentBooksCacheWithBook(recentBooksCache, next);
+                    }
+                    if (changed.length === 0) return state;
+                    for (const book of changed) persistBookToSqlite(book);
+                    return recentBooksCache === state.recentBooksCache
+                        ? { books }
+                        : { books, recentBooksCache };
+                });
+            },
 
             updateProgress: (bookId, progress, location, lastClickFraction, pageProgress) =>
                 set((state) => {

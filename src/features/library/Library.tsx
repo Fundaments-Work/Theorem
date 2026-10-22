@@ -1847,7 +1847,7 @@ export function LibraryPage() {
                 scan,
                 getBooks: () => useLibraryStore.getState().books,
                 addBooks: (batch) => useLibraryStore.getState().addBooks(batch),
-                updateBook: (bookId, updates) => useLibraryStore.getState().updateBook(bookId, updates),
+                updateBooks: (updates) => useLibraryStore.getState().updateBooks(updates),
                 onBooksAdded: (batch) => {
                     for (const book of batch) void extractImportedBookMetadata(book);
                 },

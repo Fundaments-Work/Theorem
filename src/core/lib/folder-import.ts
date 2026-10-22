@@ -34,7 +34,8 @@ export interface FolderImportDeps {
     getBooks: () => Book[];
     /** Add a batch of books (deduplicating, persisted). */
     addBooks: (books: Book[]) => void;
-    updateBook: (bookId: string, updates: Partial<Book>) => void;
+    /** Apply changes to books already in the library, in one store update. */
+    updateBooks: (updates: ReadonlyArray<readonly [string, Partial<Book>]>) => void;
     /** Called with each batch once it is in the library. */
     onBooksAdded?: (books: Book[]) => void;
     onProgress?: (progress: FolderImportProgress) => void;
@@ -180,7 +181,7 @@ export async function importFolder(
         );
     } finally {
         flush();
-        for (const [bookId, update] of updates) deps.updateBook(bookId, update);
+        if (updates.size > 0) deps.updateBooks([...updates]);
     }
 
     report(toImport.length, toImport.length, true);
