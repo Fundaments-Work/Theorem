@@ -1834,12 +1834,54 @@ fn upsert_sync_rss_article(
     Ok(Some(id.to_string()))
 }
 
+/// Fields of a synced book that describe this device's copy, not the book.
+/// Peers never send them (provisioning strips them), so an incoming value is
+/// at best stale and at worst an attempt to point us, and then the book server,
+/// at an arbitrary local file.
+const DEVICE_LOCAL_BOOK_FIELDS: &[&str] = &[
+    "filePath",
+    "file_path",
+    "storagePath",
+    "storage_path",
+    "syncedWithoutFile",
+];
+
+/// The book as a peer may describe it: device-local fields removed, and a
+/// cover only as an inline image.
+fn sanitize_incoming_book(incoming: &serde_json::Value) -> serde_json::Value {
+    let mut book = incoming.clone();
+    if let Some(obj) = book.as_object_mut() {
+        for field in DEVICE_LOCAL_BOOK_FIELDS {
+            obj.remove(*field);
+        }
+        let inline_cover = obj
+            .get("coverPath")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s.starts_with("data:image/"));
+        if !inline_cover {
+            obj.remove("coverPath");
+        }
+    }
+    book
+}
+
+/// Keys a peer may store as-is in `kv_store`. Anything else (persisted app
+/// state, preferences that are not synced) is never written from sync.
+fn is_syncable_kv_key(key: &str) -> bool {
+    matches!(
+        key,
+        "settings" | "reading_stats" | "collections" | "rss_feeds"
+    ) || key.starts_with("collection:")
+        || key.starts_with("cover:")
+}
+
 fn merge_book_metadata_json(
     existing_json: Option<&str>,
     incoming: &serde_json::Value,
     cache_file_exists: bool,
     cache_path: Option<&str>,
 ) -> String {
+    let incoming = &sanitize_incoming_book(incoming);
     let mut merged = if let Some(ex) = existing_json {
         serde_json::from_str::<serde_json::Value>(ex).unwrap_or_else(|_| incoming.clone())
     } else {
@@ -1907,6 +1949,54 @@ fn merge_book_metadata_json(
     } else {
         incoming.to_string()
     }
+}
+
+/// Stores one synced book's metadata (and its search entry) under `book_id`.
+fn merge_synced_book(
+    connection: &Connection,
+    book_id: &str,
+    book_val: &serde_json::Value,
+    app_data_dir: Option<&Path>,
+) -> rusqlite::Result<()> {
+    let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
+    let author = book_val.get("author").and_then(|v| v.as_str());
+
+    connection.execute(
+        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+        params![book_id],
+    )?;
+
+    let existing_meta: Option<String> = connection
+        .query_row(
+            "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
+            params![book_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+
+    let cache_path = app_data_dir.map(|dir| materialized_book_path_in_dir(dir, book_id));
+    let cache_file_exists = cache_path.as_ref().is_some_and(|p| p.is_file());
+    let cache_path = cache_path.map(|p| p.to_string_lossy().into_owned());
+
+    let final_json = merge_book_metadata_json(
+        existing_meta.as_deref(),
+        book_val,
+        cache_file_exists,
+        cache_path.as_deref(),
+    );
+
+    connection.execute(
+        "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
+        params![book_id, final_json],
+    )?;
+
+    let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
+    let _ = connection.execute(
+        "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+        params![book_id, title, author],
+    );
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -2009,54 +2099,13 @@ pub fn sqlite_merge_sync_entries_with_dir(
             )?;
             record_domain("deletion_tombstones");
         } else if let Some(book_id) = key.strip_prefix("book:") {
-            if tombstoned_books.contains(book_id) {
+            // The ID becomes a file name in book-cache.
+            if tombstoned_books.contains(book_id) || !crate::sync_access::is_valid_book_id(book_id)
+            {
                 continue;
             }
             if let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) {
-                let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let author = book_val.get("author").and_then(|v| v.as_str());
-
-                connection.execute(
-                    "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                    params![book_id],
-                )?;
-
-                let existing_meta: Option<String> = connection
-                    .query_row(
-                        "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
-                        params![book_id],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .unwrap_or(None);
-
-                let cache_file_exists = app_data_dir
-                    .map(|dir| materialized_book_path_in_dir(dir, book_id).is_file())
-                    .unwrap_or(false);
-                let cache_path = app_data_dir.map(|dir| {
-                    materialized_book_path_in_dir(dir, book_id)
-                        .to_string_lossy()
-                        .into_owned()
-                });
-
-                let final_json = merge_book_metadata_json(
-                    existing_meta.as_deref(),
-                    &book_val,
-                    cache_file_exists,
-                    cache_path.as_deref(),
-                );
-
-                connection.execute(
-                    "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
-                    params![book_id, final_json],
-                )?;
-
-                let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
-                let _ = connection.execute(
-                    "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-                    params![book_id, title, author],
-                );
-
+                merge_synced_book(connection, book_id, &book_val, app_data_dir)?;
                 books_count += 1;
                 updated_books.push(book_id.to_string());
                 record_domain("books");
@@ -2065,53 +2114,12 @@ pub fn sqlite_merge_sync_entries_with_dir(
             if let Ok(books_vec) = serde_json::from_str::<Vec<serde_json::Value>>(value) {
                 for b in &books_vec {
                     if let Some(book_id) = b.get("id").and_then(|v| v.as_str()) {
-                        if tombstoned_books.contains(book_id) {
+                        if tombstoned_books.contains(book_id)
+                            || !crate::sync_access::is_valid_book_id(book_id)
+                        {
                             continue;
                         }
-                        let title = b.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                        let author = b.get("author").and_then(|v| v.as_str());
-
-                        connection.execute(
-                            "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                            params![book_id],
-                        )?;
-
-                        let existing_meta: Option<String> = connection
-                            .query_row(
-                                "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
-                                params![book_id],
-                                |row| row.get(0),
-                            )
-                            .optional()
-                            .unwrap_or(None);
-
-                        let cache_file_exists = app_data_dir
-                            .map(|dir| materialized_book_path_in_dir(dir, book_id).is_file())
-                            .unwrap_or(false);
-                        let cache_path = app_data_dir.map(|dir| {
-                            materialized_book_path_in_dir(dir, book_id)
-                                .to_string_lossy()
-                                .into_owned()
-                        });
-
-                        let final_json = merge_book_metadata_json(
-                            existing_meta.as_deref(),
-                            b,
-                            cache_file_exists,
-                            cache_path.as_deref(),
-                        );
-
-                        connection.execute(
-                            "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
-                            params![book_id, final_json],
-                        )?;
-
-                        let _ = connection
-                            .execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
-                        let _ = connection.execute(
-                            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-                            params![book_id, title, author],
-                        );
+                        merge_synced_book(connection, book_id, b, app_data_dir)?;
                         books_count += 1;
                         updated_books.push(book_id.to_string());
                     }
@@ -2227,7 +2235,7 @@ pub fn sqlite_merge_sync_entries_with_dir(
                     }
                 }
             }
-        } else {
+        } else if is_syncable_kv_key(key) {
             connection.execute(
                 "INSERT INTO kv_store(key, value, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()",
                 params![key, value],
@@ -4332,6 +4340,134 @@ mod tests {
 
         sqlite_delete_rss_feed_inner(&conn, "f1").unwrap();
         assert!(sqlite_get_rss_feeds_inner(&conn).unwrap().is_empty());
+    }
+
+    fn kv_value(conn: &Connection, key: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT value FROM kv_store WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    #[test]
+    fn a_peer_cannot_plant_file_paths_in_a_synced_book() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "book:b1".to_string(),
+            r#"{"id":"b1","title":"Dune","filePath":"/home/me/.ssh/id_ed25519","storagePath":"../theorem.db","file_path":"x","syncedWithoutFile":false,"coverPath":"file:///etc/passwd"}"#.to_string(),
+        );
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b1")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        for field in ["filePath", "storagePath", "file_path", "coverPath"] {
+            assert!(
+                meta.get(field).is_none(),
+                "{field} came from the peer: {meta}"
+            );
+        }
+        assert_eq!(meta["title"], "Dune");
+        // A new book from a peer has no local file yet.
+        assert_eq!(meta["syncedWithoutFile"], true);
+
+        // An existing local path survives a peer's attempt to replace it, and
+        // an inline cover image is still accepted.
+        conn.execute(
+            "UPDATE book_metadata SET metadata_json = ?1 WHERE book_id = 'b1'",
+            params![r#"{"id":"b1","title":"Dune","filePath":"/books/dune.epub"}"#],
+        )
+        .unwrap();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "book:b1".to_string(),
+            r#"{"id":"b1","title":"Dune Messiah","filePath":"/etc/shadow","coverPath":"data:image/webp;base64,AAAA"}"#.to_string(),
+        );
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b1")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(meta["filePath"], "/books/dune.epub");
+        assert_eq!(meta["title"], "Dune Messiah");
+        assert_eq!(meta["coverPath"], "data:image/webp;base64,AAAA");
+    }
+
+    #[test]
+    fn book_ids_that_name_paths_are_not_merged() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "book:../../evil".to_string(),
+            r#"{"title":"x"}"#.to_string(),
+        );
+        entries.insert(
+            "books".to_string(),
+            r#"[{"id":"/etc/passwd","title":"y"},{"id":"ok-1","title":"z"}]"#.to_string(),
+        );
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert_eq!(res.updated_books, vec!["ok-1".to_string()]);
+        assert!(sqlite_get_book_metadata_inner(&conn, "../../evil")
+            .unwrap()
+            .is_none());
+        assert!(sqlite_get_book_metadata_inner(&conn, "/etc/passwd")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_peer_can_write_only_synced_keys() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        for key in [
+            "settings",
+            "reading_stats",
+            "collections",
+            "rss_feeds",
+            "collection:c1",
+            "cover:b1",
+        ] {
+            entries.insert(key.to_string(), r#"{"ok":true}"#.to_string());
+        }
+        for key in [
+            "zustand:theorem-library",
+            "persist:theorem-settings",
+            "theorem-opds",
+            "anything-else",
+        ] {
+            entries.insert(key.to_string(), r#"{"planted":true}"#.to_string());
+        }
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        for key in [
+            "settings",
+            "reading_stats",
+            "collections",
+            "rss_feeds",
+            "collection:c1",
+            "cover:b1",
+        ] {
+            assert!(kv_value(&conn, key).is_some(), "{key} should sync");
+        }
+        for key in [
+            "zustand:theorem-library",
+            "persist:theorem-settings",
+            "theorem-opds",
+            "anything-else",
+        ] {
+            assert!(
+                kv_value(&conn, key).is_none(),
+                "{key} must not be written by a peer"
+            );
+            assert!(!res.domains_updated.contains(&key.to_string()));
+        }
     }
 
     #[test]

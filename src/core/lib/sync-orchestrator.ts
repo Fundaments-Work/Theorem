@@ -942,9 +942,6 @@ export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
     setStatus("syncing", "Downloading book...");
     useUIStore.getState().setDownloadingBook(bookId);
     const { downloadBookFile, getPairedDevices } = await import("./device-sync");
-    const { appDataDir } = await import("@tauri-apps/api/path");
-    const appDir = await appDataDir();
-    const destPath = `${appDir}/book-cache/${bookId}.book`;
 
     const peerIds: string[] = [];
     if (_lastSyncPeerId) peerIds.push(_lastSyncPeerId);
@@ -964,7 +961,7 @@ export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
         if (_syncCancelled) break;
         try {
             debug(`[file-xfer] Attempting download of ${bookId} from peer ${peerId}...`);
-            await downloadBookFile(peerId, bookId, destPath);
+            const destPath = await downloadBookFile(peerId, bookId);
             try {
                 await sqliteRegisterMaterializedBook(bookId);
             } catch (e) {
@@ -997,8 +994,6 @@ export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
 
 async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
     const { downloadBookFile } = await import("./device-sync");
-    const { appDataDir } = await import("@tauri-apps/api/path");
-    const appDir = await appDataDir();
 
     const books = useLibraryStore.getState().books
         .filter((b) => b.syncedWithoutFile && b.lastReadAt)
@@ -1016,9 +1011,8 @@ async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
         Array.from({ length: DOWNLOAD_CONCURRENCY }, async () => {
             while (index < books.length && !_syncCancelled) {
                 const book = books[index++];
-                const destPath = `${appDir}/book-cache/${book.id}.book`;
                 try {
-                    await downloadBookFile(peerDeviceId, book.id, destPath);
+                    const destPath = await downloadBookFile(peerDeviceId, book.id);
                     try {
                         await sqliteRegisterMaterializedBook(book.id);
                     } catch (e) {

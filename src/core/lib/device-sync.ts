@@ -29,21 +29,6 @@ export async function irohStop(): Promise<void> {
     return invoke("iroh_stop");
 }
 
-export async function irohPair(
-    peerDeviceId: string,
-    peerNodeId: string,
-    peerDeviceName: string,
-    peerFingerprint: string,
-): Promise<void> {
-    requireTauri("irohPair");
-    return invoke("iroh_pair", {
-        peerDeviceId,
-        peerNodeId,
-        peerDeviceName,
-        peerFingerprint,
-    });
-}
-
 export async function generatePairingQr(): Promise<PairingQrData> {
     requireTauri("generatePairingQr");
     return invoke<PairingQrData>("generate_pairing_qr");
@@ -55,6 +40,18 @@ export async function submitPairingCode(
     requireTauri("submitPairingCode");
     const raw = await invoke<PairedDevice>("submit_pairing_code", { pairingCode });
     return raw;
+}
+
+/** Accepts or declines a device asking to pair (`pairing-confirm-request`). */
+export async function respondPairingRequest(requestId: string, accept: boolean): Promise<void> {
+    requireTauri("respondPairingRequest");
+    return invoke("respond_pairing_request", { requestId, accept });
+}
+
+/** The QR code was closed: its one-time secret stops working. */
+export async function closePairingQr(): Promise<void> {
+    if (!isTauri()) return;
+    return invoke("close_pairing_qr");
 }
 
 export async function getDeviceIdentity(): Promise<DeviceIdentityInfo> {
@@ -80,18 +77,8 @@ export async function unpairDevice(deviceId: string): Promise<void> {
     return invoke("unpair_device", { deviceId });
 }
 
-export async function requestBookFile(peerDeviceId: string, bookId: string): Promise<Uint8Array | null> {
-    if (!isTauri()) return null;
-    try {
-        const result = await invoke<number[]>("request_book_file", { peerDeviceId, bookId });
-        return new Uint8Array(result);
-    } catch (e) {
-        console.error(`[file-xfer] requestBookFile failed for ${bookId}: ${e}`);
-        return null;
-    }
-}
-
-export async function downloadBookFile(peerDeviceId: string, bookId: string, destPath: string): Promise<void> {
-    if (!isTauri()) return;
-    await invoke("download_book_file", { peerDeviceId, bookId, destPath });
+/** Downloads a book from a peer into this device's book cache; returns where it was saved. */
+export async function downloadBookFile(peerDeviceId: string, bookId: string): Promise<string> {
+    requireTauri("downloadBookFile");
+    return invoke<string>("download_book_file", { peerDeviceId, bookId });
 }

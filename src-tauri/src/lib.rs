@@ -33,6 +33,7 @@ mod smart_shelves;
 pub mod stardict;
 pub mod stemmer;
 pub mod supertonic;
+mod sync_access;
 mod sync_commands;
 pub mod text_normalizer;
 #[cfg(not(target_os = "android"))]
@@ -1919,19 +1920,19 @@ pub fn run() {
             fuzzy_search::two_tier_search_books,
             sync_commands::iroh_start,
             sync_commands::iroh_stop,
-            sync_commands::iroh_pair,
             sync_commands::generate_pairing_qr,
             sync_commands::submit_pairing_code,
             sync_commands::get_device_identity,
             sync_commands::set_device_fingerprint,
             sync_commands::get_paired_devices,
             sync_commands::unpair_device,
+            sync_commands::respond_pairing_request,
+            sync_commands::close_pairing_qr,
             sync_commands::docs_create_sync_doc,
             sync_commands::docs_import_sync_doc,
             sync_commands::docs_set_entry,
             sync_commands::docs_get_all_entries,
             sync_commands::docs_sync_now,
-            file_transfer::request_book_file,
             file_transfer::download_book_file,
             sync_commands::clear_sync_databases,
             set_android_fingerprint,

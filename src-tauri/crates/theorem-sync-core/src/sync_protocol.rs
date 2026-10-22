@@ -26,6 +26,11 @@ pub struct PairingQrPayload {
 
     #[serde(default)]
     pub relay_url: String,
+
+    /// One-time pairing secret (version 2 and later), hex. Valid for one
+    /// pairing within minutes of the code being shown.
+    #[serde(default)]
+    pub secret: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -48,6 +53,10 @@ pub struct PairingRequest {
 
     #[serde(default)]
     pub relay_url: String,
+
+    /// The secret from the host's QR code.
+    #[serde(default)]
+    pub secret: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

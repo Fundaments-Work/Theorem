@@ -100,10 +100,7 @@ async fn connect_and_request(
         if let Some(peer_entry) = devices.get_mut(&canonical_device_id) {
             peer_entry.last_ip = connected_ip;
             peer_entry.last_port = connected_port;
-            let _ = crate::iroh_sync::save_paired_devices_to_disk(
-                &sync_state.transport_state.app_data_dir,
-                &devices,
-            );
+            let _ = sync_state.transport_state.persist_paired(&devices);
         }
     }
 
@@ -143,6 +140,8 @@ async fn connect_and_request(
 #[derive(Clone)]
 pub struct FileTransferHandler {
     pub data_dir: PathBuf,
+    /// Checked again here, behind the endpoint's gate, before any file is read.
+    pub allowlist: std::sync::Arc<crate::sync_access::PeerAllowlist>,
 }
 
 impl std::fmt::Debug for FileTransferHandler {
@@ -153,6 +152,11 @@ impl std::fmt::Debug for FileTransferHandler {
 
 enum BookSource {
     File(tokio::fs::File, u64),
+    Memory(Vec<u8>),
+}
+
+enum ResolvedBook {
+    Path(PathBuf),
     Memory(Vec<u8>),
 }
 
@@ -341,103 +345,96 @@ impl FileTransferHandler {
         BookLookup::Found(data, paths)
     }
 
-    async fn locate_book(data_dir: &Path, book_id: &str) -> Result<BookSource, String> {
-        let clean_id = book_id.trim();
+    /// Finds the file to send for `book_id`. The ID must look like a book ID,
+    /// and every path, whether in `book-cache` or recorded in the library,
+    /// passes [`servable_book_path`]: a request can only ever return a book.
+    ///
+    /// [`servable_book_path`]: crate::sync_access::servable_book_path
+    fn resolve_book(data_dir: &Path, book_id: &str) -> Result<ResolvedBook, String> {
+        use crate::sync_access::{is_valid_book_id, servable_book_path};
 
-        // 1. Direct check in book-cache/{book_id}.book
-        let cache_file = data_dir.join("book-cache").join(format!("{clean_id}.book"));
-        if let Ok(metadata) = tokio::fs::metadata(&cache_file).await {
-            if metadata.is_file() && metadata.len() > 0 {
-                let file = tokio::fs::File::open(&cache_file)
-                    .await
-                    .map_err(|e| format!("open cache file: {e}"))?;
-                return Ok(BookSource::File(file, metadata.len()));
-            }
+        if !is_valid_book_id(book_id) {
+            return Err("invalid book id".to_string());
         }
 
-        // 2. Direct check in book-cache/{book_id}
-        let cache_file_raw = data_dir.join("book-cache").join(clean_id);
-        if let Ok(metadata) = tokio::fs::metadata(&cache_file_raw).await {
-            if metadata.is_file() && metadata.len() > 0 {
-                let file = tokio::fs::File::open(&cache_file_raw)
-                    .await
-                    .map_err(|e| format!("open cache raw file: {e}"))?;
-                return Ok(BookSource::File(file, metadata.len()));
-            }
-        }
-
-        // 3. Check for any file in book-cache starting with book_id (e.g. {clean_id}.pdf, {clean_id}.epub)
         let cache_dir = data_dir.join("book-cache");
-        if let Ok(mut entries) = tokio::fs::read_dir(&cache_dir).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let file_name = entry.file_name();
-                let name_str = file_name.to_string_lossy();
-                if name_str.starts_with(clean_id) {
-                    if let Ok(meta) = entry.metadata().await {
-                        if meta.is_file() && meta.len() > 0 {
-                            if let Ok(file) = tokio::fs::File::open(entry.path()).await {
-                                return Ok(BookSource::File(file, meta.len()));
-                            }
-                        }
-                    }
+        let mut candidates = vec![
+            cache_dir.join(format!("{book_id}.book")),
+            cache_dir.join(book_id),
+        ];
+        // Also {book_id}.epub, {book_id}.pdf, ...
+        let prefix = format!("{book_id}.");
+        if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+            for entry in entries.flatten() {
+                if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                    candidates.push(entry.path());
                 }
             }
         }
-
-        // 4. Query SQLite via spawn_blocking to locate data or paths or verify tombstone
-        let dir_clone = data_dir.to_path_buf();
-        let id_clone = clean_id.to_string();
-        let lookup_res =
-            tokio::task::spawn_blocking(move || Self::find_in_db(&dir_clone, &id_clone))
-                .await
-                .map_err(|e| format!("spawn_blocking: {e}"))?;
-
-        match lookup_res {
-            BookLookup::Deleted => {
-                return Err(format!(
-                    "PEER_BOOK_DELETED: book '{clean_id}' has been deleted on this device"
-                ));
-            }
-            BookLookup::Found(db_data, candidate_paths) => {
-                if let Some(data) = db_data {
-                    if !data.is_empty() {
-                        return Ok(BookSource::Memory(data));
-                    }
-                }
-
-                for p in candidate_paths {
-                    if let Ok(metadata) = tokio::fs::metadata(&p).await {
-                        if metadata.is_file() && metadata.len() > 0 {
-                            let file = tokio::fs::File::open(&p)
-                                .await
-                                .map_err(|e| format!("open book file '{p:?}': {e}"))?;
-                            return Ok(BookSource::File(file, metadata.len()));
-                        }
-                    }
-                }
+        for candidate in &candidates {
+            if let Some(path) = servable_book_path(candidate, data_dir) {
+                return Ok(ResolvedBook::Path(path));
             }
         }
 
-        Err(format!(
-            "book '{clean_id}' not found in book-cache, sqlite blob, or referenced file paths"
-        ))
+        match Self::find_in_db(data_dir, book_id) {
+            BookLookup::Deleted => Err(format!(
+                "PEER_BOOK_DELETED: book '{book_id}' has been deleted on this device"
+            )),
+            BookLookup::Found(Some(data), _) if !data.is_empty() => Ok(ResolvedBook::Memory(data)),
+            BookLookup::Found(_, paths) => paths
+                .iter()
+                .find_map(|p| servable_book_path(p, data_dir))
+                .map(ResolvedBook::Path)
+                .ok_or_else(|| {
+                    format!("book '{book_id}' not found in book-cache, sqlite blob, or referenced file paths")
+                }),
+        }
+    }
+
+    async fn locate_book(data_dir: &Path, book_id: &str) -> Result<BookSource, String> {
+        let dir = data_dir.to_path_buf();
+        let id = book_id.trim().to_string();
+        let resolved = tokio::task::spawn_blocking(move || Self::resolve_book(&dir, &id))
+            .await
+            .map_err(|e| format!("spawn_blocking: {e}"))??;
+        match resolved {
+            ResolvedBook::Memory(data) => Ok(BookSource::Memory(data)),
+            ResolvedBook::Path(path) => {
+                let file = tokio::fs::File::open(&path)
+                    .await
+                    .map_err(|e| format!("open book file: {e}"))?;
+                let len = file
+                    .metadata()
+                    .await
+                    .map_err(|e| format!("stat book file: {e}"))?
+                    .len();
+                Ok(BookSource::File(file, len))
+            }
+        }
     }
 }
 
 impl ProtocolHandler for FileTransferHandler {
     async fn accept(&self, conn: endpoint::Connection) -> Result<(), iroh::protocol::AcceptError> {
+        if !self.allowlist.is_allowed(&conn.remote_id()) {
+            conn.close(403u32.into(), b"not paired");
+            return Ok(());
+        }
         loop {
             let (mut send, mut recv) = match conn.accept_bi().await {
                 Ok(s) => s,
                 Err(_) => break,
             };
 
-            let mut reader = BufReader::new(&mut recv);
+            // A book ID is under 200 bytes; never buffer an endless line.
+            let mut reader = BufReader::new((&mut recv).take(512));
             let mut line = String::new();
-            let request = match reader.read_line(&mut line).await {
-                Ok(0) | Err(_) => break,
-                Ok(_) => line.trim().to_string(),
-            };
+            let request =
+                match tokio::time::timeout(CONNECT_TIMEOUT, reader.read_line(&mut line)).await {
+                    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+                    Ok(Ok(_)) => line.trim().to_string(),
+                };
 
             eprintln!("[file-transfer] Incoming request for book '{request}'");
             let result = Self::locate_book(&self.data_dir, &request).await;
@@ -472,30 +469,26 @@ impl ProtocolHandler for FileTransferHandler {
     }
 }
 
-#[tauri::command]
-pub async fn request_book_file(
-    app: tauri::AppHandle,
-    peer_device_id: String,
-    book_id: String,
-) -> Result<Vec<u8>, String> {
-    let (mut reader, size) = connect_and_request(&app, &peer_device_id, &book_id).await?;
-    let mut buf = vec![0u8; size];
-    tokio::time::timeout(FILE_TRANSFER_TIMEOUT, reader.read_exact(&mut buf))
-        .await
-        .map_err(|_| "read data timed out".to_string())?
-        .map_err(|e| format!("read data: {e}"))?;
-    Ok(buf)
-}
+/// The largest book a peer may send (comics can be large; nothing is this big).
+const MAX_BOOK_BYTES: usize = 4 * 1024 * 1024 * 1024;
 
+/// Downloads a book from a peer into `book-cache/{book_id}.book` and returns
+/// that path. The path is derived here from a validated ID, never passed in,
+/// so a synced book ID cannot direct the download elsewhere.
 #[tauri::command]
 pub async fn download_book_file(
     app: tauri::AppHandle,
     peer_device_id: String,
     book_id: String,
-    dest_path: String,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    if !crate::sync_access::is_valid_book_id(&book_id) {
+        return Err("invalid book id".to_string());
+    }
+    let dest = crate::database::materialized_book_path(&app, &book_id)?;
     let (mut reader, size) = connect_and_request(&app, &peer_device_id, &book_id).await?;
-    let dest = PathBuf::from(&dest_path);
+    if size > MAX_BOOK_BYTES {
+        return Err(format!("peer offered a {size}-byte file; refusing"));
+    }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -579,5 +572,5 @@ pub async fn download_book_file(
         .await
         .map_err(|e| format!("rename to final dest: {e}"))?;
 
-    Ok(())
+    Ok(dest.to_string_lossy().into_owned())
 }

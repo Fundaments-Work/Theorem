@@ -32,6 +32,9 @@ pub fn init_sync(
     let fingerprint = sync_crypto::read_machine_fingerprint();
 
     let paired_devices = iroh_sync::load_paired_devices_from_disk(&app_data_dir);
+    let allowlist = Arc::new(crate::sync_access::PeerAllowlist::from_devices(
+        &paired_devices,
+    ));
 
     let transport_state = Arc::new(SyncTransportState {
         app_handle,
@@ -42,6 +45,9 @@ pub fn init_sync(
         paired_devices: Mutex::new(paired_devices),
         docs_api: Mutex::new(None),
         docs_generation: std::sync::atomic::AtomicU64::new(0),
+        allowlist,
+        pairing: Default::default(),
+        pairing_confirms: Default::default(),
     });
 
     Ok(SyncState {
@@ -78,6 +84,7 @@ pub(crate) async fn get_or_init_iroh(
             sync_state.transport_state.device_name.clone(),
             sync_crypto::get_frontend_fingerprint()
                 .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
+            sync_state.transport_state.allowlist.clone(),
         )
         .await?,
     );
@@ -105,6 +112,11 @@ pub fn get_iroh_relay_url() -> String {
         })
         .unwrap_or_default()
 }
+
+/// Pairing codes carry a one-time secret from version 2 on.
+const PAIRING_VERSION: u8 = 2;
+
+const PAIRING_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 #[derive(serde::Serialize)]
 pub struct IrohNodeIdResponse {
@@ -236,27 +248,6 @@ pub async fn iroh_stop(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn iroh_pair(
-    app: tauri::AppHandle,
-    peer_device_id: String,
-    peer_node_id: String,
-    peer_device_name: String,
-    peer_fingerprint: String,
-) -> Result<(), String> {
-    let ep = get_or_init_iroh(&app).await?;
-    let peer = iroh_sync::IrohPeerInfo {
-        public_key: peer_node_id
-            .parse()
-            .map_err(|e| format!("invalid public key: {e}"))?,
-        device_id: peer_device_id,
-        device_name: peer_device_name,
-        fingerprint: peer_fingerprint,
-    };
-    ep.add_peer(peer).await;
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn generate_pairing_qr(app: tauri::AppHandle) -> Result<PairingQrData, String> {
     let _pair_lock = IROH_START_LOCK.lock().await;
     let ep = get_or_init_iroh(&app).await?;
@@ -273,7 +264,7 @@ pub async fn generate_pairing_qr(app: tauri::AppHandle) -> Result<PairingQrData,
     }
 
     let qr_payload = PairingQrPayload {
-        version: 1,
+        version: PAIRING_VERSION,
         node_id: ep.public_key_string(),
         device_id: sync_state.transport_state.device_id.clone(),
         device_name: sync_state.transport_state.device_name.clone(),
@@ -293,6 +284,7 @@ pub async fn generate_pairing_qr(app: tauri::AppHandle) -> Result<PairingQrData,
             .first()
             .map(|u| u.to_string())
             .unwrap_or_default(),
+        secret: sync_state.transport_state.pairing.open(),
     };
 
     let payload_json = serde_json::to_string(&qr_payload)
@@ -313,11 +305,17 @@ pub async fn submit_pairing_code(
     let qr_payload: PairingQrPayload =
         serde_json::from_str(&pairing_code).map_err(|e| format!("Invalid pairing code: {e}"))?;
 
-    if qr_payload.version != 1 {
-        return Err(format!(
-            "Unsupported pairing protocol version: {}",
-            qr_payload.version
-        ));
+    if qr_payload.version < PAIRING_VERSION || qr_payload.secret.is_empty() {
+        return Err(
+            "This pairing code is from an older version of Theorem. Update Theorem on the other device and show its QR code again."
+                .to_string(),
+        );
+    }
+    if qr_payload.version > PAIRING_VERSION {
+        return Err(
+            "This pairing code is from a newer version of Theorem. Update Theorem on this device."
+                .to_string(),
+        );
     }
 
     let sync_state = get_sync_state(&app)?;
@@ -339,41 +337,31 @@ pub async fn submit_pairing_code(
         }
     }
 
-    let conn = ep
-        .endpoint
-        .connect(host_addr, crate::iroh_sync::ALPN_BYTES)
-        .await
-        .map_err(|e| format!("Connect to host failed: {e}"))?;
+    // The host may connect back for sync before it is saved as paired here.
+    sync_state
+        .transport_state
+        .allowlist
+        .allow_pending(peer_pk, crate::sync_access::PENDING_PEER_TTL);
 
+    let conn = tokio::time::timeout(
+        PAIRING_CONNECT_TIMEOUT,
+        ep.endpoint.connect(host_addr, crate::iroh_sync::ALPN_BYTES),
+    )
+    .await
+    .map_err(|_| {
+        "Could not reach the other device. Check that both are online and try again.".to_string()
+    })?
+    .map_err(|e| format!("Connect to host failed: {e}"))?;
+
+    let code = crate::sync_access::verification_code(&peer_pk, &ep.public_key, &qr_payload.secret);
     let _ = app.emit(
         "pairing-progress",
-        serde_json::json!({"step": "handshake", "message": "Connected, exchanging keys..."}),
+        serde_json::json!({
+            "step": "confirm",
+            "code": code,
+            "message": format!("Accept on the other device if it shows {code}"),
+        }),
     );
-
-    let my_info = iroh_sync::IrohPeerInfo {
-        public_key: ep.public_key,
-        device_id: sync_state.transport_state.device_id.clone(),
-        device_name: sync_state.transport_state.device_name.clone(),
-        fingerprint: sync_crypto::get_frontend_fingerprint()
-            .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
-    };
-    {
-        let (mut send, mut recv) = conn.open_bi().await.map_err(|e| format!("open_bi: {e}"))?;
-        let json = serde_json::to_vec(&my_info).map_err(|e| format!("serialize: {e}"))?;
-        let len = (json.len() as u32).to_be_bytes();
-        send.write_all(&len)
-            .await
-            .map_err(|e| format!("write: {e}"))?;
-        send.write_all(&json)
-            .await
-            .map_err(|e| format!("write: {e}"))?;
-        send.finish().map_err(|e| format!("finish: {e}"))?;
-        let mut lb = [0u8; 4];
-        recv.read_exact(&mut lb)
-            .await
-            .map_err(|e| format!("read: {e}"))?;
-        let _peer_len = u32::from_be_bytes(lb) as usize;
-    }
 
     let pairing_request = PairingRequest {
         device_id: sync_state.transport_state.device_id.clone(),
@@ -389,6 +377,7 @@ pub async fn submit_pairing_code(
             .first()
             .map(|u| u.to_string())
             .unwrap_or_default(),
+        secret: qr_payload.secret.clone(),
     };
 
     let pairing_response = iroh_sync::send_pair_request(&conn, &pairing_request).await?;
@@ -471,7 +460,9 @@ pub async fn submit_pairing_code(
             }
         }
         devices.insert(paired_device.device_id.clone(), paired_device);
-        iroh_sync::save_paired_devices_to_disk(&sync_state.transport_state.app_data_dir, &devices)
+        sync_state
+            .transport_state
+            .persist_paired(&devices)
             .unwrap_or_else(|e| eprintln!("[sync] Failed to save paired devices: {e}"));
     }
 
@@ -545,11 +536,12 @@ pub async fn submit_pairing_code(
                     if let Some(device) = devices.get_mut(&pairing_response.device_id) {
                         device.sync_doc_id = doc_id;
                         device.sync_doc_ticket = pairing_response.sync_doc_ticket.clone();
-                        iroh_sync::save_paired_devices_to_disk(
-                            &sync_state.transport_state.app_data_dir,
-                            &devices,
-                        )
-                        .unwrap_or_else(|e| eprintln!("[sync] Failed to save paired devices: {e}"));
+                        sync_state
+                            .transport_state
+                            .persist_paired(&devices)
+                            .unwrap_or_else(|e| {
+                                eprintln!("[sync] Failed to save paired devices: {e}")
+                            });
                     }
                 }
                 Err(e) => eprintln!("[sync] Failed to import docs doc: {e}"),
@@ -557,14 +549,6 @@ pub async fn submit_pairing_code(
             Err(e) => eprintln!("[sync] Failed to parse docs ticket: {e}"),
         }
     }
-
-    let peer_info = iroh_sync::IrohPeerInfo {
-        public_key: peer_pk,
-        device_id: paired_info.device_id.clone(),
-        device_name: paired_info.device_name.clone(),
-        fingerprint: paired_info.fingerprint.clone(),
-    };
-    ep.add_peer(peer_info).await;
 
     let _ = app.emit(
         "pairing-progress",
@@ -606,14 +590,59 @@ pub async fn get_paired_devices(app: tauri::AppHandle) -> Result<Vec<PairedDevic
     Ok(devices.values().map(PairedDeviceInfo::from).collect())
 }
 
+/// Forgets a device. It is refused from now on, and the doc shared with it is
+/// deleted here, so this device neither syncs it nor keeps its data. (The
+/// other device still has its copy; each pairing has its own doc, so it
+/// never had access to the docs shared with other devices.)
 #[tauri::command]
 pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(), String> {
     let sync_state = get_sync_state(&app)?;
-    let mut devices = sync_state.transport_state.paired_devices.lock().await;
-    if devices.remove(&device_id).is_none() {
-        return Err(format!("Device {} not found", device_id));
+    let removed = {
+        let mut devices = sync_state.transport_state.paired_devices.lock().await;
+        let removed = devices
+            .remove(&device_id)
+            .ok_or_else(|| format!("Device {} not found", device_id))?;
+        sync_state.transport_state.persist_paired(&devices)?;
+        removed
+    };
+    if let Ok(doc_id) = removed.sync_doc_id.parse::<iroh_docs::NamespaceId>() {
+        // Released paired_devices above: the docs_api lock comes first.
+        let snapshot = sync_state.transport_state.docs_api.lock().await.clone();
+        if let Some(snapshot) = snapshot {
+            if let Ok(Some(doc)) = snapshot.api.open(doc_id).await {
+                let _ = doc.leave().await;
+            }
+            if let Err(e) = snapshot.api.drop_doc(doc_id).await {
+                eprintln!("[iroh-sync] Could not delete the doc of an unpaired device: {e}");
+            }
+        }
     }
-    iroh_sync::save_paired_devices_to_disk(&sync_state.transport_state.app_data_dir, &devices)?;
+    Ok(())
+}
+
+/// The user's answer to a `pairing-confirm-request`.
+#[tauri::command]
+pub async fn respond_pairing_request(
+    app: tauri::AppHandle,
+    request_id: String,
+    accept: bool,
+) -> Result<(), String> {
+    let sync_state = get_sync_state(&app)?;
+    let sender = sync_state
+        .transport_state
+        .pairing_confirms
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&request_id)
+        .ok_or_else(|| "This pairing request has expired.".to_string())?;
+    let _ = sender.send(accept);
+    Ok(())
+}
+
+/// The QR code was closed: its secret stops working.
+#[tauri::command]
+pub async fn close_pairing_qr(app: tauri::AppHandle) -> Result<(), String> {
+    get_sync_state(&app)?.transport_state.pairing.close();
     Ok(())
 }
 
@@ -684,10 +713,7 @@ pub async fn docs_create_sync_doc(
     let mut devices = sync_state.transport_state.paired_devices.lock().await;
     if let Some(device) = devices.get_mut(&peer_device_id) {
         device.sync_doc_id = doc_id.to_string();
-        let _ = iroh_sync::save_paired_devices_to_disk(
-            &sync_state.transport_state.app_data_dir,
-            &devices,
-        );
+        let _ = sync_state.transport_state.persist_paired(&devices);
     }
 
     Ok(ticket.to_string())
@@ -717,10 +743,7 @@ pub async fn docs_import_sync_doc(
     let mut devices = sync_state.transport_state.paired_devices.lock().await;
     if let Some(device) = devices.get_mut(&peer_device_id) {
         device.sync_doc_id = doc_id.to_string();
-        let _ = iroh_sync::save_paired_devices_to_disk(
-            &sync_state.transport_state.app_data_dir,
-            &devices,
-        );
+        let _ = sync_state.transport_state.persist_paired(&devices);
     }
 
     Ok(())
@@ -944,10 +967,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
                                     sync_state.transport_state.paired_devices.lock().await;
                                 if let Some(d) = devices.get_mut(&peer_device_id) {
                                     d.sync_doc_id = new_doc_id_str.clone();
-                                    let _ = iroh_sync::save_paired_devices_to_disk(
-                                        &sync_state.transport_state.app_data_dir,
-                                        &devices,
-                                    );
+                                    let _ = sync_state.transport_state.persist_paired(&devices);
                                 }
                             }
                             // The paired_devices guard is released above before
@@ -1003,10 +1023,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
                                 sync_state.transport_state.paired_devices.lock().await;
                             if let Some(d) = devices.get_mut(&peer_device_id) {
                                 d.sync_doc_id = new_doc_id;
-                                let _ = iroh_sync::save_paired_devices_to_disk(
-                                    &sync_state.transport_state.app_data_dir,
-                                    &devices,
-                                );
+                                let _ = sync_state.transport_state.persist_paired(&devices);
                             }
                         }
                         // Release paired_devices before get_blobs_store (docs_api) to
@@ -1052,10 +1069,7 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
         let mut devices = sync_state.transport_state.paired_devices.lock().await;
         if let Some(d) = devices.get_mut(&peer_device_id) {
             d.last_sync_at = Some(sync_crypto::now_iso8601());
-            let _ = iroh_sync::save_paired_devices_to_disk(
-                &sync_state.transport_state.app_data_dir,
-                &devices,
-            );
+            let _ = sync_state.transport_state.persist_paired(&devices);
         }
     }
 
