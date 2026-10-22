@@ -11,8 +11,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Asset bundle version tag in the supertonic-assets repo.
-const ASSETS_TAG: &str = "v1";
+/// Asset bundle version tag in the supertonic-assets repo. Part of the
+/// synthesized-audio cache key, so new models never replay old audio.
+pub(crate) const ASSETS_TAG: &str = "v1";
 const ASSETS_BASE: &str = "https://github.com/fundaments-work/supertonic-assets/releases/download";
 
 /// One downloadable asset. GitHub release assets are flat filenames, so

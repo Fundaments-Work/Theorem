@@ -79,11 +79,18 @@ releases and verified against a SHA-256 manifest compiled into the app.
   followed by a lowercase word; `。！？` always do. A sentence over the limit is
   packed greedily at commas, semicolons and colons, then wrapped at words
   (characters for unspaced CJK). Chunks are joined with short silences.
-- **Cache + prefetch**: synthesized audio is cached as WAV keyed by
-  SHA-256(text + voice + speed) in `tts/cache`, capped at 150 MB and trimmed
+- **Cache + prefetch**: synthesized audio is cached as WAV in `tts/cache`,
+  keyed by SHA-256 of a cache-format version, the model release
+  (`tts_model::ASSETS_TAG`), language, voice, speed and text (old entries
+  simply miss and age out). It is capped at 150 MB and trimmed
   least-recently-used first (a cache hit refreshes the file's modification
   time, which is what the trim sorts by) — replays are instant and
-  `tts_prefetch` warms the next chunk while the current one plays.
+  `tts_prefetch` warms the next chunk while the current one plays. Entries are
+  written to a `.part` file and renamed into place, so the player never reads
+  a half-written WAV; the trim never deletes a `.part` in progress (only
+  leftovers older than an hour). Synthesis is serialized by the engine lock
+  and the cache is checked again once it is held, so a prefetch and a speak
+  racing for the same chunk synthesize it once.
 - **Voices**: F1–F5 / M1–M5 (per-voice style files, 292KB each). Selected
   from the reader playback bar. Speed chips (0.75–1.5×) only change the
   native player's pitch-preserving time-stretch (WSOLA): the reader always
