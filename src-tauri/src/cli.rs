@@ -998,56 +998,67 @@ fn library_add(output: &Output, app: &tauri::AppHandle, paths: &[String]) -> i32
 }
 
 fn library_import(output: &Output, app: &tauri::AppHandle, dir: &str) -> i32 {
-    let walk = match std::fs::read_dir(dir) {
-        Ok(walk) => walk,
-        Err(e) => return output.error(&format!("Cannot read directory {dir}: {e}")),
+    // The same walker as the app's "Scan Folder": follows links without
+    // looping, skips hidden folders, and reports what it could not read.
+    let scan = match crate::folder_walk::walk_book_folder(
+        std::path::Path::new(dir),
+        &std::sync::atomic::AtomicBool::new(false),
+    ) {
+        Ok(scan) => scan,
+        Err(e) => return output.error(&e),
     };
-
-    const SUPPORTED: &[&str] = &[
-        ".epub", ".mobi", ".azw", ".azw3", ".fb2", ".fbz", ".pdf", ".cbz", ".cbr",
-    ];
-    let mut files = Vec::new();
-    let mut stack = vec![PathBuf::from(dir)];
-    while let Some(current) = stack.pop() {
-        let entries = match std::fs::read_dir(&current) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                let dotted = format!(".{}", ext.to_ascii_lowercase());
-                if SUPPORTED.contains(&dotted.as_str()) {
-                    files.push(path.to_string_lossy().into_owned());
-                }
-            }
-        }
+    for issue in &scan.issues {
+        output.note(&format!("skipped {}: {}", issue.path, issue.reason));
     }
-    let _ = walk;
-
-    if files.is_empty() {
+    if scan.files.is_empty() {
         output.note(&format!("no supported book files found under {dir}"));
         return 0;
     }
-    files.sort();
+    let files: Vec<String> = scan.files.iter().map(|f| f.path.to_string()).collect();
     ingest_and_register(output, app, &files)
 }
 
 /// Run the native parallel ingest, then register each result in the GUI's
 /// persisted library store + FTS index (mirrors the frontend import flow).
 fn ingest_and_register(output: &Output, app: &tauri::AppHandle, paths: &[String]) -> i32 {
-    let records =
-        match block_on(|| crate::batch_ingest::ingest_books_native(app.clone(), paths.to_vec())) {
-            Ok(records) => records,
-            Err(e) => return output.error(&e),
-        };
-
+    use tauri::Manager;
     let mut kv = match LibraryKv::load(app) {
         Ok(kv) => kv,
         Err(e) => return output.error(&e),
     };
+    let cache_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir.join("book-cache"),
+        Err(e) => return output.error(&format!("Failed to resolve app data directory: {e}")),
+    };
+    // Books already in the library are skipped before anything is copied.
+    let known: Vec<crate::batch_ingest::KnownBook> = kv
+        .books()
+        .iter()
+        .filter_map(|book| {
+            Some(crate::batch_ingest::KnownBook {
+                size: book.get("fileSize")?.as_u64()?,
+                hash: book.get("contentHash")?.as_str()?.into(),
+            })
+        })
+        .collect();
+    let items = std::sync::Mutex::new(Vec::new());
+    let summary = crate::batch_ingest::ingest_files(
+        paths,
+        &cache_dir,
+        &known,
+        &std::sync::atomic::AtomicBool::new(false),
+        &|item| items.lock().expect("ingest results").push(item),
+    );
+    let mut records = Vec::new();
+    for item in items.into_inner().expect("ingest results") {
+        match item {
+            crate::batch_ingest::IngestItem::Imported { book, .. } => records.push(*book),
+            crate::batch_ingest::IngestItem::Failed { path, reason } => {
+                output.note(&format!("failed {path}: {reason}"));
+            }
+            crate::batch_ingest::IngestItem::Duplicate { .. } => {}
+        }
+    }
 
     let mut registered = Vec::new();
     for record in &records {
@@ -1066,6 +1077,8 @@ fn ingest_and_register(output: &Output, app: &tauri::AppHandle, paths: &[String]
             "publishedDate": record.published_date,
             "language": record.language,
             "isbn": record.isbn,
+            "series": record.series,
+            "seriesIndex": record.series_index,
             "fileSize": record.file_size,
             "addedAt": now_iso(),
             "progress": 0,
@@ -1099,11 +1112,10 @@ fn ingest_and_register(output: &Output, app: &tauri::AppHandle, paths: &[String]
             );
         }
         output.note(&format!(
-            "# {} imported, {} skipped (duplicates)",
-            records.len(),
-            paths.len() - records.len()
+            "# {} imported, {} already in the library, {} failed",
+            summary.imported, summary.duplicates, summary.failed
         ));
-        0
+        i32::from(summary.failed > 0)
     }
 }
 

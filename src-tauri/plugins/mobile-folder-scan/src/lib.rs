@@ -5,12 +5,38 @@ use tauri::{
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedBookFile {
     pub path: Box<str>,
     pub relative_path: Box<str>,
     pub root_name: Box<str>,
+    /// Size in bytes, when the scanner could read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// Last modification time (Unix milliseconds), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_ms: Option<i64>,
+}
+
+/// A folder or book file the scanner could not use, with the reason.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanIssue {
+    pub path: Box<str>,
+    pub reason: Box<str>,
+}
+
+/// Everything a folder scan found.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderScan {
+    pub files: Vec<ScannedBookFile>,
+    #[serde(default)]
+    pub issues: Vec<ScanIssue>,
+    /// The scan was stopped before it finished.
+    #[serde(default)]
+    pub cancelled: bool,
 }
 #[cfg(target_os = "android")]
 use tauri::{AppHandle, Manager};
@@ -43,12 +69,6 @@ struct PickFolderResponse {
 struct ScanFolderPayload<'a> {
     tree_uri: &'a str,
     recursive: bool,
-}
-
-#[cfg(target_os = "android")]
-#[derive(Deserialize)]
-struct ScanFolderResponse {
-    files: Vec<ScannedBookFile>,
 }
 
 #[cfg(target_os = "android")]
@@ -107,23 +127,18 @@ pub fn pick_folder<R: Runtime>(app: &AppHandle<R>) -> Result<Option<String>, Str
 }
 
 #[cfg(target_os = "android")]
-pub fn scan_folder<R: Runtime>(
-    app: &AppHandle<R>,
-    tree_uri: &str,
-) -> Result<Vec<ScannedBookFile>, String> {
+pub fn scan_folder<R: Runtime>(app: &AppHandle<R>, tree_uri: &str) -> Result<FolderScan, String> {
     let state = get_scan_state(app)?;
-    let response = state
+    state
         .handle
-        .run_mobile_plugin::<ScanFolderResponse>(
+        .run_mobile_plugin::<FolderScan>(
             "scanFolder",
             ScanFolderPayload {
                 tree_uri,
                 recursive: true,
             },
         )
-        .map_err(|error| error.to_string())?;
-
-    Ok(response.files)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "android")]

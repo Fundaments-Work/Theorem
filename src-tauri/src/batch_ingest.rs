@@ -2,12 +2,12 @@ use image::GenericImageView;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Read};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeBookRecord {
@@ -49,28 +49,20 @@ pub struct NativeBookRecord {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IngestProgressPayload {
-    pub completed: usize,
-    pub total: usize,
-    #[serde(rename = "currentFile")]
-    pub current_file: String,
-    pub book: Option<NativeBookRecord>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
 /// Compute SHA-256 hash of a file streaming in 64KB blocks
 pub fn compute_file_sha256(path: &Path) -> Option<String> {
     let mut file = File::open(path).ok()?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 65536];
 
-    while let Ok(n) = file.read(&mut buffer) {
-        if n == 0 {
-            break;
+    // A read error must not yield the hash of half a file.
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buffer[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
         }
-        hasher.update(&buffer[..n]);
     }
 
     Some(hex::encode(hasher.finalize()))
@@ -625,141 +617,497 @@ pub fn parse_title_author_from_filename(path: &Path) -> (String, String) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BATCH INGEST
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Larger files are not books (a disk image or video given a book name).
+pub const MAX_BOOK_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Half-written copies older than this are left over from a crash.
+const STALE_PART_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// A book already in the library, so a file with the same bytes is skipped
+/// before anything is copied.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnownBook {
+    pub size: u64,
+    pub hash: Box<str>,
+}
+
+/// What happened to one file.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum IngestItem {
+    Imported {
+        path: Box<str>,
+        book: Box<NativeBookRecord>,
+    },
+    Failed {
+        path: Box<str>,
+        reason: Box<str>,
+    },
+    /// The same bytes are already in the library or earlier in this batch.
+    Duplicate {
+        path: Box<str>,
+        #[serde(rename = "contentHash")]
+        content_hash: Box<str>,
+    },
+}
+
+impl IngestItem {
+    fn failed(path: &str, reason: impl Into<String>) -> Self {
+        IngestItem::Failed {
+            path: path.into(),
+            reason: reason.into().into_boxed_str(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestSummary {
+    pub total: usize,
+    pub imported: usize,
+    pub failed: usize,
+    pub duplicates: usize,
+    /// Stopped before every file was handled; unhandled files are untouched.
+    pub cancelled: bool,
+}
+
+/// Messages on the progress channel. Items arrive in batches so a large
+/// import does not flood the webview; `done` is always the last message.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum IngestMessage {
+    Progress {
+        completed: usize,
+        total: usize,
+        items: Vec<IngestItem>,
+    },
+    Done {
+        summary: IngestSummary,
+    },
+}
+
+enum FileError {
+    Cancelled,
+    Failed(String),
+}
+
+impl From<String> for FileError {
+    fn from(reason: String) -> Self {
+        FileError::Failed(reason)
+    }
+}
+
+fn describe_io(error: &std::io::Error) -> String {
+    crate::folder_walk::describe_io_error(error)
+}
+
+/// Copy `source` to `dest`, returning its SHA-256 (computed first, unless
+/// `known_hash` already has it). The copy itself is done by the kernel
+/// (`copy_file_range`/reflink where available), which is much faster than
+/// copying through a buffer.
+fn copy_with_hash(
+    source: &Path,
+    dest: &Path,
+    known_hash: Option<&str>,
+    cancel: &AtomicBool,
+) -> Result<String, FileError> {
+    let hash = match known_hash {
+        Some(hash) => hash.to_string(),
+        None => hash_file(source, cancel)?,
+    };
+    if cancel.load(Ordering::Relaxed) {
+        return Err(FileError::Cancelled);
+    }
+    std::fs::copy(source, dest).map_err(|e| {
+        // The source vanishing (drive unplugged) reads differently from a
+        // failed write into the library.
+        if source.exists() {
+            format!("Could not save the book: {}", describe_io(&e))
+        } else {
+            describe_io(&e)
+        }
+    })?;
+    Ok(hash)
+}
+
+/// SHA-256 of a file, checking `cancel` between blocks.
+fn hash_file(path: &Path, cancel: &AtomicBool) -> Result<String, FileError> {
+    let mut input = File::open(path).map_err(|e| describe_io(&e))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(FileError::Cancelled);
+        }
+        match input.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buffer[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(format!("Reading stopped: {}", describe_io(&e)).into()),
+        }
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Remove `*.part` files a crashed import left behind. Recent ones may belong
+/// to an import that is still running, so they stay.
+fn sweep_stale_parts(cache_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "part") {
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > STALE_PART_AGE);
+            if stale {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+struct Batch<'a> {
+    known_hashes: std::collections::HashSet<&'a str>,
+    /// Sizes that occur more than once across the library and this batch:
+    /// only these files need hashing before they are copied.
+    shared_sizes: std::collections::HashSet<u64>,
+    /// Hashes claimed by files of this batch, so the second copy of the same
+    /// book is reported as a duplicate instead of imported twice.
+    claimed: std::sync::Mutex<std::collections::HashSet<String>>,
+    cache_dir: &'a Path,
+    cancel: &'a AtomicBool,
+}
+
+fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, FileError> {
+    let path = Path::new(raw_path);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    let Some(format) = crate::folder_walk::book_format_for_name(&name) else {
+        return Err("This kind of file is not supported".to_string().into());
+    };
+    if size == 0 {
+        return Err("The file is empty".to_string().into());
+    }
+    if size > MAX_BOOK_BYTES {
+        return Err(format!(
+            "The file is too large to be a book ({} GB)",
+            size / (1024 * 1024 * 1024)
+        )
+        .into());
+    }
+
+    // Duplicates are found before anything is copied. Only a file whose size
+    // matches another book can have the same bytes, so only those are hashed.
+    let mut content_hash = None;
+    if batch.shared_sizes.contains(&size) {
+        let hash = hash_file(path, batch.cancel)?;
+        if batch.known_hashes.contains(hash.as_str()) {
+            return Ok(IngestItem::Duplicate {
+                path: raw_path.into(),
+                content_hash: hash.into_boxed_str(),
+            });
+        }
+        let first = batch
+            .claimed
+            .lock()
+            .map_err(|_| "Import state was lost".to_string())?
+            .insert(hash.clone());
+        if !first {
+            return Ok(IngestItem::Duplicate {
+                path: raw_path.into(),
+                content_hash: hash.into_boxed_str(),
+            });
+        }
+        content_hash = Some(hash);
+    }
+
+    if batch.cancel.load(Ordering::Relaxed) {
+        return Err(FileError::Cancelled);
+    }
+    let metadata = match format {
+        "epub" => parse_epub_native(path),
+        "cbz" => parse_cbz_native(path),
+        "cbr" => crate::cbr::parse_cbr_native(path),
+        _ => parse_generic_native(path),
+    }
+    .map_err(|e| format!("Could not read this book: {e}"))?;
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let part = batch.cache_dir.join(format!("{id}.part"));
+    let dest = batch.cache_dir.join(format!("{id}.book"));
+    let written = (|| -> Result<(String, String), FileError> {
+        let final_format = if format == "cbr" {
+            if batch.cancel.load(Ordering::Relaxed) {
+                return Err(FileError::Cancelled);
+            }
+            match crate::cbr::convert_cbr_to_cbz_file(path, &part) {
+                Ok(()) => {
+                    if content_hash.is_none() {
+                        content_hash = Some(hash_file(path, batch.cancel)?);
+                    }
+                    "cbz"
+                }
+                Err(error) => {
+                    log::warn!("[batch_ingest] CBR to CBZ failed for '{raw_path}': {error}");
+                    content_hash = Some(copy_with_hash(
+                        path,
+                        &part,
+                        content_hash.as_deref(),
+                        batch.cancel,
+                    )?);
+                    "cbr"
+                }
+            }
+        } else {
+            content_hash = Some(copy_with_hash(
+                path,
+                &part,
+                content_hash.as_deref(),
+                batch.cancel,
+            )?);
+            format
+        };
+        std::fs::rename(&part, &dest)
+            .map_err(|e| format!("Could not save the book: {}", describe_io(&e)))?;
+        Ok((
+            content_hash.clone().unwrap_or_default(),
+            final_format.to_string(),
+        ))
+    })();
+    let (content_hash, final_format) = match written {
+        Ok(done) => done,
+        Err(error) => {
+            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(&dest);
+            return Err(error);
+        }
+    };
+
+    let cover_extraction_done = metadata.cover_data_url.is_some();
+    Ok(IngestItem::Imported {
+        path: raw_path.into(),
+        book: Box::new(NativeBookRecord {
+            id,
+            title: metadata.title,
+            author: metadata.author,
+            file_path: raw_path.to_string(),
+            storage_path: Some(dest.to_string_lossy().into_owned()),
+            format: final_format,
+            content_hash: Some(content_hash),
+            cover_path: metadata.cover_data_url,
+            cover_extraction_done,
+            description: metadata.description,
+            publisher: metadata.publisher,
+            published_date: metadata.published_date,
+            language: metadata.language,
+            isbn: metadata.isbn,
+            series: metadata.series,
+            series_index: metadata.series_index,
+            file_size: size,
+            added_at: chrono::Utc::now().to_rfc3339(),
+            progress: 0.0,
+            is_favorite: false,
+            tags: Vec::new(),
+        }),
+    })
+}
+
+/// Import `paths` into `cache_dir` (`book-cache`) in parallel.
+///
+/// Every path is reported to `sink` exactly once, as imported, failed with a
+/// reason, or a duplicate, unless the import is cancelled first. A failed or
+/// cancelled file leaves nothing behind in `cache_dir`.
+pub fn ingest_files(
+    paths: &[String],
+    cache_dir: &Path,
+    known: &[KnownBook],
+    cancel: &AtomicBool,
+    sink: &(dyn Fn(IngestItem) + Sync),
+) -> IngestSummary {
+    let mut summary = IngestSummary {
+        total: paths.len(),
+        ..IngestSummary::default()
+    };
+    if let Err(error) = std::fs::create_dir_all(cache_dir) {
+        let reason = format!("Could not save the book: {}", describe_io(&error));
+        for path in paths {
+            sink(IngestItem::failed(path, reason.clone()));
+        }
+        summary.failed = paths.len();
+        return summary;
+    }
+    sweep_stale_parts(cache_dir);
+
+    // One stat per file up front: sizes decide which files need hashing.
+    let mut seen_paths = std::collections::HashSet::new();
+    let mut sized = Vec::with_capacity(paths.len());
+    for path in paths {
+        if !seen_paths.insert(path.as_str()) {
+            continue;
+        }
+        match std::fs::metadata(path) {
+            Ok(m) if m.is_file() => sized.push((path, m.len())),
+            Ok(_) => sink(IngestItem::failed(path, "Not a file")),
+            Err(e) => sink(IngestItem::failed(path, describe_io(&e))),
+        }
+    }
+    let unreadable = seen_paths.len() - sized.len();
+    summary.total = seen_paths.len();
+
+    let mut size_counts: HashMap<u64, usize> = HashMap::new();
+    for book in known {
+        *size_counts.entry(book.size).or_default() += 1;
+    }
+    for (_, size) in &sized {
+        *size_counts.entry(*size).or_default() += 1;
+    }
+    let batch = Batch {
+        known_hashes: known.iter().map(|b| &*b.hash).collect(),
+        shared_sizes: size_counts
+            .into_iter()
+            .filter(|(_, n)| *n > 1)
+            .map(|(size, _)| size)
+            .collect(),
+        claimed: Default::default(),
+        cache_dir,
+        cancel,
+    };
+
+    let imported = AtomicUsize::new(0);
+    let failed = AtomicUsize::new(unreadable);
+    let duplicates = AtomicUsize::new(0);
+    sized.par_iter().for_each(|(path, size)| {
+        if cancel.load(Ordering::Relaxed) {
+            return;
+        }
+        let item = match ingest_one(path, *size, &batch) {
+            Ok(item) => item,
+            Err(FileError::Cancelled) => return,
+            Err(FileError::Failed(reason)) => IngestItem::failed(path, reason),
+        };
+        match &item {
+            IngestItem::Imported { .. } => &imported,
+            IngestItem::Failed { .. } => &failed,
+            IngestItem::Duplicate { .. } => &duplicates,
+        }
+        .fetch_add(1, Ordering::Relaxed);
+        sink(item);
+    });
+
+    summary.imported = imported.into_inner();
+    summary.failed = failed.into_inner();
+    summary.duplicates = duplicates.into_inner();
+    summary.cancelled = summary.imported + summary.failed + summary.duplicates < summary.total;
+    summary
+}
+
+/// Collects items and sends them in batches: at most every `interval`, or as
+/// soon as `max_items` are waiting.
+pub struct ProgressBatcher<F: Fn(IngestMessage)> {
+    send: F,
+    total: usize,
+    max_items: usize,
+    interval: std::time::Duration,
+    state: std::sync::Mutex<(Vec<IngestItem>, usize, std::time::Instant)>,
+}
+
+impl<F: Fn(IngestMessage)> ProgressBatcher<F> {
+    pub fn new(total: usize, max_items: usize, interval: std::time::Duration, send: F) -> Self {
+        Self {
+            send,
+            total,
+            max_items,
+            interval,
+            state: std::sync::Mutex::new((Vec::new(), 0, std::time::Instant::now())),
+        }
+    }
+
+    pub fn push(&self, item: IngestItem) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.0.push(item);
+        state.1 += 1;
+        if state.0.len() >= self.max_items || state.2.elapsed() >= self.interval {
+            self.flush_locked(&mut state);
+        }
+    }
+
+    fn flush_locked(&self, state: &mut (Vec<IngestItem>, usize, std::time::Instant)) {
+        state.2 = std::time::Instant::now();
+        if state.0.is_empty() {
+            return;
+        }
+        (self.send)(IngestMessage::Progress {
+            completed: state.1,
+            total: self.total,
+            items: std::mem::take(&mut state.0),
+        });
+    }
+
+    /// Send whatever is waiting, then `done`.
+    pub fn finish(&self, summary: IngestSummary) {
+        if let Ok(mut state) = self.state.lock() {
+            self.flush_locked(&mut state);
+        }
+        (self.send)(IngestMessage::Done { summary });
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TAURI COMMANDS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Multi-threaded batch ingestion command
+/// Multi-threaded batch ingestion. Results stream over `on_progress`; the
+/// returned summary is the same as the final `done` message. `job_id` lets
+/// `cancel_import_job` stop it; `known` lists the library's books so
+/// duplicates are skipped before copying.
 #[tauri::command]
 pub async fn ingest_books_native(
     app: AppHandle,
     file_paths: Vec<String>,
-) -> Result<Vec<NativeBookRecord>, String> {
-    if file_paths.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let total = file_paths.len();
-    let completed_counter = Arc::new(AtomicUsize::new(0));
-
-    let app_data_dir = app
+    job_id: Option<String>,
+    known: Option<Vec<KnownBook>>,
+    on_progress: tauri::ipc::Channel<IngestMessage>,
+) -> Result<IngestSummary, String> {
+    let cache_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
-    let cache_dir = app_data_dir.join("book-cache");
-    let _ = std::fs::create_dir_all(&cache_dir);
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?
+        .join("book-cache");
+    let job = crate::folder_walk::register_job(job_id);
 
-    let results = tokio::task::spawn_blocking(move || {
-        let books: Vec<Result<NativeBookRecord, (String, String)>> = file_paths
-            .par_iter()
-            .map(|raw_path| {
-                let path = Path::new(raw_path);
-                if !path.exists() {
-                    return Err((raw_path.clone(), "File does not exist".to_string()));
-                }
-
-                let ext = path
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-
-                let metadata_res = match ext.as_str() {
-                    "epub" => parse_epub_native(path),
-                    "cbz" => parse_cbz_native(path),
-                    "cbr" => crate::cbr::parse_cbr_native(path),
-                    _ => parse_generic_native(path),
-                };
-
-                let metadata = match metadata_res {
-                    Ok(m) => m,
-                    Err(e) => return Err((raw_path.clone(), e)),
-                };
-
-                let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                let content_hash = compute_file_sha256(path);
-                let id = uuid::Uuid::new_v4().to_string();
-                let now = chrono::Utc::now().to_rfc3339();
-                let cover_extraction_done = metadata.cover_data_url.is_some();
-                let cover_path = metadata.cover_data_url;
-
-                // Materialize the book binary directly to canonical book-cache/{id}.book
-                let dest_path = cache_dir.join(format!("{id}.book"));
-                let (storage_path, final_format) = if ext == "cbr" {
-                    match crate::cbr::convert_cbr_to_cbz_file(path, &dest_path) {
-                        Ok(()) => (Some(dest_path.to_string_lossy().into_owned()), "cbz".to_string()),
-                        Err(e) => {
-                            log::warn!("[batch_ingest] Failed to convert CBR '{raw_path}' to CBZ: {e}");
-                            let fallback = match std::fs::copy(path, &dest_path) {
-                                Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
-                                Err(copy_err) => {
-                                    log::warn!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {copy_err}");
-                                    None
-                                }
-                            };
-                            (fallback, ext)
-                        }
-                    }
-                } else {
-                    let sp = match std::fs::copy(path, &dest_path) {
-                        Ok(_) => Some(dest_path.to_string_lossy().into_owned()),
-                        Err(e) => {
-                            log::warn!("[batch_ingest] Failed to copy '{raw_path}' to book-cache: {e}");
-                            None
-                        }
-                    };
-                    (sp, ext)
-                };
-
-                let book = NativeBookRecord {
-                    id,
-                    title: metadata.title,
-                    author: metadata.author,
-                    file_path: raw_path.clone(),
-                    storage_path,
-                    format: final_format,
-                    content_hash,
-                    cover_path,
-                    cover_extraction_done,
-                    description: metadata.description,
-                    publisher: metadata.publisher,
-                    published_date: metadata.published_date,
-                    language: metadata.language,
-                    isbn: metadata.isbn,
-                    series: metadata.series,
-                    series_index: metadata.series_index,
-                    file_size,
-                    added_at: now,
-                    progress: 0.0,
-                    is_favorite: false,
-                    tags: Vec::new(),
-                };
-
-                let count = completed_counter.fetch_add(1, Ordering::SeqCst) + 1;
-                let _ = app.emit(
-                    "import-batch-progress",
-                    IngestProgressPayload {
-                        completed: count,
-                        total,
-                        current_file: raw_path.clone(),
-                        book: Some(book.clone()),
-                        error: None,
-                    },
-                );
-
-                Ok(book)
-            })
-            .collect();
-
-        let mut successful_books = Vec::with_capacity(books.len());
-        for b in books.into_iter().flatten() {
-            successful_books.push(b);
-        }
-        successful_books
+    tokio::task::spawn_blocking(move || {
+        let batcher = ProgressBatcher::new(
+            file_paths.len(),
+            64,
+            std::time::Duration::from_millis(150),
+            |message| {
+                let _ = on_progress.send(message);
+            },
+        );
+        let summary = ingest_files(
+            &file_paths,
+            &cache_dir,
+            known.as_deref().unwrap_or_default(),
+            &job.flag,
+            &|item| batcher.push(item),
+        );
+        batcher.finish(summary.clone());
+        summary
     })
     .await
-    .map_err(|e| format!("Batch ingestion worker failed: {e}"))?;
-
-    Ok(results)
+    .map_err(|e| format!("Batch ingestion worker failed: {e}"))
 }
 
 #[cfg(test)]
@@ -898,5 +1246,333 @@ mod tests {
         assert_eq!(parsed.series, Some("Saga".to_string()));
         assert_eq!(parsed.series_index, Some(1.0));
         assert!(parsed.cover_data_url.is_some());
+    }
+
+    // ── Batch ingest ────────────────────────────────────────────────────────
+
+    fn fixture(rel: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures")
+            .join(rel)
+    }
+
+    fn put(dir: &Path, name: &str, bytes: &[u8]) -> String {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn run(
+        paths: &[String],
+        cache: &Path,
+        known: &[KnownBook],
+        cancel: &AtomicBool,
+    ) -> (IngestSummary, Vec<IngestItem>) {
+        let items = std::sync::Mutex::new(Vec::new());
+        let summary = ingest_files(paths, cache, known, cancel, &|item| {
+            items.lock().unwrap().push(item)
+        });
+        (summary, items.into_inner().unwrap())
+    }
+
+    fn cache_files(cache: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(cache)
+            .map(|it| {
+                it.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    fn item_path(item: &IngestItem) -> &str {
+        match item {
+            IngestItem::Imported { path, .. }
+            | IngestItem::Failed { path, .. }
+            | IngestItem::Duplicate { path, .. } => path,
+        }
+    }
+
+    fn reason_for<'a>(items: &'a [IngestItem], path: &str) -> &'a str {
+        items
+            .iter()
+            .find_map(|item| match item {
+                IngestItem::Failed { path: p, reason } if &**p == path => Some(&**reason),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no failure for {path}: {items:?}"))
+    }
+
+    #[test]
+    fn every_file_is_imported_or_reported_with_a_reason() {
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let cache = cache.path().join("book-cache");
+        let epub = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        let pdf = std::fs::read(fixture("pdf/page-labels.pdf")).unwrap();
+        let good_epub = put(src.path(), "deep/a/b/c/d/e/f/Good – Ünï 書.epub", &epub);
+        let good_pdf = put(src.path(), "Author - Paper.pdf", &pdf);
+        let fb2zip = put(src.path(), "Tale.fb2.zip", b"zip-ish fb2 bytes");
+        let empty = put(src.path(), "empty.epub", b"");
+        let corrupt = put(
+            src.path(),
+            "corrupt.epub",
+            b"this is not a zip archive at all",
+        );
+        let unsupported = put(src.path(), "notes.txt", b"hello");
+        let missing = src.path().join("gone.epub").to_string_lossy().into_owned();
+        std::fs::create_dir_all(src.path().join("folder.epub")).unwrap();
+        let folder = src
+            .path()
+            .join("folder.epub")
+            .to_string_lossy()
+            .into_owned();
+
+        let paths = vec![
+            good_epub.clone(),
+            good_pdf.clone(),
+            fb2zip.clone(),
+            empty.clone(),
+            corrupt.clone(),
+            unsupported.clone(),
+            missing.clone(),
+            folder.clone(),
+            good_pdf.clone(), // listed twice: handled once
+        ];
+        let (summary, items) = run(&paths, &cache, &[], &AtomicBool::new(false));
+
+        assert_eq!(
+            summary,
+            IngestSummary {
+                total: 8,
+                imported: 3,
+                failed: 5,
+                duplicates: 0,
+                cancelled: false
+            }
+        );
+        let mut reported: Vec<&str> = items.iter().map(item_path).collect();
+        reported.sort();
+        let mut expected: Vec<&str> = paths[..8].iter().map(String::as_str).collect();
+        expected.sort();
+        assert_eq!(reported, expected, "each path exactly once");
+
+        assert_eq!(reason_for(&items, &empty), "The file is empty");
+        assert!(reason_for(&items, &corrupt).starts_with("Could not read this book"));
+        assert_eq!(
+            reason_for(&items, &unsupported),
+            "This kind of file is not supported"
+        );
+        assert_eq!(reason_for(&items, &missing), "The file is no longer there");
+        assert_eq!(reason_for(&items, &folder), "Not a file");
+
+        let mut stored = Vec::new();
+        for item in &items {
+            if let IngestItem::Imported { path, book } = item {
+                let storage = book.storage_path.as_deref().expect("stored");
+                assert!(Path::new(storage).is_file());
+                assert_eq!(
+                    std::fs::read(storage).unwrap(),
+                    std::fs::read(&**path).unwrap()
+                );
+                assert_eq!(
+                    book.content_hash.as_deref(),
+                    compute_file_sha256(Path::new(&**path)).as_deref()
+                );
+                assert_eq!(book.file_size, std::fs::metadata(&**path).unwrap().len());
+                stored.push(format!("{}.book", book.id));
+                if **path == *fb2zip {
+                    assert_eq!(book.format, "fb2");
+                }
+                if **path == *good_epub {
+                    assert_eq!(book.format, "epub");
+                }
+            }
+        }
+        stored.sort();
+        assert_eq!(cache_files(&cache), stored, "no partial or orphan files");
+    }
+
+    #[test]
+    fn duplicates_are_found_before_copying() {
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let epub = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        let pdf = std::fs::read(fixture("pdf/page-labels.pdf")).unwrap();
+        let in_library = put(src.path(), "already.epub", &epub);
+        let first = put(src.path(), "one/paper.pdf", &pdf);
+        let second = put(src.path(), "two/paper copy.pdf", &pdf);
+        let known = vec![KnownBook {
+            size: epub.len() as u64,
+            hash: compute_file_sha256(Path::new(&in_library)).unwrap().into(),
+        }];
+
+        let (summary, items) = run(
+            &[in_library.clone(), first.clone(), second.clone()],
+            cache.path(),
+            &known,
+            &AtomicBool::new(false),
+        );
+        assert_eq!(
+            (summary.imported, summary.duplicates, summary.failed),
+            (1, 2, 0)
+        );
+        assert!(items.iter().any(|i| matches!(i,
+            IngestItem::Duplicate { path, content_hash } if **path == *in_library && *content_hash == known[0].hash)));
+        assert_eq!(cache_files(cache.path()).len(), 1, "only one copy stored");
+    }
+
+    #[test]
+    fn a_rescan_with_the_library_known_imports_nothing() {
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let epub = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        let pdf = std::fs::read(fixture("pdf/links-paper.pdf")).unwrap();
+        let paths = vec![
+            put(src.path(), "a.epub", &epub),
+            put(src.path(), "b.pdf", &pdf),
+        ];
+        let (first, items) = run(&paths, cache.path(), &[], &AtomicBool::new(false));
+        assert_eq!(first.imported, 2);
+        let known: Vec<KnownBook> = items
+            .iter()
+            .filter_map(|item| match item {
+                IngestItem::Imported { book, .. } => Some(KnownBook {
+                    size: book.file_size,
+                    hash: book.content_hash.clone()?.into(),
+                }),
+                _ => None,
+            })
+            .collect();
+        let before = cache_files(cache.path());
+        let (again, _) = run(&paths, cache.path(), &known, &AtomicBool::new(false));
+        assert_eq!((again.imported, again.duplicates), (0, 2));
+        assert_eq!(cache_files(cache.path()), before);
+    }
+
+    #[test]
+    fn a_cancelled_import_handles_nothing_more_and_leaves_nothing_behind() {
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let pdf = std::fs::read(fixture("pdf/page-labels.pdf")).unwrap();
+        let paths: Vec<String> = (0..20)
+            .map(|i| {
+                put(
+                    src.path(),
+                    &format!("p{i}.pdf"),
+                    &[pdf.as_slice(), &[i as u8][..]].concat(),
+                )
+            })
+            .collect();
+        let (summary, items) = run(&paths, cache.path(), &[], &AtomicBool::new(true));
+        assert!(summary.cancelled);
+        assert!(items.is_empty());
+        assert!(cache_files(cache.path()).is_empty());
+
+        // Cancelled during a copy: the partial copy is removed.
+        let big = put(src.path(), "big.pdf", &vec![b'x'; 3 * 1024 * 1024]);
+        let part = cache.path().join("x.part");
+        let cancel = AtomicBool::new(true);
+        assert!(matches!(
+            copy_with_hash(Path::new(&big), &part, None, &cancel),
+            Err(FileError::Cancelled)
+        ));
+        let batch = Batch {
+            known_hashes: Default::default(),
+            shared_sizes: Default::default(),
+            claimed: Default::default(),
+            cache_dir: cache.path(),
+            cancel: &cancel,
+        };
+        assert!(matches!(
+            ingest_one(&big, 3 * 1024 * 1024, &batch),
+            Err(FileError::Cancelled)
+        ));
+        std::fs::remove_file(&part).ok();
+        assert!(cache_files(cache.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_copy_is_reported_and_leaves_no_book() {
+        use std::os::unix::fs::PermissionsExt;
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let pdf = std::fs::read(fixture("pdf/page-labels.pdf")).unwrap();
+        let path = put(src.path(), "paper.pdf", &pdf);
+        std::fs::set_permissions(cache.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable_anyway = std::fs::write(cache.path().join("probe"), b"").is_ok();
+        let (summary, items) = run(
+            std::slice::from_ref(&path),
+            cache.path(),
+            &[],
+            &AtomicBool::new(false),
+        );
+        std::fs::set_permissions(cache.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable_anyway {
+            return; // running as root
+        }
+        assert_eq!(summary.failed, 1);
+        assert!(
+            reason_for(&items, &path).contains("Could not save the book"),
+            "{items:?}"
+        );
+        assert!(cache_files(cache.path()).is_empty());
+    }
+
+    #[test]
+    fn stale_partial_copies_are_swept_and_fresh_ones_kept() {
+        let cache = tempfile::tempdir().unwrap();
+        let stale = cache.path().join("old.part");
+        let fresh = cache.path().join("new.part");
+        std::fs::write(&stale, b"x").unwrap();
+        std::fs::write(&fresh, b"x").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60);
+        std::fs::File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        run(&[], cache.path(), &[], &AtomicBool::new(false));
+        assert_eq!(cache_files(cache.path()), vec!["new.part".to_string()]);
+    }
+
+    #[test]
+    fn progress_is_batched_and_done_comes_last() {
+        let sent = std::sync::Mutex::new(Vec::new());
+        let batcher = ProgressBatcher::new(10, 4, std::time::Duration::from_secs(60), |m| {
+            sent.lock().unwrap().push(m)
+        });
+        for i in 0..10 {
+            batcher.push(IngestItem::failed(&format!("p{i}"), "x"));
+        }
+        batcher.finish(IngestSummary {
+            total: 10,
+            failed: 10,
+            ..Default::default()
+        });
+        let sent = sent.into_inner().unwrap();
+        let shape: Vec<(usize, usize)> = sent
+            .iter()
+            .filter_map(|m| match m {
+                IngestMessage::Progress {
+                    completed, items, ..
+                } => Some((*completed, items.len())),
+                IngestMessage::Done { .. } => None,
+            })
+            .collect();
+        assert_eq!(shape, vec![(4, 4), (8, 4), (10, 2)]);
+        assert!(matches!(sent.last(), Some(IngestMessage::Done { .. })));
+        let json = serde_json::to_value(&sent[0]).unwrap();
+        assert_eq!(json["kind"], "progress");
+        assert_eq!(json["items"][0]["status"], "failed");
+        assert_eq!(json["items"][0]["reason"], "x");
+        let done = serde_json::to_value(sent.last().unwrap()).unwrap();
+        assert_eq!(done["kind"], "done");
+        assert_eq!(done["summary"]["failed"], 10);
     }
 }
