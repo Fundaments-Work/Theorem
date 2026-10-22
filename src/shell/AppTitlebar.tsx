@@ -8,7 +8,7 @@ import {
     X,
     Search,
     BarChart3,
-    ArrowDownUp,
+    RefreshCw,
     Settings,
 } from "lucide-react";
 import { cn } from "../core/lib/utils";
@@ -19,6 +19,7 @@ import { getSearchPlaceholder, hasSearchDomain, resolveSearchDomain } from "../c
 import { TheoremLogo } from "./TheoremLogo";
 import { MomoIcon } from "../ui/MomoIcon";
 import { useSupportPrompt } from "../core/lib/support-prompt";
+import { openDeviceSyncSettings } from "../core/lib/settings-navigation";
 
 interface AppTitlebarProps {
     title: string;
@@ -204,8 +205,9 @@ export const AppTitlebar = memo(function AppTitlebar({
             return;
         }
 
+        // Nothing to sync with yet: go where devices are paired.
         if (!isTauriRuntime) {
-            setDeviceSyncStatus("idle", "Device sync is available in desktop/mobile app.");
+            openDeviceSyncSettings();
             return;
         }
 
@@ -215,7 +217,7 @@ export const AppTitlebar = memo(function AppTitlebar({
             const pairedDevices = await getPairedDevices();
 
             if (pairedDevices.length === 0) {
-                setDeviceSyncStatus("idle", "No paired devices. Open Settings > Integrations to pair.");
+                openDeviceSyncSettings();
                 return;
             }
 
@@ -374,7 +376,12 @@ export const AppTitlebar = memo(function AppTitlebar({
                             aria-label="Sync devices"
                         >
                             <span className="relative inline-flex">
-                                <ArrowDownUp className="w-5 h-5" />
+                                <RefreshCw
+                                    className={cn(
+                                        "w-[18px] h-[18px]",
+                                        (deviceSyncStatus === "syncing" || isQuickSyncing) && "motion-safe:animate-spin",
+                                    )}
+                                />
                                 <span
                                     className={cn(
                                         "absolute -bottom-px -right-px w-2.5 h-2.5 ring-2 ring-[var(--color-surface)] transition-colors duration-300",
@@ -389,7 +396,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                         <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
                             {deviceSyncStatus === "syncing" ? "Syncing with remote device"
                                 : deviceSyncStatus === "synced" ? "Sync complete"
-                                : deviceSyncStatus === "error" ? `Sync error: ${deviceSyncStatus || ""}`
+                                : deviceSyncStatus === "error" ? "Sync failed"
                                 : ""}
                         </span>
                     </div>
