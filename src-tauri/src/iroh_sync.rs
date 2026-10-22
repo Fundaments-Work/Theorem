@@ -382,13 +382,18 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                             received: usize,
                             sent: usize,
                         }
-                        let (synced, received, sent) = match &event.result {
-                            Ok(details) => (true, details.entries_received, details.entries_sent),
-                            Err(e) => {
+                        let (synced, received, sent) = sync_outcome(
+                            event
+                                .result
+                                .as_ref()
+                                .map(|d| (d.entries_received, d.entries_sent))
+                                .map_err(String::as_str),
+                        );
+                        if !synced {
+                            if let Err(e) = &event.result {
                                 eprintln!("[iroh-sync] sync with {} failed: {e}", event.peer);
-                                (false, 0, 0)
                             }
-                        };
+                        }
                         if synced {
                             record_last_sync(&app, &event.peer).await;
                         }
@@ -463,6 +468,19 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
             backoff_ms = std::cmp::min(backoff_ms * 2, 30_000);
         }
     });
+}
+
+/// Whether a finished iroh-docs exchange actually synced, and its counts.
+/// iroh-docs reports an error when only the connection teardown failed
+/// ("Failed to close ..."), typically when the other side hangs up first over
+/// a relay; the exchange itself completed, so that counts as synced.
+/// (`result` is the event's entry counts, received and sent, or its error.)
+fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize, usize) {
+    match result {
+        Ok((received, sent)) => (true, received, sent),
+        Err(e) if e.starts_with("Failed to close") => (true, 0, 0),
+        Err(_) => (false, 0, 0),
+    }
 }
 
 /// Marks when this device last completed a sync with `peer`.
@@ -1196,6 +1214,21 @@ mod pairing_tests {
             .values()
             .map(|d| d.iroh_node_id.clone())
             .collect()
+    }
+
+    #[test]
+    fn only_a_failed_teardown_still_counts_as_synced() {
+        assert_eq!(sync_outcome(Ok((3, 2))), (true, 3, 2));
+        assert!(sync_outcome(Err("Failed to close connection1")).0);
+        assert!(sync_outcome(Err("Failed to close Some(ns) with Some(peer)")).0);
+        for failure in [
+            "Failed to establish connection",
+            "Failed to sync",
+            "Remote peer aborted sync: NotFound",
+            "Failed to open replica with peer",
+        ] {
+            assert!(!sync_outcome(Err(failure)).0, "{failure}");
+        }
     }
 
     #[tokio::test]
