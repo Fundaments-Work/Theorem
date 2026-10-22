@@ -39,30 +39,40 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
+/// One `speak` request: the page text plus how to say it.
+#[derive(serde::Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeakRequest {
+    pub text: String,
+    /// Engine voice name; empty for the engine's default.
+    pub voice: String,
+    /// Speech rate (1.0 = normal), applied on every speak.
+    pub speed: Option<f32>,
+    /// BCP 47 language of the book; the engine's default when absent or unavailable.
+    pub lang: Option<String>,
+    /// Echoed in the utterance events so the app can ignore stale ones.
+    pub utterance_id: Option<String>,
+}
+
+/// Speaks the request; resolves with `{ pieces, languageWarning? }`.
 #[cfg(target_os = "android")]
 pub fn tts_speak<R: Runtime>(
     app: &AppHandle<R>,
-    text: String,
-    voice: String,
-) -> Result<(), String> {
+    request: SpeakRequest,
+) -> Result<serde_json::Value, String> {
     let state = get_audio_state(app)?;
     state
         .handle
-        .run_mobile_plugin::<serde_json::Value>(
-            "speak",
-            serde_json::json!({ "text": text, "voice": voice }),
-        )
-        .map_err(|error| error.to_string())?;
-    Ok(())
+        .run_mobile_plugin::<serde_json::Value>("speak", request)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn tts_speak<R: Runtime>(
     _app: &AppHandle<R>,
-    _text: String,
-    _voice: String,
-) -> Result<(), String> {
-    Ok(())
+    _request: SpeakRequest,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::Value::Null)
 }
 
 #[cfg(target_os = "android")]
@@ -155,4 +165,34 @@ pub fn tts_synthesize_to_file<R: Runtime>(
     _file_name: String,
 ) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "done": false }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SpeakRequest;
+
+    /// Field names must match `SpeakArgs` in TtsAudioPlugin.kt.
+    #[test]
+    fn speak_request_matches_the_kotlin_args() {
+        let request = SpeakRequest {
+            text: "Bonjour.".into(),
+            voice: String::new(),
+            speed: Some(1.5),
+            lang: Some("fr".into()),
+            utterance_id: Some("theorem-1".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&request).unwrap(),
+            serde_json::json!({
+                "text": "Bonjour.",
+                "voice": "",
+                "speed": 1.5,
+                "lang": "fr",
+                "utteranceId": "theorem-1",
+            })
+        );
+        let empty = serde_json::to_value(SpeakRequest::default()).unwrap();
+        assert_eq!(empty["speed"], serde_json::Value::Null);
+        assert_eq!(empty["lang"], serde_json::Value::Null);
+    }
 }

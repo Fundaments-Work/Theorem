@@ -41,6 +41,20 @@ reports real word boundaries (`UtteranceProgressListener.onRangeStart`,
 API 26+) forwarded as `tts-utterance-range` events, and supports
 `tts_synthesize_to_file` for offline audio export.
 
+**Android speak** (`TtsAudioPlugin.speak`): every call applies the reader's
+speed (`setSpeechRate`) and the book's language (`setLanguage`, after
+`isLanguageAvailable`; when the engine has no voice for it the device
+language is used and the call resolves with a `languageWarning` the reader
+shows once). A chosen engine voice is kept only when it speaks the book's
+language. Text longer than `TextToSpeech.getMaxSpeechInputLength()` is split
+at sentence boundaries (`SpeechTextSplitter.kt`) and queued with
+`QUEUE_ADD`. The app passes an `utteranceId` with each speak; every event
+carries it (`utteranceId`, plus the piece `id`), ranges are page offsets, and
+`tts-utterance-done` fires once, after the last piece. Events from a stopped
+or replaced utterance are dropped both in the plugin and in
+`ImmersionPlayer`. Kotlin unit tests: `./gradlew
+:tauri-plugin-android-tts-audio:testDebugUnitTest`.
+
 ## Neural Voice (Supertonic 3, desktop)
 
 A full offline neural TTS engine using the Supertonic 3 multilingual model

@@ -22,6 +22,14 @@ function isTauri(): boolean {
 
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
+/** Payload of the Android plugin's utterance events. */
+interface UtteranceEvent {
+    /** The `utteranceId` passed to `tts_speak`. */
+    utteranceId?: string;
+    /** The engine's id for the piece (long pages are spoken as several). */
+    id?: string;
+}
+
 export interface SentenceInfo {
     text: string;
     index: number;
@@ -39,6 +47,8 @@ export interface PlaybackCallbacks {
     onNearEnd?: () => void;
     /** Narration failed; `engine` says which path (so the UI can offer the other one). */
     onError?: (message: string, engine: TtsEngine) => void;
+    /** Narration goes on, but not as asked (e.g. no voice for the book's language). */
+    onWarning?: (message: string) => void;
     onComplete?: () => void;
 }
 
@@ -183,6 +193,12 @@ class ImmersionPlayer {
     // ── Platform session (Android engine app / desktop OS voice) ────────────
     private voice: string | null = null;
     private platformSpeed = 1;
+    private platformLang: string | undefined;
+    /** Id of the utterance the platform engine is speaking; its events carry it.
+     *  Events from any other (stopped or replaced) utterance are ignored. */
+    private platformUtteranceId: string | null = null;
+    private utteranceCounter = 0;
+    private lastLanguageWarning: string | null = null;
     private fullText = '';
     private fullWords: string[] = [];
     private lastRangeEnd = 0;
@@ -237,7 +253,7 @@ class ImmersionPlayer {
         if (neural.available && opts.engine !== "platform") {
             await this.speakNeural(normalized, opts, sid);
         } else {
-            await this.speakPlatform(normalized, opts.voice ?? null, opts.speed ?? 1);
+            await this.speakPlatform(normalized, opts.voice ?? null, opts.speed ?? 1, opts.lang);
         }
     }
 
@@ -417,9 +433,12 @@ class ImmersionPlayer {
 
     // ── Platform: OS/engine voice with estimated or event-driven timing ─────
 
-    private async speakPlatform(text: string, voice: string | null, speed: number = 1) {
+    private async speakPlatform(text: string, voice: string | null, speed: number = 1, lang?: string) {
         const sid = this.session;
         this.platformSpeed = speed > 0 ? speed : 1;
+        this.platformLang = lang;
+        const utteranceId = `theorem-${Date.now().toString(36)}-${++this.utteranceCounter}`;
+        this.platformUtteranceId = utteranceId;
         this.fullText = text;
         this.fullWords = text.trim().split(/\s+/);
         this.platformSentences = segmentSentences(text);
@@ -431,9 +450,16 @@ class ImmersionPlayer {
         this.setState('loading');
         await this.bindPlatformEvents();
         try {
-            await invoke("tts_speak", { text, voice: voice || "", speed: this.platformSpeed });
+            const result = await invoke<{ languageWarning?: string | null } | null>("tts_speak", {
+                text, voice: voice || "", speed: this.platformSpeed, lang: lang || null, utteranceId,
+            });
             if (sid !== this.session) return;
             this.setState('playing');
+            const warning = result?.languageWarning;
+            if (warning && warning !== this.lastLanguageWarning) {
+                this.lastLanguageWarning = warning;
+                this.callbacks.onWarning?.(warning);
+            }
 
             if (this.platformSentences.length > 0) {
                 this.lastSentenceIndex = 0;
@@ -467,18 +493,27 @@ class ImmersionPlayer {
             if (generation === this.platformBindGeneration) this.platformUnlisteners.push(unlisten);
             else unlisten();
         };
-        keep(await listen("tts-utterance-done", () => {
+        keep(await listen<UtteranceEvent>("tts-utterance-done", (event) => {
+            if (!this.isCurrentUtterance(event.payload)) return;
             if (this._state === 'playing' && !this.nativeSession) this._onDone();
         }));
-        keep(await listen("tts-utterance-error", () => {
+        keep(await listen<UtteranceEvent>("tts-utterance-error", (event) => {
+            if (!this.isCurrentUtterance(event.payload)) return;
             if (!this.nativeSession && (this._state === 'playing' || this._state === 'loading')) {
                 this._onError("Speech engine error", "platform");
             }
         }));
-        keep(await listen<{ id?: string; start: number; end: number }>("tts-utterance-range", (event) => {
+        keep(await listen<UtteranceEvent & { start: number; end: number }>("tts-utterance-range", (event) => {
+            if (!this.isCurrentUtterance(event.payload)) return;
             this.lastRangeEnd = event.payload.end;
             this.handlePlatformRange(event.payload.start, event.payload.end);
         }));
+    }
+
+    /** An event belongs to the utterance being spoken now (not a stopped or replaced one). */
+    private isCurrentUtterance(payload: UtteranceEvent | null | undefined): boolean {
+        if (this.nativeSession || !this.platformUtteranceId) return false;
+        return payload?.utteranceId === this.platformUtteranceId;
     }
 
     private unbindPlatformEvents() {
@@ -602,7 +637,7 @@ class ImmersionPlayer {
         }
         const remaining = this.fullText.trim();
         if (!remaining) { this._onDone(); return; }
-        await this.speakPlatform(remaining, this.voice, this.platformSpeed);
+        await this.speakPlatform(remaining, this.voice, this.platformSpeed, this.platformLang);
     }
 
     async stop() {
@@ -656,6 +691,7 @@ class ImmersionPlayer {
         this.nearEndEmitted = false;
         if (this.completeTimer) { clearTimeout(this.completeTimer); this.completeTimer = null; }
         this.fullText = ''; this.fullWords = []; this.voice = null; this.lastRangeEnd = 0;
+        this.platformUtteranceId = null;
         this.callbacks.onSentenceChange?.(null, 0);
     }
 

@@ -1560,6 +1560,9 @@ const BookReaderPage = memo(function BookReaderPage() {
                     if (text) void immersionPlayer.speak(text, ttsSpeakOptions());
                 });
             },
+            onWarning: (message) => {
+                toast(message);
+            },
             onComplete: handleTtsComplete,
         });
     }, [handleTtsComplete, ttsSpeakOptions]);

@@ -1252,6 +1252,10 @@ fn apply_linux_webkit_workarounds() {
     }
 }
 
+/// Speak `text` with the platform voice. `lang` (the book's language) and
+/// `utterance_id` (echoed in the utterance events so stale ones can be told
+/// apart) are used on Android; the result may carry a `languageWarning` when
+/// the engine has no voice for `lang`.
 #[tauri::command]
 #[allow(unused_variables, unreachable_code)]
 fn tts_speak(
@@ -1259,11 +1263,22 @@ fn tts_speak(
     text: String,
     voice: String,
     speed: Option<f32>,
-) -> Result<(), String> {
+    lang: Option<String>,
+    utterance_id: Option<String>,
+) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
-    return tauri_plugin_android_tts_audio::tts_speak(&app, text, voice);
+    return tauri_plugin_android_tts_audio::tts_speak(
+        &app,
+        tauri_plugin_android_tts_audio::SpeakRequest {
+            text,
+            voice,
+            speed,
+            lang,
+            utterance_id,
+        },
+    );
     #[cfg(target_os = "linux")]
-    return tts_linux::linux_tts_speak(&text, speed);
+    return tts_linux::linux_tts_speak(&text, speed).map(|()| serde_json::Value::Null);
     #[cfg(target_os = "macos")]
     {
         let mut cmd = std::process::Command::new("say");
@@ -1286,7 +1301,7 @@ fn tts_speak(
         .env("THEOREM_TTS_VOICE", &voice);
         tts_desktop::spawn_tracked(cmd, Some(text)).map_err(|e| format!("TTS: {e}"))?;
     }
-    Ok(())
+    Ok(serde_json::Value::Null)
 }
 
 #[tauri::command]
