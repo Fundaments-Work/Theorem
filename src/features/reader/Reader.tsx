@@ -68,6 +68,7 @@ import type { ReaderViewportHandle } from "./components/ReaderViewport";
 import { PDFFloatingToolbar } from "./components/PDFFloatingToolbar";
 import { registerShortcuts } from "../../core/lib/keyboard-shortcuts";
 import { immersionPlayer, getNeuralStatus, resolveNeuralVoice } from "./audio/ImmersionPlayer";
+import { showTtsError } from "./audio/tts-errors";
 import { toast } from "sonner";
 import { AudiobookBar } from "./audio/AudiobookBar";
 import { SpeedReader } from "./components/SpeedReader";
@@ -1345,11 +1346,14 @@ const BookReaderPage = memo(function BookReaderPage() {
         };
     }, [location?.cfi, isPdfFormat]);
 
+    // Set when the listener chose "Use system voice" after a neural failure; kept while the reader is open.
+    const ttsPlatformOnlyRef = useRef(false);
     const ttsSpeakOptions = useCallback(
         () => ({
             voice: settings.tts.voice,
             speed: settings.tts.speed,
             lang: useLibraryStore.getState().getBook(currentBookId || "")?.language?.slice(0, 2) || "en",
+            engine: ttsPlatformOnlyRef.current ? ("platform" as const) : ("auto" as const),
         }),
         [settings.tts.voice, settings.tts.speed, currentBookId],
     );
@@ -1547,8 +1551,14 @@ const BookReaderPage = memo(function BookReaderPage() {
                 const next = readerRef.current?.getNextPageTextForTts?.();
                 if (next?.text) void immersionPlayer.prefetch(next.text, ttsSpeakOptions());
             },
-            onError: () => {
+            onError: (message, engine) => {
                 setTtsState('idle');
+                showTtsError(message, engine, () => {
+                    ttsPlatformOnlyRef.current = true;
+                    const text = lastSpokenTtsTextRef.current
+                        || readerRef.current?.getVisibleTextForTts?.()?.text?.trim();
+                    if (text) void immersionPlayer.speak(text, ttsSpeakOptions());
+                });
             },
             onComplete: handleTtsComplete,
         });

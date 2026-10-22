@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { normalizeTextForAudio } from "./text-normalization";
+import type { TtsEngine } from "./tts-errors";
 
 let _isAndroid: boolean | null = null;
 
@@ -36,7 +37,8 @@ export interface PlaybackCallbacks {
     onSentenceChange?: (sentence: SentenceInfo | null, totalSentences: number) => void;
     /** Emitted when nearing the end of current page audio to prefetch the next. */
     onNearEnd?: () => void;
-    onError?: (message: string) => void;
+    /** Narration failed; `engine` says which path (so the UI can offer the other one). */
+    onError?: (message: string, engine: TtsEngine) => void;
     onComplete?: () => void;
 }
 
@@ -95,6 +97,8 @@ export interface SpeakOptions {
     speed?: number;
     /** ISO language hint used by the Supertonic text wrapper (default "en"). */
     lang?: string;
+    /** "platform" skips the neural voice even when it is installed (retry after a neural failure). */
+    engine?: "auto" | "platform";
 }
 
 export interface NeuralStatus {
@@ -134,6 +138,11 @@ export async function getNeuralStatus(): Promise<NeuralStatus> {
     } catch {
         return unavailable;
     }
+}
+
+function errorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return typeof err === "string" ? err : String(err);
 }
 
 /** Neural audio is always synthesized at normal speed; the native player applies the
@@ -225,7 +234,7 @@ class ImmersionPlayer {
         const neural = await getNeuralStatus();
         // Superseded by a newer speak()/stop() while awaiting the status probe.
         if (sid !== this.session) return;
-        if (neural.available) {
+        if (neural.available && opts.engine !== "platform") {
             await this.speakNeural(normalized, opts, sid);
         } else {
             await this.speakPlatform(normalized, opts.voice ?? null, opts.speed ?? 1);
@@ -292,7 +301,7 @@ class ImmersionPlayer {
                 void this.streamChunks(sid, chunks.slice(1), voice, lang);
             }
         } catch (err: unknown) {
-            this._onError(err instanceof Error ? err.message : String(err));
+            this._onError(errorMessage(err), "neural");
         }
     }
 
@@ -317,7 +326,7 @@ class ImmersionPlayer {
                 this.durationSec += result.duration_sec;
             } catch (err: unknown) {
                 if (sid === this.session && this.nativeSession) {
-                    this._onError(err instanceof Error ? err.message : String(err));
+                    this._onError(errorMessage(err), "neural");
                 }
                 return;
             }
@@ -445,7 +454,7 @@ class ImmersionPlayer {
                 }, estimatedMs);
             }
         } catch (err: unknown) {
-            this._onError(err instanceof Error ? err.message : String(err));
+            if (sid === this.session) this._onError(errorMessage(err), "platform");
         }
     }
 
@@ -463,7 +472,7 @@ class ImmersionPlayer {
         }));
         keep(await listen("tts-utterance-error", () => {
             if (!this.nativeSession && (this._state === 'playing' || this._state === 'loading')) {
-                this._onError("Speech engine error");
+                this._onError("Speech engine error", "platform");
             }
         }));
         keep(await listen<{ id?: string; start: number; end: number }>("tts-utterance-range", (event) => {
@@ -657,10 +666,10 @@ class ImmersionPlayer {
         this.scheduleEngineUnload();
     }
 
-    private _onError(msg: string) {
+    private _onError(msg: string, engine: TtsEngine) {
         this._clearAll();
         this.setState('idle');
-        this.callbacks.onError?.(msg);
+        this.callbacks.onError?.(msg, engine);
         this.scheduleEngineUnload();
     }
 
