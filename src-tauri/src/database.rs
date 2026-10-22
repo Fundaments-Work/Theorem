@@ -449,6 +449,10 @@ fn init_db_pool(db_path: &Path) -> Result<&DbPool, String> {
 const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
+    -- Per-connection: this only affects the one-off migration connection.
+    -- Pooled connections run with foreign keys OFF, so the ON DELETE CASCADE
+    -- clauses below never fire in normal use; deletes clear related rows
+    -- explicitly (see `delete_book_rows`).
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS books (
@@ -695,16 +699,38 @@ pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String>
     crate::epub_entries::clear_cache();
     remove_materialized_cache_file(&app, &id);
 
-    with_connection(&app, |connection| {
-        connection.execute(
-            "DELETE FROM materialized_books WHERE book_id = ?1",
-            params![id],
-        )?;
-        connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
+    with_connection(&app, |connection| sqlite_delete_book_inner(connection, &id))
+}
+
+/// Remove a book and everything stored for it, in one transaction.
+pub fn sqlite_delete_book_inner(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    delete_book_rows(&tx, id)?;
+    tx.commit()
+}
+
+/// Delete every row that belongs to book `id`. Runs no transaction of its
+/// own: callers wrap it in one (the sync merge runs it inside its own).
+///
+/// Foreign keys are deliberately OFF on pooled connections, so the
+/// `ON DELETE CASCADE` clauses in the schema never fire and each table is
+/// cleared here explicitly. They stay off because synced books legitimately
+/// carry `book_metadata` (and annotations) without a `books` row until their
+/// file arrives; enforcing the foreign keys would reject those rows. Any new
+/// table keyed by book id must be added here.
+pub(crate) fn delete_book_rows(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    for sql in [
+        "DELETE FROM covers WHERE book_id = ?1",
+        "DELETE FROM materialized_books WHERE book_id = ?1",
+        "DELETE FROM book_metadata WHERE book_id = ?1",
+        "DELETE FROM book_annotations WHERE book_id = ?1",
         // Deleted books must leave library search too.
-        connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
-        Ok(())
-    })
+        "DELETE FROM books_fts WHERE id = ?1",
+        "DELETE FROM books WHERE id = ?1",
+    ] {
+        connection.execute(sql, params![id])?;
+    }
+    Ok(())
 }
 
 pub fn sqlite_get_materialized_book_path(
@@ -990,6 +1016,9 @@ pub fn sqlite_clear_all_storage_inner(connection: &Connection) -> rusqlite::Resu
     let tx = connection.unchecked_transaction()?;
     tx.execute("DELETE FROM covers", [])?;
     tx.execute("DELETE FROM materialized_books", [])?;
+    tx.execute("DELETE FROM book_metadata", [])?;
+    tx.execute("DELETE FROM book_annotations", [])?;
+    tx.execute("DELETE FROM books_fts", [])?;
     tx.execute("DELETE FROM books", [])?;
     tx.execute("DELETE FROM blob_store", [])?;
     tx.execute("DELETE FROM kv_store", [])?;
@@ -2711,15 +2740,17 @@ pub fn sqlite_delete_rss_article_inner(
     connection: &Connection,
     article_id: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    // Foreign keys are off (see `delete_book_rows`): content goes explicitly.
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM rss_article_content WHERE article_id = ?1",
         params![article_id],
     )?;
-    connection.execute(
+    tx.execute(
         "DELETE FROM rss_articles WHERE id = ?1",
         params![article_id],
     )?;
-    Ok(())
+    tx.commit()
 }
 
 pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
@@ -4154,6 +4185,87 @@ mod tests {
         );
         assert!(result.is_err());
         assert_eq!(annotation_texts(&conn, "book1"), ["one", "two"]);
+    }
+
+    fn seed_book(conn: &Connection, id: &str, title: &str) {
+        sqlite_register_materialized_book_inner(conn, id).unwrap();
+        sqlite_save_book_metadata_inner(conn, id, &format!(r#"{{"id":"{id}","title":"{title}"}}"#))
+            .unwrap();
+        sqlite_save_cover_image_inner(conn, id, "data:image/png;base64,AAAA").unwrap();
+        sqlite_upsert_annotation_inner(conn, &format!("{id}-ann"), id, r#"{"text":"t"}"#).unwrap();
+    }
+
+    fn rows_for_book(conn: &Connection, id: &str) -> Vec<(&'static str, i64)> {
+        [
+            ("books", "SELECT COUNT(*) FROM books WHERE id = ?1"),
+            ("covers", "SELECT COUNT(*) FROM covers WHERE book_id = ?1"),
+            (
+                "materialized_books",
+                "SELECT COUNT(*) FROM materialized_books WHERE book_id = ?1",
+            ),
+            (
+                "book_metadata",
+                "SELECT COUNT(*) FROM book_metadata WHERE book_id = ?1",
+            ),
+            (
+                "book_annotations",
+                "SELECT COUNT(*) FROM book_annotations WHERE book_id = ?1",
+            ),
+            ("books_fts", "SELECT COUNT(*) FROM books_fts WHERE id = ?1"),
+        ]
+        .into_iter()
+        .map(|(table, sql)| {
+            (
+                table,
+                conn.query_row(sql, params![id], |r| r.get(0)).unwrap(),
+            )
+        })
+        .filter(|(_, n)| *n > 0)
+        .collect()
+    }
+
+    /// Foreign keys are off on pooled connections, so ON DELETE CASCADE never
+    /// ran: deleting a book left its cover, metadata and highlights behind.
+    #[test]
+    fn delete_book_removes_every_related_row() {
+        let conn = setup_db();
+        seed_book(&conn, "gone", "Gone");
+        seed_book(&conn, "kept", "Kept");
+        sqlite_upsert_annotation_inner(&conn, "rss-ann", "rss:gone", "{}").unwrap();
+
+        sqlite_delete_book_inner(&conn, "gone").unwrap();
+
+        assert_eq!(rows_for_book(&conn, "gone"), []);
+        assert_eq!(rows_for_book(&conn, "kept").len(), 6);
+        assert_eq!(
+            sqlite_get_book_annotations_inner(&conn, "rss:gone")
+                .unwrap()
+                .len(),
+            1
+        );
+        // Deleting a book that is not there is fine.
+        sqlite_delete_book_inner(&conn, "missing").unwrap();
+    }
+
+    #[test]
+    fn delete_book_is_atomic() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_books_delete BEFORE DELETE ON books
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(sqlite_delete_book_inner(&conn, "b1").is_err());
+        assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+    }
+
+    #[test]
+    fn clear_all_storage_removes_library_tables() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        sqlite_clear_all_storage_inner(&conn).unwrap();
+        assert_eq!(rows_for_book(&conn, "b1"), []);
     }
 
     #[test]
