@@ -93,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Library sort and filter in plain words** — "ASC/DESC" became "A to Z" or "Newest first" depending on what is sorted, statuses read "Not started / Reading / Finished", "Unshelved" became "Not on a shelf", and the duplicate "Recent" button is gone. The phone sheet and the desktop popover are now one component, so they no longer drift (the desktop one said "Read" where the phone said "Reading"), and the phone sheet no longer cuts off its last section.
 - **Onboarding that holds still** — Every step now has the same height, so Back and Next stay under the pointer, and sync is described as it works: directly between devices on any network, not "over LAN" (Settings → Devices said the same).
 - **Empty states that lead somewhere** — An empty library names the formats it takes and links to Discover for free books; the Workbench's empty state says "No Highlights or Notes Yet" instead of the internal word "annotations".
+- **Books open in the dark reading theme on new installs** — matching the dark interface instead of flashing a white page. A theme you already chose is kept.
 
 ### Fixed
 

@@ -14,7 +14,7 @@ import type {
 } from "../types";
 
 const defaultReaderSettings: ReaderSettings = {
-    theme: "light",
+    theme: "dark",
     fontFamily: "original",
     fontSize: 18,
     lineHeight: 1.6,
