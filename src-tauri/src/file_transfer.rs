@@ -140,8 +140,9 @@ pub const PEER_REMOVED_THIS_DEVICE: &str =
 /// answer within this is reported offline (and tried again later).
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
 
-/// How long unpairing waits to tell the other device before going ahead.
-const UNPAIR_NOTICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+/// How long unpairing waits to tell the other device before going ahead
+/// (connecting included). One that is offline learns it on its next attempt.
+const UNPAIR_NOTICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Requests that are not book IDs (a book ID never starts with '?').
 const HELLO_REQUEST: &str = "?hello";
@@ -274,7 +275,7 @@ pub async fn notify_unpaired(app: &tauri::AppHandle, peer_device_id: &str) -> bo
             .ok()?;
         Some(line.starts_with("OK"))
     };
-    tokio::time::timeout(UNPAIR_NOTICE_TIMEOUT * 2, told)
+    tokio::time::timeout(UNPAIR_NOTICE_TIMEOUT, told)
         .await
         .ok()
         .flatten()

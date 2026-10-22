@@ -2513,11 +2513,16 @@ pub fn sqlite_merge_sync_entries_with_dir(
             }
         } else if key.starts_with("anno:") || key.starts_with("annotation:") {
             if let Ok(ann_val) = serde_json::from_str::<serde_json::Value>(value) {
-                let id = ann_val
+                // An annotation carries its own ID. One without cannot be
+                // stored as itself (the app would load it back ID-less).
+                let Some(id) = ann_val
                     .get("id")
                     .and_then(|v| v.as_str())
+                    .filter(|id| !id.is_empty())
                     .map(String::from)
-                    .unwrap_or_else(|| key.clone());
+                else {
+                    continue;
+                };
                 let book_id = ann_val
                     .get("bookId")
                     .or_else(|| ann_val.get("book_id"))
@@ -5164,6 +5169,21 @@ mod tests {
             r#"{"id":"a1","bookId":"b1","noteContent":"agreed","updatedAt":"2026-05-04T00:00:00Z","baseUpdatedAt":"2026-05-03T00:00:00Z"}"#,
         );
         assert_eq!(after.conflicts, 0);
+    }
+
+    #[test]
+    fn an_annotation_entry_without_its_id_is_not_stored() {
+        let conn = setup_db();
+        let result = merge_one(
+            &conn,
+            "anno:b1:undefined",
+            r#"{"bookId":"b1","type":"highlight","location":"x","selectedText":"no id"}"#,
+        );
+        assert!(result.updated_annotations.is_empty());
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM book_annotations", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
     }
 
     #[test]
