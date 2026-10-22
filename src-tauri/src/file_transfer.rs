@@ -20,11 +20,11 @@ struct DownloadProgress {
     total: usize,
 }
 
-async fn connect_and_request(
+/// Opens a book-transfer connection to a paired device.
+async fn connect_peer(
     app: &tauri::AppHandle,
     peer_device_id: &str,
-    book_id: &str,
-) -> Result<(tokio::io::BufReader<iroh::endpoint::RecvStream>, usize), String> {
+) -> Result<endpoint::Connection, String> {
     use crate::sync_commands::{get_or_init_iroh, get_sync_state};
 
     let ep = get_or_init_iroh(app).await?;
@@ -107,6 +107,55 @@ async fn connect_and_request(
         }
     }
 
+    Ok(conn)
+}
+
+/// Whether `conn` was closed by the other device because it does not accept us.
+fn refused_by_peer(conn: &endpoint::Connection) -> bool {
+    matches!(
+        conn.close_reason(),
+        Some(endpoint::ConnectionError::ApplicationClosed(close))
+            if close.error_code == crate::sync_access::NOT_PAIRED.into()
+    )
+}
+
+/// Message for a device that refused us: it unpaired this device.
+pub const PEER_REMOVED_THIS_DEVICE: &str =
+    "The other device has removed this device. Pair them again to sync.";
+
+/// Checks that a paired device is reachable and still accepts this one, before
+/// a sync round. (iroh-docs cannot say: a refused sync and a completed one
+/// both end with "Failed to close connection" when the other side hangs up.)
+/// The request is never a valid book ID, so any answer line means "allowed".
+pub async fn probe_peer(app: &tauri::AppHandle, peer_device_id: &str) -> Result<(), String> {
+    let conn = connect_peer(app, peer_device_id).await?;
+    let answered = async {
+        let (mut send, recv) = conn.open_bi().await.ok()?;
+        send.write_all(b"?probe\n").await.ok()?;
+        send.finish().ok()?;
+        let mut line = String::new();
+        BufReader::new(recv).read_line(&mut line).await.ok()?;
+        (!line.is_empty()).then_some(())
+    };
+    let answered = tokio::time::timeout(CONNECT_TIMEOUT, answered)
+        .await
+        .ok()
+        .flatten();
+    if answered.is_some() {
+        return Ok(());
+    }
+    if refused_by_peer(&conn) {
+        return Err(PEER_REMOVED_THIS_DEVICE.to_string());
+    }
+    Err("Peer is offline or unreachable".to_string())
+}
+
+async fn connect_and_request(
+    app: &tauri::AppHandle,
+    peer_device_id: &str,
+    book_id: &str,
+) -> Result<(tokio::io::BufReader<iroh::endpoint::RecvStream>, usize), String> {
+    let conn = connect_peer(app, peer_device_id).await?;
     let (mut send, recv) = tokio::time::timeout(CONNECT_TIMEOUT, conn.open_bi())
         .await
         .map_err(|_| "open bi timed out".to_string())?
@@ -122,10 +171,13 @@ async fn connect_and_request(
 
     let mut reader = BufReader::new(recv);
     let mut status_line = String::new();
-    tokio::time::timeout(FILE_TRANSFER_TIMEOUT, reader.read_line(&mut status_line))
+    let read = tokio::time::timeout(FILE_TRANSFER_TIMEOUT, reader.read_line(&mut status_line))
         .await
-        .map_err(|_| "read status timed out".to_string())?
-        .map_err(|e| format!("read status: {e}"))?;
+        .map_err(|_| "read status timed out".to_string())?;
+    if read.is_err() && refused_by_peer(&conn) {
+        return Err(PEER_REMOVED_THIS_DEVICE.to_string());
+    }
+    read.map_err(|e| format!("read status: {e}"))?;
     let status_line = status_line.trim();
 
     if let Some(size_str) = status_line.strip_prefix("OK ") {
@@ -421,7 +473,7 @@ impl FileTransferHandler {
 impl ProtocolHandler for FileTransferHandler {
     async fn accept(&self, conn: endpoint::Connection) -> Result<(), iroh::protocol::AcceptError> {
         if !self.allowlist.is_allowed(&conn.remote_id()) {
-            conn.close(403u32.into(), b"not paired");
+            conn.close(crate::sync_access::NOT_PAIRED.into(), b"not paired");
             return Ok(());
         }
         loop {

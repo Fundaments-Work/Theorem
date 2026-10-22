@@ -114,7 +114,7 @@ impl PeerGate {
 }
 
 /// QUIC close code sent to a device that is not paired.
-const NOT_PAIRED: u32 = 403;
+pub const NOT_PAIRED: u32 = 403;
 
 impl EndpointHooks for PeerGate {
     async fn after_handshake<'a>(&'a self, conn: &'a Connection) -> AfterHandshakeOutcome {
@@ -601,6 +601,32 @@ mod tests {
             allowlist.allow_pending(stranger.id(), Duration::ZERO);
             assert!(echo(&stranger, &host, BOOKS).await.is_err());
 
+            host.shutdown().await.unwrap();
+            stranger.close().await;
+        }
+
+        #[tokio::test]
+        async fn a_refusal_reaches_the_other_side_as_close_code_403() {
+            // file_transfer::probe_peer tells "unpaired" from "offline" by it.
+            let host = gated(Arc::new(PeerAllowlist::default())).await;
+            let stranger = Endpoint::bind(presets::Minimal).await.unwrap();
+            let conn = stranger
+                .connect(host.endpoint().addr(), BOOKS)
+                .await
+                .unwrap();
+            let read = async {
+                let (mut send, recv) = conn.open_bi().await.ok()?;
+                send.write_all(b"x\n").await.ok()?;
+                let mut recv = recv;
+                recv.read_to_end(64).await.ok()
+            };
+            assert!(read.await.is_none());
+            match conn.close_reason() {
+                Some(iroh::endpoint::ConnectionError::ApplicationClosed(close)) => {
+                    assert_eq!(close.error_code, NOT_PAIRED.into());
+                }
+                other => panic!("unexpected close reason: {other:?}"),
+            }
             host.shutdown().await.unwrap();
             stranger.close().await;
         }

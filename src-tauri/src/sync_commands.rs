@@ -1361,6 +1361,10 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
         }
     }
 
+    // Reachable, and still pairs with us? (A refused sync cannot be told
+    // from a completed one afterwards; see file_transfer::probe_peer.)
+    crate::file_transfer::probe_peer(&app, &peer_device_id).await?;
+
     tokio::time::timeout(
         std::time::Duration::from_secs(15),
         doc.start_sync(vec![peer_addr]),

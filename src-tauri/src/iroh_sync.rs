@@ -389,10 +389,16 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                                 .map(|d| (d.entries_received, d.entries_sent))
                                 .map_err(String::as_str),
                         );
-                        if !synced {
-                            if let Err(e) = &event.result {
-                                eprintln!("[iroh-sync] sync with {} failed: {e}", event.peer);
-                            }
+                        if let Err(e) = &event.result {
+                            eprintln!(
+                                "[iroh-sync] sync with {} {}: {e:?}",
+                                event.peer,
+                                if synced {
+                                    "finished, teardown failed"
+                                } else {
+                                    "failed"
+                                }
+                            );
                         }
                         if synced {
                             record_last_sync(&app, &event.peer).await;
