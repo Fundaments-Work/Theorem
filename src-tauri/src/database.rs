@@ -1648,6 +1648,44 @@ fn parse_sync_date(val: Option<&serde_json::Value>) -> Option<i64> {
     }
 }
 
+/// Stores a synced annotation unless this device holds a newer edit of it
+/// (by `updatedAt`). Returns whether it was stored.
+fn upsert_synced_annotation(
+    connection: &Connection,
+    id: &str,
+    book_id: &str,
+    incoming: &serde_json::Value,
+    incoming_json: &str,
+) -> rusqlite::Result<bool> {
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT annotation_json FROM book_annotations WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(existing) = existing {
+        let local_at = serde_json::from_str::<serde_json::Value>(&existing)
+            .ok()
+            .and_then(|v| parse_sync_date(v.get("updatedAt")));
+        let incoming_at = parse_sync_date(incoming.get("updatedAt"));
+        if let (Some(local_at), Some(incoming_at)) = (local_at, incoming_at) {
+            if local_at > incoming_at {
+                return Ok(false);
+            }
+        }
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+        params![book_id],
+    )?;
+    connection.execute(
+        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
+        params![id, book_id, incoming_json],
+    )?;
+    Ok(true)
+}
+
 fn upsert_sync_vocabulary_term(
     connection: &Connection,
     term: &serde_json::Value,
@@ -1685,7 +1723,7 @@ fn upsert_sync_vocabulary_term(
     });
     let updated_at = parse_sync_date(term.get("updatedAt"));
 
-    connection.execute(
+    let changed = connection.execute(
         r#"
         INSERT INTO vocabulary (
             id, term, normalized_term, language, phonetic, audio_url,
@@ -1702,8 +1740,11 @@ fn upsert_sync_vocabulary_term(
             provider_history_json = excluded.provider_history_json,
             source_book_id = excluded.source_book_id,
             context_sentence = excluded.context_sentence,
-            created_at = excluded.created_at,
+            created_at = MIN(vocabulary.created_at, excluded.created_at),
             updated_at = excluded.updated_at
+        WHERE excluded.updated_at IS NULL
+            OR vocabulary.updated_at IS NULL
+            OR excluded.updated_at >= vocabulary.updated_at
         "#,
         params![
             id,
@@ -1720,7 +1761,8 @@ fn upsert_sync_vocabulary_term(
             updated_at,
         ],
     )?;
-    Ok(Some(id.to_string()))
+    // An older copy of a term this device already has is not applied.
+    Ok((changed > 0).then(|| id.to_string()))
 }
 
 fn upsert_sync_rss_article(
@@ -1791,9 +1833,9 @@ fn upsert_sync_rss_article(
             image_url = excluded.image_url,
             published_at = excluded.published_at,
             fetched_at = excluded.fetched_at,
-            is_read = excluded.is_read,
-            is_favorite = excluded.is_favorite,
-            progress = excluded.progress,
+            is_read = MAX(rss_articles.is_read, excluded.is_read),
+            is_favorite = MAX(rss_articles.is_favorite, excluded.is_favorite),
+            progress = MAX(rss_articles.progress, excluded.progress),
             updated_at = unixepoch()
         "#,
         params![
@@ -2012,6 +2054,8 @@ pub fn sqlite_merge_sync_entries_with_dir(
     entries: std::collections::HashMap<String, String>,
     app_data_dir: Option<&Path>,
 ) -> rusqlite::Result<SyncMergeResult> {
+    // All or nothing: a merge that fails halfway leaves the database as it was.
+    let tx = connection.unchecked_transaction()?;
     let mut domains_updated: Vec<String> = Vec::new();
     let mut books_count = 0usize;
     let mut annotations_count = 0usize;
@@ -2144,16 +2188,8 @@ pub fn sqlite_merge_sync_entries_with_dir(
                 if !book_id.is_empty()
                     && !tombstoned_annotations.contains(&id)
                     && !tombstoned_books.contains(book_id)
+                    && upsert_synced_annotation(connection, &id, book_id, &ann_val, value)?
                 {
-                    connection.execute(
-                        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                        params![book_id],
-                    )?;
-
-                    connection.execute(
-                        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
-                        params![id, book_id, value],
-                    )?;
                     annotations_count += 1;
                     updated_annotations.push(id);
                     record_domain("annotations");
@@ -2173,16 +2209,10 @@ pub fn sqlite_merge_sync_entries_with_dir(
                             && !tombstoned_books.contains(book_id)
                         {
                             let ann_json = serde_json::to_string(a).unwrap_or_default();
-                            connection.execute(
-                                "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                                params![book_id],
-                            )?;
-                            connection.execute(
-                                "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
-                                params![id, book_id, ann_json],
-                            )?;
-                            annotations_count += 1;
-                            updated_annotations.push(id.to_string());
+                            if upsert_synced_annotation(connection, id, book_id, a, &ann_json)? {
+                                annotations_count += 1;
+                                updated_annotations.push(id.to_string());
+                            }
                         }
                     }
                 }
@@ -2257,6 +2287,7 @@ pub fn sqlite_merge_sync_entries_with_dir(
     dedup(&mut updated_rss_articles);
     dedup(&mut deleted_rss_articles);
 
+    tx.commit()?;
     Ok(SyncMergeResult {
         domains_updated,
         books_count,
@@ -4350,6 +4381,133 @@ mod tests {
         )
         .optional()
         .unwrap()
+    }
+
+    #[test]
+    fn an_older_synced_note_does_not_replace_a_newer_local_edit() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "anno:b1:a1".to_string(),
+            r#"{"id":"a1","bookId":"b1","note":"new","updatedAt":2000}"#.to_string(),
+        );
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "anno:b1:a1".to_string(),
+            r#"{"id":"a1","bookId":"b1","note":"old","updatedAt":1000}"#.to_string(),
+        );
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert!(res.updated_annotations.is_empty());
+        let anns = sqlite_get_book_annotations_inner(&conn, "b1").unwrap();
+        assert!(anns[0].contains("\"new\""), "{anns:?}");
+
+        // A newer one does, in the bulk form too.
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "annotations".to_string(),
+            r#"[{"id":"a1","bookId":"b1","note":"newest","updatedAt":"2030-01-01T00:00:00Z"}]"#
+                .to_string(),
+        );
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert_eq!(res.updated_annotations, vec!["a1".to_string()]);
+        let anns = sqlite_get_book_annotations_inner(&conn, "b1").unwrap();
+        assert!(anns[0].contains("newest"), "{anns:?}");
+    }
+
+    #[test]
+    fn an_older_synced_word_does_not_replace_a_newer_one() {
+        let conn = setup_db();
+        let term = |meaning: &str, created: i64, updated: i64| {
+            format!(
+                r#"{{"id":"v1","term":"ephemeral","language":"en","meanings":["{meaning}"],"createdAt":{created},"updatedAt":{updated}}}"#
+            )
+        };
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("vocab:v1".to_string(), term("new", 500, 2000));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("vocab:v1".to_string(), term("old", 100, 1000));
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert!(res.updated_vocabulary.is_empty());
+        let (meanings, created): (String, i64) = conn
+            .query_row(
+                "SELECT meanings_json, created_at FROM vocabulary WHERE id = 'v1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(meanings.contains("new"));
+        assert_eq!(created, 500);
+
+        // Newer wins, and the earliest creation date is kept.
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("vocab:v1".to_string(), term("newest", 900, 3000));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let (meanings, created): (String, i64) = conn
+            .query_row(
+                "SELECT meanings_json, created_at FROM vocabulary WHERE id = 'v1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(meanings.contains("newest"));
+        assert_eq!(created, 500);
+    }
+
+    #[test]
+    fn synced_articles_keep_read_favorite_and_furthest_progress() {
+        let conn = setup_db();
+        let article = |read: bool, fav: bool, progress: f64| {
+            format!(
+                r#"{{"id":"art1","feedId":"f1","title":"T","url":"https://e.x/1","isRead":{read},"isFavorite":{fav},"progress":{progress}}}"#
+            )
+        };
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("rss_article:art1".to_string(), article(true, true, 0.8));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("rss_article:art1".to_string(), article(false, false, 0.2));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let (read, fav, progress): (bool, bool, f64) = conn
+            .query_row(
+                "SELECT is_read, is_favorite, progress FROM rss_articles WHERE id = 'art1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert!(read && fav);
+        assert_eq!(progress, 0.8);
+    }
+
+    #[test]
+    fn a_merge_that_fails_halfway_changes_nothing() {
+        let conn = setup_db();
+        // The eleventh new kv_store row fails, so ten are written first.
+        conn.execute_batch(
+            "CREATE TRIGGER fail_eleventh BEFORE INSERT ON kv_store
+             WHEN (SELECT COUNT(*) FROM kv_store) >= 10
+             BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+        )
+        .unwrap();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "books".to_string(),
+            r#"[{"id":"b1","title":"Dune"}]"#.to_string(),
+        );
+        for i in 0..30 {
+            entries.insert(format!("collection:c{i}"), r#"{"ok":true}"#.to_string());
+        }
+        assert!(sqlite_merge_sync_entries_inner(&conn, entries).is_err());
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM kv_store", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        assert!(sqlite_get_book_metadata_inner(&conn, "b1")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

@@ -97,7 +97,10 @@ async fn connect_and_request(
 
     if !connected_ip.is_empty() && connected_port > 0 {
         let mut devices = sync_state.transport_state.paired_devices.lock().await;
-        if let Some(peer_entry) = devices.get_mut(&canonical_device_id) {
+        if let Some(peer_entry) = devices
+            .get_mut(&canonical_device_id)
+            .filter(|d| d.last_ip != connected_ip || d.last_port != connected_port)
+        {
             peer_entry.last_ip = connected_ip;
             peer_entry.last_port = connected_port;
             let _ = sync_state.transport_state.persist_paired(&devices);

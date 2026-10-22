@@ -113,6 +113,9 @@ pub fn get_iroh_relay_url() -> String {
         .unwrap_or_default()
 }
 
+/// How long `iroh_start` waits for a running engine before giving up for now.
+const ENGINE_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
 /// Pairing codes carry a one-time secret from version 2 on.
 const PAIRING_VERSION: u8 = 2;
 
@@ -189,7 +192,10 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
             }
         }
 
-        for _ in 0..150 {
+        // Wait for the engine. A slow start (a phone waking the app) is not
+        // a broken database: only a loop that exited has given up.
+        let mut waited = std::time::Duration::ZERO;
+        loop {
             if sync_state
                 .transport_state
                 .docs_api
@@ -203,16 +209,33 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
                     fingerprint: ep.peer_info.fingerprint.clone(),
                 });
             }
+            let loop_exited = sync_state
+                .accept_cancel
+                .lock()
+                .await
+                .as_ref()
+                .is_none_or(|h| h.join.is_finished());
+            if loop_exited || waited >= ENGINE_START_TIMEOUT {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            waited += std::time::Duration::from_millis(100);
+        }
+
+        let loop_exited = sync_state
+            .accept_cancel
+            .lock()
+            .await
+            .as_ref()
+            .is_none_or(|h| h.join.is_finished());
+        if !loop_exited {
+            // Still starting: never delete the sync data of a working engine.
+            return Err("Sync is still starting; it will be retried".to_string());
         }
 
         if attempt == 0 {
-            eprintln!("[iroh-sync] Database corrupted — wiping and retrying");
-
-            let blobs_path = data_dir.join("iroh-blobs");
-            let docs_path = data_dir.join("iroh-docs");
-            let _ = std::fs::remove_dir_all(&blobs_path);
-            let _ = std::fs::remove_dir_all(&docs_path);
+            // The accept loop already removed the database it could not open.
+            eprintln!("[iroh-sync] Sync engine failed to start — retrying with a fresh database");
 
             let old_ep = IROH_ENDPOINT.lock().unwrap().clone();
             if let Some(ep) = old_ep {
@@ -811,26 +834,30 @@ pub async fn docs_get_all_entries(
     use futures::StreamExt;
     let api = get_docs_api(&app).await?;
     let sync_state = get_sync_state(&app)?;
-    let (blobs, devices) = {
+    let blobs = {
         let guard = sync_state.transport_state.docs_api.lock().await;
-        let snapshot = guard
+        guard
             .as_ref()
-            .ok_or_else(|| "iroh-docs not initialized".to_string())?;
+            .ok_or_else(|| "iroh-docs not initialized".to_string())?
+            .blobs
+            .clone()
+    };
+    // Copy the doc IDs and let go of the lock: reading the docs takes a while,
+    // and pairing, writes and book transfers all need it meanwhile.
+    let doc_ids: Vec<iroh_docs::NamespaceId> = {
         let devices = sync_state.transport_state.paired_devices.lock().await;
-        (snapshot.blobs.clone(), devices)
+        devices
+            .values()
+            .filter(|d| !d.sync_doc_id.is_empty())
+            .map(|d| d.sync_doc_id.parse())
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("parse doc id: {e}"))?
     };
 
-    let mut per_key: std::collections::HashMap<String, Vec<String>> =
+    let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
         std::collections::HashMap::new();
 
-    for device in devices.values() {
-        if device.sync_doc_id.is_empty() {
-            continue;
-        }
-        let doc_id: iroh_docs::NamespaceId = device
-            .sync_doc_id
-            .parse()
-            .map_err(|e| format!("parse doc id: {e}"))?;
+    for doc_id in doc_ids {
         if let Ok(Some(doc)) = api.open(doc_id).await {
             if let Ok(stream) = doc
                 .get_many(iroh_docs::store::Query::single_latest_per_key().build())
@@ -863,7 +890,10 @@ pub async fn docs_get_all_entries(
                             );
                             continue 'entries;
                         };
-                        per_key.entry(key).or_default().push(value);
+                        per_key
+                            .entry(key)
+                            .or_default()
+                            .push((entry.timestamp(), value));
                     }
                 }
                 eprintln!(
@@ -873,53 +903,70 @@ pub async fn docs_get_all_entries(
         }
     }
 
+    Ok(combine_doc_values(per_key))
+}
+
+/// Keys that hold one record each: with several paired devices, the copy
+/// written last wins whole.
+fn is_per_entity_key(key: &str) -> bool {
+    [
+        "book:",
+        "anno:",
+        "annotation:",
+        "collection:",
+        "cover:",
+        "rss_article:",
+        "vocab:",
+        "vocabulary:",
+    ]
+    .iter()
+    .any(|prefix| key.starts_with(prefix))
+}
+
+/// One value per key from the copies in each paired device's doc (each with
+/// the time it was written). Records: the newest copy. Objects (settings,
+/// stats): merged field by field, newer copies winning. Lists: concatenated
+/// oldest first, for the app's merge to deduplicate. Anything else: newest.
+fn combine_doc_values(
+    per_key: std::collections::HashMap<String, Vec<(u64, String)>>,
+) -> std::collections::HashMap<String, String> {
     let mut results = std::collections::HashMap::new();
-    for (key, values) in per_key {
-        let is_per_entity = key.starts_with("book:")
-            || key.starts_with("annotation:")
-            || key.starts_with("collection:");
-        if values.len() == 1 || is_per_entity {
-            results.insert(key, values.into_iter().last().unwrap());
-        } else {
-            let parsed: Vec<serde_json::Value> = values
-                .iter()
-                .filter_map(|v| serde_json::from_str(v).ok())
-                .collect();
-
-            let all_objects = parsed.iter().all(|v| v.is_object());
-            let all_arrays = parsed.iter().all(|v| v.is_array());
-
-            if all_objects {
-                let mut merged = serde_json::Map::new();
-                for v in &parsed {
-                    if let Some(obj) = v.as_object() {
-                        for (k, val) in obj {
-                            merged.insert(k.clone(), val.clone());
-                        }
-                    }
-                }
-                results.insert(
-                    key,
-                    serde_json::to_string(&merged).unwrap_or_else(|_| values.join("\n")),
-                );
-            } else if all_arrays {
-                let mut merged: Vec<serde_json::Value> = Vec::new();
-                for v in &parsed {
-                    if let Some(arr) = v.as_array() {
-                        merged.extend(arr.iter().cloned());
-                    }
-                }
-                results.insert(
-                    key,
-                    serde_json::to_string(&merged).unwrap_or_else(|_| values.join("\n")),
-                );
-            } else {
-                results.insert(key, values.into_iter().last().unwrap());
-            }
+    for (key, mut values) in per_key {
+        values.sort_by_key(|(at, _)| *at);
+        let newest = || values.last().map(|(_, v)| v.clone()).unwrap_or_default();
+        if values.len() == 1 || is_per_entity_key(&key) {
+            results.insert(key, newest());
+            continue;
         }
+        let parsed: Vec<serde_json::Value> = values
+            .iter()
+            .filter_map(|(_, v)| serde_json::from_str(v).ok())
+            .collect();
+        let combined = if parsed.len() != values.len() {
+            None
+        } else if parsed.iter().all(|v| v.is_object()) {
+            let mut merged = serde_json::Map::new();
+            for obj in parsed.iter().filter_map(|v| v.as_object()) {
+                for (k, val) in obj {
+                    merged.insert(k.clone(), val.clone());
+                }
+            }
+            serde_json::to_string(&merged).ok()
+        } else if parsed.iter().all(|v| v.is_array()) {
+            let merged: Vec<serde_json::Value> = parsed
+                .iter()
+                .filter_map(|v| v.as_array())
+                .flatten()
+                .cloned()
+                .collect();
+            serde_json::to_string(&merged).ok()
+        } else {
+            None
+        };
+        let value = combined.unwrap_or_else(newest);
+        results.insert(key, value);
     }
-
-    Ok(results)
+    results
 }
 
 async fn get_docs_api_or_init(app: &tauri::AppHandle) -> Result<iroh_docs::api::DocsApi, String> {
@@ -1065,14 +1112,8 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
     .map_err(|_| "Peer is offline or unreachable (timeout after 15s)".to_string())?
     .map_err(|e| format!("start_sync: {e}"))?;
 
-    {
-        let mut devices = sync_state.transport_state.paired_devices.lock().await;
-        if let Some(d) = devices.get_mut(&peer_device_id) {
-            d.last_sync_at = Some(sync_crypto::now_iso8601());
-            let _ = sync_state.transport_state.persist_paired(&devices);
-        }
-    }
-
+    // start_sync only queues the peer; lastSyncAt is recorded when the sync
+    // actually finishes (iroh_sync::record_last_sync).
     Ok(())
 }
 
@@ -1097,4 +1138,71 @@ pub async fn clear_sync_databases(app: tauri::AppHandle) -> Result<(), String> {
 
     eprintln!("[iroh-sync] Cleared sync databases, identity key, and paired devices");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn combine(entries: &[(&str, u64, &str)]) -> std::collections::HashMap<String, String> {
+        let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
+            std::collections::HashMap::new();
+        for (key, at, value) in entries {
+            per_key
+                .entry(key.to_string())
+                .or_default()
+                .push((*at, value.to_string()));
+        }
+        combine_doc_values(per_key)
+    }
+
+    #[test]
+    fn the_newest_copy_of_a_record_wins_whatever_the_order() {
+        for order in [[0, 1, 2], [2, 1, 0], [1, 2, 0]] {
+            let copies = [
+                ("anno:b:a", 10, r#"{"note":"old"}"#),
+                ("anno:b:a", 30, r#"{"note":"newest"}"#),
+                ("anno:b:a", 20, r#"{"note":"middle"}"#),
+            ];
+            let ordered: Vec<_> = order.iter().map(|&i| copies[i]).collect();
+            assert_eq!(combine(&ordered)["anno:b:a"], r#"{"note":"newest"}"#);
+        }
+    }
+
+    #[test]
+    fn every_record_kind_is_taken_whole_never_mixed() {
+        for key in [
+            "book:1",
+            "anno:1:2",
+            "annotation:2",
+            "collection:c",
+            "cover:1",
+            "rss_article:a",
+            "vocab:v",
+        ] {
+            let out = combine(&[(key, 2, r#"{"a":2}"#), (key, 1, r#"{"a":1,"b":1}"#)]);
+            assert_eq!(out[key], r#"{"a":2}"#, "{key}");
+        }
+    }
+
+    #[test]
+    fn shared_objects_merge_with_newer_fields_winning() {
+        let out = combine(&[
+            ("settings", 2, r#"{"theme":"dark"}"#),
+            ("settings", 1, r#"{"theme":"light","fontSize":18}"#),
+        ]);
+        let merged: serde_json::Value = serde_json::from_str(&out["settings"]).unwrap();
+        assert_eq!(merged["theme"], "dark");
+        assert_eq!(merged["fontSize"], 18);
+    }
+
+    #[test]
+    fn lists_are_joined_and_odd_values_fall_back_to_newest() {
+        let out = combine(&[("collections", 1, "[1]"), ("collections", 2, "[2]")]);
+        assert_eq!(out["collections"], "[1,2]");
+        let out = combine(&[("reading_stats", 1, "{}"), ("reading_stats", 2, "not json")]);
+        assert_eq!(out["reading_stats"], "not json");
+        let out = combine(&[("x", 5, "[1]"), ("x", 4, r#"{"a":1}"#)]);
+        assert_eq!(out["x"], "[1]");
+    }
 }

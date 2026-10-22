@@ -318,6 +318,7 @@ pub fn subscribe_doc_events(
                 }
             };
             subscribe_failures = 0;
+            let stream_started = std::time::Instant::now();
             use futures::StreamExt;
             let mut pending: std::collections::HashMap<iroh_blobs::Hash, String> =
                 std::collections::HashMap::new();
@@ -327,13 +328,17 @@ pub fn subscribe_doc_events(
                     Ok(LiveEvent::InsertRemote { entry, .. }) => {
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
-                        if let Ok(content) = blobs.blobs().get_bytes(hash).await {
-                            if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                batcher.push(key.clone(), value);
+                        // Content already here: deliver it now. Otherwise wait for
+                        // ContentReady (delivering on both would send it twice).
+                        match blobs.blobs().get_bytes(hash).await {
+                            Ok(content) => {
+                                if let Ok(value) = String::from_utf8(content.to_vec()) {
+                                    batcher.push(key, value);
+                                }
+                            }
+                            Err(_) => {
                                 pending.insert(hash, key);
                             }
-                        } else {
-                            pending.insert(hash, key);
                         }
                     }
                     Ok(LiveEvent::ContentReady { hash }) => {
@@ -373,12 +378,26 @@ pub fn subscribe_doc_events(
                         struct SyncFinishedPayload {
                             peer: String,
                             synced: bool,
+                            received: usize,
+                            sent: usize,
+                        }
+                        let (synced, received, sent) = match &event.result {
+                            Ok(details) => (true, details.entries_received, details.entries_sent),
+                            Err(e) => {
+                                eprintln!("[iroh-sync] sync with {} failed: {e}", event.peer);
+                                (false, 0, 0)
+                            }
+                        };
+                        if synced {
+                            record_last_sync(&app, &event.peer).await;
                         }
                         let _ = app.emit(
                             "docs-sync-finished",
                             SyncFinishedPayload {
                                 peer: event.peer.to_string(),
-                                synced: true,
+                                synced,
+                                received,
+                                sent,
                             },
                         );
                     }
@@ -422,6 +441,12 @@ pub fn subscribe_doc_events(
                 }
             }
 
+            // A stream that ran for a while was healthy: only rapid, repeated
+            // failures count towards giving up.
+            if stream_started.elapsed() > std::time::Duration::from_secs(60) {
+                stream_deaths = 0;
+                backoff_ms = 1000;
+            }
             stream_deaths += 1;
             if stream_deaths > MAX_STREAM_DEATHS {
                 eprintln!(
@@ -437,6 +462,27 @@ pub fn subscribe_doc_events(
             backoff_ms = std::cmp::min(backoff_ms * 2, 30_000);
         }
     });
+}
+
+/// Marks when this device last completed a sync with `peer`.
+async fn record_last_sync(app: &tauri::AppHandle, peer: &PublicKey) {
+    use tauri::Manager;
+    let Some(sync_state) = app.try_state::<crate::sync_commands::SyncState>() else {
+        return;
+    };
+    let state = &sync_state.transport_state;
+    let peer = peer.to_string();
+    let mut devices = state.paired_devices.lock().await;
+    let mut changed = false;
+    for device in devices.values_mut() {
+        if device.iroh_node_id == peer {
+            device.last_sync_at = Some(sync_crypto::now_iso8601());
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = state.persist_paired(&devices);
+    }
 }
 
 #[derive(Clone)]
@@ -560,7 +606,17 @@ pub fn start_accept_loop(
         // times out on fresh devices and first-pair doc creation is blocked).
 
         let _ = std::fs::create_dir_all(&blobs_path);
-        let blobs = match iroh_blobs::store::fs::FsStore::load(&blobs_path).await {
+        // A store still held by an engine that is shutting down fails to
+        // open for a moment; only a store that keeps failing is corrupt.
+        let mut blobs_load = iroh_blobs::store::fs::FsStore::load(&blobs_path).await;
+        for _ in 0..3 {
+            if blobs_load.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            blobs_load = iroh_blobs::store::fs::FsStore::load(&blobs_path).await;
+        }
+        let blobs = match blobs_load {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[iroh-sync] Failed to load blobs store: {e}");
@@ -579,13 +635,26 @@ pub fn start_accept_loop(
         let blobs_store: iroh_blobs::api::Store = blobs.into();
         let blobs_for_subscribe = blobs_store.clone();
         let blobs_for_cmds = blobs_store.clone();
-        let docs_handler = match iroh_docs::protocol::Docs::persistent(docs_path.clone())
-            .spawn(router_endpoint.clone(), blobs_store, gossip.clone())
-            .await
-        {
+        let mut docs_spawn = Err(None);
+        for attempt in 0..4 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            match iroh_docs::protocol::Docs::persistent(docs_path.clone())
+                .spawn(router_endpoint.clone(), blobs_store.clone(), gossip.clone())
+                .await
+            {
+                Ok(d) => {
+                    docs_spawn = Ok(d);
+                    break;
+                }
+                Err(e) => docs_spawn = Err(Some(e)),
+            }
+        }
+        let docs_handler = match docs_spawn {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("[iroh-sync] Failed to spawn iroh-docs: {e}");
+                eprintln!("[iroh-sync] Failed to spawn iroh-docs: {e:?}");
 
                 eprintln!("[iroh-sync] Removing corrupted databases and retrying...");
                 let _ = std::fs::remove_dir_all(&blobs_path);
