@@ -2892,34 +2892,50 @@ pub fn sqlite_get_reading_sessions(
     })
 }
 
-/// Bring `books_fts` in line with the library (the `zustand:theorem-library`
-/// blob): index missing books, refresh renamed ones, drop deleted ones. Only
-/// differing rows are written. Returns the number of rows changed.
+/// KV key where the frontend records the hash of the book list it last
+/// indexed (`FTS_HASH_KV_KEY` in `libraryStore.ts`). Cleared whenever the
+/// index is repaired here, so the frontend re-indexes instead of trusting it.
+const FTS_HASH_KV_KEY: &str = "fts:booksHash";
+
+/// Bring `books_fts` in line with the library: index missing books, refresh
+/// renamed ones, drop deleted ones. Only differing rows are written. Returns
+/// the number of rows changed.
+///
+/// The source of truth is `book_metadata` (what `sqlite_load_all_books`
+/// returns), never the `zustand:theorem-library` KV blob: on Tauri that blob
+/// has persisted `state.books` as an empty array since library store v8, and
+/// reconciling against it wiped the whole index at every startup.
 pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<usize> {
-    let Some(lib_json) = connection
-        .query_row(
-            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-library'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-    else {
-        return Ok(0);
+    let rows: Vec<(String, String)> = {
+        let mut stmt = connection.prepare("SELECT book_id, metadata_json FROM book_metadata")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
     };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&lib_json) else {
+    // An empty library is never a reason to clear the index: the delete paths
+    // remove their own rows, and an empty source more likely means a library
+    // that has not been migrated yet.
+    if rows.is_empty() {
         return Ok(0);
-    };
-    let Some(books) = parsed["state"]["books"].as_array() else {
-        return Ok(0);
-    };
-    let wanted: HashMap<&str, (&str, &str)> = books
-        .iter()
-        .filter_map(|b| {
-            let id = b["id"].as_str().filter(|s| !s.is_empty())?;
-            let title = b["title"].as_str().unwrap_or("");
-            Some((id, (title, b["author"].as_str().unwrap_or(""))))
-        })
-        .collect();
+    }
+
+    // Books whose metadata cannot be parsed keep whatever row they have.
+    let mut unparsable: HashSet<String> = HashSet::new();
+    let mut wanted: HashMap<String, (String, String)> = HashMap::with_capacity(rows.len());
+    for (id, json) in rows {
+        if id.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(&json) {
+            Ok(value) => {
+                let title = value["title"].as_str().unwrap_or("").to_string();
+                let author = value["author"].as_str().unwrap_or("").to_string();
+                wanted.insert(id, (title, author));
+            }
+            Err(_) => {
+                unparsable.insert(id);
+            }
+        }
+    }
 
     let mut existing: HashMap<String, (String, String)> = HashMap::new();
     {
@@ -2942,13 +2958,13 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
     let tx = connection.unchecked_transaction()?;
     let mut changed = 0;
     for id in existing.keys() {
-        if !wanted.contains_key(id.as_str()) {
+        if !wanted.contains_key(id) && !unparsable.contains(id) {
             tx.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
             changed += 1;
         }
     }
     for (id, (title, author)) in &wanted {
-        let current = existing.get(*id);
+        let current = existing.get(id);
         if current.is_some_and(|(t, a)| t == title && a == author) {
             continue;
         }
@@ -2960,6 +2976,12 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
             params![id, title, author],
         )?;
         changed += 1;
+    }
+    if changed > 0 {
+        tx.execute(
+            "DELETE FROM kv_store WHERE key = ?1",
+            params![FTS_HASH_KV_KEY],
+        )?;
     }
     tx.commit()?;
     Ok(changed)
@@ -4501,18 +4523,65 @@ mod tests {
             .is_empty());
     }
 
+    /// Since library store v8 the Tauri build persists `state.books` as an
+    /// empty array; the books live in `book_metadata`. Reconciling against the
+    /// KV list wiped the whole search index at every startup.
     #[test]
-    fn reconcile_books_fts_adds_renames_and_prunes() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
-             CREATE VIRTUAL TABLE books_fts USING fts5(id UNINDEXED, title, author);",
+    fn reconcile_books_fts_keeps_index_when_kv_library_is_empty() {
+        let conn = setup_db();
+        sqlite_set_kv_inner(
+            &conn,
+            "zustand:theorem-library",
+            r#"{"state":{"books":[],"collections":[],"annotations":[]},"version":8}"#,
         )
         .unwrap();
-        let set_library = |books: &str| {
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "a",
+            r#"{"id":"a","title":"Dune","author":"Herbert"}"#,
+        )
+        .unwrap();
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "b",
+            r#"{"id":"b","title":"Emma","author":"Austen"}"#,
+        )
+        .unwrap();
+        sqlite_set_kv_inner(&conn, "fts:booksHash", "123").unwrap();
+
+        reconcile_books_fts(&conn).unwrap();
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Austen", 10)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // A book missing from the index is restored, and the frontend's
+        // "already indexed" hash is invalidated so it re-indexes too.
+        conn.execute("DELETE FROM books_fts WHERE id = 'b'", [])
+            .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 1);
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Emma", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(sqlite_get_kv_inner(&conn, "fts:booksHash").unwrap(), None);
+    }
+
+    #[test]
+    fn reconcile_books_fts_adds_renames_and_prunes() {
+        // The library lives in `book_metadata`. Written raw (not via
+        // `sqlite_save_book_metadata_inner`) so the index starts out of date.
+        let conn = setup_db();
+        let set_meta = |id: &str, json: &str| {
             conn.execute(
-                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('zustand:theorem-library', ?1)",
-                params![format!(r#"{{"state":{{"books":{books}}}}}"#)],
+                "INSERT OR REPLACE INTO book_metadata (book_id, metadata_json) VALUES (?1, ?2)",
+                params![id, json],
             )
             .unwrap();
         };
@@ -4529,9 +4598,18 @@ mod tests {
         // No library yet: nothing to do.
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
 
-        set_library(
-            r#"[{"id":"a","title":"Dune","author":"Herbert"},{"id":"b","title":"Emma","author":"Austen"},{"id":"","title":"x"}]"#,
-        );
+        // Nor when there is no library at all, even with stray index rows.
+        conn.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES ('stray', 'Kept', '')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
+        conn.execute("DELETE FROM books_fts", []).unwrap();
+
+        set_meta("a", r#"{"id":"a","title":"Dune","author":"Herbert"}"#);
+        set_meta("b", r#"{"id":"b","title":"Emma","author":"Austen"}"#);
+        set_meta("", r#"{"id":"","title":"x"}"#);
         conn.execute(
             "INSERT INTO books_fts(id, title, author) VALUES ('gone', 'Deleted Book', '')",
             [],
@@ -4547,16 +4625,17 @@ mod tests {
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
 
         // Rename one, delete the other.
-        set_library(r#"[{"id":"a","title":"Dune Messiah","author":"Herbert"}]"#);
+        set_meta(
+            "a",
+            r#"{"id":"a","title":"Dune Messiah","author":"Herbert"}"#,
+        );
+        conn.execute("DELETE FROM book_metadata WHERE book_id = 'b'", [])
+            .unwrap();
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 2);
         assert_eq!(rows(), [("a".into(), "Dune Messiah".into())]);
 
-        // Corrupt blob is ignored, index untouched.
-        conn.execute(
-            "UPDATE kv_store SET value = '{not json' WHERE key = 'zustand:theorem-library'",
-            [],
-        )
-        .unwrap();
+        // Corrupt metadata is ignored: its index row is neither changed nor pruned.
+        set_meta("a", "{not json");
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
         assert_eq!(rows().len(), 1);
     }

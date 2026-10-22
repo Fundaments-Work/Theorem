@@ -262,6 +262,9 @@ function normalizeContentHash(contentHash?: string): string | undefined {
     return normalized.length > 0 ? normalized : undefined;
 }
 
+// Hash of the book list last indexed into `books_fts`. The native startup
+// reconcile (`reconcile_books_fts`) deletes this key whenever it had to repair
+// the index, so a stale hash never hides an out-of-date index.
 const FTS_HASH_KV_KEY = "fts:booksHash";
 
 function fnv1aInto(hash: number, value: string): number {
