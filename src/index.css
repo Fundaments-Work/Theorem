@@ -108,44 +108,48 @@ body {
     font-family: var(--font-sans);
 }
 
-/* Display and headline: Sans 300, tracking tightens as size grows. */
-h1 {
-    font-weight: 300;
-    letter-spacing: var(--tracking-display);
-}
+/* Element defaults sit in the base layer so utilities win over them: unlayered
+   CSS beats every layer, and `font: inherit` here used to override text-xs,
+   font-light and leading-* on every button and input. */
+@layer base {
+    /* Display and headline: Sans 300, tracking tightens as size grows. */
+    h1 {
+        font-weight: 300;
+        letter-spacing: var(--tracking-display);
+    }
 
-h2,
-h3 {
-    font-weight: 300;
-    letter-spacing: var(--tracking-headline);
-}
+    h2,
+    h3 {
+        font-weight: 300;
+        letter-spacing: var(--tracking-headline);
+    }
 
-a {
-    color: var(--color-accent);
-    text-decoration: none;
-}
+    a {
+        color: var(--color-accent);
+        text-decoration: none;
+    }
 
-a:hover {
-    color: var(--color-accent-hover);
-}
+    a:hover {
+        color: var(--color-accent-hover);
+    }
 
-:where(button, input, textarea, select) {
-    font: inherit;
-}
+    :where(button, input, textarea, select) {
+        font: inherit;
+    }
 
-button {
-    cursor: pointer;
-    text-transform: none;
-    letter-spacing: normal;
-}
+    button {
+        cursor: pointer;
+        text-transform: none;
+        letter-spacing: normal;
+    }
 
+    button:disabled {
+        cursor: not-allowed;
+    }
+}
 
 .uppercase {
     text-transform: none !important;
-}
-
-button:disabled {
-    cursor: not-allowed;
 }
 
 
