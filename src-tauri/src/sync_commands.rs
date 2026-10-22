@@ -286,6 +286,9 @@ pub async fn generate_pairing_qr(app: tauri::AppHandle) -> Result<PairingQrData,
         }
     }
 
+    // Give the relay connection a moment, so the code carries a relay URL the
+    // other device can use when a direct path fails.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), ep.endpoint.online()).await;
     let qr_payload = PairingQrPayload {
         version: PAIRING_VERSION,
         node_id: ep.public_key_string(),
@@ -293,10 +296,13 @@ pub async fn generate_pairing_qr(app: tauri::AppHandle) -> Result<PairingQrData,
         device_name: sync_state.transport_state.device_name.clone(),
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
+        // Addresses another device can dial (LAN and public), not the
+        // listening sockets (0.0.0.0:port, which only mean "this device").
         lan_addrs: ep
             .endpoint
-            .bound_sockets()
-            .into_iter()
+            .addr()
+            .ip_addrs()
+            .filter(|a| !a.ip().is_unspecified() && !a.ip().is_loopback())
             .map(|a| a.to_string())
             .collect(),
         relay_url: ep
