@@ -26,6 +26,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     invoke: vi.fn(async (cmd: string, args: Record<string, unknown> = {}) => {
         ipcCalls.push(cmd);
         if (cmd === "docs_set_entry") docsWrites.push({ key: args.key as string, value: args.value as string });
+        if (cmd === "docs_set_entries") docsWrites.push(...(args.entries as Array<{ key: string; value: string }>));
         const h = ipc[cmd];
         if (h) return h(args);
         if (cmd === "sqlite_get_kv") return "true";

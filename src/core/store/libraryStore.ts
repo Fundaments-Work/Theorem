@@ -1402,7 +1402,15 @@ export const useLibraryStore = create<LibraryStore>()(
                 set((state) => ({
                     annotations: state.annotations.map((a) => {
                         if (a.id === annotationId) {
-                            updatedAnnotation = { ...a, ...updates, updatedAt: new Date() };
+                            // The version this edit was made on: sync uses it to
+                            // tell a concurrent edit (a conflict) from a later one.
+                            const base = a.updatedAt ?? a.createdAt;
+                            updatedAnnotation = {
+                                ...a,
+                                ...updates,
+                                updatedAt: new Date(),
+                                ...(base ? { baseUpdatedAt: new Date(base) } : {}),
+                            };
                             return updatedAnnotation;
                         }
                         return a;

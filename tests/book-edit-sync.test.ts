@@ -61,6 +61,35 @@ describe("withMetadataStamp", () => {
     });
 });
 
+describe("edits record the version they were made on", () => {
+    it("the first edit has no base; each later one is based on the previous stamp", () => {
+        const first = withMetadataStamp(book(), book({ isFavorite: true }), new Date(EARLY));
+        expect(first.metadataUpdatedAt).toBe(EARLY);
+        expect(first.metadataBaseAt).toBeUndefined();
+        const second = withMetadataStamp(first, { ...first, tags: ["sf"] }, new Date(LATE));
+        expect(second.metadataUpdatedAt).toBe(LATE);
+        expect(second.metadataBaseAt).toBe(EARLY);
+    });
+
+    it("a base copied along with other fields never survives an edit", () => {
+        const before = book({ metadataUpdatedAt: EARLY });
+        const edited = withMetadataStamp(before, { ...before, title: "New", metadataBaseAt: "1999-01-01T00:00:00.000Z" }, new Date(LATE));
+        expect(edited.metadataBaseAt).toBe(EARLY);
+        const unstamped = withMetadataStamp(book(), { ...book(), title: "New", metadataBaseAt: "1999-01-01T00:00:00.000Z" }, new Date(LATE));
+        expect(unstamped.metadataBaseAt).toBeUndefined();
+    });
+
+    it("the winning side's base travels with its edit", () => {
+        const local = book({ title: "Mine", metadataUpdatedAt: EARLY });
+        const remote = book({ title: "Theirs", metadataUpdatedAt: LATE, metadataBaseAt: EARLY });
+        const [merged] = mergeBooks([remote], [local]);
+        expect(merged.metadataBaseAt).toBe(EARLY);
+        const [kept] = mergeBooks([book({ title: "Old", metadataUpdatedAt: "2026-04-01T00:00:00.000Z" })], [remote]);
+        expect(kept.metadataUpdatedAt).toBe(LATE);
+        expect(kept.metadataBaseAt).toBe(EARLY);
+    });
+});
+
 describe("mergeBooks with edit stamps", () => {
     it("a newer unfavourite, untag and unrate reach the other device", () => {
         const local = book({ isFavorite: true, tags: ["sf", "classic"], rating: 5, metadataUpdatedAt: EARLY });

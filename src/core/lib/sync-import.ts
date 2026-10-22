@@ -195,6 +195,7 @@ export function mergeBooks(
             merged.tags = merged.tags ?? [];
             merged.isFavorite = Boolean(merged.isFavorite);
             merged.metadataUpdatedAt = winner.metadataUpdatedAt;
+            merged.metadataBaseAt = winner.metadataBaseAt;
         }
 
         byId.set(match.id, merged);

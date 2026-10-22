@@ -58,6 +58,7 @@ export const BookSchema = z.object({
     series: z.string().optional(),
     seriesIndex: z.number().optional(),
     metadataUpdatedAt: z.string().optional(),
+    metadataBaseAt: z.string().optional(),
 }).passthrough();
 
 export const BooksArraySchema = z.array(BookSchema);
@@ -73,6 +74,7 @@ export const AnnotationSchema = z.object({
     color: highlightColor.optional(),
     createdAt: dateLike,
     updatedAt: dateLike,
+    baseUpdatedAt: dateLike,
     pageNumber: z.number().int().positive().optional(),
     pdfAnnotationType: z.enum(["highlight", "drawing", "textNote"]).optional(),
     drawingData: z.string().optional(),

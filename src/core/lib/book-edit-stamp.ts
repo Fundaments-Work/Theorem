@@ -36,9 +36,20 @@ function sameValue(a: unknown, b: unknown): boolean {
     return false;
 }
 
-/** `after` with `metadataUpdatedAt` set to `now` if a user-editable detail changed. */
+/**
+ * `after` with `metadataUpdatedAt` set to `now` if a user-editable detail
+ * changed, and `metadataBaseAt` to the stamp of the version it was edited
+ * from: with it, sync tells an edit made after seeing another device's
+ * from one made without seeing it (a conflict, listed for the user).
+ */
 export function withMetadataStamp(before: Book, after: Book, now: Date = new Date()): Book {
     if (after === before) return after;
     const edited = BOOK_EDITABLE_FIELDS.some((field) => !sameValue(before[field], after[field]));
-    return edited ? { ...after, metadataUpdatedAt: now.toISOString() } : after;
+    if (!edited) return after;
+    const { metadataBaseAt: _previousBase, ...rest } = after;
+    return {
+        ...rest,
+        metadataUpdatedAt: now.toISOString(),
+        ...(before.metadataUpdatedAt ? { metadataBaseAt: before.metadataUpdatedAt } : {}),
+    };
 }

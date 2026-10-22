@@ -12,7 +12,7 @@ import {
     toSqliteVocabularyTerm,
     fromSqliteVocabularyTerm,
 } from "../store";
-import type { Annotation, Book, DeletionTombstone, DeviceSyncStatus, RssArticle, SyncConflict } from "../types";
+import type { Annotation, Book, DeletionTombstone, DeviceSyncStatus, RssArticle } from "../types";
 import {
     mergeBooks,
     mergeAnnotations,
@@ -42,6 +42,136 @@ import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, c
 
 /** Sync entry key prefix for one RSS article (`rss_article:<id>`). */
 export const RSS_ARTICLE_KEY_PREFIX = "rss_article:";
+/** One deletion record each: `tomb:<entityType>:<entityId>`. */
+export const TOMBSTONE_KEY_PREFIX = "tomb:";
+/** One vocabulary word each: `vocab:<id>`. */
+export const VOCAB_KEY_PREFIX = "vocab:";
+/** One RSS feed each: `rss_feed:<id>`. */
+export const RSS_FEED_KEY_PREFIX = "rss_feed:";
+
+const tombstoneEntryKey = (t: DeletionTombstone) => `${TOMBSTONE_KEY_PREFIX}${t.entityType}:${t.entityId}`;
+const annotationEntryKey = (a: Annotation) => `anno:${a.bookId || "global"}:${a.id}`;
+
+/**
+ * Whether a paired device runs a version that reads only the old whole-list
+ * entries (`annotations`, `vocabulary`...; sync protocol below 2). Only then
+ * are those lists written (Rust also sends them only to such devices). Until
+ * the paired devices are known, assume one does.
+ */
+let _legacyPeers = true;
+
+function noteSyncProtocols(devices: Array<{ protocol?: number }> | null | undefined): void {
+    if (!Array.isArray(devices)) return;
+    _legacyPeers = devices.some((d) => (d.protocol ?? 0) < 2);
+}
+
+/** An item another device deleted: its newest doc entry is a deletion. */
+export interface DocDeletion {
+    key: string;
+    /** When it was deleted (ms), by the deleting device's clock. */
+    at: number;
+}
+
+function epochOf(value: unknown): number {
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === "string" || typeof value === "number") {
+        const t = new Date(value).getTime();
+        return Number.isNaN(t) ? 0 : t;
+    }
+    return 0;
+}
+
+/**
+ * Deletion records for doc deletions of items this device still has.
+ * Doc deletions never expire (deletion records do, after 90 days), so this
+ * is how a device that was away longer still drops what was deleted
+ * meanwhile instead of sending it back. An item changed here after it was
+ * deleted there is kept, like an edit made after the deletion anywhere.
+ */
+export function tombstonesForDocDeletions(deletions: DocDeletion[]): DeletionTombstone[] {
+    if (deletions.length === 0) return [];
+    const lib = useLibraryStore.getState();
+    const rss = useRssStore.getState();
+    const vocab = useVocabularyStore.getState();
+    const now = new Date().toISOString();
+    const out: DeletionTombstone[] = [];
+    const add = (entityType: DeletionTombstone["entityType"], entityId: string, lastChange: number, at: number) => {
+        if (lastChange > at) return;
+        out.push({ entityType, entityId, deletedAt: now });
+    };
+    for (const { key, at } of deletions) {
+        if (key.startsWith("book:")) {
+            const id = key.slice("book:".length);
+            const b = lib.getBook(id);
+            if (b) add("book", id, Math.max(epochOf(b.addedAt), epochOf(b.metadataUpdatedAt), epochOf(b.lastReadAt)), at);
+        } else if (key.startsWith("anno:") || key.startsWith("annotation:")) {
+            const id = key.startsWith("anno:") ? key.split(":").slice(2).join(":") : key.slice("annotation:".length);
+            const a = lib.annotations.find((x) => x.id === id);
+            if (a) add("annotation", id, Math.max(epochOf(a.createdAt), epochOf(a.updatedAt)), at);
+        } else if (key.startsWith("collection:")) {
+            const id = key.slice("collection:".length);
+            const c = lib.collections.find((x) => x.id === id);
+            if (c) add("collection", id, Math.max(epochOf(c.createdAt), epochOf(c.updatedAt)), at);
+        } else if (key.startsWith(RSS_ARTICLE_KEY_PREFIX)) {
+            const id = key.slice(RSS_ARTICLE_KEY_PREFIX.length);
+            if (rss.articles.some((x) => x.id === id)) add("rss_article", id, 0, at);
+        } else if (key.startsWith(RSS_FEED_KEY_PREFIX)) {
+            const id = key.slice(RSS_FEED_KEY_PREFIX.length);
+            if (rss.feeds.some((x) => x.id === id)) add("feed", id, 0, at);
+        } else if (key.startsWith(VOCAB_KEY_PREFIX) || key.startsWith("vocabulary:")) {
+            const id = key.slice(key.indexOf(":") + 1);
+            const t = vocab.vocabularyTerms.find((x) => x.id === id);
+            if (t) add("vocabulary", id, Math.max(epochOf(t.createdAt), epochOf(t.updatedAt)), at);
+        }
+    }
+    return out;
+}
+
+/**
+ * The incoming entries with the per-item entries folded into the lists the
+ * merge works on: `tomb:*` (and deletions of items, `deletions`) into
+ * `deletion_tombstones`, `rss_feed:*` into `rss_feeds`. Older devices' lists
+ * are kept in.
+ */
+function foldPerItemEntries(
+    entries: Record<string, string>,
+    deletions: DocDeletion[],
+): Record<string, string> {
+    const tombs: DeletionTombstone[] = tombstonesForDocDeletions(deletions);
+    const feeds: unknown[] = [];
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(entries)) {
+        if (key.startsWith(TOMBSTONE_KEY_PREFIX)) {
+            try {
+                const t = JSON.parse(value);
+                if (t && typeof t === "object" && !Array.isArray(t) && t.entityId && t.entityType) tombs.push(t);
+            } catch (e) { warnMergeFailure("deletion entry", e); }
+        } else if (key.startsWith(RSS_FEED_KEY_PREFIX)) {
+            try {
+                const f = JSON.parse(value);
+                if (f && typeof f === "object" && !Array.isArray(f)) feeds.push(f);
+            } catch (e) { warnMergeFailure("rss feed entry", e); }
+        } else {
+            out[key] = value;
+        }
+    }
+    const withList = (key: string, items: unknown[]) => {
+        if (items.length === 0) return;
+        let list: unknown[] = [];
+        if (out[key]) {
+            try {
+                const parsed = JSON.parse(out[key]);
+                if (Array.isArray(parsed)) list = parsed;
+            } catch {
+                // A corrupt list: the per-item entries still count.
+            }
+        }
+        out[key] = JSON.stringify([...list, ...items]);
+    };
+    withList("deletion_tombstones", tombs);
+    withList("rss_feeds", feeds);
+    return out;
+}
 
 async function notifySync(title: string, body?: string, icon?: string) {
     const settings = useSettingsStore.getState().settings;
@@ -132,6 +262,45 @@ function rebaseMergedList<T extends { id: string }>(
     return out;
 }
 
+/** Conflicts found since start (rounds report how many were new). */
+let _conflictsFound = 0;
+let _conflictToastTimer: ReturnType<typeof setTimeout> | null = null;
+let _conflictsToAnnounce = 0;
+
+/** Opens Settings → Devices at the Device Sync section. */
+function openDeviceSyncSettings(): void {
+    try {
+        window.sessionStorage.setItem("theorem-settings:active-tab", "integrations");
+        window.sessionStorage.setItem("theorem-settings:focus-section", "device-sync");
+    } catch {
+        // Settings opens on its last tab.
+    }
+    useUIStore.getState().setRoute("settings");
+}
+
+/**
+ * New sync conflicts: the Device Sync settings list refreshes, and the user
+ * is told once per burst (a round and its live updates find them together).
+ */
+function reportConflicts(count: number): void {
+    if (count <= 0) return;
+    _conflictsFound += count;
+    _conflictsToAnnounce += count;
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("theorem:sync-conflicts"));
+    if (_conflictToastTimer) clearTimeout(_conflictToastTimer);
+    _conflictToastTimer = setTimeout(() => {
+        _conflictToastTimer = null;
+        const n = _conflictsToAnnounce;
+        _conflictsToAnnounce = 0;
+        void import("sonner").then(({ toast }) => {
+            toast(n === 1 ? "A sync conflict to review" : `${n} sync conflicts to review`, {
+                description: "The same item was changed on two devices. The newer change is in use.",
+                action: { label: "Review", onClick: openDeviceSyncSettings },
+            });
+        }).catch(() => {});
+    }, 1000);
+}
+
 function warnMergeFailure(domain: string, err: unknown): void {
     if (import.meta.env.DEV) console.warn(`[sync-merge] ${domain}: incoming data could not be merged`, err);
 }
@@ -164,7 +333,8 @@ export function withLocalTombstones(
 
 interface MergeOutcome {
     domainsUpdated: string[];
-    conflicts: SyncConflict[];
+    /** New conflicts the native merge recorded (see `sqliteListSyncConflicts`). */
+    conflicts: number;
     /** False when the native SQLite merge failed: the same entries must be merged again later. */
     persisted: boolean;
 }
@@ -177,28 +347,24 @@ function localSettingsTimestamp(): string {
 function mergeIncomingData(
     incomingMap: Record<string, string>,
     localSettingsUpdatedAt?: string,
-    onConflict?: (conflict: SyncConflict) => void,
+    deletions: DocDeletion[] = [],
 ): Promise<MergeOutcome> {
     return withMergeLock(() => mergeIncomingDataLocked(
-        incomingMap,
+        // Folded when the merge runs: whether a deleted item is still here
+        // (and unchanged since) is read from the current stores.
+        foldPerItemEntries(incomingMap, deletions),
         // Read when the merge actually runs; without it every incoming
         // settings entry, however old, would replace the local settings.
         localSettingsUpdatedAt ?? localSettingsTimestamp(),
-        onConflict,
     ));
 }
 
 async function mergeIncomingDataLocked(
     incomingMap: Record<string, string>,
     localSettingsUpdatedAt: string,
-    onConflict?: (conflict: SyncConflict) => void,
 ): Promise<MergeOutcome> {
     const domainsUpdated: string[] = [];
-    const conflicts: SyncConflict[] = [];
-    const recordConflict = (entityType: string, entityId: string, winner: "local" | "remote", label?: string) => {
-        conflicts.push({ entityType, entityId, winner, label });
-        onConflict?.({ entityType, entityId, winner, label });
-    };
+    let conflicts = 0;
     const markUpdated = (domain: string) => {
         if (!domainsUpdated.includes(domain)) {
             domainsUpdated.push(domain);
@@ -285,6 +451,8 @@ async function mergeIncomingDataLocked(
             for (const d of nativeReport.domainsUpdated) {
                 markUpdated(d);
             }
+            conflicts = nativeReport.conflicts ?? 0;
+            reportConflicts(conflicts);
         } catch (err) {
             persisted = false;
             if (import.meta.env.DEV) {
@@ -405,8 +573,6 @@ async function mergeIncomingDataLocked(
             }
             if (incoming.length > 0) {
                 debug(`[sync-merge] books: ${incoming.length} incoming (${domainBooks.length} domain + ${perEntityBooks.length} per-entity), ${currentLibState.books.length} existing`);
-                const beforeBookMap = new Map(currentLibState.books.map(b => [b.id, b]));
-                const incomingBookMap = new Map(incoming.map(b => [b.id, b]));
                 const merged = mergeBooks(incoming, currentLibState.books, allTombstones);
                 debug(`[sync-merge] books: ${merged.length} after merge (lost ${incoming.length + currentLibState.books.length - merged.length})`);
                 if (merged !== currentLibState.books) {
@@ -433,15 +599,6 @@ async function mergeIncomingDataLocked(
                     const final = deduped.length !== merged.length ? deduped : merged;
                     applyLibraryPatch({ books: final });
                     markUpdated("books");
-                    for (const book of final) {
-                        if (beforeBookMap.has(book.id) && incomingBookMap.has(book.id)) {
-                            const before = beforeBookMap.get(book.id)!;
-                            if (before.progress !== book.progress || before.isFavorite !== book.isFavorite) {
-                                const remoteWon = incomingBookMap.get(book.id)!;
-                                recordConflict("book", book.id, remoteWon.progress === book.progress && remoteWon.lastReadAt === book.lastReadAt ? "remote" : "local", book.title);
-                            }
-                        }
-                    }
                     currentLibState = { ...currentLibState, books: final };
                 }
 
@@ -493,24 +650,10 @@ async function mergeIncomingDataLocked(
                     : [];
                 const incoming = [...domainAnns, ...perEntityAnnotations];
                 if (incoming.length > 0) {
-                    const beforeIds = new Set(currentLibState.annotations.map(a => a.id));
-                    const beforeMap = new Map(currentLibState.annotations.map(a => [a.id, a]));
-                    const incomingMap = new Map(incoming.map(a => [a.id, a]));
-                    const incomingIds = new Set(incomingMap.keys());
                     const merged = mergeAnnotations(incoming, currentLibState.annotations, allTombstones);
                     if (merged !== currentLibState.annotations) {
                         applyLibraryPatch({ annotations: merged });
                         markUpdated("annotations");
-                        for (const ann of merged) {
-                            if (beforeIds.has(ann.id) && incomingIds.has(ann.id)) {
-                                const before = beforeMap.get(ann.id);
-                                if (before && JSON.stringify(before) !== JSON.stringify(ann)) {
-                                    const inc = incomingMap.get(ann.id);
-                                    const remoteWon = inc !== undefined && JSON.stringify(inc) === JSON.stringify(ann);
-                                    recordConflict("annotation", ann.id, remoteWon ? "remote" : "local", ann.selectedText?.slice(0, 40));
-                                }
-                            }
-                        }
                     }
                     currentLibState = { ...currentLibState, annotations: merged };
                 }
@@ -577,7 +720,7 @@ async function mergeIncomingDataLocked(
         if (updatedCovers.size > 0) {
             for (const [id, path] of updatedCovers) {
                 // Known to peers already: neither provisioning nor the live bridge re-sends it.
-                _provisionedValues.set(coverEntryKey(id), path);
+                rememberProvisioned(coverEntryKey(id), path);
                 _receivedCoverPaths.add(path);
             }
             applyRemote(() => useLibraryStore.setState((state) => ({
@@ -744,7 +887,8 @@ async function mergeIncomingDataLocked(
 export interface SyncResult {
     success: boolean;
     domainsUpdated: string[];
-    conflicts?: SyncConflict[];
+    /** Conflicts this round found (listed in Settings → Device Sync). */
+    conflicts?: number;
     error?: string;
 }
 
@@ -757,6 +901,15 @@ let _responderReadyPromise: Promise<void> | null = null;
 // when the paired-device set changes or a re-provision is forced.
 let _lastProvisionFingerprint = "";
 const _provisionedValues = new Map<string, string>();
+
+/** Records that `key` was provisioned as `marker` (kept as a short hash). */
+function rememberProvisioned(key: string, marker: string): void {
+    _provisionedValues.set(key, fingerprint(marker));
+}
+
+function alreadyProvisioned(key: string, marker: string): boolean {
+    return _provisionedValues.get(key) === fingerprint(marker);
+}
 
 export function markProvisioningNeeded(): void {
     _initialProvisionDone = false;
@@ -1016,7 +1169,7 @@ async function runDeviceSyncRound(
         stopWaiting();
 
         const changedDomains = new Set<string>();
-        const changedConflicts: SyncConflict[] = [];
+        const conflictsBefore = _conflictsFound;
 
         {
             const updated = await hydrateFromIrohDocs();
@@ -1033,9 +1186,8 @@ async function runDeviceSyncRound(
         }
         _pendingDocsEntries.clear();
         if (Object.keys(liveEntries).length > 0) {
-            const { domainsUpdated, conflicts } = await mergeIncomingData(liveEntries);
+            const { domainsUpdated } = await mergeIncomingData(liveEntries);
             for (const d of domainsUpdated) changedDomains.add(d);
-            changedConflicts.push(...conflicts);
         }
 
         if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
@@ -1100,13 +1252,15 @@ async function runDeviceSyncRound(
                 })
                 .join(", ");
             summary = `Synced: ${parts}`;
-            if (changedConflicts.length > 0) {
-                summary += ` · ${changedConflicts.length} conflict(s) resolved`;
-            }
         } else if (pendingDownloads > 0) {
             summary = `Metadata synced, ${pendingDownloads} files available for download`;
         } else {
             summary = "Already up to date";
+        }
+
+        const roundConflicts = _conflictsFound - conflictsBefore;
+        if (roundConflicts > 0) {
+            summary += ` · ${roundConflicts} conflict${roundConflicts === 1 ? "" : "s"} to review`;
         }
 
         log(`Sync complete. ${summary}`);
@@ -1122,7 +1276,7 @@ async function runDeviceSyncRound(
         void prefetchRecentBooks(peerDeviceId);
         _dataDirty = false;
 
-        return { success: true, domainsUpdated: [...changedDomains], conflicts: changedConflicts.length > 0 ? changedConflicts : undefined };
+        return { success: true, domainsUpdated: [...changedDomains], conflicts: roundConflicts > 0 ? roundConflicts : undefined };
     } catch (error: unknown) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log(`Sync failed: ${errMsg}`);
@@ -1162,6 +1316,9 @@ export function cancelRunningSync(): void {
     _cancelGeneration++;
     if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
     _progressiveBookBatch = [];
+    for (const key of [..._progressiveRawEntries.keys()]) {
+        if (key.startsWith("book:")) _progressiveRawEntries.delete(key);
+    }
     useUIStore.getState().setDownloadingBook(undefined);
     setStatus("idle", "Sync cancelled");
     debug("[sync] Cancel requested");
@@ -1283,6 +1440,8 @@ const DOWNLOAD_CONCURRENCY = 3;
 
 let _progressiveBookBatch: any[] = [];
 let _progressiveBookTimer: ReturnType<typeof setTimeout> | null = null;
+/** The entries behind the live batches, as received, for the native merge. */
+const _progressiveRawEntries = new Map<string, string>();
 
 // Annotations and collections ride the same progressive-batch pattern as
 // books: per-entry synchronous merges + setStates inside the gossip event
@@ -1295,9 +1454,34 @@ let _progressiveCollectionTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Tombstone application re-merges the whole library and replaces three
 // slices at once; it is never latency-sensitive, so it trails the event
-// loop and runs idle. Latest value wins.
-let _pendingTombstonesValue: string | null = null;
+// loop and runs idle. Deletion records and deleted doc entries collect here.
+let _pendingTombstones: DeletionTombstone[] = [];
+let _pendingDocDeletions: DocDeletion[] = [];
 let _pendingTombstonesTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Persists live-merged entries through the native merge, which also records
+ * conflicts. Returns false when it failed (the caller then saves directly).
+ */
+async function persistLiveEntries(keys: string[]): Promise<boolean> {
+    const entries: Record<string, string> = {};
+    for (const key of keys) {
+        const value = _progressiveRawEntries.get(key);
+        _progressiveRawEntries.delete(key);
+        if (value !== undefined) entries[key] = value;
+    }
+    if (!isTauri() || Object.keys(entries).length === 0) return true;
+    try {
+        const report = await sqliteMergeSyncEntries(
+            withLocalTombstones(entries, useLibraryStore.getState().deletionTombstones),
+        );
+        reportConflicts(report?.conflicts ?? 0);
+        return true;
+    } catch (e) {
+        warnMergeFailure("live entries (SQLite)", e);
+        return false;
+    }
+}
 
 function scheduleIdleTask(task: () => void): void {
     if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
@@ -1317,12 +1501,17 @@ function isSameOrderedList(a: Array<{ id: string }>, b: Array<{ id: string }>): 
     return true;
 }
 
-function _flushProgressiveBooks() {
+async function _flushProgressiveBooks(): Promise<void> {
     if (_progressiveBookBatch.length === 0) return;
     const batch = _progressiveBookBatch.splice(0);
     const state = useLibraryStore.getState();
     const beforeBooks = state.books;
     const merged = mergeBooks(batch, beforeBooks, state.deletionTombstones);
+
+    // Persist through the native merge (it keeps SQLite in step with the
+    // same rules, and records an edit this device made at the same time as
+    // a conflict), even when the store keeps its own newer copy.
+    const persisted = await persistLiveEntries(batch.map((b: { id: string }) => `book:${b.id}`));
 
     if (merged.length === beforeBooks.length) {
         let changed = false;
@@ -1335,10 +1524,14 @@ function _flushProgressiveBooks() {
         if (!changed) return;
     }
 
-    applyRemote(() => useLibraryStore.setState({ books: merged }));
-    // Persist what the live batch changed: on desktop and mobile the library
-    // is stored in SQLite, so a live-only book was gone after a restart.
-    if (isTauri()) {
+    applyRemote(() => useLibraryStore.setState((current) => ({
+        books: rebaseMergedList(beforeBooks, merged, current.books,
+            (m, cur) => mergeBooks([m], [cur], current.deletionTombstones)[0] ?? cur),
+    })));
+    // Without the native merge, save what the live batch changed directly: on
+    // desktop and mobile the library is stored in SQLite, so a live-only book
+    // was gone after a restart.
+    if (isTauri() && !persisted) {
         const before = new Set(beforeBooks);
         for (const book of merged) {
             if (before.has(book)) continue;
@@ -1364,16 +1557,21 @@ function _flushProgressiveBooks() {
     }
 }
 
-function _flushProgressiveAnnos() {
+async function _flushProgressiveAnnos(): Promise<void> {
     if (_progressiveAnnoBatch.length === 0) return;
     const batch = _progressiveAnnoBatch.splice(0);
     const state = useLibraryStore.getState();
     const beforeAnns = state.annotations;
     const merged = mergeAnnotations(batch, beforeAnns, state.deletionTombstones);
+    const persisted = await persistLiveEntries(batch.map((a: Annotation) => annotationEntryKey(a)));
     if (isSameOrderedList(merged, beforeAnns)) return;
-    applyRemote(() => useLibraryStore.setState({ annotations: merged }));
-    // Persist what the live batch changed, or it is gone after a reload.
-    if (isTauri()) {
+    applyRemote(() => useLibraryStore.setState((current) => ({
+        annotations: rebaseMergedList(beforeAnns, merged, current.annotations,
+            (m, cur) => mergeAnnotations([m], [cur], current.deletionTombstones)[0] ?? cur),
+    })));
+    // Without the native merge, save what the live batch changed directly,
+    // or it is gone after a reload.
+    if (isTauri() && !persisted) {
         const before = new Set(beforeAnns);
         for (const ann of merged) {
             if (before.has(ann) || !ann.bookId) continue;
@@ -1397,41 +1595,57 @@ function _flushPendingTombstones() {
 }
 
 async function _flushPendingTombstonesNow(): Promise<void> {
-    const value = _pendingTombstonesValue;
-    _pendingTombstonesValue = null;
-    if (value == null) return;
+    const incoming = _pendingTombstones.splice(0);
+    const fromDocs = tombstonesForDocDeletions(_pendingDocDeletions.splice(0));
+    if (incoming.length === 0 && fromDocs.length === 0) return;
     try {
-        const incoming = JSON.parse(value);
-        if (Array.isArray(incoming)) {
-            const state = useLibraryStore.getState();
-            const mergedTombstones = mergeTombstones(incoming, state.deletionTombstones);
-            const prunedBooks = mergeBooks([], state.books, mergedTombstones);
-            const prunedAnns = mergeAnnotations([], state.annotations, mergedTombstones);
-            const prunedCols = mergeCollections([], state.collections, mergedTombstones);
-            applyRemote(() => useLibraryStore.setState({
-                deletionTombstones: mergedTombstones,
-                books: prunedBooks,
-                annotations: prunedAnns,
-                collections: prunedCols,
-            }));
-            if (isTauri() && prunedAnns.length !== state.annotations.length) {
-                const keptIds = new Set(prunedAnns.map((a) => a.id));
-                for (const ann of state.annotations) {
-                    if (keptIds.has(ann.id)) continue;
-                    void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
-                }
+        const state = useLibraryStore.getState();
+        const mergedTombstones = mergeTombstones([...incoming, ...fromDocs], state.deletionTombstones);
+        const prunedBooks = mergeBooks([], state.books, mergedTombstones);
+        const prunedAnns = mergeAnnotations([], state.annotations, mergedTombstones);
+        const prunedCols = mergeCollections([], state.collections, mergedTombstones);
+        applyRemote(() => useLibraryStore.setState({
+            deletionTombstones: mergedTombstones,
+            books: prunedBooks,
+            annotations: prunedAnns,
+            collections: prunedCols,
+        }));
+        const rss = useRssStore.getState();
+        const prunedFeeds = mergeRssFeeds([], rss.feeds, mergedTombstones).feeds;
+        const prunedArticles = mergeRssArticles([], rss.articles, undefined, mergedTombstones);
+        if (prunedFeeds.length !== rss.feeds.length || prunedArticles.length !== rss.articles.length) {
+            applyRemote(() => useRssStore.setState({ feeds: prunedFeeds, articles: prunedArticles }));
+        }
+        const vocab = useVocabularyStore.getState();
+        const prunedVocab = mergeVocabulary([], vocab.vocabularyTerms, mergedTombstones);
+        if (prunedVocab.length !== vocab.vocabularyTerms.length) {
+            applyRemote(() => useVocabularyStore.setState({ vocabularyTerms: prunedVocab }));
+        }
+        if (isTauri() && prunedAnns.length !== state.annotations.length) {
+            const keptIds = new Set(prunedAnns.map((a) => a.id));
+            for (const ann of state.annotations) {
+                if (keptIds.has(ann.id)) continue;
+                void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
             }
-            // Apply the deletions to SQLite too (books, their metadata and
-            // annotations, words, articles), or a restart before the next
-            // round brings the deleted items back from the database.
-            if (isTauri()) {
-                await sqliteMergeSyncEntries({ deletion_tombstones: JSON.stringify(mergedTombstones) })
-                    .catch((e) => warnMergeFailure("deletion_tombstones (SQLite)", e));
-            }
+        }
+        // Apply the deletions to SQLite too (books, their metadata and
+        // annotations, words, articles), or a restart before the next
+        // round brings the deleted items back from the database.
+        if (isTauri()) {
+            await sqliteMergeSyncEntries({ deletion_tombstones: JSON.stringify(mergedTombstones) })
+                .catch((e) => warnMergeFailure("deletion_tombstones (SQLite)", e));
         }
     } catch (e) {
         warnMergeFailure("deletion_tombstones", e);
     }
+}
+
+function scheduleTombstoneFlush(): void {
+    if (_pendingTombstonesTimer) clearTimeout(_pendingTombstonesTimer);
+    _pendingTombstonesTimer = setTimeout(() => {
+        _pendingTombstonesTimer = null;
+        scheduleIdleTask(_flushPendingTombstones);
+    }, 500);
 }
 
 export async function initDocsLiveListener(): Promise<() => void> {
@@ -1480,14 +1694,17 @@ async function registerDocsLiveListener(): Promise<() => void> {
             return;
         }
 
-        if (key === "deletion_tombstones") {
-            // Latest value wins; the full-library re-merge runs idle.
-            _pendingTombstonesValue = value;
-            if (_pendingTombstonesTimer) clearTimeout(_pendingTombstonesTimer);
-            _pendingTombstonesTimer = setTimeout(() => {
-                _pendingTombstonesTimer = null;
-                scheduleIdleTask(_flushPendingTombstones);
-            }, 500);
+        if (key === "deletion_tombstones" || key.startsWith(TOMBSTONE_KEY_PREFIX)) {
+            // A whole list (older devices) or one record; the full-library
+            // re-merge runs idle.
+            try {
+                const parsed = JSON.parse(value);
+                const list = Array.isArray(parsed) ? parsed : [parsed];
+                for (const t of list) {
+                    if (t && typeof t === "object" && t.entityId && t.entityType) _pendingTombstones.push(t);
+                }
+                scheduleTombstoneFlush();
+            } catch (e) { warnMergeFailure("deletion entry", e); }
             return;
         }
 
@@ -1496,6 +1713,7 @@ async function registerDocsLiveListener(): Promise<() => void> {
                 const parsed = JSON.parse(value);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
                     _progressiveBookBatch.push(parsed);
+                    _progressiveRawEntries.set(`book:${parsed.id}`, value);
                     if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
                     _progressiveBookTimer = setTimeout(() => void withMergeLock(_flushProgressiveBooks), 200);
                 }
@@ -1507,6 +1725,7 @@ async function registerDocsLiveListener(): Promise<() => void> {
                 const parsed = JSON.parse(value);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
                     _progressiveAnnoBatch.push(parsed);
+                    _progressiveRawEntries.set(annotationEntryKey(parsed), value);
                     if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
                     _progressiveAnnoTimer = setTimeout(() => void withMergeLock(_flushProgressiveAnnos), 200);
                 }
@@ -1536,9 +1755,14 @@ async function registerDocsLiveListener(): Promise<() => void> {
         _docsLiveTimer = setTimeout(_processPendingDocs, 500);
     };
 
-    const rawUnlisten = await listen<{ entries: { key: string; value: string }[] }>("docs-entry-batch", (event) => {
-        for (const { key, value } of event.payload.entries) {
+    const rawUnlisten = await listen<{ entries: { key: string; value: string }[]; deleted?: DocDeletion[] }>("docs-entry-batch", (event) => {
+        for (const { key, value } of event.payload.entries ?? []) {
             handleIncomingEntry(key, value);
+        }
+        const deleted = event.payload.deleted ?? [];
+        if (deleted.length > 0) {
+            _pendingDocDeletions.push(...deleted);
+            scheduleTombstoneFlush();
         }
     });
 
@@ -1557,7 +1781,9 @@ async function registerDocsLiveListener(): Promise<() => void> {
         _progressiveCollectionBatch = [];
         if (_pendingTombstonesTimer) clearTimeout(_pendingTombstonesTimer);
         _pendingTombstonesTimer = null;
-        _pendingTombstonesValue = null;
+        _pendingTombstones = [];
+        _pendingDocDeletions = [];
+        _progressiveRawEntries.clear();
         _pendingDocsEntries.clear();
         _docsLiveUnlisten = null;
     };
@@ -1761,6 +1987,22 @@ export async function startAutoSync(): Promise<() => void> {
                 },
             );
             cleanups.push(syncDocMissingUnlisten);
+
+            // The other device unpaired this one (it told us, or refused us):
+            // it is forgotten here too.
+            cleanups.push(await listen<{ deviceId: string; deviceName: string }>("sync-peer-removed", (event) => {
+                const name = event.payload.deviceName || "A paired device";
+                setStatus("idle", `${name} removed this device`);
+                void import("sonner").then(({ toast }) => {
+                    toast(`${name} removed this device`, { description: "Pair them again to sync." });
+                }).catch(() => {});
+                void notifySync("Device removed", `${name} removed this device. Pair them again to sync.`);
+            }));
+            // Names, protocols or the device set changed: older devices may
+            // have gone (or come), which decides whether whole lists are written.
+            cleanups.push(await listen("paired-devices-changed", () => {
+                void getPairedDevices().then(noteSyncProtocols).catch(() => {});
+            }));
         } catch {
             
         }
@@ -1817,7 +2059,7 @@ export async function docsSetEntry(key: string, value: string): Promise<boolean>
  * acknowledged with `docsAckEntries` (the first read after start is complete);
  * with `full`, every entry.
  */
-export async function docsGetChangedEntries(full = false): Promise<{ entries: Record<string, string>; token: number } | null> {
+export async function docsGetChangedEntries(full = false): Promise<{ entries: Record<string, string>; deleted?: DocDeletion[]; token: number } | null> {
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         return await invoke<{ entries: Record<string, string>; token: number }>("docs_get_changed_entries", { full });
@@ -1860,10 +2102,11 @@ export async function docsSyncNow(peerDeviceId: string): Promise<string | null> 
 let _purgedTombstonesKey = "";
 
 /**
- * Removes this device's doc entries for deleted items. Doc entries outlive a
- * deletion; without this, every device brought the item back once its
- * deletion record expired (90 days). Runs when the set of deletions changed
- * (or the peer set did, which clears `_purgedTombstonesKey`).
+ * Removes this device's doc entries for deleted items, and its deletion
+ * records that expired. The doc then holds a deletion for each item, which
+ * never expires: devices that come back later still learn of it. Runs when
+ * the set of deletions changed (or the peer set did, which clears
+ * `_purgedTombstonesKey`).
  */
 async function purgeDeletedDocEntries(tombstones: DeletionTombstone[]): Promise<void> {
     const key = tombstones.map((t) => `${t.entityType}:${t.entityId}`).sort().join("|");
@@ -1873,10 +2116,25 @@ async function purgeDeletedDocEntries(tombstones: DeletionTombstone[]): Promise<
         await invoke<number>("docs_purge_entities", {
             entities: tombstones.map((t) => ({ entityType: t.entityType, entityId: t.entityId })),
         });
+        await invoke<number>("docs_retain_own_entries", {
+            prefix: TOMBSTONE_KEY_PREFIX,
+            keep: tombstones.map(tombstoneEntryKey),
+        });
         _purgedTombstonesKey = key;
     } catch (e) {
         if (import.meta.env.DEV) console.warn("[sync] could not remove deleted items from the sync doc", e);
     }
+}
+
+/** Entries per IPC call when provisioning (a large library goes in parts). */
+const PROVISION_BATCH = 400;
+
+async function docsSetEntries(entries: Array<{ key: string; value: string }>): Promise<boolean> {
+    try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke<number>("docs_set_entries", { entries });
+        return true;
+    } catch { return false; }
 }
 
 export async function provisionToIrohDocs(): Promise<boolean> {
@@ -1887,18 +2145,19 @@ export async function provisionToIrohDocs(): Promise<boolean> {
         const settings = useSettingsStore.getState();
 
         const { getPairedDevices } = await import("./device-sync");
-        const devices = await getPairedDevices().catch(() => []);
-        const fingerprint = devices.map((d) => d.deviceId).sort().join("|");
+        const devices = (await getPairedDevices().catch(() => null)) ?? [];
+        noteSyncProtocols(devices);
+        const peerSet = devices.map((d) => d.deviceId).sort().join("|");
 
         // A new/changed peer set or a doc re-import means peers may be missing
         // our entries, so write everything rather than only the deltas.
         // The per-key _provisionedValues cache below avoids re-writing unchanged data
         // while allowing mutations (e.g. reading progress updates) to push to iroh-docs.
-        if (fingerprint !== _lastProvisionFingerprint || _forceReProvision) {
+        if (peerSet !== _lastProvisionFingerprint || _forceReProvision) {
             _provisionedValues.clear();
             _purgedTombstonesKey = "";
         }
-        _lastProvisionFingerprint = fingerprint;
+        _lastProvisionFingerprint = peerSet;
         _forceReProvision = false;
 
         const serializeBook = (book: typeof lib.books[number]) => {
@@ -1911,73 +2170,66 @@ export async function provisionToIrohDocs(): Promise<boolean> {
             });
         };
 
-        const bookErrors: string[] = [];
+        // Every item is its own entry, and only what changed since the last
+        // provisioning is sent (Rust also skips a value equal to the one this
+        // device already wrote). `marker` is what the cache compares.
+        const pending: Array<{ key: string; value: string; marker: string }> = [];
+        const queue = (key: string, value: string, marker: string = value) => {
+            if (!alreadyProvisioned(key, marker)) pending.push({ key, value, marker });
+        };
+
         for (const book of lib.books) {
             try {
-                const key = `book:${book.id}`;
-                const serialized = serializeBook(book);
-                if (_provisionedValues.get(key) === serialized) continue;
-                const ok = await writeOwnEntry(key, serialized);
-                if (!ok) {
-                    const msg = `book ${book.id} (${book.title || "unknown"}): write failed`;
-                    bookErrors.push(msg);
-                }
+                queue(`book:${book.id}`, serializeBook(book));
             } catch (e) {
-                const msg = `book ${book.id} (${book.title || "unknown"}): ${e}`;
-                bookErrors.push(msg);
-                console.error(`[sync] Failed to provision ${msg}`);
+                console.error(`[sync] Failed to provision book ${book.id} (${book.title || "unknown"}): ${e}`);
             }
         }
-
         // Covers travel as their own entries, re-sent only when the cover changes.
         for (const book of lib.books) {
             if (!needsCoverEntry(book.coverPath)) continue;
             const key = coverEntryKey(book.id);
-            if (_provisionedValues.get(key) === book.coverPath) continue;
+            if (alreadyProvisioned(key, book.coverPath!)) continue;
             try {
                 const entry = await buildCoverEntry(book.id);
-                if (!entry) continue;
-                await writeOwnEntry(key, entry, book.coverPath!);
+                if (entry) queue(key, entry, book.coverPath!);
             } catch {
                 // A missing cover must not fail provisioning.
             }
         }
-
-        const domains: Array<{ name: string; key: string; payload: string }> = [
-            { name: "annotations", key: "annotations", payload: JSON.stringify(lib.annotations) },
-            { name: "collections", key: "collections", payload: JSON.stringify(lib.collections) },
-            { name: "deletion_tombstones", key: "deletion_tombstones", payload: JSON.stringify(lib.deletionTombstones) },
-            { name: "vocabulary", key: "vocabulary", payload: JSON.stringify(vocab.vocabularyTerms) },
-            { 
-                name: "settings", key: "settings", 
-                payload: JSON.stringify({ ...settings.settings,
-                    _settingsUpdatedAt: settings.settingsLastModifiedAt || new Date().toISOString(),
-                }) 
-            },
-            { name: "reading_stats", key: "reading_stats", payload: JSON.stringify(settings.stats) },
-            { name: "rss_feeds", key: "rss_feeds", payload: JSON.stringify(rss.feeds) },
-            { name: "rss_articles", key: "rss_articles", payload: JSON.stringify(rss.articles) },
-        ];
-
-        const domainErrors: string[] = [];
-        for (const { name, key, payload } of domains) {
-            try {
-                if (_provisionedValues.get(key) === payload) continue;
-                const ok = await writeOwnEntry(key, payload);
-                if (!ok) {
-                    const msg = `${name} (${payload.length} bytes): write failed`;
-                    domainErrors.push(msg);
-                }
-            } catch (e) {
-                const msg = `${name} (${payload.length} bytes): ${e}`;
-                domainErrors.push(msg);
-                console.error(`[sync] Failed to provision ${msg}`);
-            }
+        for (const a of lib.annotations) queue(annotationEntryKey(a), JSON.stringify(a));
+        for (const c of lib.collections) queue(`collection:${c.id}`, JSON.stringify(c));
+        for (const t of lib.deletionTombstones) queue(tombstoneEntryKey(t), JSON.stringify(t));
+        for (const v of vocab.vocabularyTerms) queue(VOCAB_KEY_PREFIX + v.id, JSON.stringify(v));
+        for (const f of rss.feeds) queue(RSS_FEED_KEY_PREFIX + f.id, JSON.stringify(f));
+        for (const a of rss.articles) queue(RSS_ARTICLE_KEY_PREFIX + a.id, JSON.stringify(a));
+        queue("settings", JSON.stringify({
+            ...settings.settings,
+            _settingsUpdatedAt: settings.settingsLastModifiedAt || new Date().toISOString(),
+        }));
+        queue("reading_stats", JSON.stringify(settings.stats));
+        // Devices on older versions read only the whole lists.
+        if (_legacyPeers) {
+            queue("annotations", JSON.stringify(lib.annotations));
+            queue("collections", JSON.stringify(lib.collections));
+            queue("deletion_tombstones", JSON.stringify(lib.deletionTombstones));
+            queue("vocabulary", JSON.stringify(vocab.vocabularyTerms));
+            queue("rss_feeds", JSON.stringify(rss.feeds));
+            queue("rss_articles", JSON.stringify(rss.articles));
         }
 
-        if (domainErrors.length > 0 || bookErrors.length > 0) {
-            const allErrors = [...bookErrors, ...domainErrors];
-            console.error(`[sync] Provision completed with ${allErrors.length} error(s):`, allErrors);
+        let failed = 0;
+        for (let i = 0; i < pending.length; i += PROVISION_BATCH) {
+            const batch = pending.slice(i, i + PROVISION_BATCH);
+            for (const e of batch) rememberOwnWrite(e.key, e.value);
+            if (await docsSetEntries(batch.map(({ key, value }) => ({ key, value })))) {
+                for (const e of batch) rememberProvisioned(e.key, e.marker);
+            } else {
+                failed += batch.length;
+            }
+        }
+        if (failed > 0) {
+            console.error(`[sync] Provisioning: ${failed} of ${pending.length} entries could not be written; they are sent again next time`);
         }
 
         await purgeDeletedDocEntries([...lib.deletionTombstones, ...(rss.deletionTombstones ?? [])]);
@@ -2011,7 +2263,8 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
             await docsAckEntries(read.token);
             if (full) _lastFullHydrateAt = Date.now();
         };
-        if (Object.keys(read.entries).length === 0) {
+        const deleted = read.deleted ?? [];
+        if (Object.keys(read.entries).length === 0 && deleted.length === 0) {
             await acknowledge();
             return [];
         }
@@ -2019,6 +2272,7 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
         const { domainsUpdated, persisted } = await mergeIncomingData(
             read.entries,
             localSettingsTimestamp(),
+            deleted,
         );
         if (persisted) await acknowledge();
         return domainsUpdated;
@@ -2072,7 +2326,7 @@ function isOwnEcho(key: string, value: string): boolean {
 async function writeOwnEntry(key: string, value: string, provisionedAs: string | null = value): Promise<boolean> {
     rememberOwnWrite(key, value);
     const ok = await docsSetEntry(key, value);
-    if (ok && provisionedAs !== null) _provisionedValues.set(key, provisionedAs);
+    if (ok && provisionedAs !== null) rememberProvisioned(key, provisionedAs);
     return ok;
 }
 
@@ -2087,6 +2341,7 @@ function scheduleDocsWrite(domain: string, fn: () => void): void {
 
 export function subscribeZustandToIrohDocs(): () => void {
     const unsubs: (() => void)[] = [];
+    void getPairedDevices().then(noteSyncProtocols).catch(() => {});
 
     let prevBooks = useLibraryStore.getState().books;
     let prevAnnotations = useLibraryStore.getState().annotations;
@@ -2162,7 +2417,7 @@ export function subscribeZustandToIrohDocs(): () => void {
                             rememberOwnWrite(bookKey, serialized);
                             void docsSetEntry("book:" + book.id, serialized).then((ok) => {
                                 // Provisioning compares against this: it must not re-send the same book.
-                                if (ok) _provisionedValues.set(bookKey, serialized);
+                                if (ok) rememberProvisioned(bookKey, serialized);
                             });
                         });
                     }
@@ -2186,8 +2441,8 @@ export function subscribeZustandToIrohDocs(): () => void {
                 if (!entry || entry.serialized !== serialized) {
                     annoIndex.set(ann.id, { ref: ann, serialized });
                     if (!fromPeer) {
-                        const annoKey = "anno:" + (ann.bookId || "global") + ":" + ann.id;
-                        scheduleDocsWrite(annoKey, () => void writeOwnEntry(annoKey, serialized, null));
+                        const annoKey = annotationEntryKey(ann);
+                        scheduleDocsWrite(annoKey, () => void writeOwnEntry(annoKey, serialized));
                     }
                 } else {
                     entry.ref = ann;
@@ -2200,7 +2455,9 @@ export function subscribeZustandToIrohDocs(): () => void {
                 if (!seenAnnoIds.has(id)) { annoDeletion = true; break; }
             }
             prevAnnoIds = seenAnnoIds;
-            if (annoDeletion && !fromPeer) {
+            // Deletions travel as deletion records; only older devices still
+            // need the whole list.
+            if (annoDeletion && !fromPeer && _legacyPeers) {
                 scheduleDocsWrite("annotations", () => void writeOwnEntry("annotations", JSON.stringify(annotations)));
             }
             if (annoIndex.size > annotations.length) {
@@ -2220,7 +2477,7 @@ export function subscribeZustandToIrohDocs(): () => void {
                     collectionIndex.set(col.id, { ref: col, serialized });
                     if (!fromPeer) {
                         const colKey = "collection:" + col.id;
-                        scheduleDocsWrite(colKey, () => void writeOwnEntry(colKey, serialized, null));
+                        scheduleDocsWrite(colKey, () => void writeOwnEntry(colKey, serialized));
                     }
                 } else {
                     entry.ref = col;
@@ -2231,7 +2488,7 @@ export function subscribeZustandToIrohDocs(): () => void {
                 if (!seenCollectionIds.has(id)) { collectionDeletion = true; break; }
             }
             prevCollectionIds = seenCollectionIds;
-            if (collectionDeletion && !fromPeer) {
+            if (collectionDeletion && !fromPeer && _legacyPeers) {
                 scheduleDocsWrite("collections", () => void writeOwnEntry("collections", JSON.stringify(collections)));
             }
             if (collectionIndex.size > collections.length) {
@@ -2239,28 +2496,60 @@ export function subscribeZustandToIrohDocs(): () => void {
             }
         }
         if (state.deletionTombstones !== prevTombstones) {
+            const before = new Set(prevTombstones.map(tombstoneEntryKey));
             prevTombstones = state.deletionTombstones;
             if (!fromPeer) {
-                scheduleDocsWrite("deletion_tombstones", () =>
-                    void writeOwnEntry("deletion_tombstones", JSON.stringify(state.deletionTombstones)));
+                for (const t of state.deletionTombstones) {
+                    const key = tombstoneEntryKey(t);
+                    if (before.has(key)) continue;
+                    const value = JSON.stringify(t);
+                    scheduleDocsWrite(key, () => void writeOwnEntry(key, value));
+                }
+                if (_legacyPeers) {
+                    scheduleDocsWrite("deletion_tombstones", () =>
+                        void writeOwnEntry("deletion_tombstones", JSON.stringify(state.deletionTombstones)));
+                }
             }
         }
     }));
 
+    // One entry per word, written when that word changes (deletions travel
+    // as deletion records).
     let prevVocab = useVocabularyStore.getState().vocabularyTerms;
+    const vocabIndex = new Map<string, { ref: unknown; serialized: string }>();
+    for (const term of prevVocab) vocabIndex.set(term.id, { ref: term, serialized: JSON.stringify(term) });
     unsubs.push(useVocabularyStore.subscribe((state) => {
         if (_bridgePaused) return;
         if (state.vocabularyTerms !== prevVocab) {
             prevVocab = state.vocabularyTerms;
-            if (_applyingRemote > 0) return;
-            scheduleDocsWrite("vocabulary", () => void writeOwnEntry("vocabulary", JSON.stringify(state.vocabularyTerms)));
+            const fromPeer = _applyingRemote > 0;
+            const seen = new Set<string>();
+            for (const term of state.vocabularyTerms) {
+                seen.add(term.id);
+                const entry = vocabIndex.get(term.id);
+                if (entry && entry.ref === term) continue;
+                const serialized = JSON.stringify(term);
+                if (entry && entry.serialized === serialized) {
+                    entry.ref = term;
+                    continue;
+                }
+                vocabIndex.set(term.id, { ref: term, serialized });
+                if (!fromPeer) {
+                    const key = VOCAB_KEY_PREFIX + term.id;
+                    scheduleDocsWrite(key, () => void writeOwnEntry(key, serialized));
+                }
+            }
+            for (const id of [...vocabIndex.keys()]) if (!seen.has(id)) vocabIndex.delete(id);
+            if (!fromPeer && _legacyPeers) {
+                scheduleDocsWrite("vocabulary", () => void writeOwnEntry("vocabulary", JSON.stringify(state.vocabularyTerms)));
+            }
         }
     }));
 
     let prevFeeds = useRssStore.getState().feeds;
     let prevArticles = useRssStore.getState().articles;
-    // Articles sync one entry each (only changed ones are written); a deletion
-    // also rewrites the whole-list entry, like collections, so peers drop it.
+    // Articles sync one entry each (only changed ones are written); deletions
+    // travel as deletion records (older devices also get the whole list).
     const articleIndex = new Map<string, { ref: unknown; serialized: string }>();
     let prevArticleIds = new Set(prevArticles.map((a) => a.id));
     for (const article of prevArticles) articleIndex.set(article.id, { ref: article, serialized: JSON.stringify(article) });
@@ -2268,9 +2557,18 @@ export function subscribeZustandToIrohDocs(): () => void {
         if (_bridgePaused) return;
         const fromPeer = _applyingRemote > 0;
         if (state.feeds !== prevFeeds) {
+            const before = new Map(prevFeeds.map((f) => [f.id, f]));
             prevFeeds = state.feeds;
             if (!fromPeer) {
-                scheduleDocsWrite("rss_feeds", () => void writeOwnEntry("rss_feeds", JSON.stringify(state.feeds)));
+                for (const feed of state.feeds) {
+                    if (before.get(feed.id) === feed) continue;
+                    const key = RSS_FEED_KEY_PREFIX + feed.id;
+                    const value = JSON.stringify(feed);
+                    scheduleDocsWrite(key, () => void writeOwnEntry(key, value));
+                }
+                if (_legacyPeers) {
+                    scheduleDocsWrite("rss_feeds", () => void writeOwnEntry("rss_feeds", JSON.stringify(state.feeds)));
+                }
             }
         }
         if (state.articles !== prevArticles) {
@@ -2286,7 +2584,7 @@ export function subscribeZustandToIrohDocs(): () => void {
                     articleIndex.set(article.id, { ref: article, serialized });
                     if (!fromPeer) {
                         const key = RSS_ARTICLE_KEY_PREFIX + article.id;
-                        scheduleDocsWrite(key, () => void writeOwnEntry(key, serialized, null));
+                        scheduleDocsWrite(key, () => void writeOwnEntry(key, serialized));
                     }
                 } else {
                     entry.ref = article;
@@ -2298,7 +2596,7 @@ export function subscribeZustandToIrohDocs(): () => void {
             }
             prevArticleIds = seenIds;
             if (deletion) {
-                if (!fromPeer) {
+                if (!fromPeer && _legacyPeers) {
                     scheduleDocsWrite("rss_articles", () => void writeOwnEntry("rss_articles", JSON.stringify(articles)));
                 }
                 for (const id of articleIndex.keys()) if (!seenIds.has(id)) articleIndex.delete(id);

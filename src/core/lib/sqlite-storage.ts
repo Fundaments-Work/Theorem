@@ -1,5 +1,6 @@
 import { isTauri } from './env';
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
+import type { SyncConflict } from '../types';
 
 export interface SqliteStorageStats {
     total_books: number;
@@ -284,6 +285,8 @@ export interface SyncMergeResult {
     deletedVocabulary: string[];
     updatedRssArticles: string[];
     deletedRssArticles: string[];
+    /** Conflicts this merge found (listed by `sqliteListSyncConflicts`). */
+    conflicts?: number;
 }
 
 export async function sqliteMergeSyncEntries(
@@ -291,6 +294,18 @@ export async function sqliteMergeSyncEntries(
 ): Promise<SyncMergeResult> {
     const invoke = await getInvoke();
     return invoke('sqlite_merge_sync_entries', { entries }) as Promise<SyncMergeResult>;
+}
+
+/** Sync conflicts not yet dismissed, newest first. */
+export async function sqliteListSyncConflicts(): Promise<SyncConflict[]> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_list_sync_conflicts') as Promise<SyncConflict[]>;
+}
+
+/** Hides conflicts from the list; with no IDs, all of them. */
+export async function sqliteDismissSyncConflicts(ids: string[] = []): Promise<number> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_dismiss_sync_conflicts', { ids }) as Promise<number>;
 }
 
 let lastShrinkMemoryAt = 0;
