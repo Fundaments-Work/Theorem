@@ -944,3 +944,52 @@ fn feeds_are_stored_like_the_app_stores_them() {
     let gone = sb.run(&["feeds", "remove", &rss_id]);
     assert_eq!(gone.status.code(), Some(3));
 }
+
+// ── A7: OPDS downloads use the app's download and import path ───────────────
+
+#[test]
+fn opds_download_imports_books_and_refuses_web_pages() {
+    let sb = Sandbox::new();
+    let server = Server::start();
+    let book = sb.path().join("served.epub");
+    make_epub(&book, "Good Book", "Ann Author", &[("One", "<p>Served text.</p>")]);
+    server.put("/book.epub", "application/epub+zip", std::fs::read(&book).unwrap());
+    server.put("/page.html", "text/html", "<!DOCTYPE html><html><body>Sign in</body></html>");
+    server.put(
+        "/opds.xml",
+        "application/atom+xml;profile=opds-catalog",
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><id>urn:test</id><title>Local Test Catalog</title><updated>2026-01-01T00:00:00Z</updated>
+<entry><title>Good Book</title><id>urn:1</id><updated>2026-01-01T00:00:00Z</updated><author><name>Ann Author</name></author>
+<link rel="http://opds-spec.org/acquisition" href="/book.epub" type="application/epub+zip"/></entry>
+<entry><title>Fake Book</title><id>urn:2</id><updated>2026-01-01T00:00:00Z</updated>
+<link rel="http://opds-spec.org/acquisition" href="/page.html" type="application/epub+zip"/></entry>
+<entry><title>Paid Book</title><id>urn:3</id><updated>2026-01-01T00:00:00Z</updated>
+<link rel="http://opds-spec.org/acquisition/buy" href="/buy" type="text/html"/></entry>
+</feed>"#,
+    );
+    let catalog = server.url("/opds.xml");
+
+    let good = sb.run(&["--json", "opds", "download", &catalog, "Good"]);
+    assert_ok(&good);
+    let report = json(&good);
+    assert_eq!(report["added"][0]["title"], "Good Book");
+    let id = report["added"][0]["id"].as_str().unwrap().to_string();
+    let read = sb.run(&["read", &id]);
+    assert!(stdout(&read).contains("Served text."), "{}", stdout(&read));
+
+    let fake = sb.run(&["opds", "download", &catalog, "Fake"]);
+    assert_no_panic(&fake);
+    assert_eq!(fake.status.code(), Some(1));
+    // Refused by its content type (or, when that lies, by its content).
+    let err = stderr(&fake);
+    assert!(err.contains("text/html") || err.contains("web page"), "{err}");
+
+    let paid = sb.run(&["opds", "download", &catalog, "Paid"]);
+    assert!(!paid.status.success());
+    let missing = sb.run(&["opds", "download", &catalog, "Nothing like this"]);
+    assert_eq!(missing.status.code(), Some(3));
+
+    let list = sb.run(&["--json", "library", "list"]);
+    assert_eq!(json(&list).as_array().unwrap().len(), 1);
+}

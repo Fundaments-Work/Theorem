@@ -2662,7 +2662,10 @@ fn opds_load_feed(output: &Output, url: &str) -> Result<theorem_core::opds::mode
             ))),
             _ => Err(output.error("the address did not return a catalog")),
         },
-        Err(e) => Err(output.error(&e.to_string())),
+        Err(e) => {
+            output.error(&e.to_string());
+            Err(opds_error_code(&e))
+        }
     }
 }
 
@@ -2733,9 +2736,10 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
         }),
     };
     let Some(entry) = entry else {
-        return output.error(&format!(
+        output.error(&format!(
             "entry '{entry_selector}' not found among the catalog's books"
         ));
+        return EXIT_NOT_FOUND;
     };
     let Some(acquisition) = entry.primary.and_then(|i| entry.acquisitions.get(i)) else {
         return output.error(&format!(
@@ -2743,38 +2747,37 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
             entry.title
         ));
     };
-    let download_url = &acquisition.href;
+    let download_url = acquisition.href.to_string();
 
     output.note(&format!("downloading '{}'...", entry.title));
-    let bytes = {
-        let client = match crate::shared_http_client() {
-            Ok(client) => client,
-            Err(e) => return output.error(&e),
-        };
-        let response = match client.get(download_url.as_str()).send() {
-            Ok(response) => response,
-            Err(e) => return output.error(&e.to_string()),
-        };
-        if !response.status().is_success() {
-            return output.error(&format!("HTTP {} for {download_url}", response.status()));
-        }
-        match response.bytes() {
-            Ok(bytes) => bytes.to_vec(),
-            Err(e) => return output.error(&e.to_string()),
+    // The app's download path: size cap, refuses login/"buy" pages served
+    // instead of a book, names the file by its real type.
+    let downloaded = match block_on(|| crate::opds_net::download(&download_url, None, |_, _| {})) {
+        Ok(file) => file,
+        Err(e) => {
+            output.error(&e.to_string());
+            return opds_error_code(&e);
         }
     };
-
-    let extension = acquisition.format.unwrap_or("epub");
-    let temp_dir = match tempfile::tempdir() {
-        Ok(dir) => dir,
-        Err(e) => return output.error(&e.to_string()),
-    };
-    let temp_file = temp_dir.path().join(format!("opds-download.{extension}"));
-    if let Err(e) = std::fs::write(&temp_file, &bytes) {
-        return output.error(&e.to_string());
+    let path = std::path::PathBuf::from(&downloaded.path);
+    let code = ingest_and_register(output, ctx, &[downloaded.path.clone()]);
+    // The library has its own copy now; remove the download folder.
+    if let Some(dir) = path.parent() {
+        if dir.starts_with(std::env::temp_dir().join("theorem-opds")) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
+    code
+}
 
-    ingest_and_register(output, ctx, &[temp_file.display().to_string()])
+/// The exit code for a catalog error: 4 when the network failed.
+fn opds_error_code(e: &crate::opds_net::OpdsError) -> i32 {
+    use crate::opds_net::OpdsError;
+    match e {
+        OpdsError::Network { .. } | OpdsError::Timeout | OpdsError::Http { .. } => EXIT_NETWORK,
+        OpdsError::NotFound => EXIT_NOT_FOUND,
+        _ => 1,
+    }
 }
 
 // ── sync ─────────────────────────────────────────────────────────────────────
