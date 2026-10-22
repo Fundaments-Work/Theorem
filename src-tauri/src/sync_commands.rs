@@ -20,16 +20,16 @@ pub struct SyncState {
     accept_cancel: Mutex<Option<iroh_sync::AcceptLoopHandle>>,
 }
 
-pub fn init_sync(
-    app_data_dir: PathBuf,
-    device_name: String,
-    app_handle: tauri::AppHandle,
-) -> Result<SyncState, String> {
+pub fn init_sync(app_data_dir: PathBuf, app_handle: tauri::AppHandle) -> Result<SyncState, String> {
     let key_path = app_data_dir.join("iroh-key");
     let secret_key = crate::iroh_sync::load_or_create_key(&key_path)?;
     let public_key_bytes = *secret_key.public().as_bytes();
     let device_id = sync_crypto::compute_device_id(&public_key_bytes);
     let fingerprint = sync_crypto::read_machine_fingerprint();
+
+    let device_name = theorem_sync_core::sync_persistence::load_device_name(&app_data_dir)
+        .unwrap_or_else(crate::device_name::system_device_name);
+    eprintln!("[sync] This device is \"{device_name}\"");
 
     let paired_devices = iroh_sync::load_paired_devices_from_disk(&app_data_dir);
     let allowlist = Arc::new(crate::sync_access::PeerAllowlist::from_devices(
@@ -40,7 +40,7 @@ pub fn init_sync(
         app_handle,
         device_id,
         fingerprint,
-        device_name,
+        device_name: std::sync::RwLock::new(device_name),
         app_data_dir,
         paired_devices: Mutex::new(paired_devices),
         docs_api: Mutex::new(None),
@@ -81,7 +81,7 @@ pub(crate) async fn get_or_init_iroh(
         IrohSyncEndpoint::new(
             &key_path,
             sync_state.transport_state.device_id.clone(),
-            sync_state.transport_state.device_name.clone(),
+            sync_state.transport_state.device_name(),
             sync_crypto::get_frontend_fingerprint()
                 .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
             sync_state.transport_state.allowlist.clone(),
@@ -293,7 +293,7 @@ pub async fn generate_pairing_qr(app: tauri::AppHandle) -> Result<PairingQrData,
         version: PAIRING_VERSION,
         node_id: ep.public_key_string(),
         device_id: sync_state.transport_state.device_id.clone(),
-        device_name: sync_state.transport_state.device_name.clone(),
+        device_name: sync_state.transport_state.device_name(),
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
         // Addresses another device can dial (LAN and public), not the
@@ -401,7 +401,7 @@ pub async fn submit_pairing_code(
 
     let pairing_request = PairingRequest {
         device_id: sync_state.transport_state.device_id.clone(),
-        device_name: sync_state.transport_state.device_name.clone(),
+        device_name: sync_state.transport_state.device_name(),
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
         node_id: ep.public_key.to_string(),
@@ -414,6 +414,7 @@ pub async fn submit_pairing_code(
             .map(|u| u.to_string())
             .unwrap_or_default(),
         secret: qr_payload.secret.clone(),
+        protocol: theorem_sync_core::sync_protocol::SYNC_PROTOCOL,
     };
 
     let pairing_response = iroh_sync::send_pair_request(&conn, &pairing_request).await?;
@@ -465,6 +466,7 @@ pub async fn submit_pairing_code(
         peer_relay_url: host_relay,
         sync_doc_id: String::new(),
         sync_doc_ticket: pairing_response.sync_doc_ticket.clone(),
+        protocol: pairing_response.protocol,
     };
 
     let paired_info = PairedDeviceInfo::from(&paired_device);
@@ -605,7 +607,7 @@ pub async fn get_device_identity(app: tauri::AppHandle) -> Result<DeviceIdentity
         .unwrap_or_default();
     Ok(DeviceIdentityInfo {
         device_id: sync_state.transport_state.device_id.clone(),
-        device_name: sync_state.transport_state.device_name.clone(),
+        device_name: sync_state.transport_state.device_name(),
         public_key_hex: public_key,
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| sync_state.transport_state.fingerprint.clone()),
@@ -626,17 +628,45 @@ pub async fn get_paired_devices(app: tauri::AppHandle) -> Result<Vec<PairedDevic
     Ok(devices.values().map(PairedDeviceInfo::from).collect())
 }
 
-/// Forgets a device. It is refused from now on, connections already open to
-/// it are closed (the sync engine restarts), and the doc shared with it is
-/// deleted from this device as the engine starts. Each pairing has its own
-/// doc, so the removed device never had the docs shared with other devices.
+/// Forgets a device. It is told first (so it stops listing this device too;
+/// if it is offline, it learns on its next attempt, when it is refused). It
+/// is refused from now on, connections already open to it are closed (the
+/// sync engine restarts), and the doc shared with it is deleted from this
+/// device as the engine starts. Each pairing has its own doc, so the removed
+/// device never had the docs shared with other devices.
 #[tauri::command]
 pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(), String> {
-    let sync_state = get_sync_state(&app)?;
+    {
+        let sync_state = get_sync_state(&app)?;
+        if !sync_state
+            .transport_state
+            .paired_devices
+            .lock()
+            .await
+            .contains_key(&device_id)
+        {
+            return Err(format!("Device {} not found", device_id));
+        }
+    }
+    if !crate::file_transfer::notify_unpaired(&app, &device_id).await {
+        eprintln!("[iroh-sync] {device_id} could not be told it was removed; it learns next time it connects");
+    }
+    forget_device(&app, &device_id, false).await
+}
+
+/// Removes a paired device here (see [`unpair_device`]). `removed_by_peer`:
+/// the other device unpaired this one first, which the app is told about
+/// (`sync-peer-removed`).
+pub(crate) async fn forget_device(
+    app: &tauri::AppHandle,
+    device_id: &str,
+    removed_by_peer: bool,
+) -> Result<(), String> {
+    let sync_state = get_sync_state(app)?;
     let removed = {
         let mut devices = sync_state.transport_state.paired_devices.lock().await;
         let removed = devices
-            .remove(&device_id)
+            .remove(device_id)
             .ok_or_else(|| format!("Device {} not found", device_id))?;
         sync_state.transport_state.persist_paired(&devices)?;
         removed
@@ -652,15 +682,83 @@ pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(
         }
         theorem_sync_core::sync_persistence::save_docs_to_drop(dir, &to_drop)?;
     }
+    if removed_by_peer {
+        eprintln!(
+            "[iroh-sync] {} removed this device; forgetting it here too",
+            removed.device_name
+        );
+        let _ = app.emit(
+            "sync-peer-removed",
+            serde_json::json!({
+                "deviceId": removed.device_id,
+                "deviceName": removed.device_name,
+            }),
+        );
+    }
+    let _ = app.emit("paired-devices-changed", ());
     // The gate only checks new connections: restart to close the open ones.
     let was_running = sync_state.accept_cancel.lock().await.is_some();
     if was_running {
         iroh_stop(app.clone()).await?;
-        if let Err(e) = iroh_start(app).await {
+        if let Err(e) = iroh_start(app.clone()).await {
             eprintln!("[iroh-sync] Sync restart after unpairing: {e}");
         }
     }
     Ok(())
+}
+
+/// What a paired device said about itself in a hello: its current name and
+/// protocol. Saved when they changed.
+pub(crate) async fn note_peer_hello(
+    app: &tauri::AppHandle,
+    device_id: &str,
+    hello: &theorem_sync_core::sync_protocol::PeerHello,
+) {
+    let Ok(sync_state) = get_sync_state(app) else {
+        return;
+    };
+    let name = theorem_sync_core::sync_protocol::clean_device_name(&hello.name);
+    let mut upgraded = false;
+    let changed = {
+        let mut devices = sync_state.transport_state.paired_devices.lock().await;
+        let Some(device) = devices.get_mut(device_id) else {
+            return;
+        };
+        let mut changed = false;
+        if let Some(name) = name.filter(|n| *n != device.device_name) {
+            device.device_name = name;
+            changed = true;
+        }
+        if hello.protocol != device.protocol {
+            upgraded = reads_legacy_lists(device.protocol) && !reads_legacy_lists(hello.protocol);
+            device.protocol = hello.protocol;
+            changed = true;
+        }
+        if changed {
+            let _ = sync_state.transport_state.persist_paired(&devices);
+        }
+        changed
+    };
+    if upgraded {
+        drop_legacy_lists(app, device_id).await;
+    }
+    if changed {
+        let _ = app.emit("paired-devices-changed", ());
+    }
+}
+
+/// Renames this device as paired devices see it (they pick up the new name
+/// on their next sync round). An empty name goes back to the system's.
+/// Returns the name now in use.
+#[tauri::command]
+pub async fn set_device_name(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    let sync_state = get_sync_state(&app)?;
+    let state = &sync_state.transport_state;
+    let chosen = theorem_sync_core::sync_protocol::clean_device_name(&name);
+    theorem_sync_core::sync_persistence::save_device_name(&state.app_data_dir, chosen.as_deref())?;
+    let name = chosen.unwrap_or_else(crate::device_name::system_device_name);
+    *state.device_name.write().unwrap_or_else(|e| e.into_inner()) = name.clone();
+    Ok(name)
 }
 
 /// The user's answer to a `pairing-confirm-request`.
@@ -792,57 +890,261 @@ pub async fn docs_import_sync_doc(
     Ok(())
 }
 
+/// Whole-list entries from before one entry per item (`SYNC_PROTOCOL` 2).
+/// They are written only to docs shared with devices on older versions,
+/// which read nothing else, and removed from the others.
+const LEGACY_LIST_KEYS: &[&str] = &[
+    "annotations",
+    "collections",
+    "deletion_tombstones",
+    "vocabulary",
+    "rss_feeds",
+    "rss_articles",
+];
+
+fn is_legacy_list_key(key: &str) -> bool {
+    LEGACY_LIST_KEYS.contains(&key)
+}
+
+/// Whether a device on `protocol` still reads whole-list entries.
+fn reads_legacy_lists(protocol: u8) -> bool {
+    protocol < 2
+}
+
+/// The paired docs, each with the protocol of the device it is shared with.
+async fn sync_doc_targets(
+    app: &tauri::AppHandle,
+) -> Result<Vec<(iroh_docs::NamespaceId, u8)>, String> {
+    let sync_state = get_sync_state(app)?;
+    let devices = sync_state.transport_state.paired_devices.lock().await;
+    Ok(devices
+        .values()
+        .filter_map(|d| {
+            d.sync_doc_id
+                .parse::<iroh_docs::NamespaceId>()
+                .ok()
+                .map(|doc_id| (doc_id, d.protocol))
+        })
+        .collect())
+}
+
+/// Writes entries as this device to every paired doc and returns how many
+/// were written. An entry equal to what this device last wrote under its key
+/// is skipped: rewriting it would date it now, as if just edited, which
+/// would bring back an item another device deleted meanwhile (and send it
+/// again for nothing). Whole-list entries go only where they are still read.
+async fn write_own_entries(
+    app: &tauri::AppHandle,
+    entries: &[(String, String)],
+) -> Result<usize, String> {
+    let snapshot = get_docs_snapshot(app).await?;
+    let targets = sync_doc_targets(app).await?;
+
+    // Surface write failures instead of silently dropping data, so the
+    // frontend knows the sync doc wasn't updated and can retry.
+    let mut first_error: Option<String> = None;
+    let mut written = 0usize;
+    for (doc_id, protocol) in &targets {
+        let doc = match snapshot.api.open(*doc_id).await {
+            Ok(Some(doc)) => doc,
+            Ok(None) => {
+                first_error.get_or_insert_with(|| format!("sync doc not found: {doc_id}"));
+                continue;
+            }
+            Err(e) => {
+                first_error.get_or_insert_with(|| format!("open doc {doc_id}: {e}"));
+                continue;
+            }
+        };
+        let (n, error) = write_entries_to_doc(&doc, snapshot.author, *protocol, entries).await;
+        written += n;
+        if let Some(e) = error {
+            let msg = format!("{doc_id}: {e}");
+            eprintln!("[iroh-sync] {msg}");
+            first_error.get_or_insert(msg);
+        }
+    }
+
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(written),
+    }
+}
+
+/// [`write_own_entries`] for one doc, shared with a device on `protocol`.
+/// Returns how many entries were written, and the first failure.
+async fn write_entries_to_doc(
+    doc: &iroh_docs::api::Doc,
+    author: iroh_docs::AuthorId,
+    protocol: u8,
+    entries: &[(String, String)],
+) -> (usize, Option<String>) {
+    let mut written = 0usize;
+    let mut error = None;
+    for (key, value) in entries {
+        if is_legacy_list_key(key) && !reads_legacy_lists(protocol) {
+            continue;
+        }
+        let unchanged = matches!(
+            doc.get_exact(author, key.as_bytes(), false).await,
+            Ok(Some(own)) if own.content_hash() == iroh_blobs::Hash::new(value.as_bytes())
+        );
+        if unchanged {
+            continue;
+        }
+        match doc
+            .set_bytes(author, key.clone().into_bytes(), value.clone().into_bytes())
+            .await
+        {
+            Ok(_) => written += 1,
+            Err(e) => {
+                error.get_or_insert(format!("set_bytes {key}: {e}"));
+            }
+        }
+    }
+    (written, error)
+}
+
 #[tauri::command]
 pub async fn docs_set_entry(
     app: tauri::AppHandle,
     key: String,
     value: String,
 ) -> Result<(), String> {
-    let api = get_docs_api(&app).await?;
-    let author = get_docs_author(&app).await?;
-    let sync_state = get_sync_state(&app)?;
+    write_own_entries(&app, &[(key, value)]).await.map(|_| ())
+}
 
-    let targets: Vec<(iroh_docs::NamespaceId,)> = {
-        let devices = sync_state.transport_state.paired_devices.lock().await;
-        devices
-            .values()
-            .filter(|d| !d.sync_doc_id.is_empty())
-            .filter_map(|d| {
-                d.sync_doc_id
-                    .parse::<iroh_docs::NamespaceId>()
-                    .ok()
-                    .map(|doc_id| (doc_id,))
-            })
-            .collect()
-    };
+#[derive(serde::Deserialize)]
+pub struct DocEntryInput {
+    pub key: String,
+    pub value: String,
+}
 
-    // Surface write failures instead of silently dropping data, so the
-    // frontend knows the sync doc wasn't updated and can retry.
-    let mut first_error: Option<String> = None;
-    for (doc_id,) in &targets {
-        let outcome: Result<(), String> = async {
-            let doc = api
-                .open(*doc_id)
-                .await
-                .map_err(|e| format!("open doc {doc_id}: {e}"))?
-                .ok_or_else(|| format!("sync doc not found: {doc_id}"))?;
-            doc.set_bytes(author, key.clone().into_bytes(), value.clone().into_bytes())
-                .await
-                .map(|_| ())
-                .map_err(|e| format!("set_bytes for {doc_id}: {e}"))
+/// Several entries in one call (provisioning sends every item at once);
+/// see [`write_own_entries`]. Returns how many were actually written.
+#[tauri::command]
+pub async fn docs_set_entries(
+    app: tauri::AppHandle,
+    entries: Vec<DocEntryInput>,
+) -> Result<usize, String> {
+    let entries: Vec<(String, String)> = entries.into_iter().map(|e| (e.key, e.value)).collect();
+    write_own_entries(&app, &entries).await
+}
+
+/// Removes this device's entries under `prefix` whose keys are not in `keep`
+/// (deletion records that expired, for one). Returns how many were removed.
+#[tauri::command]
+pub async fn docs_retain_own_entries(
+    app: tauri::AppHandle,
+    prefix: String,
+    keep: Vec<String>,
+) -> Result<usize, String> {
+    use futures::pin_mut;
+    use futures::StreamExt;
+    if prefix.is_empty() {
+        return Err("a prefix is required".to_string());
+    }
+    let snapshot = get_docs_snapshot(&app).await?;
+    let keep: std::collections::HashSet<String> = keep.into_iter().collect();
+    let mut removed = 0usize;
+    for (doc_id, _) in sync_doc_targets(&app).await? {
+        let Ok(Some(doc)) = snapshot.api.open(doc_id).await else {
+            continue;
+        };
+        let mut own_keys = Vec::new();
+        if let Ok(stream) = doc
+            .get_many(
+                iroh_docs::store::Query::author(snapshot.author)
+                    .key_prefix(prefix.as_bytes())
+                    .build(),
+            )
+            .await
+        {
+            pin_mut!(stream);
+            while let Some(Ok(entry)) = stream.next().await {
+                own_keys.push(String::from_utf8_lossy(entry.key()).to_string());
+            }
         }
-        .await;
-        if let Err(msg) = outcome {
-            eprintln!("[iroh-sync] {msg}");
-            if first_error.is_none() {
-                first_error = Some(msg);
+        for key in own_keys.iter().filter(|k| !keep.contains(*k)) {
+            if shadows_other_key(key, &own_keys, &keep) {
+                continue;
+            }
+            match doc.del(snapshot.author, key.clone().into_bytes()).await {
+                Ok(n) => removed += n,
+                Err(e) => eprintln!("[iroh-sync] could not remove {key}: {e}"),
             }
         }
     }
+    Ok(removed)
+}
 
-    match first_error {
-        Some(err) => Err(err),
-        None => Ok(()),
+/// A doc deletion is by prefix: deleting `key` would also delete any longer
+/// key starting with it (book:12 takes book:123). True when such a key is
+/// one to keep.
+fn shadows_other_key(
+    key: &str,
+    own_keys: &[String],
+    keep: &std::collections::HashSet<String>,
+) -> bool {
+    own_keys
+        .iter()
+        .any(|other| other.len() > key.len() && other.starts_with(key) && keep.contains(other))
+}
+
+/// Removes this device's whole-list entries from the doc shared with a device
+/// that no longer reads them (it reported `SYNC_PROTOCOL` 2 or later).
+pub(crate) async fn drop_legacy_lists(app: &tauri::AppHandle, device_id: &str) {
+    let doc_id = {
+        let Ok(sync_state) = get_sync_state(app) else {
+            return;
+        };
+        let devices = sync_state.transport_state.paired_devices.lock().await;
+        match devices
+            .get(device_id)
+            .and_then(|d| d.sync_doc_id.parse::<iroh_docs::NamespaceId>().ok())
+        {
+            Some(id) => id,
+            None => return,
+        }
+    };
+    let Ok(snapshot) = get_docs_snapshot(app).await else {
+        return;
+    };
+    let Ok(Some(doc)) = snapshot.api.open(doc_id).await else {
+        return;
+    };
+    for key in LEGACY_LIST_KEYS {
+        // Only where one is there: a deletion is itself an entry that syncs.
+        if !matches!(
+            doc.get_exact(snapshot.author, key.as_bytes(), false).await,
+            Ok(Some(_))
+        ) {
+            continue;
+        }
+        // `vocabulary` is a prefix of the old per-word `vocabulary:{id}` keys:
+        // delete exactly this key's entries, never theirs.
+        if *key == "vocabulary" {
+            let mut longer = false;
+            if let Ok(stream) = doc
+                .get_many(
+                    iroh_docs::store::Query::author(snapshot.author)
+                        .key_prefix(b"vocabulary:")
+                        .limit(1)
+                        .build(),
+                )
+                .await
+            {
+                use futures::StreamExt;
+                futures::pin_mut!(stream);
+                longer = stream.next().await.is_some();
+            }
+            if longer {
+                continue;
+            }
+        }
+        if let Err(e) = doc.del(snapshot.author, key.as_bytes().to_vec()).await {
+            eprintln!("[iroh-sync] could not remove the old {key} list: {e}");
+        }
     }
 }
 
@@ -850,13 +1152,26 @@ pub async fn docs_set_entry(
 pub async fn docs_get_all_entries(
     app: tauri::AppHandle,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    Ok(read_doc_entries(&app, None).await?.0)
+    Ok(read_doc_entries(&app, None).await?.entries)
+}
+
+/// An item whose newest doc entry is a deletion, and when it was deleted
+/// (ms since the epoch, by the deleting device's clock).
+#[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedDocKey {
+    pub key: String,
+    pub at: u64,
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangedDocEntries {
     pub entries: std::collections::HashMap<String, String>,
+    /// Items deleted on another device. Doc deletions never expire, unlike
+    /// the app's deletion records (90 days), so a device that was away for
+    /// longer still learns about them instead of sending the items back.
+    pub deleted: Vec<DeletedDocKey>,
     /// Pass to `docs_ack_entries` once `entries` are applied.
     pub token: u64,
 }
@@ -893,13 +1208,17 @@ pub async fn docs_get_changed_entries(
         .applied
         .clone();
     let baseline = (!full.unwrap_or(false)).then_some(&applied);
-    let (entries, seen) = read_doc_entries(&app, baseline).await?;
+    let read = read_doc_entries(&app, baseline).await?;
     let mut guard = DELIVERY.lock().unwrap_or_else(|e| e.into_inner());
     let delivery = guard.get_or_insert_with(Default::default);
     delivery.next_token += 1;
     let token = delivery.next_token;
-    delivery.pending = Some((token, seen));
-    Ok(ChangedDocEntries { entries, token })
+    delivery.pending = Some((token, read.seen));
+    Ok(ChangedDocEntries {
+        entries: read.entries,
+        deleted: read.deleted,
+        token,
+    })
 }
 
 /// The entries of read `token` are applied: later reads skip them.
@@ -919,22 +1238,26 @@ pub async fn docs_ack_entries(token: u64) -> Result<(), String> {
     }
 }
 
+struct DocRead {
+    entries: std::collections::HashMap<String, String>,
+    deleted: Vec<DeletedDocKey>,
+    /// Every key's copies as now read, for the next diff.
+    seen: std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
+}
+
+/// The newest entry header of one key in one doc: when it was written
+/// (microseconds) and its content hash (`Hash::EMPTY` for a deletion).
+type EntryHeader = (String, u64, iroh_blobs::Hash);
+
 /// Reads the paired docs. With `applied`, returns only keys whose copies
 /// differ from it; always also returns what is now there, for the next diff.
 /// A copy whose content has not arrived yet is left out of both, so it is
-/// read again next time.
+/// read again next time. Deletions are read too: a key whose newest copy (in
+/// any doc) is a deletion comes back in `deleted`, not `entries`.
 async fn read_doc_entries(
     app: &tauri::AppHandle,
     applied: Option<&std::collections::HashMap<String, Vec<iroh_blobs::Hash>>>,
-) -> Result<
-    (
-        std::collections::HashMap<String, String>,
-        std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
-    ),
-    String,
-> {
-    use futures::pin_mut;
-    use futures::StreamExt;
+) -> Result<DocRead, String> {
     let api = get_docs_api(app).await?;
     let sync_state = get_sync_state(app)?;
     let blobs = {
@@ -958,24 +1281,10 @@ async fn read_doc_entries(
     };
 
     // First the entry headers (cheap), then content only for keys that changed.
-    let mut headers: Vec<(String, u64, iroh_blobs::Hash)> = Vec::new();
+    let mut headers: Vec<EntryHeader> = Vec::new();
     for doc_id in doc_ids {
         if let Ok(Some(doc)) = api.open(doc_id).await {
-            if let Ok(stream) = doc
-                .get_many(iroh_docs::store::Query::single_latest_per_key().build())
-                .await
-            {
-                pin_mut!(stream);
-                while let Some(entry_res) = stream.next().await {
-                    if let Ok(entry) = entry_res {
-                        headers.push((
-                            String::from_utf8_lossy(entry.key()).to_string(),
-                            entry.timestamp(),
-                            entry.content_hash(),
-                        ));
-                    }
-                }
-            }
+            headers.extend(read_headers(&doc).await);
         }
     }
     let current = hashes_by_key(&headers);
@@ -984,12 +1293,13 @@ async fn read_doc_entries(
         .filter(|(key, hashes)| applied.is_none_or(|a| a.get(*key) != Some(*hashes)))
         .map(|(key, _)| key)
         .collect();
+    let (deleted, gone) = deletions(&headers, &changed);
 
     let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
         std::collections::HashMap::new();
     let mut incomplete: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (key, at, hash) in &headers {
-        if !changed.contains(key) {
+        if !changed.contains(key) || gone.contains(key) || *hash == iroh_blobs::Hash::EMPTY {
             continue;
         }
         let mut value = None;
@@ -1013,9 +1323,10 @@ async fn read_doc_entries(
         }
     }
     eprintln!(
-        "[iroh-sync] read {} changed doc keys of {} ({} waiting for content)",
+        "[iroh-sync] read {} changed doc keys of {} ({} deleted, {} waiting for content)",
         changed.len(),
         current.len(),
+        deleted.len(),
         incomplete.len()
     );
 
@@ -1031,12 +1342,93 @@ async fn read_doc_entries(
             }
         }
     }
-    Ok((combine_doc_values(per_key), seen))
+    Ok(DocRead {
+        entries: combine_doc_values(per_key),
+        deleted,
+        seen,
+    })
+}
+
+/// The newest entry of every key in `doc`, deletions included.
+async fn read_headers(doc: &iroh_docs::api::Doc) -> Vec<EntryHeader> {
+    use futures::StreamExt;
+    let mut headers = Vec::new();
+    if let Ok(stream) = doc
+        .get_many(
+            iroh_docs::store::Query::single_latest_per_key()
+                .include_empty()
+                .build(),
+        )
+        .await
+    {
+        futures::pin_mut!(stream);
+        while let Some(Ok(entry)) = stream.next().await {
+            headers.push((
+                String::from_utf8_lossy(entry.key()).to_string(),
+                entry.timestamp(),
+                entry.content_hash(),
+            ));
+        }
+    }
+    headers
+}
+
+/// Among the `changed` keys, those whose newest copy across the docs is a
+/// deletion: the items to report deleted, and every such key (items or not),
+/// whose older copies must not be delivered as if current.
+fn deletions(
+    headers: &[EntryHeader],
+    changed: &std::collections::HashSet<&String>,
+) -> (Vec<DeletedDocKey>, std::collections::HashSet<String>) {
+    let mut newest: std::collections::HashMap<&String, (u64, iroh_blobs::Hash)> =
+        std::collections::HashMap::new();
+    for (key, at, hash) in headers {
+        if !changed.contains(key) {
+            continue;
+        }
+        let slot = newest.entry(key).or_insert((*at, *hash));
+        if *at > slot.0 {
+            *slot = (*at, *hash);
+        }
+    }
+    let mut deleted = Vec::new();
+    let mut gone = std::collections::HashSet::new();
+    for (key, (at, hash)) in newest {
+        if hash != iroh_blobs::Hash::EMPTY {
+            continue;
+        }
+        gone.insert(key.clone());
+        if is_deletable_key(key) {
+            deleted.push(DeletedDocKey {
+                key: key.clone(),
+                at: at / 1000,
+            });
+        }
+    }
+    deleted.sort_by(|a, b| a.key.cmp(&b.key));
+    (deleted, gone)
+}
+
+/// Keys of items the app deletes when another device deleted them. (Covers
+/// go with their book; deletion records and lists are not items.)
+pub(crate) fn is_deletable_key(key: &str) -> bool {
+    [
+        "book:",
+        "anno:",
+        "annotation:",
+        "collection:",
+        "rss_article:",
+        "rss_feed:",
+        "vocab:",
+        "vocabulary:",
+    ]
+    .iter()
+    .any(|prefix| key.starts_with(prefix))
 }
 
 /// Every device's copy of each key, as content hashes in a stable order.
 fn hashes_by_key(
-    headers: &[(String, u64, iroh_blobs::Hash)],
+    headers: &[EntryHeader],
 ) -> std::collections::HashMap<String, Vec<iroh_blobs::Hash>> {
     let mut by_key: std::collections::HashMap<String, Vec<iroh_blobs::Hash>> =
         std::collections::HashMap::new();
@@ -1178,6 +1570,8 @@ fn is_per_entity_key(key: &str) -> bool {
         "collection:",
         "cover:",
         "rss_article:",
+        "rss_feed:",
+        "tomb:",
         "vocab:",
         "vocabulary:",
     ]
@@ -1545,5 +1939,256 @@ mod tests {
         assert_eq!(out["reading_stats"], "not json");
         let out = combine(&[("x", 5, "[1]"), ("x", 4, r#"{"a":1}"#)]);
         assert_eq!(out["x"], "[1]");
+    }
+
+    fn header(key: &str, at: u64, deletion: bool) -> EntryHeader {
+        let hash = if deletion {
+            iroh_blobs::Hash::EMPTY
+        } else {
+            iroh_blobs::Hash::new(format!("{key}@{at}"))
+        };
+        (key.to_string(), at, hash)
+    }
+
+    fn deleted_keys(headers: &[EntryHeader]) -> (Vec<String>, std::collections::HashSet<String>) {
+        let keys: Vec<String> = headers.iter().map(|(k, _, _)| k.clone()).collect();
+        let changed: std::collections::HashSet<&String> = keys.iter().collect();
+        let (deleted, gone) = deletions(headers, &changed);
+        (deleted.into_iter().map(|d| d.key).collect(), gone)
+    }
+
+    #[test]
+    fn an_item_is_deleted_when_its_newest_copy_in_any_doc_is_a_deletion() {
+        // Deleted in one pairing's doc after the copy in another pairing's doc.
+        let (deleted, _) = deleted_keys(&[
+            header("book:1", 20_000, true),
+            header("book:1", 10_000, false),
+        ]);
+        assert_eq!(deleted, vec!["book:1".to_string()]);
+        // Written again after the deletion (re-added, or edited later): kept.
+        let (deleted, gone) = deleted_keys(&[
+            header("book:1", 20_000, true),
+            header("book:1", 30_000, false),
+        ]);
+        assert!(deleted.is_empty());
+        assert!(gone.is_empty());
+    }
+
+    #[test]
+    fn deletion_times_are_reported_in_milliseconds() {
+        let keys = ["anno:b:a".to_string()];
+        let changed: std::collections::HashSet<&String> = keys.iter().collect();
+        let (deleted, _) = deletions(&[header("anno:b:a", 1_700_000_000_123_456, true)], &changed);
+        assert_eq!(
+            deleted,
+            vec![DeletedDocKey {
+                key: "anno:b:a".into(),
+                at: 1_700_000_000_123
+            }]
+        );
+    }
+
+    #[test]
+    fn only_items_are_reported_deleted_but_no_deleted_key_is_delivered() {
+        let (deleted, gone) = deleted_keys(&[
+            header("annotations", 5, true),
+            header("annotations", 1, false),
+            header("tomb:book:9", 5, true),
+            header("cover:1", 5, true),
+            header("settings", 5, false),
+            header("rss_feed:f", 5, true),
+            header("vocab:v", 5, true),
+        ]);
+        assert_eq!(
+            deleted,
+            vec!["rss_feed:f".to_string(), "vocab:v".to_string()]
+        );
+        for key in [
+            "annotations",
+            "tomb:book:9",
+            "cover:1",
+            "rss_feed:f",
+            "vocab:v",
+        ] {
+            assert!(gone.contains(key), "{key} must not be delivered as current");
+        }
+        assert!(!gone.contains("settings"));
+    }
+
+    #[test]
+    fn keys_outside_the_changed_set_are_left_alone() {
+        let headers = [header("book:1", 5, true), header("book:2", 5, true)];
+        let only = "book:2".to_string();
+        let changed: std::collections::HashSet<&String> = [&only].into_iter().collect();
+        let (deleted, _) = deletions(&headers, &changed);
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0].key, "book:2");
+    }
+
+    #[test]
+    fn whole_lists_are_for_older_versions_only() {
+        for key in LEGACY_LIST_KEYS {
+            assert!(is_legacy_list_key(key));
+        }
+        for key in [
+            "book:1",
+            "anno:b:a",
+            "vocab:v",
+            "tomb:book:1",
+            "settings",
+            "reading_stats",
+        ] {
+            assert!(!is_legacy_list_key(key), "{key}");
+        }
+        assert!(reads_legacy_lists(0));
+        assert!(reads_legacy_lists(1));
+        assert!(!reads_legacy_lists(
+            theorem_sync_core::sync_protocol::SYNC_PROTOCOL
+        ));
+    }
+
+    #[test]
+    fn a_prefix_deletion_never_takes_a_key_that_is_kept() {
+        let own = vec!["tomb:book:1".to_string(), "tomb:book:12".to_string()];
+        let keep: std::collections::HashSet<String> = ["tomb:book:12".to_string()].into();
+        assert!(shadows_other_key("tomb:book:1", &own, &keep));
+        let keep_none = std::collections::HashSet::new();
+        assert!(!shadows_other_key("tomb:book:1", &own, &keep_none));
+    }
+
+    /// A real iroh-docs engine in memory, with one doc that two authors
+    /// write to: "here" (this device) and "there" (the other device, whose
+    /// entries arrived by sync).
+    mod with_a_doc {
+        use super::*;
+
+        struct Fixture {
+            doc: iroh_docs::api::Doc,
+            here: iroh_docs::AuthorId,
+            there: iroh_docs::AuthorId,
+            _router: iroh::protocol::Router,
+            _docs: iroh_docs::protocol::Docs,
+        }
+
+        async fn fixture() -> Fixture {
+            let ep = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+                .bind()
+                .await
+                .unwrap();
+            let blobs = iroh_blobs::store::mem::MemStore::new();
+            let gossip = iroh_gossip::net::Gossip::builder().spawn(ep.clone());
+            let docs = iroh_docs::protocol::Docs::memory()
+                .spawn(ep.clone(), (*blobs).clone(), gossip.clone())
+                .await
+                .unwrap();
+            let router = iroh::protocol::Router::builder(ep)
+                .accept(iroh_gossip::ALPN, gossip)
+                .accept(iroh_docs::ALPN, docs.clone())
+                .spawn();
+            let api = docs.api().clone();
+            let doc = api.create().await.unwrap();
+            let here = api.author_create().await.unwrap();
+            let there = api.author_create().await.unwrap();
+            Fixture {
+                doc,
+                here,
+                there,
+                _router: router,
+                _docs: docs,
+            }
+        }
+
+        fn entry(key: &str, value: &str) -> (String, String) {
+            (key.to_string(), value.to_string())
+        }
+
+        async fn deleted_now(doc: &iroh_docs::api::Doc) -> Vec<String> {
+            deleted_keys(&read_headers(doc).await).0
+        }
+
+        #[tokio::test]
+        async fn an_unchanged_value_is_not_written_again() {
+            let f = fixture().await;
+            let book = [entry("book:1", r#"{"title":"Dune"}"#)];
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &book).await,
+                (1, None)
+            );
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &book).await,
+                (0, None)
+            );
+            let edited = [entry("book:1", r#"{"title":"Dune Messiah"}"#)];
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &edited).await,
+                (1, None)
+            );
+            // The same value from the other device is a different entry: ours is written.
+            let theirs = [entry("book:2", "x")];
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.there, 2, &theirs).await,
+                (1, None)
+            );
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &theirs).await,
+                (1, None)
+            );
+        }
+
+        #[tokio::test]
+        async fn whole_lists_go_only_to_devices_on_older_versions() {
+            let f = fixture().await;
+            let lists = [entry("annotations", "[]"), entry("anno:b:a", "{}")];
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &lists).await,
+                (1, None)
+            );
+            assert!(f
+                .doc
+                .get_exact(f.here, "annotations", false)
+                .await
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 0, &lists).await,
+                (1, None)
+            );
+            assert!(f
+                .doc
+                .get_exact(f.here, "annotations", false)
+                .await
+                .unwrap()
+                .is_some());
+        }
+
+        #[tokio::test]
+        async fn a_device_back_after_months_does_not_bring_back_what_was_deleted() {
+            let f = fixture().await;
+            let book = [entry("book:1", r#"{"title":"Dune"}"#)];
+            write_entries_to_doc(&f.doc, f.here, 2, &book).await;
+            assert!(deleted_now(&f.doc).await.is_empty());
+
+            // Deleted on the other device while this one was away.
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            f.doc.del(f.there, "book:1").await.unwrap();
+            assert_eq!(deleted_now(&f.doc).await, vec!["book:1".to_string()]);
+
+            // This device starts again and provisions its unchanged copy: not
+            // rewritten, so the deletion stays the newest entry.
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &book).await,
+                (0, None)
+            );
+            assert_eq!(deleted_now(&f.doc).await, vec!["book:1".to_string()]);
+
+            // An edit made after the deletion is a newer write: the item stays.
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            let edited = [entry("book:1", r#"{"title":"Dune","rating":5}"#)];
+            assert_eq!(
+                write_entries_to_doc(&f.doc, f.here, 2, &edited).await,
+                (1, None)
+            );
+            assert!(deleted_now(&f.doc).await.is_empty());
+        }
     }
 }

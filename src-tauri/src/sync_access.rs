@@ -458,6 +458,7 @@ mod tests {
             peer_relay_url: String::new(),
             sync_doc_id: String::new(),
             sync_doc_ticket: String::new(),
+            protocol: 0,
         }
     }
 

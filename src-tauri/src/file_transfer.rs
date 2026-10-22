@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use iroh::endpoint;
 use iroh::protocol::ProtocolHandler;
 use tauri::Emitter;
+use theorem_sync_core::sync_protocol::{PeerHello, SYNC_PROTOCOL};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 const FILE_TRANSFER_ALPN: &[u8] = b"theorem-file/v1";
@@ -20,11 +21,18 @@ struct DownloadProgress {
     total: usize,
 }
 
+/// A connection to a paired device, and which device it is.
+struct PeerConnection {
+    conn: endpoint::Connection,
+    device_id: String,
+}
+
 /// Opens a book-transfer connection to a paired device.
 async fn connect_peer(
     app: &tauri::AppHandle,
     peer_device_id: &str,
-) -> Result<endpoint::Connection, String> {
+    timeout: std::time::Duration,
+) -> Result<PeerConnection, String> {
     use crate::sync_commands::{get_or_init_iroh, get_sync_state};
 
     let ep = get_or_init_iroh(app).await?;
@@ -74,13 +82,15 @@ async fn connect_peer(
         }
     }
 
-    let conn = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        ep.endpoint.connect(peer_addr, FILE_TRANSFER_ALPN),
-    )
-    .await
-    .map_err(|_| format!("connect to peer '{canonical_device_id}' timed out after 15s"))?
-    .map_err(|e| format!("connect to peer '{canonical_device_id}': {e}"))?;
+    let conn = tokio::time::timeout(timeout, ep.endpoint.connect(peer_addr, FILE_TRANSFER_ALPN))
+        .await
+        .map_err(|_| {
+            format!(
+                "connect to peer '{canonical_device_id}' timed out after {}s",
+                timeout.as_secs()
+            )
+        })?
+        .map_err(|e| format!("connect to peer '{canonical_device_id}': {e}"))?;
 
     // Refresh last known IP/port from active connection paths
     let (connected_ip, connected_port) = {
@@ -107,7 +117,10 @@ async fn connect_peer(
         }
     }
 
-    Ok(conn)
+    Ok(PeerConnection {
+        conn,
+        device_id: canonical_device_id,
+    })
 }
 
 /// Whether `conn` was closed by the other device because it does not accept us.
@@ -123,31 +136,149 @@ fn refused_by_peer(conn: &endpoint::Connection) -> bool {
 pub const PEER_REMOVED_THIS_DEVICE: &str =
     "The other device has removed this device. Pair them again to sync.";
 
+/// How long a probe waits to connect and be answered: a device that does not
+/// answer within this is reported offline (and tried again later).
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// How long unpairing waits to tell the other device before going ahead.
+const UNPAIR_NOTICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Requests that are not book IDs (a book ID never starts with '?').
+const HELLO_REQUEST: &str = "?hello";
+const LEGACY_PROBE_REQUEST: &str = "?probe";
+const UNPAIRED_REQUEST: &str = "?unpaired";
+const HELLO_ANSWER: &str = "HELLO ";
+
+fn our_hello(app: &tauri::AppHandle) -> Option<PeerHello> {
+    let state = crate::sync_commands::get_sync_state(app).ok()?;
+    Some(PeerHello {
+        name: state.transport_state.device_name(),
+        protocol: SYNC_PROTOCOL,
+    })
+}
+
+/// The other device rejected this one: it was unpaired there. Forget it here
+/// too, so it stops being listed and tried. Runs on its own task (it restarts
+/// the sync engine, which may be the one serving the caller).
+fn forget_device_that_removed_us(app: &tauri::AppHandle, device_id: &str) {
+    let app = app.clone();
+    let device_id = device_id.to_string();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = crate::sync_commands::forget_device(&app, &device_id, true).await {
+            eprintln!("[iroh-sync] Could not forget a device that removed this one: {e}");
+        }
+    });
+}
+
+fn emit_presence(app: &tauri::AppHandle, peer: &endpoint::Connection, online: bool) {
+    let _ = app.emit(
+        "sync-peer-presence",
+        serde_json::json!({ "peer": peer.remote_id().to_string(), "online": online }),
+    );
+}
+
 /// Checks that a paired device is reachable and still accepts this one, before
 /// a sync round. (iroh-docs cannot say: a refused sync and a completed one
 /// both end with "Failed to close connection" when the other side hangs up.)
-/// The request is never a valid book ID, so any answer line means "allowed".
+/// The two devices also swap names and protocols ([`PeerHello`]), so a rename
+/// on one shows on the other. Any answer means "allowed" (versions before the
+/// hello answer with an error line); a refusal means this device was removed
+/// there, and it is forgotten here too; silence means offline.
 pub async fn probe_peer(app: &tauri::AppHandle, peer_device_id: &str) -> Result<(), String> {
-    let conn = connect_peer(app, peer_device_id).await?;
+    let deadline = tokio::time::Instant::now() + PROBE_TIMEOUT;
+    let peer = match connect_peer(app, peer_device_id, PROBE_TIMEOUT).await {
+        Ok(peer) => peer,
+        Err(e) => {
+            emit_presence_by_id(app, peer_device_id, false).await;
+            return Err(format!("Peer is offline or unreachable ({e})"));
+        }
+    };
+    let hello = our_hello(app)
+        .and_then(|h| serde_json::to_string(&h).ok())
+        .unwrap_or_default();
     let answered = async {
-        let (mut send, recv) = conn.open_bi().await.ok()?;
-        send.write_all(b"?probe\n").await.ok()?;
+        let (mut send, recv) = peer.conn.open_bi().await.ok()?;
+        send.write_all(format!("{HELLO_REQUEST} {hello}\n").as_bytes())
+            .await
+            .ok()?;
         send.finish().ok()?;
         let mut line = String::new();
-        BufReader::new(recv).read_line(&mut line).await.ok()?;
-        (!line.is_empty()).then_some(())
+        BufReader::new(recv.take(1024))
+            .read_line(&mut line)
+            .await
+            .ok()?;
+        (!line.is_empty()).then_some(line)
     };
-    let answered = tokio::time::timeout(CONNECT_TIMEOUT, answered)
+    // One budget for connecting and answering, with a little left for the
+    // answer when the connection took most of it.
+    let answer_by = deadline.max(tokio::time::Instant::now() + std::time::Duration::from_secs(2));
+    let answer = tokio::time::timeout_at(answer_by, answered)
         .await
         .ok()
         .flatten();
-    if answered.is_some() {
+    if let Some(answer) = answer {
+        emit_presence(app, &peer.conn, true);
+        if let Some(theirs) = answer
+            .trim()
+            .strip_prefix(HELLO_ANSWER)
+            .and_then(|json| serde_json::from_str::<PeerHello>(json).ok())
+        {
+            crate::sync_commands::note_peer_hello(app, &peer.device_id, &theirs).await;
+        }
         return Ok(());
     }
-    if refused_by_peer(&conn) {
+    if refused_by_peer(&peer.conn) {
+        forget_device_that_removed_us(app, &peer.device_id);
         return Err(PEER_REMOVED_THIS_DEVICE.to_string());
     }
+    emit_presence(app, &peer.conn, false);
     Err("Peer is offline or unreachable".to_string())
+}
+
+async fn emit_presence_by_id(app: &tauri::AppHandle, peer_device_id: &str, online: bool) {
+    let Ok(state) = crate::sync_commands::get_sync_state(app) else {
+        return;
+    };
+    let node = state
+        .transport_state
+        .paired_devices
+        .lock()
+        .await
+        .get(peer_device_id)
+        .map(|d| d.iroh_node_id.clone());
+    if let Some(node) = node {
+        let _ = app.emit(
+            "sync-peer-presence",
+            serde_json::json!({ "peer": node, "online": online }),
+        );
+    }
+}
+
+/// Tells a paired device that this one is removing it, so it stops listing
+/// this device too. Best effort: an offline device learns it on its next
+/// attempt (it is refused, see [`probe_peer`]).
+pub async fn notify_unpaired(app: &tauri::AppHandle, peer_device_id: &str) -> bool {
+    let told = async {
+        let peer = connect_peer(app, peer_device_id, UNPAIR_NOTICE_TIMEOUT)
+            .await
+            .ok()?;
+        let (mut send, recv) = peer.conn.open_bi().await.ok()?;
+        send.write_all(format!("{UNPAIRED_REQUEST}\n").as_bytes())
+            .await
+            .ok()?;
+        send.finish().ok()?;
+        let mut line = String::new();
+        BufReader::new(recv.take(256))
+            .read_line(&mut line)
+            .await
+            .ok()?;
+        Some(line.starts_with("OK"))
+    };
+    tokio::time::timeout(UNPAIR_NOTICE_TIMEOUT * 2, told)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
 }
 
 async fn connect_and_request(
@@ -155,7 +286,8 @@ async fn connect_and_request(
     peer_device_id: &str,
     book_id: &str,
 ) -> Result<(tokio::io::BufReader<iroh::endpoint::RecvStream>, usize), String> {
-    let conn = connect_peer(app, peer_device_id).await?;
+    let peer = connect_peer(app, peer_device_id, CONNECT_TIMEOUT).await?;
+    let conn = &peer.conn;
     let (mut send, recv) = tokio::time::timeout(CONNECT_TIMEOUT, conn.open_bi())
         .await
         .map_err(|_| "open bi timed out".to_string())?
@@ -174,7 +306,8 @@ async fn connect_and_request(
     let read = tokio::time::timeout(FILE_TRANSFER_TIMEOUT, reader.read_line(&mut status_line))
         .await
         .map_err(|_| "read status timed out".to_string())?;
-    if read.is_err() && refused_by_peer(&conn) {
+    if read.is_err() && refused_by_peer(conn) {
+        forget_device_that_removed_us(app, &peer.device_id);
         return Err(PEER_REMOVED_THIS_DEVICE.to_string());
     }
     read.map_err(|e| format!("read status: {e}"))?;
@@ -195,8 +328,9 @@ async fn connect_and_request(
 #[derive(Clone)]
 pub struct FileTransferHandler {
     pub data_dir: PathBuf,
-    /// Checked again here, behind the endpoint's gate, before any file is read.
-    pub allowlist: std::sync::Arc<crate::sync_access::PeerAllowlist>,
+    /// Its allowlist is checked again here, behind the endpoint's gate,
+    /// before any file is read; its paired devices learn names and removals.
+    pub state: std::sync::Arc<crate::iroh_sync::SyncTransportState>,
 }
 
 impl std::fmt::Debug for FileTransferHandler {
@@ -470,9 +604,35 @@ impl FileTransferHandler {
     }
 }
 
+impl FileTransferHandler {
+    async fn device_id_of(&self, node: &iroh::PublicKey) -> Option<String> {
+        let node = node.to_string();
+        self.state
+            .paired_devices
+            .lock()
+            .await
+            .values()
+            .find(|d| d.iroh_node_id == node)
+            .map(|d| d.device_id.clone())
+    }
+
+    async fn note_hello(&self, node: &iroh::PublicKey, hello: &PeerHello) {
+        if let Some(device_id) = self.device_id_of(node).await {
+            crate::sync_commands::note_peer_hello(&self.state.app_handle, &device_id, hello).await;
+        }
+    }
+
+    /// The other device unpaired this one: forget it here too.
+    async fn forget_remote(&self, node: &iroh::PublicKey) {
+        if let Some(device_id) = self.device_id_of(node).await {
+            forget_device_that_removed_us(&self.state.app_handle, &device_id);
+        }
+    }
+}
+
 impl ProtocolHandler for FileTransferHandler {
     async fn accept(&self, conn: endpoint::Connection) -> Result<(), iroh::protocol::AcceptError> {
-        if !self.allowlist.is_allowed(&conn.remote_id()) {
+        if !self.state.allowlist.is_allowed(&conn.remote_id()) {
             conn.close(crate::sync_access::NOT_PAIRED.into(), b"not paired");
             return Ok(());
         }
@@ -490,6 +650,35 @@ impl ProtocolHandler for FileTransferHandler {
                     Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
                     Ok(Ok(_)) => line.trim().to_string(),
                 };
+
+            if request == LEGACY_PROBE_REQUEST || request.starts_with(HELLO_REQUEST) {
+                if let Some(theirs) = request
+                    .strip_prefix(HELLO_REQUEST)
+                    .and_then(|json| serde_json::from_str::<PeerHello>(json.trim()).ok())
+                {
+                    self.note_hello(&conn.remote_id(), &theirs).await;
+                }
+                let ours = PeerHello {
+                    name: self.state.device_name(),
+                    protocol: SYNC_PROTOCOL,
+                };
+                let answer = format!(
+                    "{HELLO_ANSWER}{}\n",
+                    serde_json::to_string(&ours).unwrap_or_default()
+                );
+                let _ = tokio::io::AsyncWriteExt::write_all(&mut send, answer.as_bytes()).await;
+                let _ = send.finish();
+                continue;
+            }
+            if request == UNPAIRED_REQUEST {
+                let _ = tokio::io::AsyncWriteExt::write_all(&mut send, b"OK\n").await;
+                let _ = send.finish();
+                // Let the answer leave before the engine restarts.
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), send.stopped()).await;
+                self.forget_remote(&conn.remote_id()).await;
+                break;
+            }
 
             eprintln!("[file-transfer] Incoming request for book '{request}'");
             let result = Self::locate_book(&self.data_dir, &request).await;

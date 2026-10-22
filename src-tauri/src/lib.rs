@@ -16,6 +16,7 @@ pub mod cli;
 pub mod cli_tui;
 pub mod cover_protocol;
 mod database;
+mod device_name;
 pub mod epub_entries;
 mod epub_parser;
 mod epub_rewriter;
@@ -1700,12 +1701,7 @@ pub fn run() {
                 eprintln!("[database] Schema migration failed: {e}");
             }
 
-            let device_name = std::env::var("HOSTNAME")
-                .or_else(|_| std::env::var("COMPUTERNAME"))
-                .unwrap_or_else(|_| "Theorem Device".to_string());
-
-            eprintln!("[startup] Initializing device sync for: {}", device_name);
-            match sync_commands::init_sync(app_data_dir, device_name, app.handle().clone()) {
+            match sync_commands::init_sync(app_data_dir, app.handle().clone()) {
                 Ok(sync_state) => {
                     app.manage(sync_state);
                 }
@@ -1926,11 +1922,14 @@ pub fn run() {
             sync_commands::set_device_fingerprint,
             sync_commands::get_paired_devices,
             sync_commands::unpair_device,
+            sync_commands::set_device_name,
             sync_commands::respond_pairing_request,
             sync_commands::close_pairing_qr,
             sync_commands::docs_create_sync_doc,
             sync_commands::docs_import_sync_doc,
             sync_commands::docs_set_entry,
+            sync_commands::docs_set_entries,
+            sync_commands::docs_retain_own_entries,
             sync_commands::docs_get_all_entries,
             sync_commands::docs_get_changed_entries,
             sync_commands::docs_ack_entries,

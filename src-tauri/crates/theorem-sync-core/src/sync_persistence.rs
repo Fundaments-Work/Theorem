@@ -64,6 +64,28 @@ pub fn save_docs_to_drop(app_data_dir: &Path, doc_ids: &[String]) -> Result<(), 
     std::fs::write(path, json).map_err(|e| format!("write: {e}"))
 }
 
+const DEVICE_NAME: &str = "sync-device-name.txt";
+
+/// The name the user gave this device, if any (otherwise the system's name
+/// is used).
+pub fn load_device_name(app_data_dir: &Path) -> Option<String> {
+    std::fs::read_to_string(app_data_dir.join(DEVICE_NAME))
+        .ok()
+        .and_then(|s| crate::sync_protocol::clean_device_name(&s))
+}
+
+/// Saves the user's name for this device; `None` goes back to the system's.
+pub fn save_device_name(app_data_dir: &Path, name: Option<&str>) -> Result<(), String> {
+    let path = app_data_dir.join(DEVICE_NAME);
+    match name {
+        Some(name) => std::fs::write(path, name).map_err(|e| format!("write: {e}")),
+        None => match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("remove: {e}")),
+            _ => Ok(()),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +111,7 @@ mod tests {
             peer_relay_url: String::new(),
             sync_doc_id: String::new(),
             sync_doc_ticket: String::new(),
+            protocol: 0,
         }
     }
 
@@ -131,6 +154,23 @@ mod tests {
         assert!(load_docs_to_drop(&dir).is_empty());
         assert!(!dir.join("sync-docs-to-drop.json").exists());
         save_docs_to_drop(&dir, &[]).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_device_name_round_trips_cleaned_and_can_be_reset() {
+        let dir = temp_dir("name");
+        assert_eq!(load_device_name(&dir), None);
+        save_device_name(&dir, Some("Reading tablet")).unwrap();
+        assert_eq!(load_device_name(&dir).as_deref(), Some("Reading tablet"));
+        // A file edited by hand is cleaned like any other name.
+        std::fs::write(dir.join("sync-device-name.txt"), "  Desk\n\tPC  ").unwrap();
+        assert_eq!(load_device_name(&dir).as_deref(), Some("Desk PC"));
+        std::fs::write(dir.join("sync-device-name.txt"), " \n ").unwrap();
+        assert_eq!(load_device_name(&dir), None);
+        save_device_name(&dir, None).unwrap();
+        save_device_name(&dir, None).unwrap();
+        assert_eq!(load_device_name(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

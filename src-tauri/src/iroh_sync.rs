@@ -29,6 +29,24 @@ struct EntryPayload {
 #[derive(serde::Serialize, Clone)]
 struct EntryBatchPayload {
     entries: Vec<EntryPayload>,
+    /// Items another device deleted (their newest entry is a deletion).
+    deleted: Vec<crate::sync_commands::DeletedDocKey>,
+}
+
+#[derive(Default)]
+struct PendingBatch {
+    entries: Vec<EntryPayload>,
+    deleted: Vec<crate::sync_commands::DeletedDocKey>,
+}
+
+impl PendingBatch {
+    fn len(&self) -> usize {
+        self.entries.len() + self.deleted.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Batches remote doc entries before emitting them over IPC so a bulk sync
@@ -37,7 +55,7 @@ struct EntryBatchPayload {
 /// state of each record crosses the bridge.
 struct EntryBatcher<R: tauri::Runtime> {
     app: tauri::AppHandle<R>,
-    entries: std::sync::Mutex<Vec<EntryPayload>>,
+    pending: std::sync::Mutex<PendingBatch>,
     flush_scheduled: std::sync::atomic::AtomicBool,
 }
 
@@ -48,20 +66,36 @@ impl<R: tauri::Runtime> EntryBatcher<R> {
     fn new(app: tauri::AppHandle<R>) -> Arc<Self> {
         Arc::new(Self {
             app,
-            entries: std::sync::Mutex::new(Vec::new()),
+            pending: std::sync::Mutex::new(PendingBatch::default()),
             flush_scheduled: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     fn push(self: &Arc<Self>, key: String, value: String) {
         let should_flush = {
-            let mut guard = self.entries.lock().unwrap();
-            match guard.iter_mut().find(|e| e.key == key) {
+            let mut guard = self.pending.lock().unwrap();
+            guard.deleted.retain(|d| d.key != key);
+            match guard.entries.iter_mut().find(|e| e.key == key) {
                 Some(existing) => {
                     existing.value = value;
                 }
-                None => guard.push(EntryPayload { key, value }),
+                None => guard.entries.push(EntryPayload { key, value }),
             }
+            guard.len() >= Self::MAX_BATCH
+        };
+        if should_flush {
+            self.flush();
+        } else {
+            self.schedule_flush();
+        }
+    }
+
+    fn push_deleted(self: &Arc<Self>, deleted: crate::sync_commands::DeletedDocKey) {
+        let should_flush = {
+            let mut guard = self.pending.lock().unwrap();
+            guard.entries.retain(|e| e.key != deleted.key);
+            guard.deleted.retain(|d| d.key != deleted.key);
+            guard.deleted.push(deleted);
             guard.len() >= Self::MAX_BATCH
         };
         if should_flush {
@@ -87,13 +121,17 @@ impl<R: tauri::Runtime> EntryBatcher<R> {
     }
 
     fn flush(&self) {
-        let drained = std::mem::take(&mut *self.entries.lock().unwrap());
+        let drained = std::mem::take(&mut *self.pending.lock().unwrap());
         if drained.is_empty() {
             return;
         }
-        let _ = self
-            .app
-            .emit("docs-entry-batch", EntryBatchPayload { entries: drained });
+        let _ = self.app.emit(
+            "docs-entry-batch",
+            EntryBatchPayload {
+                entries: drained.entries,
+                deleted: drained.deleted,
+            },
+        );
     }
 }
 
@@ -118,7 +156,8 @@ pub struct SyncTransportState<R: tauri::Runtime = tauri::Wry> {
     pub app_handle: tauri::AppHandle<R>,
     pub device_id: String,
     pub fingerprint: String,
-    pub device_name: String,
+    /// What paired devices see; the user can rename it (`set_device_name`).
+    pub device_name: std::sync::RwLock<String>,
     pub app_data_dir: PathBuf,
     pub paired_devices: Mutex<HashMap<String, PairedDevice>>,
     pub docs_api: Mutex<Option<DocsApiSnapshot>>,
@@ -134,6 +173,13 @@ pub struct SyncTransportState<R: tauri::Runtime = tauri::Wry> {
 }
 
 impl<R: tauri::Runtime> SyncTransportState<R> {
+    pub fn device_name(&self) -> String {
+        self.device_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Saves the paired devices and updates who may connect. Every change to
     /// `paired_devices` goes through here so the two never disagree.
     pub fn persist_paired(&self, devices: &HashMap<String, PairedDevice>) -> Result<(), String> {
@@ -149,6 +195,21 @@ pub struct DocsApiSnapshot {
     pub blobs: iroh_blobs::api::Store,
     /// Generation of the accept loop that produced this snapshot.
     pub generation: u64,
+}
+
+/// How long a connection may go silent before it counts as gone. iroh sends
+/// a keep-alive every 5 s, so a live device never gets near this; a device
+/// that vanished (app killed, out of range) is reported offline after it,
+/// instead of after QUIC's default 30 s.
+pub const CONNECTION_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
+fn transport_config() -> iroh::endpoint::QuicTransportConfig {
+    let builder = iroh::endpoint::QuicTransportConfig::builder();
+    match CONNECTION_IDLE_TIMEOUT.try_into() {
+        Ok(idle) => builder.max_idle_timeout(Some(idle)),
+        Err(_) => builder,
+    }
+    .build()
 }
 
 pub struct IrohSyncEndpoint {
@@ -176,6 +237,7 @@ impl IrohSyncEndpoint {
                 iroh_gossip::ALPN.to_vec(),
             ])
             .relay_mode(RelayMode::Default)
+            .transport_config(transport_config())
             .hooks(PeerGate::new(allowlist, ALPN));
 
         let builder = if std::env::var("THEOREM_DISABLE_MDNS").is_err() {
@@ -329,6 +391,19 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                     Ok(LiveEvent::InsertRemote { entry, .. }) => {
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
+                        if hash == iroh_blobs::Hash::EMPTY {
+                            // A deletion. It counts only if nothing in this doc
+                            // is newer (this device may have written the key since).
+                            if crate::sync_commands::is_deletable_key(&key)
+                                && newest_is_deletion(&doc, &key).await
+                            {
+                                batcher.push_deleted(crate::sync_commands::DeletedDocKey {
+                                    key,
+                                    at: entry.timestamp() / 1000,
+                                });
+                            }
+                            continue;
+                        }
                         // Content already here: deliver it now. Otherwise wait for
                         // ContentReady (delivering on both would send it twice).
                         match blobs.blobs().get_bytes(hash).await {
@@ -477,6 +552,20 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
             backoff_ms = std::cmp::min(backoff_ms * 2, 30_000);
         }
     });
+}
+
+/// Whether the newest entry for `key` in `doc` (by any device) is a deletion.
+async fn newest_is_deletion(doc: &iroh_docs::api::Doc, key: &str) -> bool {
+    matches!(
+        doc.get_one(
+            iroh_docs::store::Query::single_latest_per_key()
+                .key_exact(key.as_bytes())
+                .include_empty()
+                .build(),
+        )
+        .await,
+        Ok(Some(entry)) if entry.content_hash() == iroh_blobs::Hash::EMPTY
+    )
 }
 
 /// Whether a finished iroh-docs exchange actually synced, and its counts.
@@ -899,7 +988,7 @@ pub fn start_accept_loop(
 
         let file_handler = crate::file_transfer::FileTransferHandler {
             data_dir: data_dir.clone(),
-            allowlist: state_clone.allowlist.clone(),
+            state: state_clone.clone(),
         };
 
         let router = Router::builder(router_endpoint)
@@ -1008,6 +1097,7 @@ async fn handle_pair_req<R: tauri::Runtime>(
         peer_relay_url: pairing_req.relay_url.clone(),
         sync_doc_id: String::new(),
         sync_doc_ticket: String::new(),
+        protocol: pairing_req.protocol,
     };
 
     let mut devices = state.paired_devices.lock().await;
@@ -1100,11 +1190,12 @@ async fn handle_pair_req<R: tauri::Runtime>(
 
     let response = PairingResponse {
         device_id: state.device_id.clone(),
-        device_name: state.device_name.clone(),
+        device_name: state.device_name(),
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| state.fingerprint.clone()),
         sync_doc_ticket,
         relay_url: crate::sync_commands::get_iroh_relay_url(),
+        protocol: theorem_sync_core::sync_protocol::SYNC_PROTOCOL,
     };
 
     serde_json::to_value(response)
@@ -1167,7 +1258,7 @@ mod pairing_tests {
             app_handle: app.handle().clone(),
             device_id: "host-device".into(),
             fingerprint: String::new(),
-            device_name: "Host".into(),
+            device_name: std::sync::RwLock::new("Host".into()),
             app_data_dir: dir.path().to_path_buf(),
             paired_devices: Mutex::new(HashMap::new()),
             docs_api: Mutex::new(None),
@@ -1232,6 +1323,7 @@ mod pairing_tests {
             node_id: claimed_node_id.into(),
             relay_url: String::new(),
             secret: secret.into(),
+            protocol: theorem_sync_core::sync_protocol::SYNC_PROTOCOL,
         };
         send_pair_request(&conn, &request).await
     }

@@ -483,10 +483,7 @@ fn headless_app_with_sync(with_sync: bool) -> Result<tauri::App, String> {
     }
     if with_sync {
         use tauri::Manager;
-        let device_name = std::env::var("HOSTNAME")
-            .or_else(|_| std::env::var("COMPUTERNAME"))
-            .unwrap_or_else(|_| "Theorem Device".to_string());
-        match crate::sync_commands::init_sync(app_data_dir(&handle), device_name, handle.clone()) {
+        match crate::sync_commands::init_sync(app_data_dir(&handle), handle.clone()) {
             Ok(sync_state) => {
                 app.manage(sync_state);
             }
