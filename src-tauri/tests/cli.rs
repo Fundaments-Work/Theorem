@@ -565,3 +565,48 @@ fn imports_report_failures_and_duplicates_and_survive_symlink_loops() {
     let list = sb.run(&["--json", "library", "list"]);
     assert_eq!(json(&list).as_array().unwrap().len(), 1);
 }
+
+// ── A3: storage cleanup goes by the library's records ───────────────────────
+
+#[test]
+fn storage_cleanup_keeps_synced_books_and_removes_real_leftovers() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+    let conn = sb.db();
+    // A book synced from another device: a record and a cover, no file yet.
+    conn.execute(
+        "INSERT INTO books(id, data, updated_at) VALUES('synced-1', X'', unixepoch())",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO book_metadata(book_id, metadata_json) VALUES('synced-1', '{\"id\":\"synced-1\",\"title\":\"Synced\"}')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO covers(book_id, data_url, data, mime) VALUES('synced-1', '', X'89504E47', 'image/png')",
+        [],
+    )
+    .unwrap();
+    // A real leftover: a book row and cover with no library record.
+    conn.execute(
+        "INSERT INTO books(id, data, updated_at) VALUES('gone-1', X'', unixepoch())",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO covers(book_id, data_url, data, mime) VALUES('gone-1', '', X'89504E47', 'image/png')",
+        [],
+    )
+    .unwrap();
+
+    let out = sb.run(&["--json", "storage", "cleanup"]);
+    assert_ok(&out);
+    let cover = "SELECT COUNT(*) FROM covers WHERE book_id = ?1";
+    assert_eq!(count(&conn, cover, "synced-1"), 1);
+    assert_eq!(count(&conn, cover, "gone-1"), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", "gone-1"), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", APP_BOOK), 1);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", "synced-1"), 1);
+}

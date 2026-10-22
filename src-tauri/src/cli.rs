@@ -2938,16 +2938,20 @@ fn run_storage(output: &Output, ctx: &Ctx, command: StorageCommand) -> i32 {
             Err(e) => output.error(&e),
         },
         StorageCommand::Cleanup => {
-            let existing_ids: Vec<String> = ctx
-                .store
-                .with_connection(|conn| {
-                    let mut stmt = conn.prepare("SELECT id FROM books")?;
-                    let rows = stmt
-                        .query_map([], |row| row.get::<_, String>(0))?
-                        .collect::<rusqlite::Result<Vec<_>>>()?;
-                    Ok(rows)
-                })
-                .unwrap_or_default();
+            // The library is `book_metadata`, as the app's store sees it.
+            // `books` rows only exist for files on this device, so using
+            // them deleted the covers of books synced from other devices.
+            let existing_ids: Vec<String> = match ctx.store.with_connection(|conn| {
+                let mut stmt = conn.prepare("SELECT book_id FROM book_metadata")?;
+                let rows = stmt
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            }) {
+                Ok(ids) => ids,
+                // Never clean up against an empty list: that deletes everything.
+                Err(e) => return output.error(&e),
+            };
             match crate::database::cleanup_orphaned_storage_in(&ctx.store, existing_ids) {
                 Ok(result) => {
                     if output.json {
