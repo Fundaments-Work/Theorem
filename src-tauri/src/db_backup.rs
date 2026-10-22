@@ -1237,16 +1237,21 @@ fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-/// Called from `setup` in place of a bare `run_schema_migrations`.
-pub fn run_startup_guard(app: &AppHandle) {
+/// Called from `setup`: the integrity check and the startup migrations.
+/// Returns whether the database is healthy, i.e. whether the deferred
+/// maintenance (`db_maintenance`) may run on it.
+pub fn run_startup_guard(app: &AppHandle) -> bool {
     let dir = match app_data_dir(app) {
         Ok(dir) => dir,
         Err(e) => {
             log::warn!("[db_backup] {e}");
-            if let Err(e) = crate::database::run_schema_migrations(app) {
-                log::error!("[database] Schema migration failed: {e}");
-            }
-            return;
+            return match crate::database::run_startup_migrations(app) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::error!("[database] Schema migration failed: {e}");
+                    false
+                }
+            };
         }
     };
     let started = std::time::Instant::now();
@@ -1255,7 +1260,7 @@ pub fn run_startup_guard(app: &AppHandle) {
         &dir,
         &app_version(app),
         now_secs(),
-        || crate::database::run_schema_migrations(app),
+        || crate::database::run_startup_migrations(app),
     );
     if health.checked {
         log::warn!(
@@ -1270,7 +1275,9 @@ pub fn run_startup_guard(app: &AppHandle) {
             health.message.as_deref().unwrap_or("")
         );
     }
+    let healthy = crate::db_maintenance::may_run_after(&health);
     set_health(health);
+    healthy
 }
 
 fn emit_progress(app: &AppHandle) -> impl FnMut(BackupProgress) + '_ {

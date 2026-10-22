@@ -70,7 +70,7 @@ All connections go through `with_connection(app, |conn| operation(conn))` which 
 
 1. If a check is due — the app version changed since the last check (the only time migrations have work to do), the last check is 24 h old, or the clock moved backwards — run `PRAGMA quick_check`.
 2. If it passes, copy the database with the backup API to `db-snapshots/theorem-<unix-seconds>-v<version>.db` (a single file in rollback-journal mode) and keep only the two newest. A damaged database never replaces a good snapshot.
-3. Run migrations. A damaged database is not migrated (no VACUUM on a broken file).
+3. Run the startup migrations. A damaged database is not migrated, and the deferred maintenance below never runs on it.
 4. The outcome is kept as the database health: `ok`, `corrupt` or `migration_failed`, with the message and the snapshots on offer. `db-health.json` records when the last check passed and for which version.
 
 `main.tsx` asks `db_health_status` before rendering. When the database needs attention it renders the recovery screen instead of the app, and store writes are suspended so nothing is written over the damaged file. The screen offers each snapshot, a backup file, or "continue anyway" (`db_health_dismiss`, then a reload).
@@ -78,6 +78,31 @@ All connections go through `with_connection(app, |conn| operation(conn))` which 
 **Why not every start.** `quick_check` reads every page, so its cost grows with the database. Measured on a synthetic library (covers, metadata, annotations, RSS bodies, FTS) with a warm page cache: 56 MB took 24 ms to check and 72 ms to snapshot; 566 MB took 210 ms and 635 ms. A cold cache or a phone's flash is slower. Once a day plus every update keeps the cost off almost every start while still checking before each migration. Detecting an unclean shutdown was rejected as the trigger: Android ends the process without a clean exit almost every time, so it would mean checking on every start there. A database that breaks between checks still surfaces: SQLite errors from migrations that mention corruption are reported as `corrupt`.
 
 Disk cost: two snapshots, each about the size of the database (covers are stored in it).
+
+### Deferred maintenance (`db_maintenance.rs`)
+
+`setup()` runs before the window can paint (on Android, inside the activity's start). Since 1.6.0 it runs only the startup guard above with `database::run_startup_migrations`: the schema, the versioned one-shot migrations (v1.5.3, v1.5.4, v1.5.9) and the RSS time-unit repair, which the interface reads at startup. When the guard reports `ok`, `db_maintenance::spawn_startup_maintenance` starts a thread that, two seconds later, runs on pooled connections:
+
+1. covers still stored as data URLs → bytes + MIME (64 rows per transaction; a row is converted only if it still holds the URL that was read);
+2. legacy `books.data` BLOBs → `book-cache/{id}.book` (written aside and linked into place, never over a file the app wrote meanwhile);
+3. legacy StarDict BLOBs in `blob_store` → `dictionaries/{id}/` (each file renamed into place, `dict.ifo` last, so a lookup never sees half a dictionary). Before 1.6.0 this step read a `value` column `blob_store` does not have, and always failed;
+4. the `syncedWithoutFile` heal (compare-and-set on the metadata JSON it read); healed books are sent to the interface as `library-books-healed`, which clears the flag on the books the library already loaded (`src/core/lib/healed-books.ts`);
+5. legacy directory clean-up;
+6. `reconcile_books_fts`, in one `IMMEDIATE` transaction so its read of the library cannot go stale before it writes.
+
+Every step is logged and skipped on failure (it runs again next start); nothing here can mark the database unhealthy. Until a step has run, readers cope with the old form: the cover protocol decodes data URLs, book reads fall back to the BLOB, a lookup simply misses a dictionary not yet on disk.
+
+**VACUUM.** Reclaimed BLOBs leave free pages. `VACUUM` rewrites the whole file and blocks every writer while it runs (3–4 s on the 406 MB library below), so it is never run while the app may be writing: the reclaim sets `maintenance:vacuum_pending` in `kv_store` (never synced), and the thread runs `VACUUM` only after neither `theorem.db` nor its WAL has been written for 20 s, giving up after 15 minutes and trying again next start. The CLI and restore have no window and still run everything inline, `VACUUM` included (`run_schema_migrations`).
+
+**Measured** (`cargo test --lib db_maintenance::bench -- --ignored --nocapture`, crate and SQLite at opt-level 3, NVMe): 20,000 books with 12 kB covers as data URLs, 200 legacy 200 kB book BLOBs, a StarDict dictionary in `blob_store`, 2,000 books flagged `syncedWithoutFile`, 50,000 annotations, 2,000 RSS articles in the legacy blob; 406 MB. Database work in `setup()`:
+
+| Start | Before (cold / warm cache) | After (cold / warm) |
+|---|---|---|
+| First start after upgrading (check + snapshot due, everything to migrate) | 9,618 / 10,269 ms | 2,885 / 1,253 ms |
+| New version, nothing to migrate (check + snapshot due) | 4,331 / 932 ms | 4,013 / 1,314 ms |
+| Everyday start (no check due) | 386 / 127 ms | 4.4 / 1.1 ms |
+
+The background pass took 9–10 s on the upgrade start (mostly the cover conversion) and the deferred `VACUUM` 3.6–4.0 s. What remains on the path when a check is due is the guard itself: `quick_check` (~160 ms here) and above all the snapshot (0.7 s warm, up to ~3 s cold for 406 MB).
 
 ### Backup archive (`.theorem-backup`)
 

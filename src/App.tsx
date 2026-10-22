@@ -20,6 +20,7 @@ import { flushAllPersistence } from "./core/lib/persist-storage";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { subscribeUntilCleanup } from "./core/lib/async-subscription";
 import { bootstrapAutoSync } from "./core/lib/sync-bootstrap";
+import { restoreReaderSession, startReaderSessionTracking } from "./core/lib/reader-session";
 import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
 import { Toaster } from "sonner";
@@ -69,6 +70,7 @@ const FeedsPage = lazy(() =>
 const OPDSBrowserPage = lazy(() =>
     import("./features/catalogs").then((module) => ({ default: module.OPDSBrowserPage })),
 );
+let readerSessionRestoreAttempted = false;
 const DESKTOP_STARTUP_MIN_WIDTH = 1024;
 const DESKTOP_STARTUP_MIN_HEIGHT = 720;
 
@@ -244,6 +246,68 @@ function App() {
     useEffect(() => {
         pruneExpiredTombstones();
     }, []);
+
+    // The native startup maintenance (a background thread) may find files for
+    // books flagged as synced without one; the library loaded the old flag.
+    useEffect(() => {
+        if (!isTauri()) return;
+        let cancelled = false;
+        let unlisten: (() => void) | null = null;
+        const stops: Array<() => void> = [];
+        void (async () => {
+            try {
+                const [{ listen }, healed] = await Promise.all([
+                    import("@tauri-apps/api/event"),
+                    import("./core/lib/healed-books"),
+                ]);
+                const off = await listen<unknown>(healed.HEALED_BOOKS_EVENT, (event) => {
+                    const library = useLibraryStore.getState();
+                    stops.push(healed.applyHealedBooksWhenLoaded(healed.parseHealedBooks(event.payload), {
+                        getBook: (id) => useLibraryStore.getState().getBook(id),
+                        updateBook: library.updateBook,
+                        subscribeBooks: (listener) => useLibraryStore.subscribe((state, previous) => {
+                            if (state.books !== previous.books) listener();
+                        }),
+                    }));
+                });
+                if (cancelled) off();
+                else unlisten = off;
+            } catch (error) {
+                if (import.meta.env.DEV) console.warn("[library] healed-books listener failed", error);
+            }
+        })();
+        return () => {
+            cancelled = true;
+            unlisten?.();
+            for (const stop of stops) stop();
+        };
+    }, []);
+
+    // Phones: reopen the book when Android ended the app in the background
+    // while it was in the reader (see reader-session.ts). Once per page load.
+    useEffect(() => {
+        if (!isTauriMobile() || !storesHydrated || !hasCompletedOnboarding) return;
+        const stopTracking = startReaderSessionTracking({
+            getRoute: () => useUIStore.getState(),
+            subscribeRoute: (listener) => useUIStore.subscribe(listener),
+        });
+        let stopRestore = () => {};
+        if (!readerSessionRestoreAttempted) {
+            readerSessionRestoreAttempted = true;
+            stopRestore = restoreReaderSession({
+                getRoute: () => useUIStore.getState(),
+                openBook: (bookId) => useUIStore.getState().setRoute("reader", bookId),
+                hasBook: (bookId) => Boolean(useLibraryStore.getState().getBook(bookId)),
+                subscribeBooks: (listener) => useLibraryStore.subscribe((state, previous) => {
+                    if (state.books !== previous.books) listener();
+                }),
+            });
+        }
+        return () => {
+            stopRestore();
+            stopTracking();
+        };
+    }, [storesHydrated, hasCompletedOnboarding]);
 
     // Phones: trim memory when the app goes to the background. Desktop does this from Rust when
     // the window loses focus: asking from a page that is being hidden makes WebKit cancel the IPC
