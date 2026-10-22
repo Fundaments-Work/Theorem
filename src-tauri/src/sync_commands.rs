@@ -761,6 +761,21 @@ pub async fn set_device_name(app: tauri::AppHandle, name: String) -> Result<Stri
     Ok(name)
 }
 
+/// Whether a paired device answers now (see `file_transfer::probe_peer`:
+/// names are exchanged, and a device that removed this one is forgotten).
+/// An error means the device removed this one.
+#[tauri::command]
+pub async fn sync_probe_device(
+    app: tauri::AppHandle,
+    peer_device_id: String,
+) -> Result<bool, String> {
+    match crate::file_transfer::probe_peer(&app, &peer_device_id).await {
+        Ok(()) => Ok(true),
+        Err(e) if e == crate::file_transfer::PEER_REMOVED_THIS_DEVICE => Err(e),
+        Err(_) => Ok(false),
+    }
+}
+
 /// The user's answer to a `pairing-confirm-request`.
 #[tauri::command]
 pub async fn respond_pairing_request(

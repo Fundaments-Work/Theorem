@@ -1925,6 +1925,7 @@ pub fn run() {
             sync_commands::get_paired_devices,
             sync_commands::unpair_device,
             sync_commands::set_device_name,
+            sync_commands::sync_probe_device,
             sync_commands::respond_pairing_request,
             sync_commands::close_pairing_qr,
             sync_commands::docs_create_sync_doc,

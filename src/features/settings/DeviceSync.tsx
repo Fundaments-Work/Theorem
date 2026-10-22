@@ -27,8 +27,11 @@ import {
     unpairDevice,
     respondPairingRequest,
     closePairingQr,
+    setDeviceName,
+    probePairedDevice,
 } from "../../core/lib/device-sync";
 import { PairingRequestDialog, type PairingRequest } from "./PairingRequestDialog";
+import { SyncConflictList, useSyncConflicts } from "./SyncConflicts";
 import {
     runDeviceSync,
     ensureResponderSyncReady,
@@ -150,6 +153,9 @@ function ReceiverDot({ active }: { active: boolean }) {
     );
 }
 
+/** How often the Device Sync page checks which paired devices are there. */
+const PRESENCE_CHECK_MS = 20_000;
+
 export function DeviceSyncSection() {
     const [identity, setIdentity] = useState<DeviceIdentityInfo | null>(null);
     const [nodeInfo, setNodeInfo] = useState<{ nodeId: string } | null>(null);
@@ -170,6 +176,7 @@ export function DeviceSyncSection() {
     const [codeToCompare, setCodeToCompare] = useState<string | null>(null);
     // Sync-mesh presence by iroh node id (docs-peer-online / -offline).
     const [peerOnline, setPeerOnline] = useState<Record<string, boolean>>({});
+    const [nameDraft, setNameDraft] = useState<string | null>(null);
     const syncAbortRef = useRef(false);
 
     const syncStatus = useUIStore((state) => state.deviceSyncStatus);
@@ -226,6 +233,41 @@ export function DeviceSyncSection() {
             cancelled = true;
         };
     }, [available, hasPairedDevices]);
+
+    // While this page is open, ask each paired device whether it is there
+    // (presence events update the Online/Offline labels; the devices also
+    // swap names, so a rename shows up here).
+    const pairedIds = useMemo(() => pairedDevices.map((d) => d.deviceId).join("|"), [pairedDevices]);
+    useEffect(() => {
+        if (!available || !isIrohRunning || pairedIds === "") return;
+        let cancelled = false;
+        const probeAll = async () => {
+            for (const deviceId of pairedIds.split("|")) {
+                if (cancelled) return;
+                await probePairedDevice(deviceId).catch(() => {});
+            }
+        };
+        void probeAll();
+        const timer = setInterval(() => void probeAll(), PRESENCE_CHECK_MS);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [available, isIrohRunning, pairedIds]);
+
+    const conflictList = useSyncConflicts(available);
+
+    const handleSaveName = useCallback(async () => {
+        const draft = nameDraft;
+        setNameDraft(null);
+        if (draft === null) return;
+        try {
+            const name = await setDeviceName(draft);
+            setIdentity((current) => (current ? { ...current, deviceName: name } : current));
+        } catch (e: any) {
+            setError(e?.message || String(e));
+        }
+    }, [nameDraft]);
 
     useEffect(() => {
         if (successMessage) {
@@ -285,6 +327,17 @@ export function DeviceSyncSection() {
                 }),
                 listen<{ peer: string }>("docs-peer-offline", (event) => {
                     setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: false }));
+                }),
+                listen<{ peer: string; online: boolean }>("sync-peer-presence", (event) => {
+                    setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: event.payload.online }));
+                }),
+                // A rename on the other device, or a device removed (by the
+                // user, or by the other device unpairing this one).
+                listen("paired-devices-changed", () => {
+                    void getPairedDevices().then(setPairedDevices).catch(() => {});
+                }),
+                listen<{ deviceName: string }>("sync-peer-removed", (event) => {
+                    setError(`${event.payload.deviceName || "A paired device"} removed this device. Pair them again to sync.`);
                 }),
                 listen<{ device_id: string; device_name: string }>("pairing-completed", (event) => {
                     setDeviceSyncStatus("synced", "Device paired!");
@@ -568,13 +621,45 @@ export function DeviceSyncSection() {
                         <div className="flex items-center gap-3">
                             <Monitor className="w-5 h-5 text-[color:var(--color-text-muted)] shrink-0" />
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm text-[color:var(--color-text-primary)] truncate">
-                                    {identity.deviceName || "This Device"}
-                                </p>
+                                {nameDraft === null ? (
+                                    <p className="text-sm text-[color:var(--color-text-primary)] truncate">
+                                        {identity.deviceName || "This Device"}
+                                    </p>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        autoFocus
+                                        aria-label="Device name"
+                                        value={nameDraft}
+                                        maxLength={64}
+                                        onChange={(e) => setNameDraft(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") void handleSaveName();
+                                            if (e.key === "Escape") setNameDraft(null);
+                                        }}
+                                        placeholder="Leave empty for the system name"
+                                        className={cn(
+                                            "w-full px-2 py-1.5 text-sm",
+                                            "bg-[var(--color-surface-muted)] border border-[var(--color-border)]",
+                                            "text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)]",
+                                            "focus:outline-none focus:border-[color:var(--color-accent)]",
+                                        )}
+                                    />
+                                )}
                                 <p className="text-[11px] text-[color:var(--color-text-muted)] font-mono truncate">
                                     {identity.deviceId}
                                 </p>
                             </div>
+                            <button
+                                onClick={() => (nameDraft === null ? setNameDraft(identity.deviceName || "") : void handleSaveName())}
+                                className={cn(
+                                    "shrink-0 px-2 py-1.5 min-h-[2.25rem] text-xs",
+                                    "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)]",
+                                    "transition-colors",
+                                )}
+                            >
+                                {nameDraft === null ? "Rename" : "Save"}
+                            </button>
                         </div>
                     )}
 
@@ -607,6 +692,16 @@ export function DeviceSyncSection() {
 
                 </div>
             </Card>
+
+            {conflictList.conflicts.length > 0 && (
+                <Card label={`Sync conflicts (${conflictList.conflicts.length})`}>
+                    <SyncConflictList
+                        conflicts={conflictList.conflicts}
+                        onRestore={(c) => void conflictList.restore(c)}
+                        onDismiss={(ids) => void conflictList.dismiss(ids)}
+                    />
+                </Card>
+            )}
 
             <Card label="Sync Settings">
                 <div className="p-4">

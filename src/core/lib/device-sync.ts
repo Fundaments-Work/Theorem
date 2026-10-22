@@ -72,9 +72,29 @@ export async function getPairedDevices(): Promise<PairedDevice[]> {
     return raw;
 }
 
+/** Removes a paired device here, and tells it so it removes this one too. */
 export async function unpairDevice(deviceId: string): Promise<void> {
     requireTauri("unpairDevice");
     return invoke("unpair_device", { deviceId });
+}
+
+/**
+ * Renames this device as paired devices see it (they pick the name up on
+ * their next sync). An empty name goes back to the system's. Returns the
+ * name now in use.
+ */
+export async function setDeviceName(name: string): Promise<string> {
+    requireTauri("setDeviceName");
+    return invoke<string>("set_device_name", { name });
+}
+
+/**
+ * Whether a paired device answers now (it also learns this device's name
+ * and tells its own). Rejects when the device has removed this one.
+ */
+export async function probePairedDevice(deviceId: string): Promise<boolean> {
+    requireTauri("probePairedDevice");
+    return invoke<boolean>("sync_probe_device", { peerDeviceId: deviceId });
 }
 
 /** Downloads a book from a peer into this device's book cache; returns where it was saved. */
