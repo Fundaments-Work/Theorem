@@ -17,6 +17,7 @@ pub mod cli_tui;
 pub mod cover_protocol;
 mod database;
 mod db_backup;
+mod db_maintenance;
 mod device_name;
 mod diagnostics;
 pub mod epub_entries;
@@ -1713,9 +1714,19 @@ pub fn run() {
                 std::env::consts::ARCH
             );
             log::info!("[startup] Running database schema migrations...");
-            // Integrity check + rolling snapshot (when due), then migrations;
-            // a damaged database is reported to the frontend, not hidden.
-            db_backup::run_startup_guard(app.handle());
+            // Integrity check + rolling snapshot (when due), then the
+            // migrations the interface needs; a damaged database is reported
+            // to the frontend, not hidden. Repairs and clean-ups that can wait
+            // run on their own thread once the window is up, on a healthy
+            // database only.
+            let setup_started = std::time::Instant::now();
+            if db_backup::run_startup_guard(app.handle()) {
+                db_maintenance::spawn_startup_maintenance(app.handle());
+            }
+            log::info!(
+                "[startup] Database ready in {} ms",
+                setup_started.elapsed().as_millis()
+            );
 
             log::info!("[startup] Initializing device sync");
             match sync_commands::init_sync(app_data_dir, app.handle().clone()) {

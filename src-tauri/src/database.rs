@@ -79,14 +79,45 @@ fn remove_materialized_cache_file(app: &AppHandle, book_id: &str) {
     }
 }
 
+/// Everything: the startup migrations, then the maintenance `setup()` leaves
+/// to a background thread, inline (`VACUUM` included). For the CLI and for
+/// restore, which have no window to keep responsive.
 pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
     let db_path = database_path(app)?;
     let app_data_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    run_schema_migrations_at(&db_path, &app_data_dir)
+}
 
-    let conn = Connection::open(&db_path)
+pub(crate) fn run_schema_migrations_at(db_path: &Path, app_data_dir: &Path) -> Result<(), String> {
+    let conn = open_migration_connection(db_path)?;
+    apply_startup_migrations(&conn)?;
+    crate::db_maintenance::run_maintenance_inline(app_data_dir, &conn);
+    Ok(())
+}
+
+/// What `setup()` runs before the first paint: the schema and the versioned
+/// migrations whose results the interface reads at startup. The rest
+/// (`db_maintenance`) runs on a background thread afterwards.
+pub fn run_startup_migrations(app: &AppHandle) -> Result<(), String> {
+    run_startup_migrations_at(&database_path(app)?)
+}
+
+pub(crate) fn run_startup_migrations_at(db_path: &Path) -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let conn = open_migration_connection(db_path)?;
+    apply_startup_migrations(&conn)?;
+    log::info!(
+        "[database] Startup migrations took {} ms",
+        started.elapsed().as_millis()
+    );
+    Ok(())
+}
+
+fn open_migration_connection(db_path: &Path) -> Result<Connection, String> {
+    let conn = Connection::open(db_path)
         .map_err(|e| format!("Failed to open database for migration: {e}"))?;
     conn.execute_batch(DB_SCHEMA_PERSISTENT_PRAGMAS)
         .map_err(|e| format!("Failed to run schema migrations: {e}"))?;
@@ -94,7 +125,10 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to run schema migrations: {e}"))?;
     conn.execute_batch(DB_PER_CONNECTION_PRAGMAS)
         .map_err(|e| format!("Failed to set connection PRAGMAs: {e}"))?;
+    Ok(conn)
+}
 
+fn apply_startup_migrations(conn: &Connection) -> Result<(), String> {
     let has_data: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM pragma_table_info('covers') WHERE name = 'data'",
@@ -119,70 +153,25 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
             .ok();
     }
 
-    // Covers are stored as raw bytes + MIME type (R6); convert base64 data
-    // URLs left by older versions.
-    match migrate_cover_data_urls(&conn) {
-        Ok(0) => {}
-        Ok(n) => eprintln!("[database] Stored {n} covers as raw bytes"),
-        Err(e) => eprintln!("[database] Cover byte migration failed: {e}"),
-    }
-
-    // Book bytes live in `book-cache/{id}.book`. Legacy installs also stored a
-    // full copy in `books.data`; zero those out (re-materializing the cache file
-    // first when needed) so each book is stored exactly once.
-    let reclaimed_books = reclaim_legacy_book_blobs(&conn, &app_data_dir)?;
-    if reclaimed_books > 0 {
-        eprintln!("[database] Reclaimed legacy book BLOBs for {reclaimed_books} books");
-    }
-
-    // StarDict dictionaries are now loaded directly from disk files via mmap in stardict.rs.
-    // Ensure any unmaterialized dictionary BLOBs are extracted to disk before reclaiming.
-    let reclaimed_dicts = reclaim_legacy_stardict_blobs(&conn, &app_data_dir)?;
-    if reclaimed_dicts > 0 {
-        eprintln!("[database] Reclaimed legacy StarDict BLOBs ({reclaimed_dicts} entries)");
-    }
-
-    // Auto-heal books erroneously marked `syncedWithoutFile: true` whose .book files
-    // are already present on disk in `book-cache/{id}.book` or referenced locally.
-    let healed_books = reconcile_synced_without_file_metadata(&conn, &app_data_dir)?;
-    if healed_books > 0 {
-        eprintln!(
-            "[database] Auto-healed {healed_books} books marked syncedWithoutFile with local files"
-        );
-    }
-
-    // Clean up obsolete legacy directory ~/.local/share/com.lionreader.app and empty books dir
-    cleanup_legacy_directories(&app_data_dir);
-
-    if reclaimed_books > 0 || reclaimed_dicts > 0 {
-        if let Err(e) = conn.execute_batch("VACUUM") {
-            eprintln!("[database] VACUUM after blob reclaim failed: {e}");
-        }
-    }
-
-    run_v153_database_migrations(&conn)
+    run_v153_database_migrations(conn)
         .map_err(|e| format!("Failed to run v1.5.3 migrations: {e}"))?;
 
-    run_v154_database_migrations(&conn)
+    run_v154_database_migrations(conn)
         .map_err(|e| format!("Failed to run v1.5.4 migrations: {e}"))?;
 
-    run_v159_database_migrations(&conn)
+    run_v159_database_migrations(conn)
         .map_err(|e| format!("Failed to run v1.5.9 migrations: {e}"))?;
 
-    match normalize_rss_timestamp_units(&conn) {
+    match normalize_rss_timestamp_units(conn) {
         Ok(0) => {}
         Ok(n) => eprintln!("[database] Converted {n} RSS timestamps from seconds to ms"),
         Err(e) => eprintln!("[database] RSS timestamp repair failed: {e}"),
     }
 
-    if let Err(e) = reconcile_books_fts(&conn) {
-        eprintln!("[database] books_fts reconcile failed: {e}");
-    }
-
     Ok(())
 }
 
-fn reclaim_legacy_stardict_blobs(
+pub(crate) fn reclaim_legacy_stardict_blobs(
     connection: &Connection,
     app_data_dir: &Path,
 ) -> Result<usize, String> {
@@ -213,7 +202,7 @@ fn reclaim_legacy_stardict_blobs(
 
             let ifo_blob: Option<Vec<u8>> = connection
                 .query_row(
-                    "SELECT value FROM blob_store WHERE key = ?1",
+                    "SELECT data FROM blob_store WHERE key = ?1",
                     params![&ifo_key],
                     |row| row.get(0),
                 )
@@ -221,7 +210,7 @@ fn reclaim_legacy_stardict_blobs(
                 .map_err(|e| format!("Failed to read ifo blob: {e}"))?;
             let idx_blob: Option<Vec<u8>> = connection
                 .query_row(
-                    "SELECT value FROM blob_store WHERE key = ?1",
+                    "SELECT data FROM blob_store WHERE key = ?1",
                     params![&idx_key],
                     |row| row.get(0),
                 )
@@ -229,7 +218,7 @@ fn reclaim_legacy_stardict_blobs(
                 .map_err(|e| format!("Failed to read idx blob: {e}"))?;
             let dict_blob: Option<Vec<u8>> = connection
                 .query_row(
-                    "SELECT value FROM blob_store WHERE key = ?1",
+                    "SELECT data FROM blob_store WHERE key = ?1",
                     params![&dict_key],
                     |row| row.get(0),
                 )
@@ -237,7 +226,7 @@ fn reclaim_legacy_stardict_blobs(
                 .map_err(|e| format!("Failed to read dict blob: {e}"))?;
             let syn_blob: Option<Vec<u8>> = connection
                 .query_row(
-                    "SELECT value FROM blob_store WHERE key = ?1",
+                    "SELECT data FROM blob_store WHERE key = ?1",
                     params![&syn_key],
                     |row| row.get(0),
                 )
@@ -254,20 +243,23 @@ fn reclaim_legacy_stardict_blobs(
                 continue;
             }
 
-            if let Err(e) = fs::write(dict_dir.join("dict.ifo"), &ifo) {
-                eprintln!("[database] Failed to write dict.ifo for {dict_id}: {e}");
-                continue;
+            // Lookups may run meanwhile: each file appears whole (written
+            // aside, then renamed), and `dict.ifo` last, so the directory
+            // only counts as a dictionary once every part is in place.
+            if let Some(syn) = syn_blob {
+                let _ = replace_file_atomically(&dict_dir.join("dict.syn"), &syn);
             }
-            if let Err(e) = fs::write(dict_dir.join("dict.idx"), &idx) {
-                eprintln!("[database] Failed to write dict.idx for {dict_id}: {e}");
-                continue;
-            }
-            if let Err(e) = fs::write(dict_dir.join("dict.dict.dz"), &dict) {
+            if let Err(e) = replace_file_atomically(&dict_dir.join("dict.dict.dz"), &dict) {
                 eprintln!("[database] Failed to write dict.dict.dz for {dict_id}: {e}");
                 continue;
             }
-            if let Some(syn) = syn_blob {
-                let _ = fs::write(dict_dir.join("dict.syn"), &syn);
+            if let Err(e) = replace_file_atomically(&dict_dir.join("dict.idx"), &idx) {
+                eprintln!("[database] Failed to write dict.idx for {dict_id}: {e}");
+                continue;
+            }
+            if let Err(e) = replace_file_atomically(&dict_dir.join("dict.ifo"), &ifo) {
+                eprintln!("[database] Failed to write dict.ifo for {dict_id}: {e}");
+                continue;
             }
         }
 
@@ -285,7 +277,7 @@ fn reclaim_legacy_stardict_blobs(
     Ok(reclaimed)
 }
 
-fn reclaim_legacy_book_blobs(
+pub(crate) fn reclaim_legacy_book_blobs(
     connection: &Connection,
     app_data_dir: &Path,
 ) -> Result<usize, String> {
@@ -319,13 +311,18 @@ fn reclaim_legacy_book_blobs(
                 eprintln!("[database] Failed to create cache dir for {id}: {e}");
                 continue;
             }
-            if let Err(e) = fs::write(&cache_path, &blob_data) {
+            // Never replaces a file the app wrote meanwhile (re-import,
+            // opening the book), and a reader never sees a half-written one.
+            if let Err(e) = create_file_if_absent(&cache_path, &blob_data) {
                 eprintln!("[database] Failed to re-materialize cache file for {id}: {e}");
                 continue;
             }
         }
         connection
-            .execute("UPDATE books SET data = X'' WHERE id = ?1", params![id])
+            .execute(
+                "UPDATE books SET data = X'' WHERE id = ?1 AND length(data) > 0",
+                params![id],
+            )
             .map_err(|e| format!("Failed to zero legacy blob for {id}: {e}"))?;
         reclaimed += 1;
     }
@@ -333,7 +330,56 @@ fn reclaim_legacy_book_blobs(
     Ok(reclaimed)
 }
 
-fn cleanup_legacy_directories(app_data_dir: &Path) {
+/// Write `bytes` to a temporary file beside `path`, then rename it over
+/// `path`: a reader sees the old file or the whole new one, never part.
+pub(crate) fn replace_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = temporary_sibling(path);
+    fs::write(&tmp, bytes)?;
+    fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
+}
+
+/// Write `bytes` to `path` only if nothing is there: written to a temporary
+/// file first, then linked into place, which fails rather than replaces.
+/// Returns whether the file was created.
+pub(crate) fn create_file_if_absent(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
+    let tmp = temporary_sibling(path);
+    fs::write(&tmp, bytes)?;
+    place_if_absent(&tmp, path)
+}
+
+/// `create_file_if_absent` with the bytes of `source`, streamed.
+pub(crate) fn copy_file_if_absent(source: &Path, path: &Path) -> std::io::Result<bool> {
+    let tmp = temporary_sibling(path);
+    if let Err(e) = fs::copy(source, &tmp) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    place_if_absent(&tmp, path)
+}
+
+fn temporary_sibling(path: &Path) -> PathBuf {
+    let mut tmp_name = path.as_os_str().to_owned();
+    tmp_name.push(format!(".tmp-{}", std::process::id()));
+    PathBuf::from(tmp_name)
+}
+
+/// Move the finished file `tmp` to `path` unless something is there already;
+/// `tmp` is gone afterwards either way.
+fn place_if_absent(tmp: &Path, path: &Path) -> std::io::Result<bool> {
+    let placed = match fs::hard_link(tmp, path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        // No hard links on this file system: rename, still never over a file.
+        Err(_) if !path.exists() => fs::rename(tmp, path).map(|()| true),
+        Err(_) => Ok(false),
+    };
+    let _ = fs::remove_file(tmp);
+    placed
+}
+
+pub(crate) fn cleanup_legacy_directories(app_data_dir: &Path) {
     if let Some(parent) = app_data_dir.parent() {
         let legacy_lion_dir = parent.join("com.lionreader.app");
         if legacy_lion_dir.exists() {
@@ -356,10 +402,10 @@ fn cleanup_legacy_directories(app_data_dir: &Path) {
     }
 }
 
-fn reconcile_synced_without_file_metadata(
+pub(crate) fn reconcile_synced_without_file_metadata(
     connection: &Connection,
     app_data_dir: &Path,
-) -> Result<usize, String> {
+) -> Result<Vec<HealedBook>, String> {
     let table_exists: bool = connection
         .query_row(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'book_metadata'",
@@ -368,7 +414,7 @@ fn reconcile_synced_without_file_metadata(
         )
         .unwrap_or(false);
     if !table_exists {
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
     let mut statement = connection
@@ -393,7 +439,10 @@ fn reconcile_synced_without_file_metadata(
             if let Some(file_path) = val.get("filePath").and_then(|v| v.as_str()) {
                 let p = Path::new(file_path);
                 if p.is_file() {
-                    let _ = std::fs::copy(p, &book_path);
+                    if let Some(cache_dir) = book_path.parent() {
+                        let _ = fs::create_dir_all(cache_dir);
+                    }
+                    let _ = copy_file_if_absent(p, &book_path);
                     if book_path.is_file() {
                         source_file = Some(book_path.clone());
                     }
@@ -408,21 +457,59 @@ fn reconcile_synced_without_file_metadata(
                     val["storagePath"] =
                         serde_json::Value::String(book_path.to_string_lossy().into_owned());
                     if let Ok(updated_json) = serde_json::to_string(&val) {
-                        updates.push((book_id, updated_json));
+                        updates.push((book_id, json_str, updated_json));
                     }
                 }
             }
         }
     }
+    drop(statement);
 
-    let count = updates.len();
-    for (book_id, updated_json) in updates {
-        let _ = connection.execute(
-            "UPDATE book_metadata SET metadata_json = ?1 WHERE book_id = ?2",
-            params![updated_json, book_id],
-        );
+    let mut healed = Vec::new();
+    for chunk in updates.chunks(64) {
+        let tx = connection
+            .unchecked_transaction()
+            .map_err(|e| format!("Failed to start heal transaction: {e}"))?;
+        let mut written = Vec::new();
+        for (book_id, read_json, updated_json) in chunk {
+            if write_healed_metadata(&tx, book_id, read_json, updated_json).unwrap_or(false) {
+                written.push(HealedBook {
+                    id: book_id.clone(),
+                    storage_path: materialized_book_path_in_dir(app_data_dir, book_id)
+                        .to_string_lossy()
+                        .into_owned(),
+                });
+            }
+        }
+        tx.commit()
+            .map_err(|e| format!("Failed to commit healed metadata: {e}"))?;
+        healed.extend(written);
     }
-    Ok(count)
+    Ok(healed)
+}
+
+/// A book whose `syncedWithoutFile` flag the heal pass cleared; sent to the
+/// interface (`library-books-healed`), which loaded the library before.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HealedBook {
+    pub id: String,
+    pub storage_path: String,
+}
+
+/// Replace a book's metadata with its healed form, unless the app changed it
+/// since `read_json` was read (the heal runs alongside the app).
+pub(crate) fn write_healed_metadata(
+    connection: &Connection,
+    book_id: &str,
+    read_json: &str,
+    updated_json: &str,
+) -> rusqlite::Result<bool> {
+    let changed = connection.execute(
+        "UPDATE book_metadata SET metadata_json = ?1 WHERE book_id = ?2 AND metadata_json = ?3",
+        params![updated_json, book_id, read_json],
+    )?;
+    Ok(changed > 0)
 }
 
 #[cfg(target_os = "android")]
@@ -822,30 +909,57 @@ pub fn sqlite_save_cover_image_inner(
 
 /// Convert covers still stored as data URLs to bytes + MIME. Keeps
 /// `updated_at` (cover cache versions). Returns the number converted.
+///
+/// Runs in the background while the app uses the database, so it works in
+/// short transactions of a few covers (never holding the write lock long,
+/// never loading every cover into memory) and only converts a row still
+/// holding the URL it read.
 pub(crate) fn migrate_cover_data_urls(connection: &Connection) -> rusqlite::Result<usize> {
-    let pending: Vec<(String, String)> = {
-        let mut stmt = connection.prepare(
-            "SELECT book_id, data_url FROM covers WHERE data IS NULL AND data_url != ''",
-        )?;
-        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-        rows.collect::<rusqlite::Result<_>>()?
-    };
-    if pending.is_empty() {
-        return Ok(0);
-    }
-    let tx = connection.unchecked_transaction()?;
+    const CHUNK: i64 = 64;
     let mut converted = 0;
-    for (book_id, data_url) in pending {
-        if let Some((mime, bytes)) = crate::cover_protocol::parse_data_url(&data_url) {
-            tx.execute(
-                "UPDATE covers SET data = ?2, mime = ?3, data_url = '' WHERE book_id = ?1",
-                params![book_id, bytes, mime],
+    let mut after_rowid = i64::MIN;
+    loop {
+        let pending: Vec<(i64, String, String)> = {
+            let mut stmt = connection.prepare(
+                "SELECT rowid, book_id, data_url FROM covers
+                 WHERE data IS NULL AND data_url != '' AND rowid > ?1
+                 ORDER BY rowid LIMIT ?2",
             )?;
-            converted += 1;
+            let rows = stmt.query_map(params![after_rowid, CHUNK], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let Some((last_rowid, _, _)) = pending.last() else {
+            return Ok(converted);
+        };
+        after_rowid = *last_rowid;
+        let tx = connection.unchecked_transaction()?;
+        for (_, book_id, data_url) in &pending {
+            if convert_cover_data_url(&tx, book_id, data_url)? {
+                converted += 1;
+            }
         }
+        tx.commit()?;
     }
-    tx.commit()?;
-    Ok(converted)
+}
+
+/// Store one cover's data URL as bytes + MIME, unless the row changed since
+/// `data_url` was read (a cover saved meanwhile) or the URL is unparsable.
+pub(crate) fn convert_cover_data_url(
+    connection: &Connection,
+    book_id: &str,
+    data_url: &str,
+) -> rusqlite::Result<bool> {
+    let Some((mime, bytes)) = crate::cover_protocol::parse_data_url(data_url) else {
+        return Ok(false);
+    };
+    let changed = connection.execute(
+        "UPDATE covers SET data = ?2, mime = ?3, data_url = ''
+         WHERE book_id = ?1 AND data IS NULL AND data_url = ?4",
+        params![book_id, bytes, mime, data_url],
+    )?;
+    Ok(changed > 0)
 }
 
 /// Cover bytes and MIME type, for the cover protocol (no base64 round trip).
@@ -3390,9 +3504,15 @@ const FTS_HASH_KV_KEY: &str = "fts:booksHash";
 /// returns), never the `zustand:theorem-library` KV blob: on Tauri that blob
 /// has persisted `state.books` as an empty array since library store v8, and
 /// reconciling against it wiped the whole index at every startup.
+///
+/// Runs in the background alongside the app, so it reads and writes in one
+/// `IMMEDIATE` transaction: a book added or deleted meanwhile can never be
+/// dropped from, or resurrected in, the index from a stale read.
 pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<usize> {
+    let tx =
+        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)?;
     let rows: Vec<(String, String)> = {
-        let mut stmt = connection.prepare("SELECT book_id, metadata_json FROM book_metadata")?;
+        let mut stmt = tx.prepare("SELECT book_id, metadata_json FROM book_metadata")?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
@@ -3424,7 +3544,7 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
 
     let mut existing: HashMap<String, (String, String)> = HashMap::new();
     {
-        let mut stmt = connection.prepare("SELECT id, title, author FROM books_fts")?;
+        let mut stmt = tx.prepare("SELECT id, title, author FROM books_fts")?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -3440,7 +3560,6 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
         }
     }
 
-    let tx = connection.unchecked_transaction()?;
     let mut changed = 0;
     for id in existing.keys() {
         if !wanted.contains_key(id) && !unparsable.contains(id) {

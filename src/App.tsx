@@ -247,6 +247,42 @@ function App() {
         pruneExpiredTombstones();
     }, []);
 
+    // The native startup maintenance (a background thread) may find files for
+    // books flagged as synced without one; the library loaded the old flag.
+    useEffect(() => {
+        if (!isTauri()) return;
+        let cancelled = false;
+        let unlisten: (() => void) | null = null;
+        const stops: Array<() => void> = [];
+        void (async () => {
+            try {
+                const [{ listen }, healed] = await Promise.all([
+                    import("@tauri-apps/api/event"),
+                    import("./core/lib/healed-books"),
+                ]);
+                const off = await listen<unknown>(healed.HEALED_BOOKS_EVENT, (event) => {
+                    const library = useLibraryStore.getState();
+                    stops.push(healed.applyHealedBooksWhenLoaded(healed.parseHealedBooks(event.payload), {
+                        getBook: (id) => useLibraryStore.getState().getBook(id),
+                        updateBook: library.updateBook,
+                        subscribeBooks: (listener) => useLibraryStore.subscribe((state, previous) => {
+                            if (state.books !== previous.books) listener();
+                        }),
+                    }));
+                });
+                if (cancelled) off();
+                else unlisten = off;
+            } catch (error) {
+                if (import.meta.env.DEV) console.warn("[library] healed-books listener failed", error);
+            }
+        })();
+        return () => {
+            cancelled = true;
+            unlisten?.();
+            for (const stop of stops) stop();
+        };
+    }, []);
+
     // Phones: reopen the book when Android ended the app in the background
     // while it was in the reader (see reader-session.ts). Once per page load.
     useEffect(() => {
