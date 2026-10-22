@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.result.ActivityResult
@@ -20,10 +21,8 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
-import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -76,6 +75,10 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
     ".pdf"
   )
   private val scanExecutor = Executors.newSingleThreadExecutor()
+
+  private companion object {
+    const val MAX_SCAN_DEPTH = 64
+  }
 
   @Command
   fun pickFolder(invoke: Invoke) {
@@ -142,10 +145,13 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
           return@execute
         }
 
-        val files = collectBookUris(root, args.recursive != false)
+        val issues = ArrayList<JSObject>()
+        val files = collectBooks(treeUri, root.name ?: "Imported folder", args.recursive != false, issues)
 
         val result = JSObject()
         result.put("files", JSArray.from(files.toTypedArray()))
+        result.put("issues", JSArray.from(issues.toTypedArray()))
+        result.put("cancelled", false)
         invoke.resolve(result)
       } catch (error: Exception) {
         invoke.reject(error.message ?: "Failed to scan folder")
@@ -153,65 +159,101 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  private fun collectBookUris(root: DocumentFile, recursive: Boolean): List<JSObject> {
-    val results = Collections.synchronizedList(ArrayList<JSObject>())
+  /**
+   * List the books below a tree URI with one provider query per folder.
+   * DocumentFile asks the provider again for every name, type and size,
+   * which made large folders take minutes; this reads them all at once.
+   * Folders that cannot be read are reported instead of skipped silently.
+   */
+  private fun collectBooks(
+    treeUri: Uri,
+    rootName: String,
+    recursive: Boolean,
+    issues: MutableList<JSObject>
+  ): List<JSObject> {
+    val resolver = activity.contentResolver
+    val results = ArrayList<JSObject>()
+    val projection = arrayOf(
+      DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+      DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+      DocumentsContract.Document.COLUMN_MIME_TYPE,
+      DocumentsContract.Document.COLUMN_SIZE,
+      DocumentsContract.Document.COLUMN_LAST_MODIFIED
+    )
+    val visited = HashSet<String>()
+    val pending = ArrayDeque<Triple<String, String, Int>>()
+    pending.addLast(Triple(DocumentsContract.getTreeDocumentId(treeUri), "", 0))
+    var depthReported = false
 
-    fun scanDirectory(dir: DocumentFile, relativeDirectory: String) {
-      val entries = try {
-        dir.listFiles()
-      } catch (_: Exception) {
-        return
-      }
-
-      val subdirs = ArrayList<DocumentFile>()
-
-      for (entry in entries) {
-        if (entry.isDirectory) {
-          if (recursive) {
-            subdirs.add(entry)
-          }
-          continue
-        }
-
-        if (entry.isFile && isSupportedBookFile(entry)) {
-          val name = entry.name ?: continue
-          val file = JSObject()
-          file.put("path", entry.uri.toString())
-          file.put("relativePath", relativeDirectory + name)
-          file.put("rootName", root.name ?: "Imported folder")
-          results.add(file)
-        }
-      }
-
-      if (subdirs.isNotEmpty() && recursive) {
-        runBlocking {
-          subdirs.map { subdir ->
-            async(Dispatchers.IO) {
-              subdir.name?.let { scanDirectory(subdir, relativeDirectory + it + "/") }
-            }
-          }.awaitAll()
-        }
-      }
+    fun issue(relativeDir: String, reason: String) {
+      val entry = JSObject()
+      entry.put("path", if (relativeDir.isEmpty()) rootName else "$rootName/${relativeDir.trimEnd('/')}")
+      entry.put("reason", reason)
+      issues.add(entry)
     }
 
-    scanDirectory(root, "")
+    while (pending.isNotEmpty()) {
+      val (documentId, relativeDir, depth) = pending.removeLast()
+      if (!visited.add(documentId)) continue
+      val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
+      try {
+        val cursor = resolver.query(childrenUri, projection, null, null, null)
+        if (cursor == null) {
+          issue(relativeDir, "This folder could not be read")
+          continue
+        }
+        cursor.use { rows ->
+          while (rows.moveToNext()) {
+            val id = rows.getString(0) ?: continue
+            val name = rows.getString(1) ?: continue
+            val mimeType = rows.getString(2) ?: ""
+            // Hidden folders and files (.Trash, ._resource forks) are never books.
+            if (name.startsWith(".")) continue
+            if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+              if (!recursive) continue
+              if (depth + 1 >= MAX_SCAN_DEPTH) {
+                if (!depthReported) {
+                  depthReported = true
+                  issue(relativeDir + name, "Folders nested deeper than $MAX_SCAN_DEPTH levels were skipped")
+                }
+                continue
+              }
+              pending.addLast(Triple(id, "$relativeDir$name/", depth + 1))
+              continue
+            }
+            if (!isSupportedBook(name, mimeType)) continue
+            val file = JSObject()
+            file.put("path", DocumentsContract.buildDocumentUriUsingTree(treeUri, id).toString())
+            file.put("relativePath", relativeDir + name)
+            file.put("rootName", rootName)
+            if (!rows.isNull(3)) file.put("size", rows.getLong(3))
+            if (!rows.isNull(4)) file.put("modifiedMs", rows.getLong(4))
+            results.add(file)
+          }
+        }
+      } catch (error: Exception) {
+        issue(relativeDir, error.message ?: "This folder could not be read")
+      }
+    }
+    results.sortBy { it.getString("relativePath") }
     return results
   }
 
-  private fun isSupportedBookFile(entry: DocumentFile): Boolean {
-    val name = entry.name?.lowercase(Locale.ROOT)
-    if (name != null && supportedSuffixes.any { suffix -> name.endsWith(suffix) }) {
+  private fun isSupportedBook(name: String, mimeType: String): Boolean {
+    val lower = name.lowercase(Locale.ROOT)
+    if (supportedSuffixes.any { suffix -> lower.endsWith(suffix) }) {
       return true
     }
-
-    val mimeType = entry.type?.lowercase(Locale.ROOT) ?: return false
-    return mimeType == "application/epub+zip" ||
-      mimeType == "application/x-mobipocket-ebook" ||
-      mimeType == "application/vnd.amazon.ebook" ||
-      mimeType == "application/vnd.amazon.mobi8-ebook" ||
-      mimeType == "application/x-fictionbook+xml" ||
-      mimeType == "application/vnd.comicbook+zip" ||
-      mimeType == "application/pdf"
+    return when (mimeType.lowercase(Locale.ROOT)) {
+      "application/epub+zip",
+      "application/x-mobipocket-ebook",
+      "application/vnd.amazon.ebook",
+      "application/vnd.amazon.mobi8-ebook",
+      "application/x-fictionbook+xml",
+      "application/vnd.comicbook+zip",
+      "application/pdf" -> true
+      else -> false
+    }
   }
 
   @Command
@@ -502,8 +544,10 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
         }
 
         // Sanitize filename to avoid path traversal
+        // Unique per call: two books with the same name never share a file.
+        // The importer deletes it once the book is in the library.
         val safeName = fileName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-        val outFile = File(importDir, safeName)
+        val outFile = File(importDir, "${java.util.UUID.randomUUID()}-$safeName")
 
         inputStream.use { input ->
           FileOutputStream(outFile).use { output ->
