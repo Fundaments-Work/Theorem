@@ -993,3 +993,28 @@ fn opds_download_imports_books_and_refuses_web_pages() {
     let list = sb.run(&["--json", "library", "list"]);
     assert_eq!(json(&list).as_array().unwrap().len(), 1);
 }
+
+// ── A11: stats in the units the app uses ────────────────────────────────────
+
+#[test]
+fn stats_show_minutes_as_the_app_counts_them() {
+    let sb = Sandbox::new();
+    // A fresh library has no statistics yet: zeros, not an error.
+    let empty = sb.run(&["stats"]);
+    assert_ok(&empty);
+    assert!(stdout(&empty).contains("0 min"), "{}", stdout(&empty));
+
+    sb.db()
+        .execute(
+            "INSERT OR REPLACE INTO kv_store(key, value) VALUES('zustand:theorem-settings', ?1)",
+            [r#"{"state":{"stats":{"totalReadingTime":125,"currentStreak":1,"longestStreak":4,"booksCompleted":2,"dailyGoal":30}},"version":1}"#],
+        )
+        .unwrap();
+    let out = sb.run(&["stats"]);
+    assert_ok(&out);
+    let text = stdout(&out);
+    assert!(text.contains("total reading time: 2 h 05 min"), "{text}");
+    assert!(text.contains("current streak: 1 day\n"), "{text}");
+    assert!(text.contains("longest streak: 4 days"), "{text}");
+    assert!(text.contains("daily goal: 30 min a day"), "{text}");
+}

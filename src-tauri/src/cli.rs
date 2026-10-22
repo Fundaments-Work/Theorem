@@ -3010,59 +3010,70 @@ fn run_storage(output: &Output, ctx: &Ctx, command: StorageCommand) -> i32 {
     }
 }
 
+/// Minutes as "2 h 05 min" / "45 min".
+fn format_minutes(minutes: f64) -> String {
+    let total = if minutes.is_finite() && minutes > 0.0 {
+        minutes.round() as u64
+    } else {
+        0
+    };
+    if total >= 60 {
+        format!("{} h {:02} min", total / 60, total % 60)
+    } else {
+        format!("{total} min")
+    }
+}
+
+fn plural(count: i64, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 fn run_stats(output: &Output, ctx: &Ctx) -> i32 {
     let raw = match ctx.kv_get("zustand:theorem-settings") {
         Ok(raw) => raw,
         Err(e) => return output.error(&e),
     };
-    let stats = raw
-        .as_deref()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
-        .and_then(|envelope| envelope.get("state")?.get("stats").cloned());
-
-    let Some(stats) = stats else {
-        return output.error("no reading statistics found");
+    let stats = match raw.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+        None => None,
+        Some(Ok(envelope)) => envelope.get("state").and_then(|s| s.get("stats")).cloned(),
+        Some(Err(e)) => return output.error(&format!("Settings store is malformed: {e}")),
+    };
+    // Nothing read yet is not an error: the app starts from zero too.
+    let stats = match stats {
+        Some(stats) if stats.is_object() => stats,
+        None | Some(serde_json::Value::Null) => serde_json::json!({}),
+        Some(_) => return output.error("Settings store is malformed: \"stats\" is not an object"),
     };
     if output.json {
         return output.print_json(&stats);
     }
+    let number = |key: &str| stats.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let count = |key: &str| number(key).max(0.0).round() as i64;
+    // The app counts reading time and the daily goal in minutes.
     println!(
-        "  {}: {} min",
+        "  {}: {}",
         output.dim("total reading time"),
-        stats
-            .get("totalReadingTime")
-            .and_then(|v| v.as_f64())
-            .map(|m| (m / 60.0).round())
-            .unwrap_or(0.0)
+        format_minutes(number("totalReadingTime"))
     );
     println!(
         "  {}: {}",
         output.dim("current streak"),
-        stats
-            .get("currentStreak")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0)
+        plural(count("currentStreak"), "day", "days")
     );
     println!(
         "  {}: {}",
         output.dim("longest streak"),
-        stats
-            .get("longestStreak")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0)
+        plural(count("longestStreak"), "day", "days")
     );
     println!(
         "  {}: {}",
         output.dim("books completed"),
-        stats
-            .get("booksCompleted")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0)
+        count("booksCompleted")
     );
     println!(
-        "  {}: {}",
+        "  {}: {} a day",
         output.dim("daily goal"),
-        stats.get("dailyGoal").and_then(|v| v.as_i64()).unwrap_or(0)
+        format_minutes(number("dailyGoal"))
     );
     0
 }
@@ -3454,5 +3465,18 @@ mod tests {
         assert!(!launches_gui(&args(&["--verbose"])));
         assert!(!launches_gui(&args(&["/no/such/book.epub"])));
         assert!(!launches_gui(&args(&[&book, "--json"])));
+    }
+
+    #[test]
+    fn reading_time_is_shown_in_hours_and_minutes() {
+        // The app stores minutes.
+        assert_eq!(format_minutes(0.0), "0 min");
+        assert_eq!(format_minutes(45.4), "45 min");
+        assert_eq!(format_minutes(60.0), "1 h 00 min");
+        assert_eq!(format_minutes(725.0), "12 h 05 min");
+        assert_eq!(format_minutes(-3.0), "0 min");
+        assert_eq!(format_minutes(f64::NAN), "0 min");
+        assert_eq!(plural(1, "day", "days"), "1 day");
+        assert_eq!(plural(0, "day", "days"), "0 days");
     }
 }
