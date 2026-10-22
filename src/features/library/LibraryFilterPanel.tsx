@@ -30,7 +30,7 @@ const SORT_OPTIONS: ReadonlyArray<{ id: LibrarySortBy; label: string }> = [
 
 const STATUS_OPTIONS: ReadonlyArray<{ id: LibraryStatusFilter; label: string }> = [
     { id: "all", label: "All" },
-    { id: "unread", label: "Not started" },
+    { id: "unread", label: "Unread" },
     { id: "reading", label: "Reading" },
     { id: "completed", label: "Finished" },
 ];
@@ -58,14 +58,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     );
 }
 
-/** Sort and filter controls for the Library, shared by the phone sheet and the desktop popover. */
+/**
+ * Sort and filter controls for the Library, shared by the phone sheet and the desktop popover.
+ * Layout as it always was: Sort as a 2x2 grid, Show as one row, Order and Only side by side.
+ */
 export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
     const unselected = props.variant === "sheet" ? FILTER_CHIP_UNSELECTED : FILTER_CHIP_UNSELECTED_ON_SURFACE;
     const chip = (selected: boolean) =>
-        cn("px-2.5 py-2 text-xs border transition-colors text-left", selected ? FILTER_CHIP_SELECTED : unselected);
+        cn("px-1 py-2 text-xs whitespace-nowrap border transition-colors", selected ? FILTER_CHIP_SELECTED : unselected);
+    const divider = props.variant === "sheet" ? "divide-y" : "divide-y-2";
 
     return (
-        <div className="divide-y divide-[var(--color-border)]">
+        <div className={cn("grid grid-cols-1", divider, "divide-[var(--color-border)]")}>
             <Section title="Sort by">
                 <div className="grid grid-cols-2 gap-1">
                     {SORT_OPTIONS.map((option) => (
@@ -81,23 +85,8 @@ export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
                     ))}
                 </div>
             </Section>
-            <Section title="Order">
-                <div className="grid grid-cols-2 gap-1">
-                    {orderOptions(props.sortBy).map((option) => (
-                        <button
-                            key={option.id}
-                            type="button"
-                            aria-pressed={props.sortOrder === option.id}
-                            onClick={() => props.onSortOrder(option.id)}
-                            className={chip(props.sortOrder === option.id)}
-                        >
-                            {option.label}
-                        </button>
-                    ))}
-                </div>
-            </Section>
             <Section title="Show">
-                <div className="grid grid-cols-2 gap-1">
+                <div className="grid grid-cols-4 gap-1">
                     {STATUS_OPTIONS.map((option) => (
                         <button
                             key={option.id}
@@ -111,26 +100,43 @@ export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
                     ))}
                 </div>
             </Section>
-            <Section title="Only">
-                <div className="grid grid-cols-2 gap-1">
-                    <button
-                        type="button"
-                        aria-pressed={props.favoritesOnly}
-                        onClick={() => props.onFavoritesOnly(!props.favoritesOnly)}
-                        className={chip(props.favoritesOnly)}
-                    >
-                        Favorites
-                    </button>
-                    <button
-                        type="button"
-                        aria-pressed={props.unshelvedOnly}
-                        onClick={() => props.onUnshelvedOnly(!props.unshelvedOnly)}
-                        className={chip(props.unshelvedOnly)}
-                    >
-                        Not on a shelf
-                    </button>
-                </div>
-            </Section>
+            <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
+                <Section title="Order">
+                    <div className="flex flex-col gap-1">
+                        {orderOptions(props.sortBy).map((option) => (
+                            <button
+                                key={option.id}
+                                type="button"
+                                aria-pressed={props.sortOrder === option.id}
+                                onClick={() => props.onSortOrder(option.id)}
+                                className={chip(props.sortOrder === option.id)}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                </Section>
+                <Section title="Only">
+                    <div className="flex flex-col gap-1">
+                        <button
+                            type="button"
+                            aria-pressed={props.favoritesOnly}
+                            onClick={() => props.onFavoritesOnly(!props.favoritesOnly)}
+                            className={chip(props.favoritesOnly)}
+                        >
+                            Favorites
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={props.unshelvedOnly}
+                            onClick={() => props.onUnshelvedOnly(!props.unshelvedOnly)}
+                            className={chip(props.unshelvedOnly)}
+                        >
+                            Not on a shelf
+                        </button>
+                    </div>
+                </Section>
+            </div>
         </div>
     );
 }

@@ -2,7 +2,7 @@
 /**
  * The Library's sort and filter panel speaks the reader's language: order
  * reads "A to Z" or "Newest first" depending on what is sorted, statuses are
- * "Not started / Reading / Finished", and one panel serves the phone sheet and
+ * "Unread / Reading / Finished", and one panel serves the phone sheet and
  * the desktop popover.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -57,7 +57,7 @@ describe("library filter panel", () => {
         render();
         const all = labels();
         expect(all).toEqual(expect.arrayContaining(["Title", "Author", "Date added", "Last read"]));
-        expect(all).toEqual(expect.arrayContaining(["All", "Not started", "Reading", "Finished"]));
+        expect(all).toEqual(expect.arrayContaining(["All", "Unread", "Reading", "Finished"]));
         expect(all).toEqual(expect.arrayContaining(["Favorites", "Not on a shelf"]));
         expect(all).not.toContain("ASC");
         expect(all).not.toContain("DESC");
@@ -78,7 +78,7 @@ describe("library filter panel", () => {
         expect(props.onSortOrder).toHaveBeenCalledWith("desc");
         act(() => button("Date added").click());
         expect(props.onSortBy).toHaveBeenCalledWith("dateAdded");
-        act(() => button("Not started").click());
+        act(() => button("Unread").click());
         expect(props.onStatusFilter).toHaveBeenCalledWith("unread");
         act(() => button("Finished").click());
         expect(props.onStatusFilter).toHaveBeenCalledWith("completed");
