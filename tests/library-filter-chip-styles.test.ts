@@ -15,6 +15,8 @@ import { resolve } from "path";
 
 const chips = readFileSync(resolve("src/ui/filter-chips.ts"), "utf-8");
 const library = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
+// Both Library panels (phone sheet and desktop popover) render this one component.
+const panel = readFileSync(resolve("src/features/library/LibraryFilterPanel.tsx"), "utf-8");
 const opds = readFileSync(resolve("src/features/catalogs/opds/OpdsFacetBar.tsx"), "utf-8");
 
 describe("filter panel chip styles are shared", () => {
@@ -57,6 +59,7 @@ describe("filter panel chip styles are shared", () => {
         // Re-declaring them locally is how the drift started.
         for (const [name, source] of [
             ["Library.tsx", library],
+            ["LibraryFilterPanel.tsx", panel],
             ["OPDSBrowser.tsx", opds],
         ] as const) {
             expect(source, `${name} must import, not redefine`).not.toMatch(
@@ -67,20 +70,22 @@ describe("filter panel chip styles are shared", () => {
 
     it("no chip button still inlines its own chip classes", () => {
         // Any remaining copy-pasted chip literal is drift waiting to happen.
-        const inlineChips = library.match(
-            /className="[^"]*hover:border-\[var\(--color-border\)\][^"]*"/g,
-        ) ?? [];
-        expect(inlineChips).toHaveLength(0);
+        for (const source of [library, panel]) {
+            const inlineChips = source.match(
+                /className="[^"]*hover:border-\[var\(--color-border\)\][^"]*"/g,
+            ) ?? [];
+            expect(inlineChips).toHaveLength(0);
+        }
     });
 
     it("every Library section uses the shared constants", () => {
-        // Sort, Status, Order and Quick across both panels.
-        expect(library).toContain("settings.librarySortOrder === id ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED");
-        expect(library).toContain("showFavoritesOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED");
-        expect(library).toContain("showUnshelvedOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED");
-        // Mobile "Recent" and desktop "Recent".
-        expect(library.match(/FILTER_CHIP_UNSELECTED\)/g)?.length).toBeGreaterThanOrEqual(1);
-        expect(library.match(/FILTER_CHIP_UNSELECTED_ON_SURFACE\)/g)?.length).toBeGreaterThanOrEqual(1);
+        // Sort, Order, Show and Only go through one chip helper, on both panels.
+        expect(panel).toContain('from "../../ui/filter-chips"');
+        expect(panel).toContain('props.variant === "sheet" ? FILTER_CHIP_UNSELECTED : FILTER_CHIP_UNSELECTED_ON_SURFACE');
+        expect(panel).toContain("selected ? FILTER_CHIP_SELECTED : unselected");
+        expect(panel.match(/className=\{chip\(/g)?.length).toBeGreaterThanOrEqual(5);
+        expect(library).toContain('variant="sheet"');
+        expect(library).toContain('variant="popover"');
     });
 
     it("the OPDS catalog browser uses the same constants", () => {

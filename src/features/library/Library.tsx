@@ -4,11 +4,7 @@ import { useSmartShelves } from "../../core/lib/useSmartShelves";
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
-import {
-    FILTER_CHIP_SELECTED,
-    FILTER_CHIP_UNSELECTED,
-    FILTER_CHIP_UNSELECTED_ON_SURFACE,
-} from "../../ui/filter-chips";
+import { FILTER_CHIP_SELECTED } from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
 import { sanitizeHtml } from "../../core/lib/sanitize";
 import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
@@ -18,6 +14,7 @@ import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
 import { useLibraryStore, useUIStore, useSettingsStore, useRssStore } from "../../core/store";
 import { resolveAnnotationSource, navigateToAnnotationSource } from "../../core/lib/annotation-source";
+import { LibraryFilterPanel } from "./LibraryFilterPanel";
 import type { Book, BookAudioTrackFormat, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
@@ -2133,6 +2130,26 @@ export function LibraryPage() {
         onClose={() => setShowFolderImport(false)}
         onContinue={(preserve) => { setShowFolderImport(false); void handleScanFolder(preserve); }} />;
 
+    const filterPanelProps = {
+        sortBy: settings.librarySortBy,
+        sortOrder: settings.librarySortOrder,
+        statusFilter,
+        favoritesOnly: showFavoritesOnly,
+        unshelvedOnly: showUnshelvedOnly,
+        onSortBy: (sortBy: LibrarySortBy) => updateSettings({ librarySortBy: sortBy }),
+        onSortOrder: (order: LibrarySortOrder) => updateSettings({ librarySortOrder: order }),
+        onStatusFilter: setStatusFilter,
+        // Favorites and "not on a shelf" are alternatives, not a combination.
+        onFavoritesOnly: (on: boolean) => {
+            setShowFavoritesOnly(on);
+            if (on) setShowUnshelvedOnly(false);
+        },
+        onUnshelvedOnly: (on: boolean) => {
+            setShowUnshelvedOnly(on);
+            if (on) setShowFavoritesOnly(false);
+        },
+    };
+
     if (!smartShelvesReady && (selectedShelf?.smartRules || showUnshelvedOnly)) {
         return <div role={smartShelvesError ? "alert" : "status"} className="p-6">{smartShelvesError ?? "Updating smart shelves…"}</div>;
     }
@@ -2357,118 +2374,14 @@ export function LibraryPage() {
                 <div className="flex min-h-0 flex-1 flex-col w-full">
                     
                     <div className={cn(
-                        "md:hidden overflow-hidden transition-colors duration-300",
+                        "md:hidden shrink-0 overflow-hidden transition-colors duration-300",
                         showFilterDropdown ? "max-h-[800px] mb-8 opacity-100" : "max-h-0 opacity-0 mb-0"
                     )}>
                         <div className="w-full border-t-2 border-b-2 border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-                            <div className="grid grid-cols-1 divide-y divide-[var(--color-border)]">
-                                
-                                <div className="p-4">
-                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Sort By</h3>
-                                    <div className="grid grid-cols-2 gap-1">
-                                        {[
-                                            { id: "title", label: "Title" },
-                                            { id: "author", label: "Author" },
-                                            { id: "dateAdded", label: "Added" },
-                                            { id: "lastRead", label: "Read" },
-                                            ].map((option) => (
-                                            <button
-                                                key={option.id}
-                                                onClick={() => updateSettings({ librarySortBy: option.id as LibrarySortBy })}
-                                                className={cn(
-                                                    "flex items-center justify-between px-3 py-2 text-xs transition-colors border",
-                                                    settings.librarySortBy === option.id
-                                                        ? FILTER_CHIP_SELECTED
-                                                        : FILTER_CHIP_UNSELECTED
-                                                )}
-                                            >
-                                                {option.label}
-                                                {settings.librarySortBy === option.id && <Check className="w-3 h-3" />}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="p-4">
-                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Status</h3>
-                                    <div className="grid grid-cols-4 gap-1">
-                                        {([
-                                            { id: "all", label: "All" },
-                                            { id: "unread", label: "New" },
-                                            { id: "reading", label: "Reading" },
-                                            { id: "completed", label: "Done" },
-                                        ] as const).map((option) => (
-                                            <button
-                                                key={option.id}
-                                                onClick={() => setStatusFilter(option.id as LibraryStatusFilter)}
-                                                className={cn(
-                                                    "px-2 py-2 text-[10px] border transition-colors",
-                                                    statusFilter === option.id
-                                                        ? FILTER_CHIP_SELECTED
-                                                        : FILTER_CHIP_UNSELECTED
-                                                )}
-                                            >
-                                                {option.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
-                                    <div className="p-4">
-                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Order</h3>
-                                        <div className="flex flex-col gap-1">
-                                            {["asc", "desc"].map((id) => (
-                                                <button
-                                                    key={id}
-                                                    onClick={() => updateSettings({ librarySortOrder: id as LibrarySortOrder })}
-                                                    className={cn(
-                                                        "px-3 py-2 text-[10px] border transition-colors",
-                                                        settings.librarySortOrder === id ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
-                                                    )}
-                                                >
-                                                    {id === "asc" ? "ASC" : "DESC"}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Quick</h3>
-                                        <div className="flex flex-col gap-1">
-                                            <button
-                                                onClick={() => {
-                                                    setShowFavoritesOnly(!showFavoritesOnly);
-                                                    if (!showFavoritesOnly) setShowUnshelvedOnly(false);
-                                                }}
-                                                className={cn(
-                                                    "px-3 py-2 text-[10px] border transition-colors",
-                                                    showFavoritesOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
-                                                )}
-                                            >
-                                                Favorites
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setShowUnshelvedOnly(!showUnshelvedOnly);
-                                                    if (!showUnshelvedOnly) setShowFavoritesOnly(false);
-                                                }}
-                                                className={cn(
-                                                    "px-3 py-2 text-[10px] border transition-colors",
-                                                    showUnshelvedOnly ? FILTER_CHIP_SELECTED : FILTER_CHIP_UNSELECTED
-                                                )}
-                                            >
-                                                Unshelved
-                                            </button>
-                                            <button
-                                                onClick={() => updateSettings({ librarySortBy: "lastRead", librarySortOrder: "desc" })}
-                                                className={cn("px-3 py-2 text-[10px] border transition-colors", FILTER_CHIP_UNSELECTED)}
-                                            >
-                                                Recent
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <LibraryFilterPanel
+                                variant="sheet"
+                                {...filterPanelProps}
+                            />
                         </div>
                     </div>
 
@@ -2557,116 +2470,10 @@ export function LibraryPage() {
                     <>
                         <div className="hidden md:block fixed inset-0 z-30" onClick={() => setShowFilterDropdown(false)} />
                         <aside className="hidden md:block w-72 absolute right-0 top-0 z-40 border-2 border-[var(--color-border)] bg-[var(--color-surface)] animate-in slide-in-from-right-4 duration-200 max-h-[80vh] overflow-y-auto [content-visibility:auto] overscroll-contain">
-                            <div className="divide-y-2 divide-[var(--color-border)]">
-                                <div className="p-4">
-                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Sort</h3>
-                                    <div className="grid grid-cols-2 gap-1">
-                                        {[
-                                            { id: "title", label: "Title" },
-                                            { id: "author", label: "Author" },
-                                            { id: "dateAdded", label: "Added" },
-                                            { id: "lastRead", label: "Read" },
-                                            ].map((option) => (
-                                            <button
-                                                key={option.id}
-                                                onClick={() => updateSettings({ librarySortBy: option.id as LibrarySortBy })}
-                                                className={cn(
-                                                    "px-2.5 py-1.5 text-[10px] border transition-colors",
-                                                    settings.librarySortBy === option.id
-                                                        ? FILTER_CHIP_SELECTED
-                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
-                                                )}
-                                            >
-                                                {option.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="p-4">
-                                    <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Status</h3>
-                                    <div className="grid grid-cols-4 gap-1">
-                                        {([
-                                            { id: "all", label: "All" },
-                                            { id: "unread", label: "New" },
-                                            { id: "reading", label: "Read" },
-                                            { id: "completed", label: "Done" },
-                                        ] as const).map((option) => (
-                                            <button
-                                                key={option.id}
-                                                onClick={() => setStatusFilter(option.id as LibraryStatusFilter)}
-                                                className={cn(
-                                                    "px-2 py-1.5 text-[10px] border transition-colors",
-                                                    statusFilter === option.id
-                                                        ? FILTER_CHIP_SELECTED
-                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
-                                                )}
-                                            >
-                                                {option.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
-                                    <div className="p-4">
-                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Order</h3>
-                                        <div className="flex flex-col gap-1">
-                                            {["asc", "desc"].map((id) => (
-                                                <button
-                                                    key={id}
-                                                    onClick={() => updateSettings({ librarySortOrder: id as LibrarySortOrder })}
-                                                    className={cn(
-                                                        "px-2.5 py-1.5 text-[10px] border transition-colors",
-                                                        settings.librarySortOrder === id
-                                                            ? FILTER_CHIP_SELECTED
-                                                            : FILTER_CHIP_UNSELECTED_ON_SURFACE
-                                                    )}
-                                                >
-                                                    {id === "asc" ? "ASC" : "DESC"}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        <h3 className="text-[10px] text-[color:var(--color-text-muted)] mb-3">Quick</h3>
-                                        <div className="flex flex-col gap-1">
-                                            <button
-                                                onClick={() => {
-                                                    setShowFavoritesOnly((prev) => !prev);
-                                                    if (!showFavoritesOnly) setShowUnshelvedOnly(false);
-                                                }}
-                                                className={cn(
-                                                    "w-full px-2.5 py-1.5 text-[10px] border transition-colors",
-                                                    showFavoritesOnly
-                                                        ? FILTER_CHIP_SELECTED
-                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
-                                                )}
-                                            >
-                                                Favorites
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setShowUnshelvedOnly((prev) => !prev);
-                                                    if (!showUnshelvedOnly) setShowFavoritesOnly(false);
-                                                }}
-                                                className={cn(
-                                                    "w-full px-2.5 py-1.5 text-[10px] border transition-colors",
-                                                    showUnshelvedOnly
-                                                        ? FILTER_CHIP_SELECTED
-                                                        : FILTER_CHIP_UNSELECTED_ON_SURFACE
-                                                )}
-                                            >
-                                                Unshelved
-                                            </button>
-                                            <button
-                                                onClick={() => updateSettings({ librarySortBy: "lastRead", librarySortOrder: "desc" })}
-                                                className={cn("w-full px-2.5 py-1.5 text-[10px] border transition-colors", FILTER_CHIP_UNSELECTED_ON_SURFACE)}
-                                            >
-                                                Recent
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                        </div>
+                            <LibraryFilterPanel
+                                variant="popover"
+                                {...filterPanelProps}
+                            />
                     </aside>
                     </>
                 )}

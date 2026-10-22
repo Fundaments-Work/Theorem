@@ -87,6 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deleted items stay deleted, even for a device away for months** — Deletions are now kept in the sync data permanently, so a device that comes back after more than 90 days drops what was deleted meanwhile instead of restoring it.
 - **Each change syncs on its own** — Notes, shelves, words, feeds, articles and deletions are now sent one item at a time instead of as whole lists every round. Devices still on an older version keep getting the lists until they update.
 
+### Interface Polish
+
+- **Sync button that looks like sync** — The titlebar's sync button had a sort-like arrow icon. It now shows a refresh icon that turns while syncing, and with no paired device it opens Settings → Devices instead of doing nothing.
+- **Library sort and filter in plain words** — "ASC/DESC" became "A to Z" or "Newest first" depending on what is sorted, statuses read "Not started / Reading / Finished", "Unshelved" became "Not on a shelf", and the duplicate "Recent" button is gone. The phone sheet and the desktop popover are now one component, so they no longer drift (the desktop one said "Read" where the phone said "Reading"), and the phone sheet no longer cuts off its last section.
+
 ### Fixed
 
 - **Removing a favourite, a tag or a rating now syncs** — Book details were merged as a union, so undoing something on one device was merged back from the other, and an older copy could undo a rename. Edits are now timestamped and the newer one wins, removals included.
