@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
 
-use tauri::AppHandle;
+use crate::cli::Ctx;
 
 const LOGO: &[&str] = &[
     "████████╗██╗  ██╗███████╗ ██████╗ ██████╗ ███████╗███╗   ███╗",
@@ -57,7 +57,7 @@ struct TuiApp {
 }
 
 impl TuiApp {
-    fn load(app: &AppHandle) -> Result<Self, String> {
+    fn load(app: &Ctx) -> Result<Self, String> {
         let mut kv = crate::cli::LibraryKv::load(app)?;
         let mut books: Vec<BookRow> = kv
             .books()
@@ -119,7 +119,7 @@ impl TuiApp {
             .and_then(|book_index| self.books.get(*book_index))
     }
 
-    fn load_chapter(&mut self, app: &AppHandle) {
+    fn load_chapter(&mut self, app: &Ctx) {
         let (Some(book), chapter) = (self.reader_book.clone(), self.chapter) else {
             return;
         };
@@ -158,7 +158,7 @@ impl TuiApp {
         }
     }
 
-    fn open_reader(&mut self, app: &AppHandle) {
+    fn open_reader(&mut self, app: &Ctx) {
         let Some(book) = self.selected_book().cloned() else {
             return;
         };
@@ -179,7 +179,7 @@ impl TuiApp {
 }
 
 /// Pub(crate) entry point from the clap `Tui` command.
-pub fn run_tui(app: &AppHandle) -> i32 {
+pub(crate) fn run_tui(app: &Ctx) -> i32 {
     let mut tui_app = match TuiApp::load(app) {
         Ok(t) => t,
         Err(e) => {
@@ -206,11 +206,7 @@ pub fn run_tui(app: &AppHandle) -> i32 {
     }
 }
 
-fn tui_loop(
-    terminal: &mut DefaultTerminal,
-    tui: &mut TuiApp,
-    app: &AppHandle,
-) -> Result<(), String> {
+fn tui_loop(terminal: &mut DefaultTerminal, tui: &mut TuiApp, app: &Ctx) -> Result<(), String> {
     loop {
         let _ = terminal
             .draw(|frame| draw(frame, tui, app))
@@ -316,7 +312,7 @@ fn move_selection(tui: &mut TuiApp, delta: isize) {
     tui.library_state.select(Some(next as usize));
 }
 
-fn draw(frame: &mut Frame, tui: &mut TuiApp, _app: &AppHandle) {
+fn draw(frame: &mut Frame, tui: &mut TuiApp, _app: &Ctx) {
     let chunks = Layout::vertical([
         Constraint::Length(header_height(frame.area())),
         Constraint::Min(1),

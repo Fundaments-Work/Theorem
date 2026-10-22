@@ -114,6 +114,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workbench speaks its tabs' language** — Its subtitle read "4 annotations • 6 terms"; it now says "3 highlights, 1 note from 1 book · 6 words", matching the Highlights, Notes and Words tabs.
 - **Shelf cards keep a readable size on wide screens** — The shelf overview picked its column count from the window width while its content stops widening, so a 1920px window made six narrow cards and cut names to "Adven…". Columns now follow the content width, at least 14rem each.
 
+### Command line
+
+- **The `theorem` command runs without a display** — It built a hidden app window just to find the library folder, so on a server, over SSH or in a container every command crashed. It now finds the folder itself and opens the database directly. `theorem sync` still needs the app's sync engine and says so instead of crashing when there is no graphical session.
+
 ### Fixed
 
 - **Browser build: feed unread counts after a reload** — The browser build keeps only recent articles, but saved each feed's unread count from before that cut, so a feed with years of items showed 100 unread above a handful of articles. Counts are now taken from the saved articles.

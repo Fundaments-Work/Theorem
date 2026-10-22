@@ -41,17 +41,74 @@ pub struct SqliteBlobStats {
     pub total_size: u64,
 }
 
-fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
+fn app_data_dir_of(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
         .app_data_dir()
-        .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
+        .map_err(|error| format!("Failed to resolve app data directory: {error}"))
+}
 
-    fs::create_dir_all(&app_data_dir).map_err(|error| {
+fn database_path_in(app_data_dir: &Path) -> Result<PathBuf, String> {
+    fs::create_dir_all(app_data_dir).map_err(|error| {
         format!("Failed to create app data directory '{app_data_dir:?}': {error}")
     })?;
-
     Ok(app_data_dir.join(DB_FILE_NAME))
+}
+
+fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
+    database_path_in(&app_data_dir_of(app)?)
+}
+
+/// The database and the app data folder it lives in, without an `AppHandle`.
+///
+/// The app gets one from its handle (sharing the app's pool); the headless
+/// CLI opens one from the folder alone, so it runs without a display. Every
+/// function here that only needs the folder takes a `DataStore`, and the
+/// app's commands are thin wrappers that build one from the `AppHandle`.
+#[derive(Clone)]
+pub struct DataStore {
+    dir: PathBuf,
+    pool: DbPool,
+}
+
+impl DataStore {
+    /// Open the database in `app_data_dir` with a pool of its own (not the
+    /// app's global pool), creating the folder when needed. Schema
+    /// migrations are not run; see `run_schema_migrations_in`.
+    pub fn open(app_data_dir: &Path) -> Result<Self, String> {
+        let db_path = database_path_in(app_data_dir)?;
+        let pool = build_db_pool(&db_path, 2)?;
+        Ok(Self {
+            dir: app_data_dir.to_path_buf(),
+            pool,
+        })
+    }
+
+    /// The app's own store: its data folder and the shared pool.
+    pub fn for_app(app: &AppHandle) -> Result<Self, String> {
+        let dir = app_data_dir_of(app)?;
+        let pool = init_db_pool(&database_path_in(&dir)?)?.clone();
+        Ok(Self { dir, pool })
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn with_connection<T, F>(&self, operation: F) -> Result<T, String>
+    where
+        F: FnOnce(&Connection) -> rusqlite::Result<T>,
+    {
+        let connection = self
+            .pool
+            .get()
+            .map_err(|error| format!("Failed to acquire SQLite connection from pool: {error}"))?;
+        operation(&connection).map_err(|error| format!("SQLite operation failed: {error}"))
+    }
+
+    /// `book-cache/{id}.book`, creating the cache folder when needed.
+    pub fn materialized_book_path(&self, book_id: &str) -> Result<PathBuf, String> {
+        materialized_book_path_creating(&self.dir, book_id)
+    }
 }
 
 pub(crate) fn materialized_book_path_in_dir(app_data_dir: &Path, book_id: &str) -> PathBuf {
@@ -60,31 +117,31 @@ pub(crate) fn materialized_book_path_in_dir(app_data_dir: &Path, book_id: &str) 
         .join(format!("{book_id}.book"))
 }
 
-pub(crate) fn materialized_book_path(app: &AppHandle, book_id: &str) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
+fn materialized_book_path_creating(app_data_dir: &Path, book_id: &str) -> Result<PathBuf, String> {
     let cache_dir = app_data_dir.join(MATERIALIZED_BOOK_CACHE_DIR);
     fs::create_dir_all(&cache_dir).map_err(|error| {
         format!("Failed to create materialized cache directory '{cache_dir:?}': {error}")
     })?;
 
-    Ok(materialized_book_path_in_dir(&app_data_dir, book_id))
+    Ok(materialized_book_path_in_dir(app_data_dir, book_id))
 }
 
-fn remove_materialized_cache_file(app: &AppHandle, book_id: &str) {
-    if let Ok(path) = materialized_book_path(app, book_id) {
-        let _ = fs::remove_file(path);
-    }
+pub(crate) fn materialized_book_path(app: &AppHandle, book_id: &str) -> Result<PathBuf, String> {
+    materialized_book_path_creating(&app_data_dir_of(app)?, book_id)
+}
+
+fn remove_materialized_cache_file_in(app_data_dir: &Path, book_id: &str) {
+    let _ = fs::remove_file(materialized_book_path_in_dir(app_data_dir, book_id));
 }
 
 pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
-    let db_path = database_path(app)?;
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    run_schema_migrations_in(&app_data_dir_of(app)?)
+}
+
+/// Create or upgrade the schema of the database in `app_data_dir`.
+pub fn run_schema_migrations_in(app_data_dir: &Path) -> Result<(), String> {
+    let db_path = database_path_in(app_data_dir)?;
+    let app_data_dir = app_data_dir.to_path_buf();
 
     let conn = Connection::open(&db_path)
         .map_err(|e| format!("Failed to open database for migration: {e}"))?;
@@ -430,17 +487,21 @@ const DB_POOL_MAX_SIZE: u32 = 2;
 #[cfg(not(target_os = "android"))]
 const DB_POOL_MAX_SIZE: u32 = 4;
 
+fn build_db_pool(db_path: &Path, max_size: u32) -> Result<DbPool, String> {
+    let manager = SqliteConnectionManager::file(db_path);
+    Pool::builder()
+        .max_size(max_size)
+        .connection_customizer(Box::new(SqlitePerConnectionPragmas))
+        .build(manager)
+        .map_err(|error| format!("Failed to create SQLite connection pool: {error}"))
+}
+
 fn init_db_pool(db_path: &Path) -> Result<&DbPool, String> {
     if let Some(pool) = DB_POOL.get() {
         return Ok(pool);
     }
 
-    let manager = SqliteConnectionManager::file(db_path);
-    let pool = Pool::builder()
-        .max_size(DB_POOL_MAX_SIZE)
-        .connection_customizer(Box::new(SqlitePerConnectionPragmas))
-        .build(manager)
-        .map_err(|error| format!("Failed to create SQLite connection pool: {error}"))?;
+    let pool = build_db_pool(db_path, DB_POOL_MAX_SIZE)?;
 
     DB_POOL.set(pool).ok();
     DB_POOL
@@ -720,11 +781,16 @@ pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>
 }
 
 pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String> {
+    delete_book_data_in(&DataStore::for_app(&app)?, &id)
+}
+
+/// Remove a book's cached file and every row stored for it.
+pub fn delete_book_data_in(store: &DataStore, id: &str) -> Result<(), String> {
     // Close cached EPUB archives first: Windows cannot delete an open file.
     crate::epub_entries::clear_cache();
-    remove_materialized_cache_file(&app, &id);
+    remove_materialized_cache_file_in(store.dir(), id);
 
-    with_connection(&app, |connection| sqlite_delete_book_inner(connection, &id))
+    store.with_connection(|connection| sqlite_delete_book_inner(connection, id))
 }
 
 /// Remove a book and everything stored for it, in one transaction.
@@ -762,13 +828,22 @@ pub fn sqlite_get_materialized_book_path(
     app: AppHandle,
     id: String,
 ) -> Result<Option<String>, String> {
-    let materialized_path = materialized_book_path(&app, &id)?;
+    get_materialized_book_path_in(&DataStore::for_app(&app)?, &id)
+}
+
+/// The book's file in `book-cache/`, moving a legacy in-database copy out
+/// first when that is where the book still lives.
+pub fn get_materialized_book_path_in(
+    store: &DataStore,
+    id: &str,
+) -> Result<Option<String>, String> {
+    let materialized_path = store.materialized_book_path(id)?;
 
     if materialized_path.exists() {
         return Ok(Some(materialized_path.to_string_lossy().into_owned()));
     }
 
-    let data = with_connection(&app, |connection| {
+    let data = store.with_connection(|connection| {
         connection
             .query_row("SELECT data FROM books WHERE id = ?1", params![id], |row| {
                 row.get::<_, Vec<u8>>(0)
@@ -782,7 +857,7 @@ pub fn sqlite_get_materialized_book_path(
                 format!("Failed to write migrated book file '{materialized_path:?}': {error}")
             })?;
 
-            let _ = with_connection(&app, |connection| {
+            let _ = store.with_connection(|connection| {
                 connection.execute("UPDATE books SET data = X'' WHERE id = ?1", params![id])
             });
 
@@ -936,25 +1011,21 @@ pub fn sqlite_delete_cover_image(app: AppHandle, book_id: String) -> Result<(), 
 }
 
 pub fn sqlite_get_storage_stats(app: AppHandle) -> Result<SqliteStorageStats, String> {
+    get_storage_stats_in(&DataStore::for_app(&app)?)
+}
+
+pub fn get_storage_stats_in(store: &DataStore) -> Result<SqliteStorageStats, String> {
     let mut binaries_size = 0;
 
-    let cache_dir = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join(MATERIALIZED_BOOK_CACHE_DIR));
-
-    if let Some(path) = cache_dir {
-        if let Ok(entries) = std::fs::read_dir(path) {
-            for entry in entries.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    binaries_size += metadata.len();
-                }
+    if let Ok(entries) = std::fs::read_dir(store.dir().join(MATERIALIZED_BOOK_CACHE_DIR)) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                binaries_size += metadata.len();
             }
         }
     }
 
-    with_connection(&app, |connection| {
+    store.with_connection(|connection| {
         let (total_books, legacy_binaries_size): (u64, u64) = connection.query_row(
             "SELECT COUNT(*) AS total_books, COALESCE(SUM(length(data)), 0) AS legacy_binaries_size FROM books",
             [],
@@ -994,7 +1065,14 @@ pub fn sqlite_cleanup_orphaned_storage(
     app: AppHandle,
     existing_book_ids: Vec<String>,
 ) -> Result<SqliteCleanupResult, String> {
-    with_connection(&app, |connection| {
+    cleanup_orphaned_storage_in(&DataStore::for_app(&app)?, existing_book_ids)
+}
+
+pub fn cleanup_orphaned_storage_in(
+    store: &DataStore,
+    existing_book_ids: Vec<String>,
+) -> Result<SqliteCleanupResult, String> {
+    store.with_connection(|connection| {
         let existing_ids: HashSet<String> = existing_book_ids.into_iter().collect();
 
         let mut removed_books = 0_u64;
@@ -1008,7 +1086,7 @@ pub fn sqlite_cleanup_orphaned_storage(
 
         for id in existing_rows {
             if !existing_ids.contains(&id) {
-                remove_materialized_cache_file(&app, &id);
+                remove_materialized_cache_file_in(store.dir(), &id);
                 let affected =
                     connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
                 removed_books = removed_books.saturating_add(affected as u64);

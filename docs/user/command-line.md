@@ -50,7 +50,7 @@ Two options work with every command: `--json` prints machine-readable output, an
 - **Linux, AppImage you downloaded yourself.** Open Settings, Devices & Export, find Terminal CLI and turn on Enable CLI. Theorem links the command into `~/.local/bin` and checks the link every time it starts. If the link goes missing, Settings shows a Repair now button. Running `theorem setup-cli` does the same from a terminal. Inside an AppImage the link points at the AppImage file, so it survives a reboot.
 - **macOS and Windows.** The desktop programs contain the same commands, but there is no one-click setup, and `theorem setup-cli` there answers that it is only supported on Linux. This page does not cover putting the command on your `PATH` on those systems.
 
-The commands run without opening a window. In the v1.5.9 test they worked with no display available. The same data folder is used as by the app, so the CLI sees your real library.
+The commands run without opening a window and without a display, so they work over SSH, on a server or in a container. The CLI uses the same data folder as the app (on Linux `~/.local/share/work.fundamentals.theorem`, on macOS `~/Library/Application Support/work.fundamentals.theorem`, on Windows `%APPDATA%\work.fundamentals.theorem`), so it sees your real library. The `sync` commands are the exception: they start the app's sync engine, which needs a graphical session, and without one they stop with an error that says so.
 
 ## What does the JSON output look like?
 
