@@ -1,5 +1,5 @@
 
-import { useCallback, useMemo, useState, useRef, memo } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, memo } from "react";
 import { List, Play, Pause, Square, Headphones, Download, SlidersHorizontal, Disc3, X } from "lucide-react";
 import { cn } from "../../../../core/lib/utils";
 import { isAndroid } from "../../../../core/lib/env";
@@ -12,6 +12,7 @@ import {
     calculateChapterTimeRemaining,
     formatTimeRemaining,
 } from "../../lib/reading-time";
+import { thinChapterTicks } from "../../lib/chapter-ticks";
 
 interface ReaderNavbarProps {
     location: DocLocation | null;
@@ -71,6 +72,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
     const [dragFraction, setDragFraction] = useState<number | null>(null);
     const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
     const trackRef = useRef<HTMLDivElement>(null);
+    const [trackWidth, setTrackWidth] = useState(0);
     const activeVoice: NeuralVoice = resolveNeuralVoice(ttsVoice);
     const averageReadingSpeed = useSettingsStore(s => s.stats.averageReadingSpeed);
 
@@ -206,7 +208,8 @@ export const ReaderNavbar = memo(function ReaderNavbar({
             const fraction = getFractionFromEvent(e.clientX);
             if (isDragging) {
                 setDragFraction(fraction);
-            } else {
+            } else if (e.pointerType !== "touch") {
+                // Hover (chapter name and position) is for a mouse or pen; touch only drags.
                 setHoverFraction(fraction);
             }
         },
@@ -240,26 +243,32 @@ export const ReaderNavbar = memo(function ReaderNavbar({
         [isDragging, getFractionFromEvent, onSeek]
     );
 
+    // Chapter ticks depend on the bar's width in pixels (issue #160).
+    useEffect(() => {
+        const track = trackRef.current;
+        if (!track) return;
+        const update = () => setTrackWidth(track.getBoundingClientRect().width);
+        update();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(update);
+        observer.observe(track);
+        return () => observer.disconnect();
+    }, [immersionMode]);
+
     const sectionMarkers = useMemo(() => {
-        if (normalizedSectionFractions.length === 0) return null;
+        const ticks = thinChapterTicks(normalizedSectionFractions, trackWidth);
+        if (ticks.length === 0) return null;
 
-        return normalizedSectionFractions.map((fraction, index) => {
-            
-            if (fraction < 0.01) return null;
-            
-            if (fraction > 0.99) return null;
-            
-            if (index > 0 && fraction - normalizedSectionFractions[index - 1] < 0.02) return null;
-
-            return (
-                <div
-                    key={index}
-                    className="absolute top-1/2 -translate-y-1/2 w-px h-2 bg-[var(--color-text-muted)]/40"
-                    style={{ left: `${fraction * 100}%` }}
-                />
-            );
-        });
-    }, [normalizedSectionFractions]);
+        return ticks.map(({ fraction, index }) => (
+            <div
+                key={index}
+                data-chapter-tick=""
+                aria-hidden="true"
+                className="absolute top-1/2 -translate-y-1/2 w-px h-2 bg-[var(--color-text-muted)]/40 pointer-events-none"
+                style={{ left: `${fraction * 100}%` }}
+            />
+        ));
+    }, [normalizedSectionFractions, trackWidth]);
 
     const tooltipContent = useMemo(() => {
         if (hoverFraction === null && !isDragging) return null;
