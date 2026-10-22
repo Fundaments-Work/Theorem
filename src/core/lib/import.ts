@@ -691,6 +691,23 @@ export async function createBookEntry(filePath: string): Promise<Book | null> {
         );
     }
 
+    try {
+        return await createBookEntryAt(normalizedFilePath, readPath, format, fs);
+    } finally {
+        // The temporary copy of an Android document is never needed afterwards
+        // (a successful native import has already moved it into the library).
+        if (readPath !== normalizedFilePath) {
+            await fs.remove(readPath).catch(() => undefined);
+        }
+    }
+}
+
+async function createBookEntryAt(
+    normalizedFilePath: string,
+    readPath: string,
+    format: BookFormat | null,
+    fs: NonNullable<Awaited<ReturnType<typeof initTauriPlugins>>>['fs'],
+): Promise<Book | null> {
     let fileSize = 0;
     let sizeKnown = false;
     try {

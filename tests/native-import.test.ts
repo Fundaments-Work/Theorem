@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const native = vi.hoisted(() => ({
     invoke: vi.fn(),
     stat: vi.fn(),
+    remove: vi.fn(),
     getBookData: vi.fn(),
     mobile: false,
 }));
@@ -10,7 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     invoke: native.invoke,
     Channel: class<T> { constructor(public onmessage: (m: T) => void) {} },
 }));
-vi.mock("@tauri-apps/plugin-fs", () => ({ stat: native.stat, readDir: vi.fn() }));
+vi.mock("@tauri-apps/plugin-fs", () => ({ stat: native.stat, remove: native.remove, readDir: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("../src/core/lib/env", () => ({ isTauri: () => true, isMobile: () => native.mobile }));
 vi.mock("../src/core/lib/storage", () => ({ saveBookData: vi.fn(), getBookData: native.getBookData, saveCoverDataUrl: vi.fn() }));
@@ -33,6 +34,7 @@ function nativeSends(messages: Msg[], opts: { reject?: Error } = {}) {
 beforeEach(() => {
     native.mobile = false;
     native.invoke.mockReset(); native.stat.mockReset(); native.getBookData.mockReset();
+    native.remove.mockReset(); native.remove.mockResolvedValue(undefined);
 });
 
 describe("native desktop import", () => {
@@ -116,6 +118,38 @@ describe("JavaScript import", () => {
         expect(reasons["/empty.epub"]).toBe("The file is empty");
         expect(reasons["/huge.pdf"]).toMatch(/too large to import here/);
         expect(native.getBookData).not.toHaveBeenCalled();
+    });
+});
+
+describe("Android import", () => {
+    it("removes the temporary copy of a document it could not import", async () => {
+        native.mobile = true;
+        const uri = "content://provider/tree/t/document/Junk%2Fempty.epub";
+        const temp = "/data/user/0/app/files/theorem_import/1-empty.epub";
+        native.invoke.mockImplementation(async (cmd: string) => {
+            if (cmd === "materialize_android_content_uri") return temp;
+            throw new Error(`unexpected ${cmd}`);
+        });
+        native.stat.mockResolvedValue({ size: 0 });
+        const failed = vi.fn();
+        await importBooksIncremental([uri], vi.fn(), failed);
+        expect((failed.mock.calls[0][1] as Error).message).toBe("The file is empty");
+        expect(native.remove).toHaveBeenCalledWith(temp);
+    });
+
+    it("removes the temporary copy when the native import fails", async () => {
+        native.mobile = true;
+        const temp = "/data/user/0/app/files/theorem_import/2-bad.epub";
+        native.invoke.mockImplementation(async (cmd: string) => {
+            if (cmd === "materialize_android_content_uri") return temp;
+            if (cmd === "import_book_path") throw new Error("Could not read this book: Invalid EPUB ZIP");
+            throw new Error(`unexpected ${cmd}`);
+        });
+        native.stat.mockResolvedValue({ size: 10 });
+        const failed = vi.fn();
+        await importBooksIncremental(["content://provider/tree/t/document/bad.epub"], vi.fn(), failed);
+        expect((failed.mock.calls[0][1] as Error).message).toMatch(/Invalid EPUB/);
+        expect(native.remove).toHaveBeenCalledWith(temp);
     });
 });
 
