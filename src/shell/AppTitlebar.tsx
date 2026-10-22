@@ -199,7 +199,8 @@ export const AppTitlebar = memo(function AppTitlebar({
     };
 
     const handleQuickSync = async () => {
-        if (isQuickSyncing || deviceSyncStatus === "syncing") {
+        // A round already running (auto-sync) is waited for, not refused.
+        if (isQuickSyncing) {
             return;
         }
 
@@ -218,8 +219,9 @@ export const AppTitlebar = memo(function AppTitlebar({
                 return;
             }
 
-            const { runDeviceSync } = await import("../core/lib/sync-orchestrator");
-            await runDeviceSync(pairedDevices[0].deviceId, undefined, true);
+            // Every paired device, one after another (was only the first).
+            const { syncAllPairedDevices } = await import("../core/lib/sync-orchestrator");
+            await syncAllPairedDevices(pairedDevices.map((d) => d.deviceId), true);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             setDeviceSyncStatus("error", message);

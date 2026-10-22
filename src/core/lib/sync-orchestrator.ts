@@ -60,6 +60,80 @@ function setStatus(status: DeviceSyncStatus, msg?: string) {
 }
 
 let _docsLiveUnlisten: (() => void) | null = null;
+let _docsLiveInit: Promise<() => void> | null = null;
+
+// ── Merge serialization ────────────────────────────────────────────────────
+// Every merge (full round, live batch, progressive flush) runs through this
+// one promise chain, so two merges never read a snapshot, await, and then
+// overwrite each other's result.
+let _mergeChain: Promise<unknown> = Promise.resolve();
+
+function withMergeLock<T>(task: () => T | Promise<T>): Promise<T> {
+    const run = _mergeChain.then(task, task);
+    _mergeChain = run.catch(() => undefined);
+    return run;
+}
+
+// While > 0, store changes come from a merge of peer data: the Zustand→docs
+// bridge keeps its indexes current but does not write them back to the doc.
+let _applyingRemote = 0;
+
+function applyRemote(fn: () => void): void {
+    _applyingRemote++;
+    try {
+        fn();
+    } finally {
+        _applyingRemote--;
+    }
+}
+
+/**
+ * Re-applies a merged list onto the store's *current* list. `base` is what the
+ * merge read; anything the user changed, added or removed since then (during
+ * the merge's awaits) is kept rather than overwritten by the stale snapshot.
+ */
+function rebaseMergedList<T extends { id: string }>(
+    base: T[],
+    merged: T[],
+    current: T[],
+    remerge: (mergedItem: T, currentItem: T) => T,
+): T[] {
+    if (current === base) return merged;
+    const baseById = new Map(base.map((x) => [x.id, x]));
+    const mergedById = new Map(merged.map((x) => [x.id, x]));
+    const currentIds = new Set<string>();
+    const out: T[] = [];
+    for (const cur of current) {
+        currentIds.add(cur.id);
+        const baseItem = baseById.get(cur.id);
+        const mergedItem = mergedById.get(cur.id);
+        if (baseItem === undefined) {
+            // Added locally while the merge ran.
+            out.push(mergedItem ? remerge(mergedItem, cur) : cur);
+        } else if (cur === baseItem) {
+            // Untouched locally: the merge result stands (or its deletion).
+            if (mergedItem) out.push(mergedItem);
+        } else if (mergedItem === undefined) {
+            // Edited locally, deleted by the merge (tombstone): deletion wins.
+            continue;
+        } else if (mergedItem === baseItem) {
+            out.push(cur);
+        } else {
+            out.push(remerge(mergedItem, cur));
+        }
+    }
+    for (const item of merged) {
+        if (currentIds.has(item.id)) continue;
+        // Removed locally while the merge ran: do not resurrect it.
+        if (baseById.has(item.id)) continue;
+        out.push(item);
+    }
+    return out;
+}
+
+function warnMergeFailure(domain: string, err: unknown): void {
+    if (import.meta.env.DEV) console.warn(`[sync-merge] ${domain}: incoming data could not be merged`, err);
+}
 
 /**
  * Returns `entries` with its `deletion_tombstones` replaced by the union of the
@@ -87,11 +161,37 @@ export function withLocalTombstones(
     };
 }
 
-async function mergeIncomingData(
+interface MergeOutcome {
+    domainsUpdated: string[];
+    conflicts: SyncConflict[];
+    /** False when the native SQLite merge failed: the same entries must be merged again later. */
+    persisted: boolean;
+}
+
+/** When this device's settings last changed, as the settings merge compares it. */
+function localSettingsTimestamp(): string {
+    return useSettingsStore.getState().settingsLastModifiedAt || new Date().toISOString();
+}
+
+function mergeIncomingData(
     incomingMap: Record<string, string>,
     localSettingsUpdatedAt?: string,
     onConflict?: (conflict: SyncConflict) => void,
-): Promise<{ domainsUpdated: string[]; conflicts: SyncConflict[] }> {
+): Promise<MergeOutcome> {
+    return withMergeLock(() => mergeIncomingDataLocked(
+        incomingMap,
+        // Read when the merge actually runs; without it every incoming
+        // settings entry, however old, would replace the local settings.
+        localSettingsUpdatedAt ?? localSettingsTimestamp(),
+        onConflict,
+    ));
+}
+
+async function mergeIncomingDataLocked(
+    incomingMap: Record<string, string>,
+    localSettingsUpdatedAt: string,
+    onConflict?: (conflict: SyncConflict) => void,
+): Promise<MergeOutcome> {
     const domainsUpdated: string[] = [];
     const conflicts: SyncConflict[] = [];
     const recordConflict = (entityType: string, entityId: string, winner: "local" | "remote", label?: string) => {
@@ -121,8 +221,8 @@ async function mergeIncomingData(
                 }
             }
         }
-    } catch {
-        
+    } catch (e) {
+        warnMergeFailure("schema validation", e);
     }
 
     const perEntityBooks: Record<string, unknown>[] = [];
@@ -139,26 +239,26 @@ async function mergeIncomingData(
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                     perEntityBooks.push(parsed);
                 }
-            } catch {}
+            } catch (e) { warnMergeFailure("book entry", e); }
         } else if ((key.startsWith("annotation:") || key.startsWith("anno:")) && key !== "annotations") {
             try {
                 const parsed = JSON.parse(safeMap[key]);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                     perEntityAnnotations.push(parsed);
                 }
-            } catch {}
+            } catch (e) { warnMergeFailure("annotation entry", e); }
         } else if (key.startsWith(RSS_ARTICLE_KEY_PREFIX)) {
             try {
                 const parsed = RssArticleSchema.safeParse(JSON.parse(safeMap[key]));
                 if (parsed.success) perEntityArticles.push(parsed.data);
-            } catch {}
+            } catch (e) { warnMergeFailure("rss article entry", e); }
         } else if (key.startsWith("collection:") && key !== "collections") {
             try {
                 const parsed = JSON.parse(safeMap[key]);
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                     perEntityCollections.push(parsed);
                 }
-            } catch {}
+            } catch (e) { warnMergeFailure("collection entry", e); }
         }
     }
 
@@ -170,6 +270,7 @@ async function mergeIncomingData(
     }
 
     let nativeReport: SyncMergeResult | null = null;
+    let persisted = true;
     if (isTauri()) {
         try {
             // The native merge only knows the tombstones it is handed. Give it
@@ -184,13 +285,16 @@ async function mergeIncomingData(
                 markUpdated(d);
             }
         } catch (err) {
+            persisted = false;
             if (import.meta.env.DEV) {
                 console.warn("[sync] Native sqlite_merge_sync_entries failed, falling back to JS merge:", err);
             }
         }
     }
 
-    let allTombstones = useLibraryStore.getState().deletionTombstones;
+    // What this merge reads; the patch is rebased onto the live store when written.
+    const baseLib = useLibraryStore.getState();
+    let allTombstones = baseLib.deletionTombstones;
 
     const libraryPatch: Partial<ReturnType<typeof useLibraryStore.getState>> = {};
     const applyLibraryPatch = (patch: Partial<ReturnType<typeof useLibraryStore.getState>>) => {
@@ -206,11 +310,12 @@ async function mergeIncomingData(
                 markUpdated("deletion_tombstones");
             }
         } catch (e) {
+            warnMergeFailure("deletion_tombstones", e);
         }
     }
 
     if (safeMap["deletion_tombstones"]) {
-        const libraryState = useLibraryStore.getState();
+        const libraryState = baseLib;
         if (nativeReport) {
             if (nativeReport.deletedBooks.length > 0) {
                 const delSet = new Set(nativeReport.deletedBooks);
@@ -231,23 +336,23 @@ async function mergeIncomingData(
             if (nativeReport.deletedVocabulary.length > 0) {
                 const delSet = new Set(nativeReport.deletedVocabulary);
                 const vocabState = useVocabularyStore.getState();
-                useVocabularyStore.setState({
+                applyRemote(() => useVocabularyStore.setState({
                     vocabularyTerms: vocabState.vocabularyTerms.filter((t) => !delSet.has(t.id)),
-                });
+                }));
                 markUpdated("vocabulary");
             }
 
             const rssState = useRssStore.getState();
             const prunedFeeds = mergeRssFeeds([], rssState.feeds, allTombstones);
             if (prunedFeeds.feeds.length !== rssState.feeds.length) {
-                useRssStore.setState({ feeds: prunedFeeds.feeds });
+                applyRemote(() => useRssStore.setState({ feeds: prunedFeeds.feeds }));
                 markUpdated("rss_feeds");
             }
             if (nativeReport.deletedRssArticles.length > 0) {
                 const delSet = new Set(nativeReport.deletedRssArticles);
-                useRssStore.setState({
+                applyRemote(() => useRssStore.setState({
                     articles: rssState.articles.filter((a) => !delSet.has(a.id)),
-                });
+                }));
                 markUpdated("rss_articles");
             }
         } else {
@@ -269,19 +374,19 @@ async function mergeIncomingData(
             const prunedFeeds = mergeRssFeeds([], rssState.feeds, allTombstones);
             const prunedArticles = mergeRssArticles([], rssState.articles, undefined, allTombstones);
 
-            useRssStore.setState({ feeds: prunedFeeds.feeds, articles: prunedArticles });
+            applyRemote(() => useRssStore.setState({ feeds: prunedFeeds.feeds, articles: prunedArticles }));
 
             if (prunedFeeds.feeds.length !== rssState.feeds.length) markUpdated("rss_feeds");
             if (prunedArticles.length !== rssState.articles.length) markUpdated("rss_articles");
 
             const vocabState = useVocabularyStore.getState();
             const prunedVocab = mergeVocabulary([], vocabState.vocabularyTerms, allTombstones);
-            useVocabularyStore.setState({ vocabularyTerms: prunedVocab });
+            applyRemote(() => useVocabularyStore.setState({ vocabularyTerms: prunedVocab }));
             if (prunedVocab.length !== vocabState.vocabularyTerms.length) markUpdated("vocabulary");
         }
     }
 
-    let currentLibState = useLibraryStore.getState();
+    let currentLibState = baseLib;
     
     if (Object.keys(libraryPatch).length > 0) {
         currentLibState = { ...currentLibState, ...libraryPatch };
@@ -350,6 +455,7 @@ async function mergeIncomingData(
                 }
             }
         } catch (e) {
+            warnMergeFailure("books", e);
         }
     }
 
@@ -409,6 +515,7 @@ async function mergeIncomingData(
                 }
             }
         } catch (e) {
+            warnMergeFailure("annotations", e);
         }
     }
 
@@ -427,11 +534,35 @@ async function mergeIncomingData(
                 currentLibState = { ...currentLibState, collections: merged };
             }
         } catch (e) {
+            warnMergeFailure("collections", e);
         }
     }
 
     if (Object.keys(libraryPatch).length > 0) {
-        useLibraryStore.setState(libraryPatch as Parameters<typeof useLibraryStore.setState>[0]);
+        // Applied against the live state, per id: edits made while this merge
+        // awaited (reading progress, a new highlight) must survive it.
+        const tombstonesForRemerge = allTombstones;
+        applyRemote(() => useLibraryStore.setState((state) => {
+            const next: Partial<ReturnType<typeof useLibraryStore.getState>> = {};
+            if (libraryPatch.deletionTombstones) {
+                next.deletionTombstones = state.deletionTombstones === baseLib.deletionTombstones
+                    ? libraryPatch.deletionTombstones
+                    : mergeTombstones(libraryPatch.deletionTombstones, state.deletionTombstones);
+            }
+            if (libraryPatch.books) {
+                next.books = rebaseMergedList(baseLib.books, libraryPatch.books, state.books,
+                    (merged, current) => mergeBooks([merged], [current], tombstonesForRemerge)[0] ?? current);
+            }
+            if (libraryPatch.annotations) {
+                next.annotations = rebaseMergedList(baseLib.annotations, libraryPatch.annotations, state.annotations,
+                    (merged, current) => mergeAnnotations([merged], [current], tombstonesForRemerge)[0] ?? current);
+            }
+            if (libraryPatch.collections) {
+                next.collections = rebaseMergedList(baseLib.collections, libraryPatch.collections, state.collections,
+                    (merged, current) => mergeCollections([merged], [current], tombstonesForRemerge)[0] ?? current);
+            }
+            return next;
+        }));
     }
 
     if (incomingCovers.length > 0) {
@@ -440,7 +571,7 @@ async function mergeIncomingData(
             try {
                 const path = await applyIncomingCover(cover.id, cover.dataUrl);
                 if (path) updatedCovers.set(cover.id, path);
-            } catch {}
+            } catch (e) { warnMergeFailure("cover", e); }
         }
         if (updatedCovers.size > 0) {
             for (const [id, path] of updatedCovers) {
@@ -448,12 +579,12 @@ async function mergeIncomingData(
                 _provisionedValues.set(coverEntryKey(id), path);
                 _receivedCoverPaths.add(path);
             }
-            useLibraryStore.setState((state) => ({
+            applyRemote(() => useLibraryStore.setState((state) => ({
                 books: state.books.map((book) => {
                     const path = updatedCovers.get(book.id);
                     return path ? { ...book, coverPath: path, coverExtractionDone: true } : book;
                 }),
-            }));
+            })));
             markUpdated("covers");
         }
     }
@@ -464,9 +595,9 @@ async function mergeIncomingData(
                 if (nativeReport.updatedVocabulary.length > 0 || nativeReport.deletedVocabulary.length > 0) {
                     const sqliteTerms = await sqliteGetVocabularyTerms();
                     if (sqliteTerms) {
-                        useVocabularyStore.setState({
+                        applyRemote(() => useVocabularyStore.setState({
                             vocabularyTerms: sqliteTerms.map(fromSqliteVocabularyTerm),
-                        });
+                        }));
                         markUpdated("vocabulary");
                     }
                 }
@@ -477,7 +608,7 @@ async function mergeIncomingData(
                     const merged = mergeVocabulary(incoming, current, allTombstones);
                     const { upserts, deletes } = diffVocabularyForSqlite(current, merged);
                     if (upserts.length > 0 || deletes.length > 0 || merged.length !== current.length) {
-                        useVocabularyStore.setState({ vocabularyTerms: merged });
+                        applyRemote(() => useVocabularyStore.setState({ vocabularyTerms: merged }));
                         if (isTauri()) {
                             // Only what changed (was: every term, one IPC each, on every merge),
                             // and removals too, so deleted terms cannot resurrect on next launch.
@@ -493,6 +624,7 @@ async function mergeIncomingData(
                 }
             }
         } catch (e) {
+            warnMergeFailure("vocabulary", e);
         }
     }
 
@@ -515,10 +647,11 @@ async function mergeIncomingData(
                 localSettingsUpdatedAt,
             );
             if (JSON.stringify(merged) !== JSON.stringify(settingsStore.settings)) {
-                useSettingsStore.setState({ settings: merged });
+                applyRemote(() => useSettingsStore.setState({ settings: merged }));
                 markUpdated("settings");
             }
         } catch (e) {
+            warnMergeFailure("settings", e);
         }
     }
 
@@ -529,11 +662,12 @@ async function mergeIncomingData(
                 const current = useSettingsStore.getState().stats;
                 const merged = mergeReadingStats(incoming, current);
                 if (JSON.stringify(merged) !== JSON.stringify(current)) {
-                    useSettingsStore.setState({ stats: merged });
+                    applyRemote(() => useSettingsStore.setState({ stats: merged }));
                     markUpdated("reading_stats");
                 }
             }
         } catch (e) {
+            warnMergeFailure("reading_stats", e);
         }
     }
 
@@ -548,12 +682,13 @@ async function mergeIncomingData(
                 const result = mergeRssFeeds(incoming, currentFeeds, allTombstones);
                 debug(`[sync-merge] rss_feeds: ${result.feeds.length} after merge`);
                 if (JSON.stringify(result.feeds) !== JSON.stringify(currentFeeds)) {
-                    useRssStore.setState({ feeds: result.feeds });
+                    applyRemote(() => useRssStore.setState({ feeds: result.feeds }));
                     markUpdated("rss_feeds");
                 }
                 feedIdMap = result.feedIdMap;
             }
         } catch (e) {
+            warnMergeFailure("rss_feeds", e);
         }
     }
 
@@ -573,11 +708,12 @@ async function mergeIncomingData(
                 const merged = mergeRssArticles(incoming, currentArticles, feedIdMap, allTombstones);
                 debug(`[sync-merge] rss_articles: ${merged.length} after merge`);
                 if (JSON.stringify(merged) !== JSON.stringify(currentArticles)) {
-                    useRssStore.setState({ articles: merged });
+                    applyRemote(() => useRssStore.setState({ articles: merged }));
                     markUpdated("rss_articles");
                 }
             }
         } catch (e) {
+            warnMergeFailure("rss_articles", e);
         }
     }
 
@@ -595,12 +731,13 @@ async function mergeIncomingData(
                 ...feed,
                 unreadCount: unreadByFeed.get(feed.id) ?? 0,
             }));
-            useRssStore.setState({ feeds: updatedFeeds });
+            applyRemote(() => useRssStore.setState({ feeds: updatedFeeds }));
         } catch (e) {
+            warnMergeFailure("rss unread counts", e);
         }
     }
 
-    return { domainsUpdated, conflicts };
+    return { domainsUpdated, conflicts, persisted };
 }
 
 export interface SyncResult {
@@ -710,16 +847,71 @@ export async function ensureResponderSyncReady(): Promise<void> {
 
 let _lastSyncPeerId: string | undefined;
 
+/** How long a round waits for the peer's own `docs-sync-finished` before calling it unreachable. */
+const PEER_SYNC_WAIT_MS = 30_000;
+/** Once the peer's sync finished, how long to wait for its content downloads to settle. */
+const CONTENT_SETTLE_GRACE_MS = 5_000;
+
+interface RunningRound {
+    peerDeviceId: string;
+    promise: Promise<SyncResult>;
+}
+let _currentRound: RunningRound | null = null;
+
+/** The paired device's iroh node id, which `docs-sync-finished` events carry as `peer`. */
+async function peerNodeIdFor(peerDeviceId: string): Promise<string | undefined> {
+    const devices = await getPairedDevices().catch(() => []);
+    for (const d of devices) {
+        if (d.deviceId === peerDeviceId) return d.irohNodeId || undefined;
+    }
+    return undefined;
+}
+
+/**
+ * Runs one sync round with a peer. Rounds never overlap: a caller arriving
+ * while one runs waits for it (and, for the same peer, simply shares its
+ * result) instead of failing with "already in progress".
+ */
 export async function runDeviceSync(
     peerDeviceId: string,
     onProgress?: (msg: string) => void,
     notifyOnComplete = false,
 ): Promise<SyncResult> {
-    if (_isMerging) {
-        return { success: false, domainsUpdated: [], error: "Sync already in progress" };
+    while (_currentRound) {
+        const running = _currentRound;
+        if (running.peerDeviceId === peerDeviceId) return running.promise;
+        await running.promise.catch(() => undefined);
     }
+    const promise: Promise<SyncResult> = runDeviceSyncRound(peerDeviceId, onProgress, notifyOnComplete)
+        .finally(() => {
+            if (_currentRound?.promise === promise) _currentRound = null;
+        });
+    _currentRound = { peerDeviceId, promise };
+    return promise;
+}
+
+/** Syncs with every paired device, one after another (the titlebar's quick sync). */
+export async function syncAllPairedDevices(
+    deviceIds?: string[],
+    notifyOnComplete = false,
+): Promise<SyncResult[]> {
+    const ids = deviceIds ?? (await getPairedDevices().catch(() => [])).map((d) => d.deviceId);
+    const results: SyncResult[] = [];
+    for (const id of ids) {
+        results.push(await runDeviceSync(id, undefined, notifyOnComplete));
+    }
+    return results;
+}
+
+async function runDeviceSyncRound(
+    peerDeviceId: string,
+    onProgress: ((msg: string) => void) | undefined,
+    notifyOnComplete: boolean,
+): Promise<SyncResult> {
     _isMerging = true;
-    _syncCancelled = false; 
+    const cancelToken = _cancelGeneration;
+    _roundCancelToken = cancelToken;
+    const cancelled = () => cancelToken !== _cancelGeneration;
     const log = (msg: string) => {
         onProgress?.(msg);
     };
@@ -732,12 +924,16 @@ export async function runDeviceSync(
         await ensureResponderSyncReady();
 
         {
-            if (_syncCancelled) {
+            if (cancelled()) {
                 throw new Error("Sync cancelled");
             }
             log("Provisioning local data to sync doc...");
             await provisionToIrohDocs();
         }
+
+        // Only this peer's `docs-sync-finished` ends the wait: the events are
+        // global, and another peer's must not end this round early.
+        const peerNodeId = await peerNodeIdFor(peerDeviceId);
 
         log("Requesting data from peer...");
         setStatus("syncing", "Connecting to peer...");
@@ -749,8 +945,13 @@ export async function runDeviceSync(
 
         let contentReadyUnlisten: (() => void) | null = null;
         let syncFinishedUnlisten: (() => void) | null = null;
+        // Set only by this peer's sync-finished event: the peer was reached.
         let _syncActivityDetected = false;
-        const MAX_WAIT_SECS = 30;
+        let contentSignalled = false;
+        let graceTimer: ReturnType<typeof setTimeout> | null = null;
+        // Settles at once when the peer's sync finished *and* content downloads
+        // reported ready afterwards; otherwise CONTENT_SETTLE_GRACE_MS after the
+        // sync finished (content-ready carries no peer, so it is only a hint).
         let settleSignals = 0;
         const signalSettle = () => {
             settleSignals++;
@@ -763,16 +964,37 @@ export async function runDeviceSync(
         try {
             const { listen: evListen } = await import("@tauri-apps/api/event");
             contentReadyUnlisten = await evListen("docs-pending-content-ready", () => {
-                _syncActivityDetected = true;
                 debug(`[sync] Received docs-pending-content-ready`);
-                signalSettle();
+                if (_syncActivityDetected && !contentSignalled) {
+                    contentSignalled = true;
+                    signalSettle();
+                }
             });
-            syncFinishedUnlisten = await evListen("docs-sync-finished", () => {
-                _syncActivityDetected = true;
+            syncFinishedUnlisten = await evListen<{ peer?: string; synced?: boolean; received?: number; sent?: number }>("docs-sync-finished", (event) => {
+                const { peer, synced } = event.payload ?? {};
+                if (peerNodeId && peer !== peerNodeId) {
+                    debug(`[sync] Ignoring docs-sync-finished from another peer (${peer})`);
+                    return;
+                }
+                if (_syncActivityDetected) return;
+                if (synced === false) {
+                    // The exchange with this peer failed: not reached this round.
+                    debug("[sync] docs-sync-finished reported a failed exchange");
+                    settle();
+                    return;
+                }
                 debug("[sync] Received docs-sync-finished");
+                _syncActivityDetected = true;
                 signalSettle();
+                graceTimer = setTimeout(settle, CONTENT_SETTLE_GRACE_MS);
             });
         } catch {}
+
+        const stopWaiting = () => {
+            if (graceTimer) clearTimeout(graceTimer);
+            contentReadyUnlisten?.();
+            syncFinishedUnlisten?.();
+        };
 
         const docsSyncError = await docsSyncNow(peerDeviceId);
         if (docsSyncError) {
@@ -782,17 +1004,15 @@ export async function runDeviceSync(
                 ? `Peer is offline — try again later`
                 : docsSyncError;
             setStatus("error", errorMsg);
-            contentReadyUnlisten?.();
-            syncFinishedUnlisten?.();
+            stopWaiting();
             return { success: false, domainsUpdated: [], error: errorMsg };
         }
 
-        const timeoutId = setTimeout(() => { settle(); }, MAX_WAIT_SECS * 1000);
+        const timeoutId = setTimeout(settle, PEER_SYNC_WAIT_MS);
 
         await syncPromise;
         clearTimeout(timeoutId);
-        contentReadyUnlisten?.();
-        syncFinishedUnlisten?.();
+        stopWaiting();
 
         const changedDomains = new Set<string>();
         const changedConflicts: SyncConflict[] = [];
@@ -801,7 +1021,7 @@ export async function runDeviceSync(
             const updated = await hydrateFromIrohDocs();
             for (const d of updated) changedDomains.add(d);
         }
-        if (_syncCancelled) {
+        if (cancelled()) {
             log("Sync cancelled before final merge");
             return { success: false, domainsUpdated: [], error: "Sync cancelled" };
         }
@@ -816,29 +1036,34 @@ export async function runDeviceSync(
             for (const d of domainsUpdated) changedDomains.add(d);
             changedConflicts.push(...conflicts);
         }
-        
+
         if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
-        _flushProgressiveBooks();
+        await withMergeLock(_flushProgressiveBooks);
 
         const postWaitBooks = useLibraryStore.getState().books.length;
         debug(`[sync] After wait: ${postWaitBooks} books`);
 
-        if (_syncCancelled) {
+        if (cancelled()) {
             log("Sync cancelled after metadata sync");
-            _syncCancelled = false;
+            setStatus("idle", "Sync cancelled");
             return { success: false, domainsUpdated: [], error: "Sync cancelled" };
+        }
+
+        if (!_syncActivityDetected) {
+            // The peer never finished a sync with us: it was not reached. Not a
+            // success, so the data stays dirty and the next round retries.
+            const summary = "Peer offline";
+            log(`Sync incomplete. ${summary}`);
+            setStatus("error", summary);
+            if (notifyOnComplete) {
+                void notifySync("Sync Issue", summary);
+            }
+            return { success: false, domainsUpdated: [...changedDomains], error: summary };
         }
 
         const pendingDownloads = useLibraryStore.getState().books.filter(b => b.syncedWithoutFile === true && b.blobHash).length;
         if (pendingDownloads > 0) {
             log(`${pendingDownloads} book(s) available for on-demand download`);
-        }
-
-        if (_syncCancelled) {
-            _syncCancelled = false;
-            log("Sync cancelled");
-            setStatus("idle", "Sync cancelled");
-            return { success: false, domainsUpdated: [], error: "Sync cancelled" };
         }
 
         const domainLabels: Record<string, string> = {
@@ -864,7 +1089,7 @@ export async function runDeviceSync(
                 rss_feeds: useRssStore.getState().feeds.length,
                 rss_articles: useRssStore.getState().articles.length,
             };
-            
+
             const visibleDomains = [...changedDomains].filter(d => d !== "deletion_tombstones");
             const parts = visibleDomains
                 .map(d => {
@@ -879,38 +1104,31 @@ export async function runDeviceSync(
             }
         } else if (pendingDownloads > 0) {
             summary = `Metadata synced, ${pendingDownloads} files available for download`;
-        } else if (!_syncActivityDetected) {
-            
-            summary = "Peer offline";
         } else {
-            
-            summary = "No data received — peer may not be sharing";
+            summary = "Already up to date";
         }
 
         log(`Sync complete. ${summary}`);
-        if (_syncActivityDetected || changedDomains.size > 0) {
-            setStatus("synced", summary);
-            _lastSyncPeerId = peerDeviceId;
+        setStatus("synced", summary);
+        _lastSyncPeerId = peerDeviceId;
 
-            if (notifyOnComplete) {
-                const { resolveNotificationIcon } = await import("./notifications");
-                const successIcon = await resolveNotificationIcon("notify-success.png");
-                void notifySync("Sync Complete", summary, successIcon);
-            }
-            
-            void prefetchRecentBooks(peerDeviceId);
-        } else {
-            setStatus("error", summary);
-            if (notifyOnComplete) {
-                void notifySync("Sync Issue", summary);
-            }
+        if (notifyOnComplete) {
+            const { resolveNotificationIcon } = await import("./notifications");
+            const successIcon = await resolveNotificationIcon("notify-success.png");
+            void notifySync("Sync Complete", summary, successIcon);
         }
+
+        void prefetchRecentBooks(peerDeviceId);
         _dataDirty = false;
 
         return { success: true, domainsUpdated: [...changedDomains], conflicts: changedConflicts.length > 0 ? changedConflicts : undefined };
     } catch (error: unknown) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log(`Sync failed: ${errMsg}`);
+        if (cancelled()) {
+            setStatus("idle", "Sync cancelled");
+            return { success: false, domainsUpdated: [], error: "Sync cancelled" };
+        }
         setStatus("error", errMsg);
         if (notifyOnComplete) {
             void notifySync("Sync Error", errMsg);
@@ -918,81 +1136,106 @@ export async function runDeviceSync(
         return { success: false, domainsUpdated: [], error: errMsg };
     } finally {
         _isMerging = false;
+        _roundCancelToken = -1;
     }
 }
 
+/** True while a sync round runs (live merges defer to it). */
 let _isMerging = false;
 
-let _syncCancelled = false;
+// Cancellation is a generation counter, not a sticky flag: work captures the
+// value when it starts and stops once it changes. A cancel with nothing
+// running (unpairing calls it) therefore cannot block the next download or
+// round, and no code path has to remember to reset it.
+let _cancelGeneration = 0;
+let _roundCancelToken = -1;
+
+/** A round is running and has not been cancelled. */
+function roundInProgress(): boolean {
+    return _isMerging && _roundCancelToken === _cancelGeneration;
+}
 
 let _bridgePaused = true;
 
 export function cancelRunningSync(): void {
-    _syncCancelled = true;
+    _cancelGeneration++;
     if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
     _progressiveBookBatch = [];
     useUIStore.getState().setDownloadingBook(undefined);
     setStatus("idle", "Sync cancelled");
-    debug("[sync] Cancel requested — _syncCancelled = true");
+    debug("[sync] Cancel requested");
 }
 
 export async function downloadBookOnDemand(bookId: string): Promise<boolean> {
     if (!isTauri()) return false;
 
+    const cancelToken = _cancelGeneration;
+    let finalStatus: [DeviceSyncStatus, string] = ["idle", "Book download failed — peer not available"];
     setStatus("syncing", "Downloading book...");
     useUIStore.getState().setDownloadingBook(bookId);
-    const { downloadBookFile, getPairedDevices } = await import("./device-sync");
 
-    const peerIds: string[] = [];
-    if (_lastSyncPeerId) peerIds.push(_lastSyncPeerId);
-    const devices = await getPairedDevices().catch(() => []);
-    for (const d of devices) {
-        if (!peerIds.includes(d.deviceId)) peerIds.push(d.deviceId);
-    }
+    try {
+        const { downloadBookFile, getPairedDevices } = await import("./device-sync");
 
-    if (peerIds.length === 0) {
-        console.warn(`[file-xfer] No paired devices found to download ${bookId}`);
-        useUIStore.getState().setDownloadingBook(undefined);
-        setStatus("idle", "Book download failed — no paired devices");
-        return false;
-    }
+        const peerIds: string[] = [];
+        if (_lastSyncPeerId) peerIds.push(_lastSyncPeerId);
+        const devices = await getPairedDevices().catch(() => []);
+        for (const d of devices) {
+            if (!peerIds.includes(d.deviceId)) peerIds.push(d.deviceId);
+        }
 
-    for (const peerId of peerIds) {
-        if (_syncCancelled) break;
-        try {
-            debug(`[file-xfer] Attempting download of ${bookId} from peer ${peerId}...`);
-            const destPath = await downloadBookFile(peerId, bookId);
-            try {
-                await sqliteRegisterMaterializedBook(bookId);
-            } catch (e) {
-                debug(`[file-xfer] failed to register ${bookId} in sqlite: ${e}`);
+        if (peerIds.length === 0) {
+            console.warn(`[file-xfer] No paired devices found to download ${bookId}`);
+            finalStatus = ["idle", "Book download failed — no paired devices"];
+            return false;
+        }
+
+        for (const peerId of peerIds) {
+            if (cancelToken !== _cancelGeneration) {
+                finalStatus = ["idle", "Sync cancelled"];
+                break;
             }
-            useLibraryStore.getState().updateBook(bookId, {
-                syncedWithoutFile: false,
-                filePath: destPath,
-                storagePath: destPath,
-            });
-            useUIStore.getState().setDownloadingBook(undefined);
-            setStatus("synced", "Book downloaded");
-            return true;
-        } catch (e) {
-            const errStr = String(e);
-            console.error(`[file-xfer] download failed for ${bookId} from ${peerId}: ${errStr}`);
-            if (errStr.includes("PEER_BOOK_DELETED")) {
-                console.warn(`[file-xfer] Book ${bookId} was deleted on peer; purging ghost card locally`);
-                useLibraryStore.getState().removeBook(bookId);
-                useUIStore.getState().setDownloadingBook(undefined);
-                setStatus("idle", "Book was deleted on peer");
-                return false;
+            try {
+                debug(`[file-xfer] Attempting download of ${bookId} from peer ${peerId}...`);
+                const destPath = await downloadBookFile(peerId, bookId);
+                try {
+                    await sqliteRegisterMaterializedBook(bookId);
+                } catch (e) {
+                    debug(`[file-xfer] failed to register ${bookId} in sqlite: ${e}`);
+                }
+                useLibraryStore.getState().updateBook(bookId, {
+                    syncedWithoutFile: false,
+                    filePath: destPath,
+                    storagePath: destPath,
+                });
+                finalStatus = ["synced", "Book downloaded"];
+                return true;
+            } catch (e) {
+                const errStr = String(e);
+                console.error(`[file-xfer] download failed for ${bookId} from ${peerId}: ${errStr}`);
+                if (errStr.includes("PEER_BOOK_DELETED")) {
+                    console.warn(`[file-xfer] Book ${bookId} was deleted on peer; purging ghost card locally`);
+                    finalStatus = ["idle", "Book was deleted on peer"];
+                    useLibraryStore.getState().removeBook(bookId);
+                    return false;
+                }
             }
         }
+        return false;
+    } catch (e) {
+        if (import.meta.env.DEV) console.warn(`[file-xfer] download of ${bookId} failed:`, e);
+        finalStatus = ["error", "Book download failed"];
+        return false;
+    } finally {
+        // Never leave the spinner or a "syncing" status behind. While a round
+        // runs it owns the status and sets the final one itself.
+        useUIStore.getState().setDownloadingBook(undefined);
+        if (!_isMerging) setStatus(finalStatus[0], finalStatus[1]);
     }
-    useUIStore.getState().setDownloadingBook(undefined);
-    setStatus("idle", "Book download failed — peer not available");
-    return false;
 }
 
 async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
+    const cancelToken = _cancelGeneration;
     const { downloadBookFile } = await import("./device-sync");
 
     const books = useLibraryStore.getState().books
@@ -1009,7 +1252,7 @@ async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
     let index = 0;
     await Promise.all(
         Array.from({ length: DOWNLOAD_CONCURRENCY }, async () => {
-            while (index < books.length && !_syncCancelled) {
+            while (index < books.length && cancelToken === _cancelGeneration) {
                 const book = books[index++];
                 try {
                     const destPath = await downloadBookFile(peerDeviceId, book.id);
@@ -1091,9 +1334,11 @@ function _flushProgressiveBooks() {
         if (!changed) return;
     }
 
-    useLibraryStore.setState({ books: merged });
+    applyRemote(() => useLibraryStore.setState({ books: merged }));
 
-    if (!_syncCancelled) {
+    // Round progress only while a round runs; a live update outside one must
+    // not leave the status stuck on "syncing".
+    if (roundInProgress()) {
         const newCount = merged.length - beforeBooks.length;
         if (newCount > 0) {
             setStatus("syncing", `${newCount} books received`);
@@ -1116,7 +1361,7 @@ function _flushProgressiveAnnos() {
     const beforeAnns = state.annotations;
     const merged = mergeAnnotations(batch, beforeAnns, state.deletionTombstones);
     if (isSameOrderedList(merged, beforeAnns)) return;
-    useLibraryStore.setState({ annotations: merged });
+    applyRemote(() => useLibraryStore.setState({ annotations: merged }));
     // Persist what the live batch changed, or it is gone after a reload.
     if (isTauri()) {
         const before = new Set(beforeAnns);
@@ -1134,10 +1379,14 @@ function _flushProgressiveCollections() {
     const beforeCols = state.collections;
     const merged = mergeCollections(batch, beforeCols, state.deletionTombstones);
     if (isSameOrderedList(merged, beforeCols)) return;
-    useLibraryStore.setState({ collections: merged });
+    applyRemote(() => useLibraryStore.setState({ collections: merged }));
 }
 
 function _flushPendingTombstones() {
+    void withMergeLock(_flushPendingTombstonesNow);
+}
+
+function _flushPendingTombstonesNow() {
     const value = _pendingTombstonesValue;
     _pendingTombstonesValue = null;
     if (value == null) return;
@@ -1149,12 +1398,12 @@ function _flushPendingTombstones() {
             const prunedBooks = mergeBooks([], state.books, mergedTombstones);
             const prunedAnns = mergeAnnotations([], state.annotations, mergedTombstones);
             const prunedCols = mergeCollections([], state.collections, mergedTombstones);
-            useLibraryStore.setState({
+            applyRemote(() => useLibraryStore.setState({
                 deletionTombstones: mergedTombstones,
                 books: prunedBooks,
                 annotations: prunedAnns,
                 collections: prunedCols,
-            });
+            }));
             if (isTauri() && prunedAnns.length !== state.annotations.length) {
                 const keptIds = new Set(prunedAnns.map((a) => a.id));
                 for (const ann of state.annotations) {
@@ -1163,7 +1412,9 @@ function _flushPendingTombstones() {
                 }
             }
         }
-    } catch {}
+    } catch (e) {
+        warnMergeFailure("deletion_tombstones", e);
+    }
 }
 
 export async function initDocsLiveListener(): Promise<() => void> {
@@ -1174,7 +1425,17 @@ export async function initDocsLiveListener(): Promise<() => void> {
     if (_docsLiveUnlisten) {
         return _docsLiveUnlisten;
     }
+    // Two concurrent callers share one registration: the check above runs
+    // before the awaits below, so without this both would register.
+    if (!_docsLiveInit) {
+        _docsLiveInit = registerDocsLiveListener().finally(() => {
+            _docsLiveInit = null;
+        });
+    }
+    return _docsLiveInit;
+}
 
+async function registerDocsLiveListener(): Promise<() => void> {
     const { listen } = await import("@tauri-apps/api/event");
 
     const _processPendingDocs = async () => {
@@ -1187,14 +1448,18 @@ export async function initDocsLiveListener(): Promise<() => void> {
             entries[k] = v;
         }
         _pendingDocsEntries.clear();
-        await mergeIncomingData(entries);
+        try {
+            await mergeIncomingData(entries);
+        } catch (e) {
+            warnMergeFailure("live entries", e);
+        }
     };
 
     // The Rust side batches remote doc entries (deduped per key, flushed every
     // ~300ms or 64 entries) so a bulk sync crosses the IPC bridge in a few
     // `docs-entry-batch` events instead of one event per entry.
     const handleIncomingEntry = (key: string, value: string) => {
-        if (isSelfOriginatedKey(key)) {
+        if (isOwnEcho(key, value)) {
             return;
         }
 
@@ -1215,7 +1480,7 @@ export async function initDocsLiveListener(): Promise<() => void> {
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
                     _progressiveBookBatch.push(parsed);
                     if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
-                    _progressiveBookTimer = setTimeout(_flushProgressiveBooks, 200);
+                    _progressiveBookTimer = setTimeout(() => void withMergeLock(_flushProgressiveBooks), 200);
                 }
             } catch {}
             return;
@@ -1226,7 +1491,7 @@ export async function initDocsLiveListener(): Promise<() => void> {
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
                     _progressiveAnnoBatch.push(parsed);
                     if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
-                    _progressiveAnnoTimer = setTimeout(_flushProgressiveAnnos, 200);
+                    _progressiveAnnoTimer = setTimeout(() => void withMergeLock(_flushProgressiveAnnos), 200);
                 }
             } catch {}
             return;
@@ -1237,7 +1502,7 @@ export async function initDocsLiveListener(): Promise<() => void> {
                 if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
                     _progressiveCollectionBatch.push(parsed);
                     if (_progressiveCollectionTimer) clearTimeout(_progressiveCollectionTimer);
-                    _progressiveCollectionTimer = setTimeout(_flushProgressiveCollections, 200);
+                    _progressiveCollectionTimer = setTimeout(() => void withMergeLock(_flushProgressiveCollections), 200);
                 }
             } catch {}
             return;
@@ -1530,6 +1795,26 @@ export async function docsSetEntry(key: string, value: string): Promise<boolean>
     } catch { return false; }
 }
 
+/**
+ * Only the doc entries whose content changed since the last read that was
+ * acknowledged with `docsAckEntries` (the first read after start is complete);
+ * with `full`, every entry.
+ */
+export async function docsGetChangedEntries(full = false): Promise<{ entries: Record<string, string>; token: number } | null> {
+    try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return await invoke<{ entries: Record<string, string>; token: number }>("docs_get_changed_entries", { full });
+    } catch { return null; }
+}
+
+/** The entries of read `token` are merged: later reads leave them out. */
+export async function docsAckEntries(token: number): Promise<void> {
+    try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("docs_ack_entries", { token });
+    } catch { /* not acknowledged: the next read sends them again */ }
+}
+
 export async function docsGetAllEntries(): Promise<Record<string, string> | null> {
     try {
         const { invoke } = await import("@tauri-apps/api/core");
@@ -1592,11 +1877,8 @@ export async function provisionToIrohDocs(): Promise<boolean> {
                 const key = `book:${book.id}`;
                 const serialized = serializeBook(book);
                 if (_provisionedValues.get(key) === serialized) continue;
-                markSelfOriginated(key);
-                const ok = await docsSetEntry(key, serialized);
-                if (ok) {
-                    _provisionedValues.set(key, serialized);
-                } else {
+                const ok = await writeOwnEntry(key, serialized);
+                if (!ok) {
                     const msg = `book ${book.id} (${book.title || "unknown"}): write failed`;
                     bookErrors.push(msg);
                 }
@@ -1615,8 +1897,7 @@ export async function provisionToIrohDocs(): Promise<boolean> {
             try {
                 const entry = await buildCoverEntry(book.id);
                 if (!entry) continue;
-                markSelfOriginated(key);
-                if (await docsSetEntry(key, entry)) _provisionedValues.set(key, book.coverPath!);
+                await writeOwnEntry(key, entry, book.coverPath!);
             } catch {
                 // A missing cover must not fail provisioning.
             }
@@ -1642,11 +1923,8 @@ export async function provisionToIrohDocs(): Promise<boolean> {
         for (const { name, key, payload } of domains) {
             try {
                 if (_provisionedValues.get(key) === payload) continue;
-                markSelfOriginated(key);
-                const ok = await docsSetEntry(key, payload);
-                if (ok) {
-                    _provisionedValues.set(key, payload);
-                } else {
+                const ok = await writeOwnEntry(key, payload);
+                if (!ok) {
                     const msg = `${name} (${payload.length} bytes): write failed`;
                     domainErrors.push(msg);
                 }
@@ -1669,42 +1947,94 @@ export async function provisionToIrohDocs(): Promise<boolean> {
     }
 }
 
+/**
+ * A full read of every doc entry happens at least this often, as a safety net
+ * under the changed-only reads (and the first read after start is full anyway).
+ */
+const FULL_HYDRATE_EVERY_MS = 30 * 60_000;
+let _lastFullHydrateAt = 0;
+
+/**
+ * Merges what the paired docs hold. Normally only entries that changed since
+ * the last merge cross the IPC bridge (covers above all are not re-sent every
+ * round); they are acknowledged only once merged and persisted, so a failed
+ * merge gets them again next round.
+ */
 export async function hydrateFromIrohDocs(): Promise<string[]> {
-    const domainsUpdated: string[] = [];
     try {
-        const entries = await docsGetAllEntries();
-        if (!entries || Object.keys(entries).length === 0) return domainsUpdated;
+        const full = Date.now() - _lastFullHydrateAt > FULL_HYDRATE_EVERY_MS;
+        const read = await docsGetChangedEntries(full);
+        if (!read) return [];
+        const acknowledge = async () => {
+            await docsAckEntries(read.token);
+            if (full) _lastFullHydrateAt = Date.now();
+        };
+        if (Object.keys(read.entries).length === 0) {
+            await acknowledge();
+            return [];
+        }
 
-        const localSettingsUpdatedAt = useSettingsStore.getState().settingsLastModifiedAt || new Date().toISOString();
-        const { domainsUpdated: merged } = await mergeIncomingData(
-            entries,
-            localSettingsUpdatedAt,
+        const { domainsUpdated, persisted } = await mergeIncomingData(
+            read.entries,
+            localSettingsTimestamp(),
         );
-        return merged;
-    } catch {}
+        if (persisted) await acknowledge();
+        return domainsUpdated;
+    } catch {
+        return [];
+    }
+}
 
-    return domainsUpdated;
+/** Test hook: forget when the last full read happened. */
+export function __resetHydrateScheduleForTests(): void {
+    _lastFullHydrateAt = 0;
 }
 
 const _docsDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const DOCS_DEBOUNCE_MS = 500;
 
-const _selfOriginatedKeys = new Set<string>();
-const SELF_ORIGINATED_KEY_TTL_MS = 8000;
+// Echo suppression by value: per key, a fingerprint of what this device last
+// wrote. An incoming entry is dropped only if it is exactly that value; a
+// peer's different value for the same key (a genuine edit) always gets in,
+// however soon after our own write it arrives.
+const _ownWrites = new Map<string, string>();
 
-function isSelfOriginatedKey(key: string): boolean {
-    return _selfOriginatedKeys.has(key);
-}
-
-function markSelfOriginated(key: string): void {
-    _selfOriginatedKeys.add(key);
-    setTimeout(() => _selfOriginatedKeys.delete(key), SELF_ORIGINATED_KEY_TTL_MS);
-}
-
-function scheduleDocsWrite(domain: string, fn: () => void, selfOriginatedKey?: string): void {
-    if (selfOriginatedKey) {
-        markSelfOriginated(selfOriginatedKey);
+/** 53-bit string hash (cyrb53) plus length: compact, so large values are not kept twice. */
+function fingerprint(value: string): string {
+    let h1 = 0xdeadbeef;
+    let h2 = 0x41c6ce57;
+    for (let i = 0; i < value.length; i++) {
+        const ch = value.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
     }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return `${value.length}:${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`;
+}
+
+function rememberOwnWrite(key: string, value: string): void {
+    _ownWrites.set(key, fingerprint(value));
+}
+
+function isOwnEcho(key: string, value: string): boolean {
+    const own = _ownWrites.get(key);
+    return own !== undefined && own === fingerprint(value);
+}
+
+/**
+ * Writes one docs entry from this device. `provisionedAs` is recorded in
+ * `_provisionedValues` on success (pass null for keys provisioning never
+ * compares), so the next provisioning does not write the same value again.
+ */
+async function writeOwnEntry(key: string, value: string, provisionedAs: string | null = value): Promise<boolean> {
+    rememberOwnWrite(key, value);
+    const ok = await docsSetEntry(key, value);
+    if (ok && provisionedAs !== null) _provisionedValues.set(key, provisionedAs);
+    return ok;
+}
+
+function scheduleDocsWrite(domain: string, fn: () => void): void {
     const existing = _docsDebounceTimers.get(domain);
     if (existing) clearTimeout(existing);
     _docsDebounceTimers.set(domain, setTimeout(() => {
@@ -1759,7 +2089,9 @@ export function subscribeZustandToIrohDocs(): () => void {
     }
 
     unsubs.push(useLibraryStore.subscribe((state) => {
-        if (_bridgePaused) return;  
+        if (_bridgePaused) return;
+        // A merge of peer data: keep the indexes current, write nothing back.
+        const fromPeer = _applyingRemote > 0;
         if (state.books !== prevBooks) {
             prevBooks = state.books;
 
@@ -1769,21 +2101,29 @@ export function subscribeZustandToIrohDocs(): () => void {
                 // An existing cover changed (edit, re-extraction): send it. First-time
                 // covers (hydration, new imports) go out with the next provisioning.
                 const previousCover = (entry?.ref as { coverPath?: string } | undefined)?.coverPath;
-                if (previousCover && book.coverPath !== previousCover && needsCoverEntry(book.coverPath)
+                if (!fromPeer && previousCover && book.coverPath !== previousCover && needsCoverEntry(book.coverPath)
                     && !_receivedCoverPaths.has(book.coverPath!)) {
                     const coverKey = coverEntryKey(book.id);
                     const coverPath = book.coverPath!;
                     scheduleDocsWrite(coverKey, () => {
                         void buildCoverEntry(book.id).then((value) => {
-                            if (value) return docsSetEntry(coverKey, value).then((ok) => { if (ok) _provisionedValues.set(coverKey, coverPath); });
+                            if (value) return writeOwnEntry(coverKey, value, coverPath);
                         });
-                    }, coverKey);
+                    });
                 }
                 const serialized = serializeBook(book);
                 if (!entry || entry.serialized !== serialized) {
                     bookIndex.set(book.id, { ref: book, serialized });
-                    scheduleDocsWrite("book:" + book.id, () =>
-                        docsSetEntry("book:" + book.id, serialized), "book:" + book.id);
+                    if (!fromPeer) {
+                        const bookKey = "book:" + book.id;
+                        scheduleDocsWrite(bookKey, () => {
+                            rememberOwnWrite(bookKey, serialized);
+                            void docsSetEntry("book:" + book.id, serialized).then((ok) => {
+                                // Provisioning compares against this: it must not re-send the same book.
+                                if (ok) _provisionedValues.set(bookKey, serialized);
+                            });
+                        });
+                    }
                 } else {
                     entry.ref = book;
                 }
@@ -1803,9 +2143,10 @@ export function subscribeZustandToIrohDocs(): () => void {
                 const serialized = JSON.stringify(ann);
                 if (!entry || entry.serialized !== serialized) {
                     annoIndex.set(ann.id, { ref: ann, serialized });
-                    const annoKey = "anno:" + (ann.bookId || "global") + ":" + ann.id;
-                    scheduleDocsWrite(annoKey, () =>
-                        docsSetEntry(annoKey, serialized), annoKey);
+                    if (!fromPeer) {
+                        const annoKey = "anno:" + (ann.bookId || "global") + ":" + ann.id;
+                        scheduleDocsWrite(annoKey, () => void writeOwnEntry(annoKey, serialized, null));
+                    }
                 } else {
                     entry.ref = ann;
                 }
@@ -1817,9 +2158,8 @@ export function subscribeZustandToIrohDocs(): () => void {
                 if (!seenAnnoIds.has(id)) { annoDeletion = true; break; }
             }
             prevAnnoIds = seenAnnoIds;
-            if (annoDeletion) {
-                scheduleDocsWrite("annotations", () =>
-                    docsSetEntry("annotations", JSON.stringify(annotations)), "annotations");
+            if (annoDeletion && !fromPeer) {
+                scheduleDocsWrite("annotations", () => void writeOwnEntry("annotations", JSON.stringify(annotations)));
             }
             if (annoIndex.size > annotations.length) {
                 sweepStaleIndex(annoIndex, seenAnnoIds);
@@ -1836,8 +2176,10 @@ export function subscribeZustandToIrohDocs(): () => void {
                 const serialized = JSON.stringify(col);
                 if (!entry || entry.serialized !== serialized) {
                     collectionIndex.set(col.id, { ref: col, serialized });
-                    scheduleDocsWrite("collection:" + col.id, () =>
-                        docsSetEntry("collection:" + col.id, serialized), "collection:" + col.id);
+                    if (!fromPeer) {
+                        const colKey = "collection:" + col.id;
+                        scheduleDocsWrite(colKey, () => void writeOwnEntry(colKey, serialized, null));
+                    }
                 } else {
                     entry.ref = col;
                 }
@@ -1847,9 +2189,8 @@ export function subscribeZustandToIrohDocs(): () => void {
                 if (!seenCollectionIds.has(id)) { collectionDeletion = true; break; }
             }
             prevCollectionIds = seenCollectionIds;
-            if (collectionDeletion) {
-                scheduleDocsWrite("collections", () =>
-                    docsSetEntry("collections", JSON.stringify(collections)), "collections");
+            if (collectionDeletion && !fromPeer) {
+                scheduleDocsWrite("collections", () => void writeOwnEntry("collections", JSON.stringify(collections)));
             }
             if (collectionIndex.size > collections.length) {
                 sweepStaleIndex(collectionIndex, seenCollectionIds);
@@ -1857,8 +2198,10 @@ export function subscribeZustandToIrohDocs(): () => void {
         }
         if (state.deletionTombstones !== prevTombstones) {
             prevTombstones = state.deletionTombstones;
-            scheduleDocsWrite("deletion_tombstones", () =>
-                docsSetEntry("deletion_tombstones", JSON.stringify(state.deletionTombstones)), "deletion_tombstones");
+            if (!fromPeer) {
+                scheduleDocsWrite("deletion_tombstones", () =>
+                    void writeOwnEntry("deletion_tombstones", JSON.stringify(state.deletionTombstones)));
+            }
         }
     }));
 
@@ -1867,7 +2210,8 @@ export function subscribeZustandToIrohDocs(): () => void {
         if (_bridgePaused) return;
         if (state.vocabularyTerms !== prevVocab) {
             prevVocab = state.vocabularyTerms;
-            scheduleDocsWrite("vocabulary", () => docsSetEntry("vocabulary", JSON.stringify(state.vocabularyTerms)), "vocabulary");
+            if (_applyingRemote > 0) return;
+            scheduleDocsWrite("vocabulary", () => void writeOwnEntry("vocabulary", JSON.stringify(state.vocabularyTerms)));
         }
     }));
 
@@ -1880,9 +2224,12 @@ export function subscribeZustandToIrohDocs(): () => void {
     for (const article of prevArticles) articleIndex.set(article.id, { ref: article, serialized: JSON.stringify(article) });
     unsubs.push(useRssStore.subscribe((state) => {
         if (_bridgePaused) return;
+        const fromPeer = _applyingRemote > 0;
         if (state.feeds !== prevFeeds) {
             prevFeeds = state.feeds;
-            scheduleDocsWrite("rss_feeds", () => docsSetEntry("rss_feeds", JSON.stringify(state.feeds)), "rss_feeds");
+            if (!fromPeer) {
+                scheduleDocsWrite("rss_feeds", () => void writeOwnEntry("rss_feeds", JSON.stringify(state.feeds)));
+            }
         }
         if (state.articles !== prevArticles) {
             prevArticles = state.articles;
@@ -1895,8 +2242,10 @@ export function subscribeZustandToIrohDocs(): () => void {
                 const serialized = JSON.stringify(article);
                 if (!entry || entry.serialized !== serialized) {
                     articleIndex.set(article.id, { ref: article, serialized });
-                    const key = RSS_ARTICLE_KEY_PREFIX + article.id;
-                    scheduleDocsWrite(key, () => docsSetEntry(key, serialized), key);
+                    if (!fromPeer) {
+                        const key = RSS_ARTICLE_KEY_PREFIX + article.id;
+                        scheduleDocsWrite(key, () => void writeOwnEntry(key, serialized, null));
+                    }
                 } else {
                     entry.ref = article;
                 }
@@ -1907,7 +2256,9 @@ export function subscribeZustandToIrohDocs(): () => void {
             }
             prevArticleIds = seenIds;
             if (deletion) {
-                scheduleDocsWrite("rss_articles", () => docsSetEntry("rss_articles", JSON.stringify(articles)), "rss_articles");
+                if (!fromPeer) {
+                    scheduleDocsWrite("rss_articles", () => void writeOwnEntry("rss_articles", JSON.stringify(articles)));
+                }
                 for (const id of articleIndex.keys()) if (!seenIds.has(id)) articleIndex.delete(id);
             }
         }
@@ -1917,16 +2268,21 @@ export function subscribeZustandToIrohDocs(): () => void {
     let prevStats = useSettingsStore.getState().stats;
     unsubs.push(useSettingsStore.subscribe((state) => {
         if (_bridgePaused) return;
+        const fromPeer = _applyingRemote > 0;
         if (state.settings !== prevSettings) {
             prevSettings = state.settings;
-            scheduleDocsWrite("settings", () => docsSetEntry("settings", JSON.stringify({
-                ...state.settings,
-                _settingsUpdatedAt: useSettingsStore.getState().settingsLastModifiedAt || new Date().toISOString(),
-            })), "settings");
+            if (!fromPeer) {
+                scheduleDocsWrite("settings", () => void writeOwnEntry("settings", JSON.stringify({
+                    ...state.settings,
+                    _settingsUpdatedAt: useSettingsStore.getState().settingsLastModifiedAt || new Date().toISOString(),
+                })));
+            }
         }
         if (state.stats !== prevStats) {
             prevStats = state.stats;
-            scheduleDocsWrite("reading_stats", () => docsSetEntry("reading_stats", JSON.stringify(state.stats)), "reading_stats");
+            if (!fromPeer) {
+                scheduleDocsWrite("reading_stats", () => void writeOwnEntry("reading_stats", JSON.stringify(state.stats)));
+            }
         }
     }));
 

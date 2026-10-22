@@ -111,7 +111,15 @@ export function mergeBooks(
             continue;
         }
 
-        const remoteIsNewer = toEpoch(inc.lastReadAt) > toEpoch(match.lastReadAt);
+        const remoteReadAt = toEpoch(inc.lastReadAt);
+        const localReadAt = toEpoch(match.lastReadAt);
+        const remoteIsNewer = remoteReadAt > localReadAt;
+        const localIsNewer = localReadAt > remoteReadAt;
+        // Progress and position travel together: the newer read wins both, so
+        // re-reading from the start is not undone by an older, higher progress.
+        // Only when neither read is newer (tie or both unknown) does the
+        // higher progress win, with the position that goes with it.
+        const tieTakesRemote = (inc.progress ?? 0) > (match.progress ?? 0);
 
         const merged: Book = {
             ...match,
@@ -131,9 +139,11 @@ export function mergeBooks(
             
             progress: remoteIsNewer
                 ? (inc.progress ?? match.progress)
-                : Math.max(match.progress ?? 0, inc.progress ?? 0),
+                : localIsNewer
+                    ? (match.progress ?? inc.progress)
+                    : Math.max(match.progress ?? 0, inc.progress ?? 0),
             lastReadAt: remoteIsNewer ? inc.lastReadAt : match.lastReadAt,
-            currentLocation: remoteIsNewer
+            currentLocation: remoteIsNewer || (!localIsNewer && tieTakesRemote)
                 ? inc.currentLocation ?? match.currentLocation
                 : match.currentLocation,
             
