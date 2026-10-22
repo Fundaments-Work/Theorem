@@ -2,7 +2,7 @@
 
 The theorem command finds books, prints chapters as text, searches inside EPUB files, lists highlights and returns JSON for scripts and AI agents.
 
-This page is checked against the source of v1.5.9. The help text and the outputs shown here come from running the `theorem` program from the v1.5.9 `.deb` package against a throwaway library with one small test EPUB. Output shown for `highlights` is derived from the source instead, and says so. Long file paths in the examples are shortened.
+This page is checked against the source of v1.6.0. Most outputs shown here were first captured from the v1.5.9 program against a throwaway library with one small test EPUB, and are updated where 1.6.0 changed them. Output shown for `highlights` is derived from the source instead, and says so. Long file paths in the examples are shortened.
 
 The command line is part of the desktop apps for Linux, macOS and Windows. It is not in the Android app. The one-click setup that puts `theorem` on your `PATH` exists on Linux only.
 
@@ -33,7 +33,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem opds browse <url>` | Lists the entries of an OPDS catalog |
 | `theorem opds download <url> <entry>` | Downloads an entry, by title or by the number `browse` shows, into your library |
 | `theorem sync status`, `pair <code>`, `unpair <device_id>`, `now [--device <id>]` | Controls [device sync](device-sync.md) |
-| `theorem storage stats`, `storage cleanup` | Shows storage use, or removes orphaned covers, blobs and cache files |
+| `theorem storage stats`, `storage cleanup` | Shows storage use, or removes book files and covers that no book in the library uses |
 | `theorem stats` | Prints reading statistics |
 | `theorem export [--out <file>]` | Prints or writes a JSON snapshot of the library |
 | `theorem open <book_id>` | Opens the book in the Theorem window |
@@ -139,7 +139,7 @@ $ theorem library info 654e1eea-1ef6-4e3c-9ad1-4f1b5911c253 --json
 }
 ```
 
-`theorem library list --json` prints an array of book records with these keys: `addedAt`, `author`, `contentHash`, `coverExtractionDone`, `coverPath`, `description`, `filePath`, `fileSize`, `format`, `id`, `isFavorite`, `isbn`, `language`, `progress`, `publishedDate`, `publisher`, `storagePath`, `tags` and `title`. Without `--json` it prints one line per book: the id, the title, the progress and the author, with `*` after favorites.
+`theorem library list --json` prints the book records the app stores, sorted by title. A book imported from the command line has `id`, `title`, `author`, `format`, `filePath`, `storagePath`, `contentHash`, `fileSize`, `addedAt`, `progress`, `isFavorite`, `tags`, `readingTime` and `coverExtractionDone`, plus `description`, `publisher`, `publishedDate`, `language`, `isbn`, `series`, `seriesIndex` and `coverPath` when the file has them. Books added or read in the app carry more keys. Without `--json` it prints one line per book: the id, the title, the progress and the author, with `*` after favorites.
 
 Other results seen in the test: `theorem shelf list --json` returns objects with `bookIds`, `createdAt`, `id`, `kind`, `name` and `updatedAt`. `theorem sync status --json` returns `identity` (with `deviceId`, `deviceName`, `fingerprint`, `publicKeyHex`) and `pairedDevices`. `theorem extract <url> --json` returns `title`, `content` (HTML) and `textContent`, and adds `byline`, `excerpt`, `siteName`, `leadImageUrl` and `publishedTime` when the page has them. `theorem storage stats --json` returns `total_books`, `total_size`, `covers_size`, `binaries_size`, `blob_entries`, `blob_size`, `idb_books` and `tauri_books`. `theorem dict <term> --json` returns `term`, `stardict`, `mdx`, `online` and `elapsedMs`.
 
@@ -161,7 +161,7 @@ Commands that change data are: `library add`, `import`, `remove`, `favorite`, `e
 
 ## What does the text interface do?
 
-`theorem tui` opens a read-only interface in the terminal. It needs a real terminal. Run without one, it exits with `failed to enter terminal UI mode`. It never writes your reading progress.
+`theorem tui` opens a read-only interface in the terminal, with the first book selected. It needs a real terminal. Run without one, it exits with `failed to enter terminal UI mode`. It never writes your reading progress.
 
 | Where | Keys |
 | :--- | :--- |
@@ -182,6 +182,7 @@ For a full copy of your data as one file, `theorem export --out library.json` wr
 
 ## Sources
 
-- Theorem v1.5.9 source: `src-tauri/src/cli.rs` and `src-tauri/src/cli_tui.rs`, and the `theorem` program from the v1.5.9 `.deb` package at https://github.com/Fundaments-Work/Theorem/releases/tag/v1.5.9
+- Theorem v1.6.0 source: `src-tauri/src/cli.rs`, `src-tauri/src/cli_tui.rs`, `src-tauri/src/cli_text.rs` and `src-tauri/src/app_lock.rs`, and its end-to-end tests in `src-tauri/tests/cli.rs`
+- The `theorem` program from the v1.5.9 `.deb` package at https://github.com/Fundaments-Work/Theorem/releases/tag/v1.5.9, for the outputs first captured there
 
 Last checked: October 2026.

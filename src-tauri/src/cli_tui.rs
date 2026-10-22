@@ -75,8 +75,7 @@ impl TuiApp {
         books.sort_by_key(|a| a.title.to_lowercase());
         let filtered = (0..books.len()).collect();
         // The first book is selected, so Enter works without moving first.
-        let library_state =
-            TableState::default().with_selected((!books.is_empty()).then_some(0));
+        let library_state = TableState::default().with_selected((!books.is_empty()).then_some(0));
         Ok(Self {
             books,
             filtered,

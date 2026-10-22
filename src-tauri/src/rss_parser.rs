@@ -664,11 +664,21 @@ mod tests {
 
     #[test]
     fn only_feed_roots_are_feeds() {
-        assert!(is_feed_document(b"<?xml version='1.0'?><rss version='2.0'><channel/></rss>"));
-        assert!(is_feed_document(b"<feed xmlns='http://www.w3.org/2005/Atom'></feed>"));
-        assert!(is_feed_document(b"<rdf:RDF xmlns:rdf='x'><channel/></rdf:RDF>"));
-        assert!(!is_feed_document(b"<!DOCTYPE html><html><body><channel/></body></html>"));
-        assert!(!is_feed_document(b"<html><head><title>t</title></head></html>"));
+        assert!(is_feed_document(
+            b"<?xml version='1.0'?><rss version='2.0'><channel/></rss>"
+        ));
+        assert!(is_feed_document(
+            b"<feed xmlns='http://www.w3.org/2005/Atom'></feed>"
+        ));
+        assert!(is_feed_document(
+            b"<rdf:RDF xmlns:rdf='x'><channel/></rdf:RDF>"
+        ));
+        assert!(!is_feed_document(
+            b"<!DOCTYPE html><html><body><channel/></body></html>"
+        ));
+        assert!(!is_feed_document(
+            b"<html><head><title>t</title></head></html>"
+        ));
         assert!(!is_feed_document(b"plain text"));
         assert!(!is_feed_document(b""));
     }

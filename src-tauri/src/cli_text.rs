@@ -23,10 +23,11 @@ const SKIPPED: &[&str] = &[
 
 fn break_for(tag: &str) -> Break {
     match tag {
-        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote" | "pre" | "figure"
-        | "ul" | "ol" | "dl" | "table" | "hr" | "section" | "article" | "header" | "footer"
-        | "aside" | "nav" | "main" | "address" | "figcaption" | "details" | "hgroup"
-        | "body" | "html" => Break::Paragraph,
+        "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote" | "pre" | "figure" | "ul"
+        | "ol" | "dl" | "table" | "hr" | "section" | "article" | "header" | "footer" | "aside"
+        | "nav" | "main" | "address" | "figcaption" | "details" | "hgroup" | "body" | "html" => {
+            Break::Paragraph
+        }
         "div" | "li" | "tr" | "dt" | "dd" | "caption" | "summary" | "br" | "thead" | "tbody"
         | "tfoot" | "fieldset" | "legend" | "center" => Break::Line,
         _ => Break::None,
@@ -202,7 +203,9 @@ pub fn html_to_text(html: &str) -> String {
         let rest = &html[i..];
 
         if rest.starts_with("<!--") {
-            i = find_from(html, i + 4, "-->").map(|e| e + 3).unwrap_or(bytes.len());
+            i = find_from(html, i + 4, "-->")
+                .map(|e| e + 3)
+                .unwrap_or(bytes.len());
             text_start = i;
             continue;
         }
@@ -219,7 +222,9 @@ pub fn html_to_text(html: &str) -> String {
             continue;
         }
         if rest.starts_with("<!") || rest.starts_with("<?") {
-            i = find_from(html, i + 2, ">").map(|e| e + 1).unwrap_or(bytes.len());
+            i = find_from(html, i + 2, ">")
+                .map(|e| e + 1)
+                .unwrap_or(bytes.len());
             text_start = i;
             continue;
         }
@@ -349,7 +354,9 @@ fn parse_tag(html: &str, start: usize) -> Option<Tag> {
         i += 1;
     }
     let name_start = i;
-    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b':' | b'-' | b'_')) {
+    while i < bytes.len()
+        && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b':' | b'-' | b'_'))
+    {
         i += 1;
     }
     if i == name_start || !bytes[name_start].is_ascii_alphabetic() {
@@ -438,8 +445,14 @@ fn find_closing(html: &str, from: usize, name: &str) -> Option<usize> {
     while let Some(pos) = lower[search..].find(&needle) {
         let at = search + pos;
         let after = lower.as_bytes().get(at + needle.len()).copied();
-        if matches!(after, Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None) {
-            let close = lower[at..].find('>').map(|e| at + e + 1).unwrap_or(lower.len());
+        if matches!(
+            after,
+            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | None
+        ) {
+            let close = lower[at..]
+                .find('>')
+                .map(|e| at + e + 1)
+                .unwrap_or(lower.len());
             return Some(from + close);
         }
         search = at + needle.len();
@@ -490,7 +503,9 @@ fn decode_reference(name: &str) -> Option<String> {
             return None;
         }
         // NUL and surrogates become the replacement character.
-        let c = char::from_u32(code).filter(|c| *c != '\0').unwrap_or('\u{FFFD}');
+        let c = char::from_u32(code)
+            .filter(|c| *c != '\0')
+            .unwrap_or('\u{FFFD}');
         return Some(c.to_string());
     }
     let c = match name {
@@ -691,7 +706,10 @@ mod tests {
             "<a> \"q\" é é é …"
         );
         // Unknown names and bare ampersands stay as written.
-        assert_eq!(decode_entities("R&D &unknown; a & b"), "R&D &unknown; a & b");
+        assert_eq!(
+            decode_entities("R&D &unknown; a & b"),
+            "R&D &unknown; a & b"
+        );
         // Invalid code points do not panic.
         assert_eq!(decode_entities("&#0;&#x110000;"), "\u{FFFD}&#x110000;");
     }
@@ -716,14 +734,20 @@ mod tests {
     #[test]
     fn empty_and_text_only_inputs() {
         assert_eq!(html_to_text(""), "");
-        assert_eq!(html_to_text("<html><head><title>t</title></head><body></body></html>"), "");
+        assert_eq!(
+            html_to_text("<html><head><title>t</title></head><body></body></html>"),
+            ""
+        );
         assert_eq!(html_to_text("plain   text"), "plain text");
         assert_eq!(html_to_text("a < b and c > d"), "a < b and c > d");
     }
 
     #[test]
     fn cdata_unclosed_tags_and_uppercase() {
-        assert_eq!(html_to_text("<P>One<![CDATA[ & two ]]></P><DIV>Three"), "One & two\nThree");
+        assert_eq!(
+            html_to_text("<P>One<![CDATA[ & two ]]></P><DIV>Three"),
+            "One & two\nThree"
+        );
         assert_eq!(html_to_text("<p>cut off <b"), "cut off");
         assert_eq!(html_to_text("<SCRIPT>x()</SCRIPT><p>ok</p>"), "ok");
         assert_eq!(html_to_text("<style>unterminated"), "");

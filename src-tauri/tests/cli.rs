@@ -545,10 +545,18 @@ fn imports_report_failures_and_duplicates_and_survive_symlink_loops() {
 
     let out = sb.run(&["--json", "library", "import", "shelf"]);
     assert_no_panic(&out);
-    assert_eq!(out.status.code(), Some(1), "a failed file makes the exit non-zero");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a failed file makes the exit non-zero"
+    );
     let report = json(&out);
     assert_eq!(report["added"].as_array().unwrap().len(), 1, "{report}");
-    assert_eq!(report["duplicates"].as_array().unwrap().len(), 1, "{report}");
+    assert_eq!(
+        report["duplicates"].as_array().unwrap().len(),
+        1,
+        "{report}"
+    );
     let failed = report["failed"].as_array().unwrap();
     assert_eq!(failed.len(), 1, "{report}");
     assert!(failed[0]["path"].as_str().unwrap().ends_with("empty.epub"));
@@ -606,9 +614,22 @@ fn storage_cleanup_keeps_synced_books_and_removes_real_leftovers() {
     let cover = "SELECT COUNT(*) FROM covers WHERE book_id = ?1";
     assert_eq!(count(&conn, cover, "synced-1"), 1);
     assert_eq!(count(&conn, cover, "gone-1"), 0);
-    assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", "gone-1"), 0);
-    assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", APP_BOOK), 1);
-    assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", "synced-1"), 1);
+    assert_eq!(
+        count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", "gone-1"),
+        0
+    );
+    assert_eq!(
+        count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", APP_BOOK),
+        1
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT COUNT(*) FROM books WHERE id = ?1",
+            "synced-1"
+        ),
+        1
+    );
 }
 
 // ── A4: no lost updates, and no writes behind the running app ───────────────
@@ -632,7 +653,11 @@ fn parallel_writes_are_not_lost() {
     }
     let kv = library_kv(&sb).unwrap();
     // The seeded shelf plus all eight.
-    assert_eq!(kv["state"]["collections"].as_array().unwrap().len(), 9, "{kv}");
+    assert_eq!(
+        kv["state"]["collections"].as_array().unwrap().len(),
+        9,
+        "{kv}"
+    );
 }
 
 #[test]
@@ -651,7 +676,11 @@ fn writes_are_refused_while_the_app_runs() {
     let refused = sb.run(&["shelf", "create", "Blocked"]);
     assert_no_panic(&refused);
     assert_eq!(refused.status.code(), Some(5));
-    assert!(stderr(&refused).contains("Theorem is running"), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).contains("Theorem is running"),
+        "{}",
+        stderr(&refused)
+    );
     let kv = library_kv(&sb).unwrap();
     assert_eq!(kv["state"]["collections"].as_array().unwrap().len(), 1);
 
@@ -687,8 +716,7 @@ fn read_prints_clean_paragraphs() {
     assert_ok(&read);
     let text = stdout(&read);
     assert_eq!(
-        text,
-        "Opening\n\nCafé & tea—at\u{a0}noon.\n\nSecond line.\n",
+        text, "Opening\n\nCafé & tea—at\u{a0}noon.\n\nSecond line.\n",
         "{text:?}"
     );
 }
@@ -700,13 +728,26 @@ fn help_works_and_bad_command_lines_are_usage_errors() {
     let sb = Sandbox::new();
     let help = sb.run(&["help"]);
     assert_ok(&help);
-    assert!(stdout(&help).contains("Usage: theorem"), "{}", stdout(&help));
+    assert!(
+        stdout(&help).contains("Usage: theorem"),
+        "{}",
+        stdout(&help)
+    );
     let sub = sb.run(&["help", "library"]);
     assert_ok(&sub);
-    assert!(stdout(&sub).contains("Usage: theorem library"), "{}", stdout(&sub));
+    assert!(
+        stdout(&sub).contains("Usage: theorem library"),
+        "{}",
+        stdout(&sub)
+    );
 
     // Without a display the app would abort; a usage error exits 2 cleanly.
-    for line in [&["libary"][..], &["--json"], &["--frobnicate"], &["missing.epub"]] {
+    for line in [
+        &["libary"][..],
+        &["--json"],
+        &["--frobnicate"],
+        &["missing.epub"],
+    ] {
         let out = sb.run(line);
         assert_no_panic(&out);
         assert_eq!(out.status.code(), Some(2), "{line:?}: {}", stderr(&out));
@@ -773,7 +814,12 @@ fn corrupt_settings_and_rss_stores_are_errors_not_panics() {
         )
         .unwrap();
     }
-    for line in [&["stats"][..], &["feeds", "list"], &["feeds", "remove", "x"], &["export"]] {
+    for line in [
+        &["stats"][..],
+        &["feeds", "list"],
+        &["feeds", "remove", "x"],
+        &["export"],
+    ] {
         let out = sb.run(line);
         assert_no_panic(&out);
     }
@@ -813,7 +859,11 @@ impl Server {
                 let page = shared.lock().unwrap().get(&path).cloned();
                 let (status, kind, body) = match page {
                     Some((kind, body)) => ("200 OK", kind, body),
-                    None => ("404 Not Found", "text/plain".to_string(), b"missing".to_vec()),
+                    None => (
+                        "404 Not Found",
+                        "text/plain".to_string(),
+                        b"missing".to_vec(),
+                    ),
                 };
                 let _ = write!(
                     stream,
@@ -860,7 +910,9 @@ fn feed_articles(sb: &Sandbox, feed_id: &str) -> Vec<(String, String, Option<i64
         )
         .unwrap();
     let rows = stmt
-        .query_map([feed_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .query_map([feed_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
         .unwrap();
     rows.map(|r| r.unwrap()).collect()
 }
@@ -871,18 +923,29 @@ fn feeds_are_stored_like_the_app_stores_them() {
     let server = Server::start();
     server.put("/rss.xml", "application/rss+xml", RSS);
     server.put("/atom.xml", "application/atom+xml", ATOM);
-    server.put("/page.html", "text/html", "<!DOCTYPE html><html><body><p>hi</p></body></html>");
+    server.put(
+        "/page.html",
+        "text/html",
+        "<!DOCTYPE html><html><body><p>hi</p></body></html>",
+    );
 
     let added = sb.run(&["--json", "feeds", "add", &server.url("/rss.xml")]);
     assert_ok(&added);
     let added = json(&added);
-    assert_eq!(added["title"], "Channel Title Blog", "the channel's title, not an item's");
+    assert_eq!(
+        added["title"], "Channel Title Blog",
+        "the channel's title, not an item's"
+    );
     assert_eq!(added["articles"], 2);
     let rss_id = added["id"].as_str().unwrap().to_string();
     let articles = feed_articles(&sb, &rss_id);
     assert_eq!(articles[0].0, "First Post");
     assert_eq!(articles[0].2, Some(1_767_225_600_000), "pubDate in ms");
-    assert!(articles[0].3.contains("Café — 日本語 “quotes”"), "{:?}", articles[0].3);
+    assert!(
+        articles[0].3.contains("Café — 日本語 “quotes”"),
+        "{:?}",
+        articles[0].3
+    );
     assert_eq!(articles[1].0, "Second & Post");
 
     let atom = sb.run(&["--json", "feeds", "add", &server.url("/atom.xml")]);
@@ -890,13 +953,20 @@ fn feeds_are_stored_like_the_app_stores_them() {
     let atom = json(&atom);
     assert_eq!(atom["title"], "Atom Feed Name");
     let atom_articles = feed_articles(&sb, atom["id"].as_str().unwrap());
-    assert_eq!(atom_articles[0].1, "https://example.com/a", "rel=alternate, not the enclosure");
+    assert_eq!(
+        atom_articles[0].1, "https://example.com/a",
+        "rel=alternate, not the enclosure"
+    );
     assert_eq!(atom_articles[0].2, Some(1_767_323_045_000));
 
     // Not a feed, a missing page, and a duplicate are refused.
     let page = sb.run(&["feeds", "add", &server.url("/page.html")]);
     assert_eq!(page.status.code(), Some(1));
-    assert!(stderr(&page).contains("not an RSS or Atom feed"), "{}", stderr(&page));
+    assert!(
+        stderr(&page).contains("not an RSS or Atom feed"),
+        "{}",
+        stderr(&page)
+    );
     let missing = sb.run(&["feeds", "add", &server.url("/nope.xml")]);
     assert_eq!(missing.status.code(), Some(4));
     let again = sb.run(&["feeds", "add", &format!("{}/", server.url("/rss.xml"))]);
@@ -928,7 +998,11 @@ fn feeds_are_stored_like_the_app_stores_them() {
     assert_eq!(feed_articles(&sb, &rss_id).len(), 3);
     let unread: i64 = sb
         .db()
-        .query_row("SELECT unread_count FROM rss_feeds WHERE id = ?1", [&rss_id], |r| r.get(0))
+        .query_row(
+            "SELECT unread_count FROM rss_feeds WHERE id = ?1",
+            [&rss_id],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(unread, 3);
 
@@ -952,9 +1026,22 @@ fn opds_download_imports_books_and_refuses_web_pages() {
     let sb = Sandbox::new();
     let server = Server::start();
     let book = sb.path().join("served.epub");
-    make_epub(&book, "Good Book", "Ann Author", &[("One", "<p>Served text.</p>")]);
-    server.put("/book.epub", "application/epub+zip", std::fs::read(&book).unwrap());
-    server.put("/page.html", "text/html", "<!DOCTYPE html><html><body>Sign in</body></html>");
+    make_epub(
+        &book,
+        "Good Book",
+        "Ann Author",
+        &[("One", "<p>Served text.</p>")],
+    );
+    server.put(
+        "/book.epub",
+        "application/epub+zip",
+        std::fs::read(&book).unwrap(),
+    );
+    server.put(
+        "/page.html",
+        "text/html",
+        "<!DOCTYPE html><html><body>Sign in</body></html>",
+    );
     server.put(
         "/opds.xml",
         "application/atom+xml;profile=opds-catalog",
@@ -983,7 +1070,10 @@ fn opds_download_imports_books_and_refuses_web_pages() {
     assert_eq!(fake.status.code(), Some(1));
     // Refused by its content type (or, when that lies, by its content).
     let err = stderr(&fake);
-    assert!(err.contains("text/html") || err.contains("web page"), "{err}");
+    assert!(
+        err.contains("text/html") || err.contains("web page"),
+        "{err}"
+    );
 
     let paid = sb.run(&["opds", "download", &catalog, "Paid"]);
     assert!(!paid.status.success());

@@ -1,6 +1,8 @@
 #![allow(unknown_lints)]
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
+#[cfg(not(target_os = "android"))]
+pub mod app_lock;
 pub mod article_epub;
 pub mod article_extractor;
 pub mod audio_player;
@@ -10,8 +12,6 @@ pub mod batch_ingest;
 mod book_import;
 pub mod book_search;
 pub mod cbr;
-#[cfg(not(target_os = "android"))]
-pub mod app_lock;
 #[cfg(not(target_os = "android"))]
 pub mod cli;
 #[cfg(not(target_os = "android"))]

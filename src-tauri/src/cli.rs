@@ -527,7 +527,9 @@ fn command_writes(command: &Command) -> bool {
     match command {
         Command::Library { command } => !matches!(
             command,
-            LibraryCommand::List { .. } | LibraryCommand::Info { .. } | LibraryCommand::Export { .. }
+            LibraryCommand::List { .. }
+                | LibraryCommand::Info { .. }
+                | LibraryCommand::Export { .. }
         ),
         Command::Shelf { command } => !matches!(command, ShelfCommand::List),
         Command::Highlights { command } => !matches!(command, HighlightsCommand::List { .. }),
@@ -644,7 +646,6 @@ impl Ctx {
         self.store
             .with_connection(|conn| crate::database::sqlite_get_kv_inner(conn, key))
     }
-
 }
 
 /// Whether a window system is reachable. Building a Tauri app without one
@@ -1325,7 +1326,8 @@ fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
 
 fn library_add(output: &Output, ctx: &Ctx, paths: &[String]) -> i32 {
     if paths.is_empty() {
-        return output.usage("usage: theorem library add <files...> | theorem library import <dir>");
+        return output
+            .usage("usage: theorem library add <files...> | theorem library import <dir>");
     }
     ingest_and_register(output, ctx, paths)
 }
@@ -1922,9 +1924,8 @@ fn library_edit_meta(
     author: Option<String>,
 ) -> i32 {
     if title.is_none() && author.is_none() {
-        return output.usage(
-            "usage: theorem library edit-meta <book-id> --title <title> --author <author>",
-        );
+        return output
+            .usage("usage: theorem library edit-meta <book-id> --title <title> --author <author>");
     }
 
     let book = match load_book(ctx, book_id) {
@@ -2386,7 +2387,10 @@ fn fetch_feed(url: &str) -> Result<crate::rss_parser::ParsedFeed, (i32, String)>
         .send()
         .map_err(|e| (EXIT_NETWORK, format!("cannot fetch {url}: {e}")))?;
     if !response.status().is_success() {
-        return Err((EXIT_NETWORK, format!("HTTP {} for {url}", response.status())));
+        return Err((
+            EXIT_NETWORK,
+            format!("HTTP {} for {url}", response.status()),
+        ));
     }
     let bytes = response
         .bytes()
@@ -2433,11 +2437,15 @@ fn save_new_articles(
     Ok(added)
 }
 
-fn article_urls(conn: &rusqlite::Connection, feed_id: Option<&str>) -> rusqlite::Result<std::collections::HashSet<String>> {
+fn article_urls(
+    conn: &rusqlite::Connection,
+    feed_id: Option<&str>,
+) -> rusqlite::Result<std::collections::HashSet<String>> {
     let mut stmt =
         conn.prepare("SELECT url FROM rss_articles WHERE (?1 IS NULL OR feed_id = ?1)")?;
     let rows = stmt.query_map(rusqlite::params![feed_id], |row| row.get::<_, String>(0))?;
-    rows.map(|url| url.map(|u| normalize_feed_url(&u))).collect()
+    rows.map(|url| url.map(|u| normalize_feed_url(&u)))
+        .collect()
 }
 
 fn unread_count(conn: &rusqlite::Connection, feed_id: &str) -> rusqlite::Result<u32> {
@@ -2693,7 +2701,10 @@ fn feeds_refresh(output: &Output, ctx: &Ctx) -> i32 {
             Some(e) => eprintln!("{} {}: {e}", output.red("failed"), result.title),
         }
     }
-    output.note(&format!("# {total} new articles across {} feeds", results.len()));
+    output.note(&format!(
+        "# {total} new articles across {} feeds",
+        results.len()
+    ));
     code
 }
 
@@ -2814,7 +2825,7 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
         }
     };
     let path = std::path::PathBuf::from(&downloaded.path);
-    let code = ingest_and_register(output, ctx, &[downloaded.path.clone()]);
+    let code = ingest_and_register(output, ctx, std::slice::from_ref(&downloaded.path));
     // The library has its own copy now; remove the download folder.
     if let Some(dir) = path.parent() {
         if dir.starts_with(std::env::temp_dir().join("theorem-opds")) {
@@ -3087,7 +3098,10 @@ fn run_stats(output: &Output, ctx: &Ctx) -> i32 {
         Ok(raw) => raw,
         Err(e) => return output.error(&e),
     };
-    let stats = match raw.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+    let stats = match raw
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+    {
         None => None,
         Some(Ok(envelope)) => envelope.get("state").and_then(|s| s.get("stats")).cloned(),
         Some(Err(e)) => return output.error(&format!("Settings store is malformed: {e}")),

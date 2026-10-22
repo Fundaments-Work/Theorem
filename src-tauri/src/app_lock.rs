@@ -66,8 +66,12 @@ pub enum AppState {
 
 /// Check whether the app is running, for a command about to change data.
 pub fn check_from_cli(app_data_dir: &Path) -> Result<AppState, String> {
-    let file = open_lock_file(app_data_dir)
-        .map_err(|e| format!("cannot open {}: {e}", app_data_dir.join(LOCK_FILE).display()))?;
+    let file = open_lock_file(app_data_dir).map_err(|e| {
+        format!(
+            "cannot open {}: {e}",
+            app_data_dir.join(LOCK_FILE).display()
+        )
+    })?;
     match file.try_lock_shared() {
         Ok(()) => Ok(AppState::NotRunning(file)),
         Err(TryLockError::WouldBlock) => Ok(AppState::Running),
@@ -92,7 +96,10 @@ mod tests {
         // An exclusive holder (the app) is seen as running.
         let app = open_lock_file(dir.path()).unwrap();
         app.try_lock().unwrap();
-        assert!(matches!(check_from_cli(dir.path()).unwrap(), AppState::Running));
+        assert!(matches!(
+            check_from_cli(dir.path()).unwrap(),
+            AppState::Running
+        ));
         drop(app);
         assert!(matches!(
             check_from_cli(dir.path()).unwrap(),
