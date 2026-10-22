@@ -68,7 +68,76 @@ pub fn compute_file_sha256(path: &Path) -> Option<String> {
     Some(hex::encode(hasher.finalize()))
 }
 
-/// Downsample image bytes to max 360x540 JPEG and convert to base64 data URL
+const COVER_MAX_W: u32 = 360;
+const COVER_MAX_H: u32 = 540;
+const COVER_JPEG_QUALITY: u8 = 75;
+
+/// The largest size within `max_w` x `max_h` with the image's aspect ratio
+/// (never upscaled, never zero).
+fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    if width <= max_w && height <= max_h {
+        return (width, height);
+    }
+    let (w, h, mw, mh) = (width as u64, height as u64, max_w as u64, max_h as u64);
+    // Compare max_w / w with max_h / h without floating point.
+    if mw * h <= mh * w {
+        (max_w, ((h * mw + w / 2) / w).clamp(1, mh) as u32)
+    } else {
+        (((w * mh + h / 2) / h).clamp(1, mw) as u32, max_h)
+    }
+}
+
+/// Area-average (box filter) downscale of packed RGB8 pixels. One pass over
+/// the source with integer sums: several times faster than the `image`
+/// crate's generic float resampler, and the same result at thumbnail size.
+fn box_downscale_rgb(src: &[u8], width: u32, height: u32, out_w: u32, out_h: u32) -> Vec<u8> {
+    let (w, h, ow, oh) = (
+        width as usize,
+        height as usize,
+        out_w as usize,
+        out_h as usize,
+    );
+    // Source column span of each output column.
+    let x_bounds: Vec<(usize, usize)> = (0..ow)
+        .map(|ox| {
+            let x0 = ox * w / ow;
+            let x1 = ((ox + 1) * w / ow).max(x0 + 1);
+            (x0, x1)
+        })
+        .collect();
+    let mut out = vec![0u8; ow * oh * 3];
+    let mut sums = vec![0u32; ow * 3];
+    for oy in 0..oh {
+        let y0 = oy * h / oh;
+        let y1 = ((oy + 1) * h / oh).max(y0 + 1);
+        sums.fill(0);
+        for row in src[y0 * w * 3..y1 * w * 3].chunks_exact(w * 3) {
+            for (ox, &(x0, x1)) in x_bounds.iter().enumerate() {
+                let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
+                for px in row[x0 * 3..x1 * 3].chunks_exact(3) {
+                    r += px[0] as u32;
+                    g += px[1] as u32;
+                    b += px[2] as u32;
+                }
+                let s = &mut sums[ox * 3..ox * 3 + 3];
+                s[0] += r;
+                s[1] += g;
+                s[2] += b;
+            }
+        }
+        let rows = (y1 - y0) as u32;
+        let dst = &mut out[oy * ow * 3..(oy + 1) * ow * 3];
+        for (ox, &(x0, x1)) in x_bounds.iter().enumerate() {
+            let n = rows * (x1 - x0) as u32;
+            for c in 0..3 {
+                dst[ox * 3 + c] = ((sums[ox * 3 + c] + n / 2) / n) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// Downsample image bytes to fit 360x540 and return a JPEG data URL.
 pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -78,27 +147,27 @@ pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
     reader.limits(limits);
     let img = reader.decode().ok()?;
     let (width, height) = img.dimensions();
-
     if width == 0 || height == 0 {
         return None;
     }
 
-    let max_w = 360;
-    let max_h = 540;
-
-    let resized = if width > max_w || height > max_h {
-        // A box filter: half the CPU of a triangle resize, and the same look at
-        // thumbnail size. Covers are most of the cost of a large import.
-        img.thumbnail(max_w, max_h)
+    let (out_w, out_h) = fit_within(width, height, COVER_MAX_W, COVER_MAX_H);
+    let rgb = img.into_rgb8();
+    let pixels = if (out_w, out_h) == (width, height) {
+        rgb.into_raw()
     } else {
-        img
+        box_downscale_rgb(rgb.as_raw(), width, height, out_w, out_h)
     };
 
-    let mut jpeg_buf = Vec::new();
-    let mut cursor = Cursor::new(&mut jpeg_buf);
-    resized
-        .to_rgb8()
-        .write_to(&mut cursor, image::ImageFormat::Jpeg)
+    // jpeg-encoder is several times faster than the `image` crate's encoder.
+    let mut jpeg_buf = Vec::with_capacity(pixels.len() / 8);
+    jpeg_encoder::Encoder::new(&mut jpeg_buf, COVER_JPEG_QUALITY)
+        .encode(
+            &pixels,
+            u16::try_from(out_w).ok()?,
+            u16::try_from(out_h).ok()?,
+            jpeg_encoder::ColorType::Rgb,
+        )
         .ok()?;
 
     use base64::Engine;
@@ -1248,6 +1317,87 @@ mod tests {
         assert_eq!(parsed.series, Some("Saga".to_string()));
         assert_eq!(parsed.series_index, Some(1.0));
         assert!(parsed.cover_data_url.is_some());
+    }
+
+    // ── Cover thumbnails ────────────────────────────────────────────────────
+
+    fn encode_png(img: &image::DynamicImage) -> Vec<u8> {
+        let mut out = Vec::new();
+        img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
+            .unwrap();
+        out
+    }
+
+    fn decode_data_url(url: &str) -> image::DynamicImage {
+        use base64::Engine;
+        let b64 = url.strip_prefix("data:image/jpeg;base64,").expect(url);
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
+        image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).unwrap()
+    }
+
+    fn close(a: image::Rgb<u8>, b: [u8; 3]) -> bool {
+        a.0.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 12)
+    }
+
+    #[test]
+    fn cover_thumbnails_fit_the_box_and_average_the_pixels() {
+        // Top half red, bottom half blue: a box filter keeps both colours.
+        let tall = image::RgbImage::from_fn(1200, 1800, |_, y| {
+            if y < 900 {
+                image::Rgb([220, 20, 20])
+            } else {
+                image::Rgb([20, 20, 220])
+            }
+        });
+        let thumb =
+            decode_data_url(&downsample_cover_to_data_url(&encode_png(&tall.into())).unwrap())
+                .to_rgb8();
+        assert_eq!(thumb.dimensions(), (360, 540));
+        assert!(close(*thumb.get_pixel(180, 100), [220, 20, 20]));
+        assert!(close(*thumb.get_pixel(180, 440), [20, 20, 220]));
+
+        // A fine checkerboard averages to grey rather than aliasing.
+        let checker = image::RgbImage::from_fn(1080, 1620, |x, y| {
+            if (x + y) % 2 == 0 {
+                image::Rgb([255, 255, 255])
+            } else {
+                image::Rgb([0, 0, 0])
+            }
+        });
+        let thumb =
+            decode_data_url(&downsample_cover_to_data_url(&encode_png(&checker.into())).unwrap())
+                .to_rgb8();
+        assert_eq!(thumb.dimensions(), (360, 540));
+        assert!(close(*thumb.get_pixel(100, 100), [128, 128, 128]));
+    }
+
+    #[test]
+    fn cover_thumbnails_keep_the_aspect_ratio_of_odd_shapes() {
+        let cases = [
+            ((2000, 500), (360, 90)),
+            ((100, 150), (100, 150)),
+            ((5000, 1), (360, 1)),
+            ((1, 5000), (1, 540)),
+            ((361, 541), (360, 540)),
+        ];
+        for ((w, h), expected) in cases {
+            let img = image::DynamicImage::ImageRgb8(image::RgbImage::new(w, h));
+            let url = downsample_cover_to_data_url(&encode_png(&img))
+                .unwrap_or_else(|| panic!("{w}x{h}"));
+            let (tw, th) = decode_data_url(&url).dimensions();
+            assert_eq!((tw, th), expected, "{w}x{h}");
+        }
+    }
+
+    #[test]
+    fn cover_thumbnails_accept_transparency_and_reject_garbage() {
+        let rgba = image::RgbaImage::from_pixel(800, 1200, image::Rgba([10, 200, 10, 128]));
+        let url = downsample_cover_to_data_url(&encode_png(&rgba.into())).unwrap();
+        assert_eq!(decode_data_url(&url).dimensions(), (360, 540));
+        assert!(downsample_cover_to_data_url(b"not an image").is_none());
+        assert!(downsample_cover_to_data_url(&[]).is_none());
     }
 
     // ── Batch ingest ────────────────────────────────────────────────────────
