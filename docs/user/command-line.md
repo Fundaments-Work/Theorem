@@ -29,7 +29,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem highlights add <book_id> --text <t> [--note <n>] [--type highlight\|note] [--color <c>]` | Adds an annotation. The color defaults to `yellow` |
 | `theorem highlights delete <annotation_id>` | Deletes an annotation |
 | `theorem bookmarks list [--book <id>]` | Lists bookmarks |
-| `theorem feeds list`, `add <url>`, `remove <feed>`, `refresh` | Manages RSS feeds |
+| `theorem feeds list`, `add <url>`, `remove <feed>`, `refresh` | Manages RSS and Atom feeds, the same ones the app shows. `add` refuses an address that is not a feed. A feed can be named by its id or its address |
 | `theorem opds browse <url>` | Lists the entries of an OPDS catalog |
 | `theorem opds download <url> <entry>` | Downloads an entry, by title or by the number `browse` shows, into your library |
 | `theorem sync status`, `pair <code>`, `unpair <device_id>`, `now [--device <id>]` | Controls [device sync](device-sync.md) |

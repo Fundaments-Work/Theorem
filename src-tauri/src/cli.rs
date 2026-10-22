@@ -42,6 +42,10 @@ const LOGO: &str = r"
 /// Exit code for a command line that does not make sense (as clap uses).
 const EXIT_USAGE: i32 = 2;
 /// Exit code when a command would change the library while the app runs.
+/// Exit code when the book, shelf, feed or entry asked for does not exist.
+const EXIT_NOT_FOUND: i32 = 3;
+/// Exit code when the network (a feed, a catalog, a download) failed.
+const EXIT_NETWORK: i32 = 4;
 const EXIT_APP_RUNNING: i32 = 5;
 
 /// Shared output policy: `--json` for machine consumption, ANSI color only
@@ -609,10 +613,6 @@ impl Ctx {
             .with_connection(|conn| crate::database::sqlite_get_kv_inner(conn, key))
     }
 
-    fn kv_set(&self, key: &str, value: &str) -> Result<(), String> {
-        self.store
-            .with_connection(|conn| crate::database::sqlite_set_kv_inner(conn, key, value))
-    }
 }
 
 /// Whether a window system is reachable. Building a Tauri app without one
@@ -2293,219 +2293,107 @@ fn run_bookmarks(output: &Output, ctx: &Ctx, command: BookmarksCommand) -> i32 {
 
 // ── feeds (RSS) ──────────────────────────────────────────────────────────────
 
-const RSS_KV_KEY: &str = "zustand:theorem-rss";
+// Feeds live in SQLite (`rss_feeds`, `rss_articles`, `rss_article_content`),
+// as the 1.6.0 app keeps them; parsing is the app's `rss_parser`. A removed
+// feed leaves a tombstone in the library store, as the app's `removeFeed`.
 
-struct RssKv {
-    envelope: serde_json::Value,
+/// How the app compares feed and article addresses (`normalizeUrl` in
+/// `rssStore.ts`): lower case, no trailing slashes.
+fn normalize_feed_url(url: &str) -> String {
+    url.trim().to_lowercase().trim_end_matches('/').to_string()
 }
 
-impl RssKv {
-    fn load(ctx: &Ctx) -> Result<Self, String> {
-        let raw = ctx.kv_get(RSS_KV_KEY)?;
-        let envelope = match raw {
-            Some(text) => {
-                serde_json::from_str(&text).map_err(|e| format!("RSS store is malformed: {e}"))?
-            }
-            None => serde_json::json!({
-                "state": { "feeds": [], "articles": [] },
-                "version": 1,
-            }),
-        };
-        Ok(Self { envelope })
-    }
-
-    fn save(&self, ctx: &Ctx) -> Result<(), String> {
-        let text = serde_json::to_string(&self.envelope)
-            .map_err(|e| format!("Failed to serialize RSS store: {e}"))?;
-        ctx.kv_set(RSS_KV_KEY, &text)
-    }
-
-    fn feeds(&mut self) -> &mut Vec<serde_json::Value> {
-        self.state()
-            .as_object_mut()
-            .expect("rss state is an object")
-            .entry("feeds")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("feeds is an array")
-    }
-
-    fn articles(&mut self) -> &mut Vec<serde_json::Value> {
-        self.state()
-            .as_object_mut()
-            .expect("rss state is an object")
-            .entry("articles")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("articles is an array")
-    }
-
-    fn state(&mut self) -> &mut serde_json::Value {
-        self.envelope
-            .as_object_mut()
-            .expect("rss envelope is an object")
-            .entry("state")
-            .or_insert_with(|| serde_json::json!({}))
-    }
-
-    fn add_tombstone(&mut self, entity_id: &str, entity_type: &str) {
-        self.state()
-            .as_object_mut()
-            .expect("rss state is an object")
-            .entry("deletionTombstones")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .expect("deletionTombstones is an array")
-            .push(serde_json::json!({
-                "entityId": entity_id,
-                "entityType": entity_type,
-                "deletedAt": now_iso(),
-            }));
-    }
+fn now_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis()
 }
 
-/// Minimal RSS 2.0 / Atom item extraction (title, link, date, summary).
-#[derive(Clone)]
-struct FeedItem {
-    title: String,
-    link: String,
-    published: Option<String>,
-    summary: Option<String>,
+/// A feed's date (RFC 2822 for RSS, RFC 3339 for Atom) in milliseconds.
+fn parse_feed_date(raw: &str) -> Option<i64> {
+    let raw = raw.trim();
+    chrono::DateTime::parse_from_rfc2822(raw)
+        .or_else(|_| chrono::DateTime::parse_from_rfc3339(raw))
+        .ok()
+        .map(|date| date.timestamp_millis())
 }
 
-fn parse_feed_items(xml: &str) -> Vec<FeedItem> {
-    use quick_xml::events::Event;
-
-    #[derive(Clone, Copy, PartialEq)]
-    enum Mode {
-        Rss,
-        Atom,
-    }
-    let mut mode: Option<Mode> = None;
-    let mut items: Vec<FeedItem> = Vec::new();
-    let mut current: Option<FeedItem> = None;
-    let mut field: Option<String> = None;
-    let mut text = String::new();
-    let mut link_href: Option<String> = None;
-
-    let mut reader = quick_xml::Reader::from_str(xml);
-    let mut buf = Vec::new();
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
-                let name = e.name().as_ref().to_ascii_lowercase();
-                match name.as_slice() {
-                    b"rss" => mode = Some(Mode::Rss),
-                    b"feed" => mode = Some(Mode::Atom),
-                    b"item" if mode == Some(Mode::Rss) => {
-                        current = Some(FeedItem {
-                            title: String::new(),
-                            link: String::new(),
-                            published: None,
-                            summary: None,
-                        });
-                    }
-                    b"entry" if mode == Some(Mode::Atom) => {
-                        current = Some(FeedItem {
-                            title: String::new(),
-                            link: String::new(),
-                            published: None,
-                            summary: None,
-                        });
-                    }
-                    b"title" | b"description" | b"summary" | b"content" | b"pubdate"
-                    | b"published" | b"updated" | b"link"
-                        if current.is_some() =>
-                    {
-                        if name.as_slice() == b"link" {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"href" {
-                                    link_href = Some(
-                                        attr.unescape_value()
-                                            .map(|v| v.into_owned())
-                                            .unwrap_or_default(),
-                                    );
-                                }
-                            }
-                        }
-                        field = Some(String::from_utf8_lossy(&name).into_owned());
-                        text.clear();
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            Ok(Event::Text(t)) => {
-                if field.is_some() {
-                    text.push_str(&t.unescape().unwrap_or_default());
-                }
-            }
-            Ok(Event::CData(t)) => {
-                if field.is_some() {
-                    text.push_str(
-                        &t.into_inner()
-                            .iter()
-                            .map(|&b| b as char)
-                            .collect::<String>(),
-                    );
-                }
-            }
-            Ok(Event::End(ref e)) => {
-                let name = e.name().as_ref().to_ascii_lowercase();
-                let done_field = field.take();
-                if let Some(_field_name) = done_field {
-                    if let Some(item) = current.as_mut() {
-                        let value = text.trim().to_string();
-                        match name.as_slice() {
-                            b"title" => item.title = value,
-                            b"description" | b"summary" | b"content" => {
-                                if item.summary.is_none() {
-                                    item.summary = Some(value);
-                                }
-                            }
-                            b"pubdate" | b"published" | b"updated" => item.published = Some(value),
-                            b"link" => {
-                                if let Some(href) = link_href.take() {
-                                    item.link = href;
-                                } else if !value.is_empty() {
-                                    item.link = value;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                } else if name.as_slice() == b"item" || name.as_slice() == b"entry" {
-                    if let Some(mut item) = current.take() {
-                        if item.link.is_empty() {
-                            if let Some(href) = link_href.take() {
-                                item.link = href;
-                            }
-                        }
-                        items.push(item);
-                    }
-                }
-                text.clear();
-            }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
-            _ => {}
-        }
-        buf.clear();
-    }
-    items
-}
-
-fn fetch_url_blocking(url: &str) -> Result<String, String> {
-    let response = crate::shared_http_client()?
+/// Fetch and parse a feed. Network failures are `Err((EXIT_NETWORK, …))`,
+/// anything that is not a feed `Err((1, …))`.
+fn fetch_feed(url: &str) -> Result<crate::rss_parser::ParsedFeed, (i32, String)> {
+    let client = crate::shared_http_client().map_err(|e| (EXIT_NETWORK, e))?;
+    let response = client
         .get(url)
+        .header(
+            reqwest::header::ACCEPT,
+            "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.5",
+        )
         .send()
-        .map_err(|e| format!("Failed to fetch {url}: {e}"))?;
+        .map_err(|e| (EXIT_NETWORK, format!("cannot fetch {url}: {e}")))?;
     if !response.status().is_success() {
-        return Err(format!("HTTP {} for {url}", response.status()));
+        return Err((EXIT_NETWORK, format!("HTTP {} for {url}", response.status())));
     }
-    response
-        .text()
-        .map_err(|e| format!("Failed to read body of {url}: {e}"))
+    let bytes = response
+        .bytes()
+        .map_err(|e| (EXIT_NETWORK, format!("cannot read {url}: {e}")))?;
+    if !crate::rss_parser::is_feed_document(&bytes) {
+        return Err((1, format!("{url} is not an RSS or Atom feed")));
+    }
+    crate::rss_parser::parse_feed_bytes(&bytes).map_err(|e| (1, format!("{url}: {e}")))
+}
+
+/// Save the articles whose address is not in `known` (normalized); returns
+/// how many were new.
+fn save_new_articles(
+    conn: &rusqlite::Connection,
+    feed_id: &str,
+    parsed: &crate::rss_parser::ParsedFeed,
+    known: &mut std::collections::HashSet<String>,
+    fetched_at: i64,
+) -> rusqlite::Result<u32> {
+    let mut added = 0;
+    for article in parsed.articles.iter() {
+        if !known.insert(normalize_feed_url(&article.url)) {
+            continue;
+        }
+        let row = crate::database::RssArticleDto {
+            id: uuid::Uuid::new_v4().to_string().into(),
+            feed_id: feed_id.into(),
+            title: article.title.clone(),
+            author: article.author.clone(),
+            url: article.url.clone(),
+            summary: article.summary.clone(),
+            content_source: None,
+            image_url: article.image_url.clone(),
+            published_at: article.published_at.as_deref().and_then(parse_feed_date),
+            fetched_at: Some(fetched_at),
+            is_read: false,
+            is_favorite: false,
+            is_saved: false,
+            progress: None,
+        };
+        crate::database::sqlite_save_rss_article_inner(conn, &row, Some(&article.content), None)?;
+        added += 1;
+    }
+    Ok(added)
+}
+
+fn article_urls(conn: &rusqlite::Connection, feed_id: Option<&str>) -> rusqlite::Result<std::collections::HashSet<String>> {
+    let mut stmt =
+        conn.prepare("SELECT url FROM rss_articles WHERE (?1 IS NULL OR feed_id = ?1)")?;
+    let rows = stmt.query_map(rusqlite::params![feed_id], |row| row.get::<_, String>(0))?;
+    rows.map(|url| url.map(|u| normalize_feed_url(&u))).collect()
+}
+
+fn unread_count(conn: &rusqlite::Connection, feed_id: &str) -> rusqlite::Result<u32> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM rss_articles WHERE feed_id = ?1 AND is_read = 0",
+        rusqlite::params![feed_id],
+        |row| row.get(0),
+    )
+}
+
+fn load_feeds(ctx: &Ctx) -> Result<Vec<crate::database::RssFeedDto>, String> {
+    ctx.store
+        .with_connection(crate::database::sqlite_get_rss_feeds_inner)
 }
 
 fn run_feeds(output: &Output, ctx: &Ctx, command: FeedsCommand) -> i32 {
@@ -2518,27 +2406,25 @@ fn run_feeds(output: &Output, ctx: &Ctx, command: FeedsCommand) -> i32 {
 }
 
 fn feeds_list(output: &Output, ctx: &Ctx) -> i32 {
-    let mut kv = match RssKv::load(ctx) {
-        Ok(kv) => kv,
+    let feeds = match load_feeds(ctx) {
+        Ok(feeds) => feeds,
         Err(e) => return output.error(&e),
     };
-    let feeds = kv.feeds().clone();
     if output.json {
         return output.print_json(&feeds);
     }
     for feed in &feeds {
-        let id = book_str(feed, "id").unwrap_or("?").to_string();
-        let title = book_str(feed, "title").unwrap_or("(untitled)").to_string();
-        let url = book_str(feed, "url").unwrap_or("").to_string();
-        let unread = feed
-            .get("unreadCount")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let error = feed
+            .error_message
+            .as_deref()
+            .map(|e| format!("  error: {e}"))
+            .unwrap_or_default();
         println!(
-            "{}  {}  {}",
-            output.dim(&id),
-            output.bold(&title),
-            output.dim(&format!("({unread} unread) {url}"))
+            "{}  {}  {}{}",
+            output.dim(&feed.id),
+            output.bold(&feed.title),
+            output.dim(&format!("({} unread) {}", feed.unread_count, feed.url)),
+            output.red(&error)
         );
     }
     output.note(&format!("# {} feeds", feeds.len()));
@@ -2546,157 +2432,214 @@ fn feeds_list(output: &Output, ctx: &Ctx) -> i32 {
 }
 
 fn feeds_add(output: &Output, ctx: &Ctx, url: &str) -> i32 {
-    let mut kv = match RssKv::load(ctx) {
-        Ok(kv) => kv,
-        Err(e) => return output.error(&e),
-    };
-    if kv.feeds().iter().any(|f| book_str(f, "url") == Some(url)) {
-        return output.error(&format!("feed already subscribed: {url}"));
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        eprintln!("error: a feed address starts with http:// or https://");
+        return EXIT_USAGE;
     }
-
-    let xml = match fetch_url_blocking(url) {
-        Ok(xml) => xml,
+    match load_feeds(ctx) {
+        Ok(feeds) => {
+            let wanted = normalize_feed_url(url);
+            if feeds.iter().any(|f| normalize_feed_url(&f.url) == wanted) {
+                return output.error(&format!("feed already subscribed: {url}"));
+            }
+        }
         Err(e) => return output.error(&e),
+    }
+    let parsed = match fetch_feed(url) {
+        Ok(parsed) => parsed,
+        Err((code, e)) => {
+            output.error(&e);
+            return code;
+        }
     };
-    let items = parse_feed_items(&xml);
-    let title = items
-        .first()
-        .map(|item| item.title.clone())
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| url.to_string());
 
     let id = uuid::Uuid::new_v4().to_string();
-    let feed = serde_json::json!({
-        "id": id,
-        "title": title,
-        "url": url,
-        "addedAt": now_iso(),
-        "lastFetched": now_iso(),
-        "unreadCount": 0,
+    let now = now_millis();
+    let saved = ctx.store.with_connection(|conn| {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+        // As the app: an article already stored under another feed is not
+        // added twice.
+        let mut feed = crate::database::RssFeedDto {
+            id: id.as_str().into(),
+            title: parsed.title.clone(),
+            url: url.into(),
+            site_url: parsed.site_url.clone(),
+            description: parsed.description.clone(),
+            icon_url: parsed.icon_url.clone(),
+            last_fetched: Some(now),
+            added_at: Some(now),
+            error_message: None,
+            unread_count: 0,
+        };
+        // The feed row first: articles refer to it.
+        crate::database::sqlite_save_rss_feed_inner(&tx, &feed)?;
+        let mut known = article_urls(&tx, None)?;
+        let added = save_new_articles(&tx, &id, &parsed, &mut known, now)?;
+        feed.unread_count = added;
+        crate::database::sqlite_save_rss_feed_inner(&tx, &feed)?;
+        tx.commit()?;
+        Ok(added)
     });
-    kv.feeds().push(feed);
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
-    }
+    let added = match saved {
+        Ok(added) => added,
+        Err(e) => return output.error(&e),
+    };
 
     if output.json {
-        output.print_json(&serde_json::json!({ "id": id, "url": url, "title": title }))
+        output.print_json(&serde_json::json!({
+            "id": id,
+            "url": url,
+            "title": parsed.title,
+            "articles": added,
+        }))
     } else {
-        println!("{} {title}", output.green("subscribed"));
+        println!(
+            "{} {} {}",
+            output.green("subscribed"),
+            output.bold(&parsed.title),
+            output.dim(&format!("({added} articles)"))
+        );
         0
     }
 }
 
 fn feeds_remove(output: &Output, ctx: &Ctx, feed: &str) -> i32 {
-    let mut kv = match RssKv::load(ctx) {
-        Ok(kv) => kv,
+    let feeds = match load_feeds(ctx) {
+        Ok(feeds) => feeds,
         Err(e) => return output.error(&e),
     };
-    let position = kv
-        .feeds()
+    let wanted = normalize_feed_url(feed);
+    let Some(found) = feeds
         .iter()
-        .position(|f| book_str(f, "id") == Some(feed) || book_str(f, "url") == Some(feed));
-    let Some(position) = position else {
-        return output.error(&format!("feed '{feed}' not found"));
+        .find(|f| &*f.id == feed)
+        .or_else(|| feeds.iter().find(|f| normalize_feed_url(&f.url) == wanted))
+    else {
+        output.error(&format!("feed '{feed}' not found"));
+        return EXIT_NOT_FOUND;
     };
-    let removed = kv.feeds().remove(position);
-    let removed_id = book_str(&removed, "id").unwrap_or("?").to_string();
-    let removed_title = book_str(&removed, "name")
-        .or_else(|| book_str(&removed, "title"))
-        .unwrap_or("(untitled)")
-        .to_string();
+    let feed_id = found.id.to_string();
 
-    kv.articles()
-        .retain(|a| a.get("feedId").and_then(|v| v.as_str()) != Some(removed_id.as_str()));
-    kv.add_tombstone(&removed_id, "feed");
-    if let Err(e) = kv.save(ctx) {
+    // As the app's `removeFeed`: the feed and its articles go, and a
+    // tombstone tells sync to remove them on other devices.
+    let removed = update_library_kv(ctx, |conn, envelope| {
+        // `sqlite_delete_rss_feed_inner`'s statements, inside this transaction.
+        for sql in [
+            "DELETE FROM rss_article_content WHERE article_id IN \
+             (SELECT id FROM rss_articles WHERE feed_id = ?1)",
+            "DELETE FROM rss_articles WHERE feed_id = ?1",
+            "DELETE FROM rss_feeds WHERE id = ?1",
+        ] {
+            conn.execute(sql, rusqlite::params![feed_id])
+                .map_err(|e| e.to_string())?;
+        }
+        let state = envelope_state(envelope, LIBRARY_STORE)?;
+        state_list(state, "deletionTombstones", LIBRARY_STORE)?.push(tombstone(&feed_id, "feed"));
+        Ok(())
+    });
+    if let Err(e) = removed {
         return output.error(&e);
     }
 
     if output.json {
-        output.print_json(&serde_json::json!({ "removed": removed_id }))
+        output.print_json(&serde_json::json!({ "removed": feed_id, "title": found.title }))
     } else {
-        println!("{} {removed_title}", output.green("unsubscribed"));
+        println!("{} {}", output.green("unsubscribed"), found.title);
         0
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FeedRefresh {
+    id: String,
+    title: String,
+    new_articles: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 fn feeds_refresh(output: &Output, ctx: &Ctx) -> i32 {
-    let mut kv = match RssKv::load(ctx) {
-        Ok(kv) => kv,
+    let feeds = match load_feeds(ctx) {
+        Ok(feeds) => feeds,
         Err(e) => return output.error(&e),
     };
-    let feeds = kv.feeds().clone();
     if feeds.is_empty() {
         output.note("no feeds subscribed");
+        if output.json {
+            return output.print_json(&Vec::<FeedRefresh>::new());
+        }
         return 0;
     }
 
-    let mut total_new = 0usize;
+    let mut results = Vec::with_capacity(feeds.len());
+    let mut code = 0;
     for feed in &feeds {
-        let feed_id = book_str(feed, "id").unwrap_or("").to_string();
-        let url = book_str(feed, "url").unwrap_or("").to_string();
-        let xml = match fetch_url_blocking(&url) {
-            Ok(xml) => xml,
-            Err(e) => {
-                output.note(&format!("refresh failed for {url}: {e}"));
-                continue;
-            }
-        };
-        let items = parse_feed_items(&xml);
-        let mut new_count = 0usize;
-        {
-            let articles = kv.articles();
-            for item in items {
-                let article_key = format!("{feed_id}:{}", item.link);
-                let exists = articles
-                    .iter()
-                    .any(|a| a.get("url").and_then(|v| v.as_str()) == Some(item.link.as_str()));
-                if exists {
-                    continue;
+        let fetched = fetch_feed(&feed.url);
+        let now = now_millis();
+        let saved = ctx.store.with_connection(|conn| {
+            let tx = rusqlite::Transaction::new_unchecked(
+                conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            let mut updated = feed.clone();
+            let (added, error) = match &fetched {
+                Ok(parsed) => {
+                    let mut known = article_urls(&tx, Some(&feed.id))?;
+                    let added = save_new_articles(&tx, &feed.id, parsed, &mut known, now)?;
+                    if !parsed.title.is_empty() {
+                        updated.title = parsed.title.clone();
+                    }
+                    updated.last_fetched = Some(now);
+                    updated.error_message = None;
+                    (added, None)
                 }
-                articles.push(serde_json::json!({
-                    "id": uuid::Uuid::new_v4().to_string(),
-                    "feedId": feed_id,
-                    "title": item.title,
-                    "url": item.link,
-                    "content": item.summary.unwrap_or_default(),
-                    "contentSource": "feed",
-                    "publishedAt": item.published,
-                    "fetchedAt": now_iso(),
-                    "isRead": false,
-                    "isFavorite": false,
-                    "_key": article_key,
-                }));
-                new_count += 1;
+                Err((_, e)) => {
+                    updated.error_message = Some(e.as_str().into());
+                    (0, Some(e.clone()))
+                }
+            };
+            updated.unread_count = unread_count(&tx, &feed.id)?;
+            crate::database::sqlite_save_rss_feed_inner(&tx, &updated)?;
+            tx.commit()?;
+            Ok((updated.title.to_string(), added, error))
+        });
+        match saved {
+            Ok((title, new_articles, error)) => {
+                if let Err((failure, _)) = &fetched {
+                    code = if code == 0 { *failure } else { code };
+                }
+                results.push(FeedRefresh {
+                    id: feed.id.to_string(),
+                    title,
+                    new_articles,
+                    error,
+                });
             }
+            Err(e) => return output.error(&e),
         }
-        total_new += new_count;
-        if let Some(f) = kv
-            .feeds()
-            .iter_mut()
-            .find(|f| f.get("id").and_then(|v| v.as_str()) == Some(feed_id.as_str()))
-        {
-            f["lastFetched"] = serde_json::Value::String(now_iso());
-            let unread = f.get("unreadCount").and_then(|v| v.as_i64()).unwrap_or(0);
-            f["unreadCount"] = serde_json::json!(unread + new_count as i64);
-        }
-    }
-    if let Err(e) = kv.save(ctx) {
-        return output.error(&e);
     }
 
     if output.json {
-        output.print_json(&serde_json::json!({ "newArticles": total_new }))
-    } else {
-        println!(
-            "{} {} new articles across {} feeds",
-            output.green("refreshed"),
-            total_new,
-            feeds.len()
-        );
-        0
+        let printed = output.print_json(&results);
+        return if printed != 0 { printed } else { code };
     }
+    let mut total = 0;
+    for result in &results {
+        total += result.new_articles;
+        match &result.error {
+            None => println!(
+                "{} {} {}",
+                output.green("refreshed"),
+                output.bold(&result.title),
+                output.dim(&format!("({} new)", result.new_articles))
+            ),
+            Some(e) => eprintln!("{} {}: {e}", output.red("failed"), result.title),
+        }
+    }
+    output.note(&format!("# {total} new articles across {} feeds", results.len()));
+    code
 }
 
 // ── opds ─────────────────────────────────────────────────────────────────────
@@ -3146,13 +3089,16 @@ fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBuf>) -> i32 
             Err(e) => return output.error(&e),
         };
 
-    let rss = ctx
-        .kv_get("zustand:theorem-rss")
-        .ok()
-        .flatten()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|envelope| envelope.get("state").cloned())
-        .unwrap_or_else(|| serde_json::json!({}));
+    let rss = ctx.store.with_connection(|conn| {
+        Ok((
+            crate::database::sqlite_get_rss_feeds_inner(conn)?,
+            crate::database::sqlite_get_rss_articles_inner(conn, None, Some(u32::MAX), None)?,
+        ))
+    });
+    let (feeds, articles) = match rss {
+        Ok(rss) => rss,
+        Err(e) => return output.error(&e),
+    };
 
     let snapshot = serde_json::json!({
         "exportedAt": now_iso(),
@@ -3161,8 +3107,8 @@ fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBuf>) -> i32 
         "collections": collections,
         "tombstones": tombstones,
         "annotations": annotations,
-        "feeds": rss.get("feeds"),
-        "rssArticles": rss.get("articles"),
+        "feeds": feeds,
+        "rssArticles": articles,
     });
 
     let text = match serde_json::to_string_pretty(&snapshot) {

@@ -757,3 +757,190 @@ fn corrupt_library_store_is_an_error_not_a_panic() {
         }
     }
 }
+
+#[test]
+fn corrupt_settings_and_rss_stores_are_errors_not_panics() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+    let conn = sb.db();
+    for (key, value) in [
+        ("zustand:theorem-settings", r#"{"state": {"stats": "x"}}"#),
+        ("zustand:theorem-rss", r#"{"state": []}"#),
+    ] {
+        conn.execute(
+            "INSERT OR REPLACE INTO kv_store(key, value) VALUES(?1, ?2)",
+            [key, value],
+        )
+        .unwrap();
+    }
+    for line in [&["stats"][..], &["feeds", "list"], &["feeds", "remove", "x"], &["export"]] {
+        let out = sb.run(line);
+        assert_no_panic(&out);
+    }
+}
+
+/// Serve fixed documents over HTTP on localhost: path -> (content type, body).
+/// The body of a path can be swapped while the server runs.
+struct Server {
+    port: u16,
+    pages: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (String, Vec<u8>)>>>,
+}
+
+impl Server {
+    fn start() -> Self {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let pages: std::sync::Arc<
+            std::sync::Mutex<std::collections::HashMap<String, (String, Vec<u8>)>>,
+        > = Default::default();
+        let shared = pages.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request = String::new();
+                if reader.read_line(&mut request).is_err() {
+                    continue;
+                }
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+                let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let page = shared.lock().unwrap().get(&path).cloned();
+                let (status, kind, body) = match page {
+                    Some((kind, body)) => ("200 OK", kind, body),
+                    None => ("404 Not Found", "text/plain".to_string(), b"missing".to_vec()),
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(&body);
+            }
+        });
+        Self { port, pages }
+    }
+
+    fn put(&self, path: &str, kind: &str, body: impl Into<Vec<u8>>) {
+        self.pages
+            .lock()
+            .unwrap()
+            .insert(path.to_string(), (kind.to_string(), body.into()));
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("http://127.0.0.1:{}{path}", self.port)
+    }
+}
+
+// ── A6: feeds in SQLite, parsed like the app ────────────────────────────────
+
+const RSS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Channel Title Blog</title><link>https://example.org/</link>
+<item><title>First Post</title><link>https://example.org/1</link><pubDate>Thu, 01 Jan 2026 00:00:00 GMT</pubDate><description><![CDATA[<p>Café — 日本語 “quotes”</p>]]></description></item>
+<item><title>Second &amp; Post</title><link>https://example.org/2</link><description>plain</description></item>
+</channel></rss>"#;
+
+const ATOM: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom Feed Name</title><link href="https://example.com/"/>
+<entry><title>Atom Entry</title><link rel="enclosure" href="https://example.com/a.mp3"/><link rel="alternate" href="https://example.com/a"/><updated>2026-01-02T03:04:05Z</updated><summary>Sum</summary></entry>
+</feed>"#;
+
+fn feed_articles(sb: &Sandbox, feed_id: &str) -> Vec<(String, String, Option<i64>, String)> {
+    let conn = sb.db();
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.title, a.url, a.published_at, COALESCE(c.content, '') FROM rss_articles a \
+             LEFT JOIN rss_article_content c ON c.article_id = a.id WHERE a.feed_id = ?1 ORDER BY a.url",
+        )
+        .unwrap();
+    let rows = stmt
+        .query_map([feed_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap();
+    rows.map(|r| r.unwrap()).collect()
+}
+
+#[test]
+fn feeds_are_stored_like_the_app_stores_them() {
+    let sb = Sandbox::new();
+    let server = Server::start();
+    server.put("/rss.xml", "application/rss+xml", RSS);
+    server.put("/atom.xml", "application/atom+xml", ATOM);
+    server.put("/page.html", "text/html", "<!DOCTYPE html><html><body><p>hi</p></body></html>");
+
+    let added = sb.run(&["--json", "feeds", "add", &server.url("/rss.xml")]);
+    assert_ok(&added);
+    let added = json(&added);
+    assert_eq!(added["title"], "Channel Title Blog", "the channel's title, not an item's");
+    assert_eq!(added["articles"], 2);
+    let rss_id = added["id"].as_str().unwrap().to_string();
+    let articles = feed_articles(&sb, &rss_id);
+    assert_eq!(articles[0].0, "First Post");
+    assert_eq!(articles[0].2, Some(1_767_225_600_000), "pubDate in ms");
+    assert!(articles[0].3.contains("Café — 日本語 “quotes”"), "{:?}", articles[0].3);
+    assert_eq!(articles[1].0, "Second & Post");
+
+    let atom = sb.run(&["--json", "feeds", "add", &server.url("/atom.xml")]);
+    assert_ok(&atom);
+    let atom = json(&atom);
+    assert_eq!(atom["title"], "Atom Feed Name");
+    let atom_articles = feed_articles(&sb, atom["id"].as_str().unwrap());
+    assert_eq!(atom_articles[0].1, "https://example.com/a", "rel=alternate, not the enclosure");
+    assert_eq!(atom_articles[0].2, Some(1_767_323_045_000));
+
+    // Not a feed, a missing page, and a duplicate are refused.
+    let page = sb.run(&["feeds", "add", &server.url("/page.html")]);
+    assert_eq!(page.status.code(), Some(1));
+    assert!(stderr(&page).contains("not an RSS or Atom feed"), "{}", stderr(&page));
+    let missing = sb.run(&["feeds", "add", &server.url("/nope.xml")]);
+    assert_eq!(missing.status.code(), Some(4));
+    let again = sb.run(&["feeds", "add", &format!("{}/", server.url("/rss.xml"))]);
+    assert!(!again.status.success());
+
+    let list = sb.run(&["--json", "feeds", "list"]);
+    assert_ok(&list);
+    assert_eq!(json(&list).as_array().unwrap().len(), 2);
+
+    // Refresh adds only new items and keeps the unread count right.
+    server.put(
+        "/rss.xml",
+        "application/rss+xml",
+        RSS.replace(
+            "</channel>",
+            "<item><title>Third</title><link>https://example.org/3</link></item></channel>",
+        ),
+    );
+    let refreshed = sb.run(&["--json", "feeds", "refresh"]);
+    assert_ok(&refreshed);
+    let refreshed = json(&refreshed);
+    let rss_result = refreshed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == rss_id.as_str())
+        .unwrap();
+    assert_eq!(rss_result["newArticles"], 1);
+    assert_eq!(feed_articles(&sb, &rss_id).len(), 3);
+    let unread: i64 = sb
+        .db()
+        .query_row("SELECT unread_count FROM rss_feeds WHERE id = ?1", [&rss_id], |r| r.get(0))
+        .unwrap();
+    assert_eq!(unread, 3);
+
+    // Removing deletes the articles and leaves a tombstone for sync.
+    assert_ok(&sb.run(&["feeds", "remove", &rss_id]));
+    assert!(feed_articles(&sb, &rss_id).is_empty());
+    let kv = library_kv(&sb).unwrap();
+    assert!(kv["state"]["deletionTombstones"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["entityId"] == rss_id.as_str() && t["entityType"] == "feed"));
+    let gone = sb.run(&["feeds", "remove", &rss_id]);
+    assert_eq!(gone.status.code(), Some(3));
+}
