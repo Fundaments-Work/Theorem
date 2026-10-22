@@ -5,7 +5,7 @@ import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, mem
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../../core/lib/utils";
 import { getShelfColor, getShelfInitials } from "../../core/lib/design-tokens";
-import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
+import { useFuzzyRank } from "../../core/lib/search/useFuzzyRank";
 import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
 import { ShelfModal } from "./components/modals/ShelfModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
@@ -1070,27 +1070,24 @@ export function ShelvesPage() {
 
     const debouncedSearchQuery = useDebounce(searchQuery, 250);
 
+    // The query is already debounced above, so the matcher runs at once.
+    const rankedShelves = useFuzzyRank(
+        generalCollections,
+        debouncedSearchQuery,
+        (shelf) => ({ primary: shelf.name, secondary: shelf.description || "" }),
+        { debounceMs: 0 },
+    );
+
     const filteredShelves = useMemo(() => {
         if (!debouncedSearchQuery.trim()) {
             return generalCollections.filter(shelf => !shelf.parentId || !generalCollections.some(parent => parent.id === shelf.parentId));
         }
-
-        const rankedShelves = rankByFuzzyQuery(
-            generalCollections.map((shelf) => ({
-                shelf,
-                name: shelf.name,
-                description: shelf.description || "",
-            })),
-            debouncedSearchQuery,
-            {
-                keys: [
-                    { name: "name", weight: 0.65 },
-                    { name: "description", weight: 0.35 },
-                ],
-            },
-        );
-        return rankedShelves.map(({ item }) => item.shelf);
-    }, [generalCollections, debouncedSearchQuery]);
+        // Until the first ranking arrives, show the usual top-level list rather than nothing.
+        if (!rankedShelves) {
+            return generalCollections.filter(shelf => !shelf.parentId || !generalCollections.some(parent => parent.id === shelf.parentId));
+        }
+        return rankedShelves.map(({ item }) => item);
+    }, [generalCollections, debouncedSearchQuery, rankedShelves]);
 
     const getActualBookCount = (bookIds: string[]) => {
         return bookIds.filter((id) => bookLookup.has(id)).length;

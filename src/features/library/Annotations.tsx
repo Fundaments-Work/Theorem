@@ -2,7 +2,8 @@
 import { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "../../core/lib/utils";
-import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
+import { joinFields } from "../../core/lib/search/native-rank";
+import { useFuzzyRank } from "../../core/lib/search/useFuzzyRank";
 import { sanitizeHtmlForDisplay } from "../../core/lib/sanitize";
 import { useLibraryStore, useUIStore, useVocabularyStore, useRssStore, getRssArticleById } from "../../core/store";
 import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
@@ -280,7 +281,7 @@ export function AnnotationsPage() {
         }
     }, [annotations, rssArticles, getBook, loadArticle]);
 
-    const filteredAnnotations = useMemo(() => {
+    const scopedAnnotations = useMemo(() => {
         let filtered = annotations.filter((a) => a.type !== "bookmark" && isVisibleSource(a.bookId, sourceLookup));
 
         if (currentBookId) {
@@ -294,27 +295,19 @@ export function AnnotationsPage() {
             };
             filtered = filtered.filter((a) => a.type === typeMap[activeFilter]);
         }
+        return filtered;
+    }, [annotations, activeFilter, currentBookId, sourceLookup]);
 
-        if (searchQuery.trim()) {
-            const rankedAnnotations = rankByFuzzyQuery(
-                filtered.map((annotation) => ({
-                    annotation,
-                    selectedText: annotation.selectedText || "",
-                    noteContent: annotation.noteContent || "",
-                    bookTitle: sourceLookup.get(annotation.bookId)?.title || "",
-                })),
-                searchQuery,
-                {
-                    keys: [
-                        { name: "selectedText", weight: 0.45 },
-                        { name: "noteContent", weight: 0.35 },
-                        { name: "bookTitle", weight: 0.2 },
-                    ],
-                },
-            );
-            return rankedAnnotations.map(({ item }) => item.annotation);
-        }
+    // Search ranks with the native matcher; null while there is no ranking yet.
+    const rankedAnnotations = useFuzzyRank(scopedAnnotations, searchQuery, (annotation) => ({
+        primary: annotation.selectedText || "",
+        secondary: joinFields(annotation.noteContent, sourceLookup.get(annotation.bookId)?.title),
+    }));
 
+    const filteredAnnotations = useMemo(() => {
+        if (rankedAnnotations) return rankedAnnotations.map(({ item }) => item);
+
+        const filtered = [...scopedAnnotations];
         filtered.sort((a, b) => {
             switch (sortBy) {
                 case "newest": {
@@ -337,26 +330,27 @@ export function AnnotationsPage() {
         });
 
         return filtered;
-    }, [annotations, activeFilter, currentBookId, searchQuery, sortBy, sourceLookup]);
+    }, [scopedAnnotations, rankedAnnotations, sortBy, sourceLookup]);
 
-    const filteredVocabularyTerms = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
-        return vocabularyTerms
-            .filter((term) => {
-                if (activeFilter !== "vocabulary") return false;
-                if (!query) return true;
-                if (term.term.toLowerCase().includes(query)) return true;
-                return term.meanings.some((m) =>
-                    m.definitions.some((d) => d.toLowerCase().includes(query))
-                );
-            })
-            .sort((a, b) => {
-                const updatedA = a.updatedAt ? new Date(a.updatedAt).getTime() : new Date(a.createdAt).getTime();
-                const updatedB = b.updatedAt ? new Date(b.updatedAt).getTime() : new Date(b.createdAt).getTime();
-                if (updatedA !== updatedB) return updatedB - updatedA;
-                return a.term.localeCompare(b.term);
-            });
-    }, [vocabularyTerms, activeFilter, searchQuery]);
+    const sortedVocabularyTerms = useMemo(() => {
+        if (activeFilter !== "vocabulary") return [];
+        return [...vocabularyTerms].sort((a, b) => {
+            const updatedA = a.updatedAt ? new Date(a.updatedAt).getTime() : new Date(a.createdAt).getTime();
+            const updatedB = b.updatedAt ? new Date(b.updatedAt).getTime() : new Date(b.createdAt).getTime();
+            if (updatedA !== updatedB) return updatedB - updatedA;
+            return a.term.localeCompare(b.term);
+        });
+    }, [vocabularyTerms, activeFilter]);
+
+    const rankedVocabularyTerms = useFuzzyRank(sortedVocabularyTerms, searchQuery, (term) => ({
+        primary: term.term,
+        secondary: joinFields(...term.meanings.flatMap((m) => m.definitions)),
+    }));
+
+    const filteredVocabularyTerms = useMemo(
+        () => (rankedVocabularyTerms ? rankedVocabularyTerms.map(({ item }) => item) : sortedVocabularyTerms),
+        [rankedVocabularyTerms, sortedVocabularyTerms],
+    );
 
     const prevLenRef = useRef(filteredAnnotations.length);
     if (filteredAnnotations.length !== prevLenRef.current) {

@@ -9,7 +9,6 @@ export * from './toc';
 export * from './cover-extractor';
 export * from './import';
 export * from './utils';
-export * from './search/fuzzy';
 export * from './search/domain';
 export * from './vault-sync';
 export * from './device-sync';

@@ -1,6 +1,6 @@
 import { normalizeAuthor } from "../../core/lib/utils";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
-import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
+import { joinFields } from "../../core/lib/search/native-rank";
 import { isWasmCoreReady, wasmFuzzyRank } from "../../core/lib/theorem-core";
 
 import type { Book, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
@@ -26,8 +26,9 @@ export interface LibraryFilterOptions {
     /**
      * Desktop/Android: a native (FTS5 + nucleo) query is in flight and there
      * are no native results yet. The list stays unfiltered instead of showing
-     * JS fuzzy results that the native ones replace a moment later. JS fuzzy
-     * matching is only for the browser build or a failed native call.
+     * WebAssembly results that the native ones replace a moment later. The
+     * WebAssembly matcher (the same Rust code) is for the browser build or a
+     * failed native call.
      */
     nativeSearchPending?: boolean;
     sourceFolderBookIds?: Set<string>;
@@ -64,39 +65,27 @@ export function getFilteredAndSortedBooks({
                 .map((id) => bookMap.get(id))
                 .filter((b): b is Book => b !== undefined);
         } else if (isWasmCoreReady()) {
-            // W2: Active WASM Client Hookup — SIMD nucleo-matcher ranking in browser mode
+            // Browser build (or failed native call): the nucleo matcher compiled to
+            // WebAssembly. Author, tags and format share its second field.
             const candidates = books.map((book) => ({
                 id: book.id,
                 title: book.title || "",
-                author: book.author || undefined,
+                author: joinFields(
+                    normalizeAuthor(book.author),
+                    ...(Array.isArray(book.tags) ? book.tags : []),
+                    FORMAT_DISPLAY_NAMES[book.format],
+                    book.format,
+                ) || undefined,
             }));
             const ranked = wasmFuzzyRank(candidates, trimmedQuery);
             const bookMap = new Map(books.map((b) => [b.id, b]));
             searchResults = ranked
                 .map((r) => bookMap.get(r.id))
                 .filter((b): b is Book => b !== undefined);
-        } else {
-            const searchableItems = books.map((book) => ({
-                book,
-                title: book.title || "",
-                author: normalizeAuthor(book.author),
-                tags: Array.isArray(book.tags) ? book.tags.join(" ") : "",
-                format: `${FORMAT_DISPLAY_NAMES[book.format] || ""} ${book.format || ""}`,
-            }));
-
-            const ranked = rankByFuzzyQuery(searchableItems, trimmedQuery, {
-                keys: [
-                    { name: "title", weight: 0.45 },
-                    { name: "author", weight: 0.3 },
-                    { name: "tags", weight: 0.15 },
-                    { name: "format", weight: 0.1 },
-                ],
-                threshold: 0.34,
-                ignoreLocation: true,
-                minMatchCharLength: 2,
-            });
-            searchResults = ranked.map((r) => r.item.book);
         }
+        // Otherwise the WebAssembly matcher is still loading (Library starts it
+        // when native search is unavailable): the list stays unfiltered for that
+        // moment rather than being ranked by a second, JavaScript matcher.
     }
 
     let result = sourceFolderBookIds ? searchResults.filter((book) => sourceFolderBookIds.has(book.id)) : searchResults;

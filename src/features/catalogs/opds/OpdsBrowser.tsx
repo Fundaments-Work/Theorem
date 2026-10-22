@@ -3,7 +3,8 @@ import { ArrowLeft, ChevronRight, Globe, Loader2, MoreHorizontal, RefreshCw, Sea
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "../../../core/lib/utils";
-import { rankByFuzzyQuery } from "../../../core/lib/search/fuzzy";
+import { joinFields } from "../../../core/lib/search/native-rank";
+import { useFuzzyRank } from "../../../core/lib/search/useFuzzyRank";
 import { useOpdsStore } from "../../../core/store";
 import { sanitizeHtml } from "../../../core/lib/sanitize";
 import type { OpdsCatalog, OpdsEntry, OpdsFeed, OpdsGroup, OpdsNavItem } from "../../../core/types";
@@ -152,14 +153,22 @@ export function OpdsBrowser({
 
     // Local filtering: when the catalog has no search of its own, or its search just failed.
     const localQuery = serverSearch ? "" : query.trim();
-    const matchedEntries = useMemo(() => {
-        if (!localQuery) return state.entries;
-        return rankByFuzzyQuery(state.entries, localQuery, { keys: [{ name: "title", weight: 2 }, "authors"], limit: 1000 }).map((r) => r.item);
-    }, [state.entries, localQuery]);
-    const matchedNav = useMemo(() => {
-        if (!localQuery) return state.navigation;
-        return rankByFuzzyQuery(state.navigation, localQuery, { keys: [{ name: "title", weight: 2 }, "summary"], limit: 200 }).map((r) => r.item);
-    }, [state.navigation, localQuery]);
+    const rankedEntries = useFuzzyRank(state.entries, localQuery, (entry) => ({
+        primary: entry.title,
+        secondary: joinFields(...(entry.authors ?? [])),
+    }), { limit: 1000 });
+    const rankedNav = useFuzzyRank(state.navigation, localQuery, (nav) => ({
+        primary: nav.title,
+        secondary: nav.summary ?? "",
+    }), { limit: 200 });
+    const matchedEntries = useMemo(
+        () => (localQuery && rankedEntries ? rankedEntries.map((r) => r.item) : state.entries),
+        [state.entries, localQuery, rankedEntries],
+    );
+    const matchedNav = useMemo(
+        () => (localQuery && rankedNav ? rankedNav.map((r) => r.item) : state.navigation),
+        [state.navigation, localQuery, rankedNav],
+    );
 
     const facetsAvailable = useMemo(() => collectCatalogFacets(state.entries), [state.entries]);
     const visibleEntries = useMemo(() => applyCatalogFacets(matchedEntries, selection), [matchedEntries, selection]);

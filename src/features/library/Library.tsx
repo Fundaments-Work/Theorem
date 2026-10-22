@@ -32,6 +32,7 @@ import { useMediaQuery } from "../../core/lib/use-media-query";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
 import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
+import { initTheoremCoreWasm, isWasmCoreReady } from "../../core/lib/theorem-core";
 import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
@@ -1493,6 +1494,18 @@ export function LibraryPage() {
         return () => { cancelled = true; };
     }, [debouncedSearchQuery]);
 
+    // Browser build, or native search failed: rank with the WebAssembly build
+    // of the same Rust matcher, loaded on the first search.
+    const [wasmMatcherReady, setWasmMatcherReady] = useState(isWasmCoreReady);
+    useEffect(() => {
+        if (wasmMatcherReady || !debouncedSearchQuery.trim() || (isTauri() && !nativeSearchFailed)) return;
+        let cancelled = false;
+        void initTheoremCoreWasm().then((ready) => {
+            if (!cancelled && ready) setWasmMatcherReady(true);
+        });
+        return () => { cancelled = true; };
+    }, [wasmMatcherReady, debouncedSearchQuery, nativeSearchFailed]);
+
     const sortedBooks = useMemo(() => {
         return getFilteredAndSortedBooks({
             books,
@@ -1521,6 +1534,7 @@ export function LibraryPage() {
         statusFilter,
         ftsSearchIds,
         nativeSearchFailed,
+        wasmMatcherReady,
     ]);
 
     const selectionReady = searchQuery.trim() === debouncedSearchQuery.trim()

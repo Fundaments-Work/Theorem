@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type { Book, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../src/core";
 import { getFilteredAndSortedBooks } from "../src/features/library/filtering";
+import { initTheoremCoreWasm } from "../src/core/lib/theorem-core";
+
+// Without native results the Library ranks with the WebAssembly build of the
+// Rust matcher (there is no JavaScript matcher); Library.tsx loads it on the
+// first search, these tests load it up front.
+beforeAll(async () => {
+    expect(await initTheoremCoreWasm()).toBe(true);
+});
 
 function makeBook(overrides: Partial<Book> & Pick<Book, "id" | "title">): Book {
     return {

@@ -1,7 +1,8 @@
 import { localDateKey } from "../../core/lib/date-keys";
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { rankByFuzzyQuery } from "../../core/lib/search/fuzzy";
+import { joinFields } from "../../core/lib/search/native-rank";
+import { useFuzzyRank } from "../../core/lib/search/useFuzzyRank";
 import { useLibraryStore, useUIStore, useRssStore, getRssArticleById } from "../../core/store";
 import type { Annotation } from "../../core/types";
 import {
@@ -174,34 +175,26 @@ export function BookmarksPage() {
         ? bookFilter
         : ALL_BOOKS;
 
+    const scopedBookmarks = useMemo(
+        () => (activeBookFilter === ALL_BOOKS
+            ? visibleBookmarks
+            : visibleBookmarks.filter((b) => b.bookId === activeBookFilter)),
+        [visibleBookmarks, activeBookFilter],
+    );
+
+    // Search ranks with the native matcher; null while there is no ranking yet.
+    const rankedBookmarks = useFuzzyRank(scopedBookmarks, searchQuery, (bookmark) => {
+        const source = sourceLookup.get(bookmark.bookId);
+        return {
+            primary: bookmark.selectedText || "",
+            secondary: joinFields(source?.title, source?.author),
+        };
+    });
+
     const filteredBookmarks = useMemo(() => {
-        const filtered = activeBookFilter === ALL_BOOKS
-            ? [...visibleBookmarks]
-            : visibleBookmarks.filter((b) => b.bookId === activeBookFilter);
+        if (rankedBookmarks) return rankedBookmarks.map(({ item }) => item);
 
-        if (searchQuery.trim()) {
-            const rankedBookmarks = rankByFuzzyQuery(
-                filtered.map((bookmark) => {
-                    const source = sourceLookup.get(bookmark.bookId);
-                    return {
-                        bookmark,
-                        selectedText: bookmark.selectedText || "",
-                        bookTitle: source?.title || "",
-                        bookAuthor: source?.author || "",
-                    };
-                }),
-                searchQuery,
-                {
-                    keys: [
-                        { name: "selectedText", weight: 0.4 },
-                        { name: "bookTitle", weight: 0.35 },
-                        { name: "bookAuthor", weight: 0.25 },
-                    ],
-                },
-            );
-            return rankedBookmarks.map(({ item }) => item.bookmark);
-        }
-
+        const filtered = [...scopedBookmarks];
         const time = (d: Date | string) => (d instanceof Date ? d : new Date(d)).getTime();
         filtered.sort((a, b) => {
             switch (sortBy) {
@@ -220,7 +213,7 @@ export function BookmarksPage() {
         });
 
         return filtered;
-    }, [visibleBookmarks, activeBookFilter, searchQuery, sortBy, sourceLookup]);
+    }, [scopedBookmarks, rankedBookmarks, sortBy, sourceLookup]);
 
     // Exact, not an estimate: each card renders at its computed layout height.
     const cardLayouts = useMemo(

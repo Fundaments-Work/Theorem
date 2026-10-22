@@ -22,6 +22,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import type { Book } from "../src/core/types";
 import { getFilteredAndSortedBooks } from "../src/features/library/filtering";
+import { initTheoremCoreWasm } from "../src/core/lib/theorem-core";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,9 @@ let libMedium: Book[];
 let libLarge: Book[];
 let libXLarge: Book[];
 
-beforeAll(() => {
+beforeAll(async () => {
+    // Search without native results ranks with the WebAssembly matcher.
+    expect(await initTheoremCoreWasm()).toBe(true);
     libSmall = makeLibrary(SMALL);
     libMedium = makeLibrary(MEDIUM);
     libLarge = makeLibrary(LARGE);

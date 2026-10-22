@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { getFilteredAndSortedBooks } from "../src/features/library/filtering";
+import { initTheoremCoreWasm, isWasmCoreReady } from "../src/core/lib/theorem-core";
 import type { Book } from "../src/core/types";
 
 const book = (id: string, title: string) => ({ id, title, author: "A", format: "epub", tags: [], addedAt: new Date(0) }) as unknown as Book;
@@ -31,7 +32,18 @@ describe("library search: native vs JS matching", () => {
         expect(getFilteredAndSortedBooks({ ...base, searchQuery: "zzz", nativeSearchPending: true, ftsSearchIds: [] })).toEqual([]);
     });
 
-    it("browser build or failed native call uses JS matching", () => {
+    it("browser build before the WebAssembly matcher has loaded: the list stays unfiltered, no JS matcher", () => {
+        expect(isWasmCoreReady()).toBe(false);
+        expect(ids(getFilteredAndSortedBooks({ ...base, searchQuery: "dune" }))).toEqual(["1", "2", "3"]);
+    });
+});
+
+describe("library search: browser build or failed native call", () => {
+    beforeAll(async () => {
+        expect(await initTheoremCoreWasm()).toBe(true);
+    });
+
+    it("uses the WebAssembly build of the Rust matcher", () => {
         expect(ids(getFilteredAndSortedBooks({ ...base, searchQuery: "dune" }))).toEqual(["1", "3"]);
     });
 });

@@ -178,8 +178,9 @@ State lives in `useOpdsBrowser`, one instance per catalog (keyed by id):
 - **Race safety.** Every load carries a request id; a slow answer for a step you have left is
   dropped.
 - **Search.** The catalog's own search runs on submit (OpenSearch and OPDS 2.0 templates). If the
-  catalog has none, or its search fails, the loaded list is filtered locally with the shared fuzzy
-  matcher (`rankByFuzzyQuery`). Searching from search results replaces them.
+  catalog has none, or its search fails, the loaded list is filtered locally with the Rust nucleo
+  matcher (`useFuzzyRank` in `src/core/lib/search/`: native command on desktop/Android, WebAssembly
+  in the browser). Searching from search results replaces them.
 - **Filters.** Server facets (OPDS facet groups) are followed as links. Sorting, language and
   format act on the books already loaded; the default *Catalog order* leaves the server's ranking
   alone.
