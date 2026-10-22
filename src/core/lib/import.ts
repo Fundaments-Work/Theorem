@@ -1,11 +1,11 @@
 
 import type { Book, BookFormat } from '../types';
-import type { ScannedBookFile } from './source-folders';
+import { normalizeFolderScan, type FolderScanResult, type ScanIssue, type ScannedBookFile } from './source-folders';
 import { v4 as uuidv4 } from 'uuid';
 import { isTauri, isMobile } from './env';
 import { saveBookData, getBookData, saveCoverDataUrl } from './storage';
 import { normalizeFilePath, safeDecodeURIComponent } from './utils';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 import { readCbrAsCbz } from './cbr';
 import { importNativeBookFile, type ImportedBinary } from './native-book-import';
 import { buildFallbackCoverSvg } from './cover-extractor';
@@ -21,7 +21,46 @@ const IMPORT_ENTRY_TIMEOUT_MS = 90000;
 const SUPPORTED_IMPORT_EXTENSIONS = ['epub', 'mobi', 'azw', 'azw3', 'fb2', 'fbz', 'fb2.zip', 'cbz', 'cbr', 'pdf'];
 const SUPPORTED_IMPORT_SUFFIXES = SUPPORTED_IMPORT_EXTENSIONS.map((extension) => `.${extension}`);
 const BROWSER_IMPORT_ACCEPT = SUPPORTED_IMPORT_SUFFIXES.join(',');
+/** Larger files are not read into memory by the JavaScript importer. */
+export const MAX_IN_MEMORY_IMPORT_BYTES = 1024 * 1024 * 1024;
 type ImportFailureHandler = (source: string, error: unknown) => void;
+
+export interface ImportOptions {
+    /** Stops the import: files not yet started are left alone. */
+    signal?: AbortSignal;
+    /** Books already in the library; a file with the same bytes is skipped before copying. */
+    known?: Array<{ size: number; hash: string }>;
+    /** A file whose bytes are already in the library (or earlier in this batch). */
+    onDuplicate?: (source: string, contentHash: string) => void;
+    /** Files handled so far, out of `total`. */
+    onProgress?: (completed: number, total: number) => void;
+}
+
+type NativeIngestItem =
+    | { status: 'imported'; path: string; book: Record<string, any> }
+    | { status: 'failed'; path: string; reason: string }
+    | { status: 'duplicate'; path: string; contentHash: string };
+
+interface NativeIngestSummary {
+    total: number;
+    imported: number;
+    failed: number;
+    duplicates: number;
+    cancelled: boolean;
+}
+
+type NativeIngestMessage =
+    | { kind: 'progress'; completed: number; total: number; items: NativeIngestItem[] }
+    | { kind: 'done'; summary: NativeIngestSummary };
+
+function newJobId(): string {
+    return uuidv4();
+}
+
+/** Ask the native side to stop a scan or import; harmless if it already ended. */
+function cancelNativeJob(jobId: string): void {
+    invoke('cancel_import_job', { jobId }).catch(() => undefined);
+}
 
 function getImportConcurrency(): number {
     if (isMobile()) {
@@ -84,6 +123,7 @@ async function runWithConcurrency<TInput, TOutput>(
     items: TInput[],
     concurrency: number,
     worker: (item: TInput, index: number) => Promise<TOutput>,
+    signal?: AbortSignal,
 ): Promise<TOutput[]> {
     if (items.length === 0) {
         return [];
@@ -93,7 +133,7 @@ async function runWithConcurrency<TInput, TOutput>(
     let nextIndex = 0;
 
     const runWorker = async () => {
-        while (nextIndex < items.length) {
+        while (nextIndex < items.length && !signal?.aborted) {
             const currentIndex = nextIndex;
             nextIndex += 1;
             results[currentIndex] = await worker(items[currentIndex], currentIndex);
@@ -106,8 +146,14 @@ async function runWithConcurrency<TInput, TOutput>(
     return results;
 }
 
-function normalizeImportPath(filePath: string): string {
-    return normalizeFilePath(filePath);
+/**
+ * Clean up a path handed to the importer. Plain filesystem paths are used as
+ * they are: decoding them would turn a real name such as `50%25 off.epub`
+ * into a different, missing file. Only `file://` URLs are decoded.
+ */
+export function normalizeImportPath(filePath: string): string {
+    const trimmed = filePath.trim();
+    return /^file:\/\//i.test(trimmed) ? normalizeFilePath(trimmed) : trimmed;
 }
 
 function normalizeFilenameCandidate(candidate: string): string | null {
@@ -645,15 +691,35 @@ export async function createBookEntry(filePath: string): Promise<Book | null> {
         );
     }
 
+    try {
+        return await createBookEntryAt(normalizedFilePath, readPath, format, fs);
+    } finally {
+        // The temporary copy of an Android document is never needed afterwards
+        // (a successful native import has already moved it into the library).
+        if (readPath !== normalizedFilePath) {
+            await fs.remove(readPath).catch(() => undefined);
+        }
+    }
+}
+
+async function createBookEntryAt(
+    normalizedFilePath: string,
+    readPath: string,
+    format: BookFormat | null,
+    fs: NonNullable<Awaited<ReturnType<typeof initTauriPlugins>>>['fs'],
+): Promise<Book | null> {
     let fileSize = 0;
+    let sizeKnown = false;
     try {
         const stats = await fs.stat(readPath);
         fileSize = Number(stats.size);
+        sizeKnown = Number.isFinite(fileSize);
     } catch {
-        
+        // The read below reports a missing or unreadable file.
     }
 
-    if (fileSize > 100 * 1024 * 1024) {
+    if (sizeKnown && fileSize === 0) {
+        throw new Error('The file is empty');
     }
 
     if (isTauri() && isMobile() && format && isImportFormatSupported(format)) {
@@ -672,9 +738,12 @@ export async function createBookEntry(filePath: string): Promise<Book | null> {
         };
     }
 
+    if (fileSize > MAX_IN_MEMORY_IMPORT_BYTES) {
+        throw new Error(`The file is too large to import here (${Math.round(fileSize / (1024 * 1024))} MB)`);
+    }
     const buffer = await readBookFile(readPath);
     if (!buffer || buffer.byteLength === 0) {
-        return null;
+        throw new Error('The file is empty');
     }
     if (fileSize <= 0) {
         fileSize = buffer.byteLength;
@@ -733,95 +802,125 @@ export async function importBooks(filePaths: string[]): Promise<Book[]> {
     return importBooksIncremental(filePaths);
 }
 
+function nativeRecordToBook(raw: Record<string, any>): Book {
+    return {
+        id: raw.id,
+        title: raw.title,
+        author: raw.author,
+        filePath: raw.file_path || raw.filePath,
+        storagePath: raw.storagePath,
+        format: raw.format as BookFormat,
+        contentHash: raw.contentHash,
+        coverPath: raw.coverPath,
+        coverExtractionDone: raw.coverExtractionDone ?? true,
+        description: raw.description,
+        publisher: raw.publisher,
+        publishedDate: raw.publishedDate,
+        language: raw.language,
+        isbn: raw.isbn,
+        series: raw.series,
+        seriesIndex: raw.seriesIndex ?? raw.series_index,
+        fileSize: raw.fileSize || 0,
+        readingTime: raw.readingTime || 0,
+        addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
+        progress: raw.progress || 0,
+        isFavorite: raw.isFavorite || false,
+        tags: raw.tags || [],
+    };
+}
+
+/** How long to wait for the final progress message after the command returned. */
+const NATIVE_DONE_GRACE_MS = 10000;
+
+/**
+ * Desktop: import through the native parallel ingester. Returns the paths it
+ * handled; throws only when the native importer could not run at all.
+ */
+async function importNative(
+    filePaths: string[],
+    books: Book[],
+    handled: Set<string>,
+    onBookImported: ((book: Book) => void) | undefined,
+    onBookFailed: ImportFailureHandler | undefined,
+    options: ImportOptions,
+): Promise<void> {
+    let finish: (() => void) | null = null;
+    const done = new Promise<void>((resolve) => { finish = resolve; });
+    const channel = new Channel<NativeIngestMessage>((message) => {
+        if (message.kind === 'done') {
+            finish?.();
+            return;
+        }
+        for (const item of message.items) {
+            handled.add(item.path);
+            if (item.status === 'imported') {
+                const book = nativeRecordToBook(item.book);
+                books.push(book);
+                onBookImported?.(book);
+            } else if (item.status === 'failed') {
+                onBookFailed?.(item.path, new Error(item.reason));
+            } else {
+                options.onDuplicate?.(item.path, item.contentHash);
+            }
+        }
+        options.onProgress?.(message.completed, message.total);
+    });
+
+    const jobId = newJobId();
+    const onAbort = () => cancelNativeJob(jobId);
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
+    try {
+        await invoke<NativeIngestSummary>('ingest_books_native', {
+            filePaths,
+            jobId,
+            known: options.known ?? [],
+            onProgress: channel,
+        });
+        // Channel messages are ordered; `done` is the last one.
+        await withTimeout(done, NATIVE_DONE_GRACE_MS, 'waiting for import results').catch(() => undefined);
+    } finally {
+        options.signal?.removeEventListener('abort', onAbort);
+    }
+
+    if (!options.signal?.aborted) {
+        for (const path of filePaths) {
+            if (!handled.has(path)) {
+                handled.add(path);
+                onBookFailed?.(path, new Error('The importer did not report this file'));
+            }
+        }
+    }
+}
+
 export async function importBooksIncremental(
     filePaths: string[],
     onBookImported?: (book: Book) => void,
     onBookFailed?: ImportFailureHandler,
+    options: ImportOptions = {},
 ): Promise<Book[]> {
+    const books: Book[] = [];
+    let remaining = filePaths;
+
     if (isTauri() && !isMobile() && filePaths.length > 0) {
+        const handled = new Set<string>();
         try {
-            const { listen } = await import('@tauri-apps/api/event');
-            let unlisten: (() => void) | null = null;
-
-            unlisten = await listen<{
-                completed: number;
-                total: number;
-                currentFile: string;
-                book?: any;
-                error?: string;
-            }>('import-batch-progress', (event) => {
-                if (event.payload.book) {
-                    const raw = event.payload.book;
-                    const book: Book = {
-                        id: raw.id,
-                        title: raw.title,
-                        author: raw.author,
-                        filePath: raw.file_path || raw.filePath,
-                        storagePath: raw.storagePath,
-                        format: raw.format as BookFormat,
-                        contentHash: raw.contentHash,
-                        coverPath: raw.coverPath,
-                        coverExtractionDone: raw.coverExtractionDone ?? true,
-                        description: raw.description,
-                        publisher: raw.publisher,
-                        publishedDate: raw.publishedDate,
-                        language: raw.language,
-                        isbn: raw.isbn,
-                        series: raw.series,
-                        seriesIndex: raw.seriesIndex ?? raw.series_index,
-                        fileSize: raw.fileSize || 0,
-                        readingTime: raw.readingTime || 0,
-                        addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
-                        progress: raw.progress || 0,
-                        isFavorite: raw.isFavorite || false,
-                        tags: raw.tags || [],
-                    };
-                    onBookImported?.(book);
-                } else if (event.payload.error) {
-                    onBookFailed?.(event.payload.currentFile, new Error(event.payload.error));
-                }
-            });
-
-            try {
-                const results = await invoke<any[]>('ingest_books_native', { filePaths });
-                if (Array.isArray(results) && results.length > 0) {
-                    return results.map((raw) => ({
-                        id: raw.id,
-                        title: raw.title,
-                        author: raw.author,
-                        filePath: raw.file_path || raw.filePath,
-                        storagePath: raw.storagePath,
-                        format: raw.format as BookFormat,
-                        contentHash: raw.contentHash,
-                        coverPath: raw.coverPath,
-                        coverExtractionDone: raw.coverExtractionDone ?? true,
-                        description: raw.description,
-                        publisher: raw.publisher,
-                        publishedDate: raw.publishedDate,
-                        language: raw.language,
-                        isbn: raw.isbn,
-                        series: raw.series,
-                        seriesIndex: raw.seriesIndex ?? raw.series_index,
-                        fileSize: raw.fileSize || 0,
-                        readingTime: raw.readingTime || 0,
-                        addedAt: raw.addedAt ? new Date(raw.addedAt) : new Date(),
-                        progress: raw.progress || 0,
-                        isFavorite: raw.isFavorite || false,
-                        tags: raw.tags || [],
-                    }));
-                }
-            } finally {
-                unlisten?.();
-            }
+            await importNative(filePaths, books, handled, onBookImported, onBookFailed, options);
+            return books;
         } catch (error) {
-            console.warn('[Import] Native batch ingestion failed, falling back to JS worker:', error);
+            if (import.meta.env.DEV) {
+                console.warn('[Import] Native batch ingestion failed, falling back to JS worker:', error);
+            }
+            // Only what the native importer did not get to: never import a file twice.
+            remaining = filePaths.filter((path) => !handled.has(path));
         }
     }
 
-    const imported = await runWithConcurrency(
-        filePaths,
+    let completed = filePaths.length - remaining.length;
+    await runWithConcurrency(
+        remaining,
         getImportConcurrency(),
-        async (filePath): Promise<Book | null> => {
+        async (filePath): Promise<void> => {
             try {
                 const book = await withTimeout(
                     createBookEntry(filePath),
@@ -829,19 +928,21 @@ export async function importBooksIncremental(
                     `importing file: ${filePath}`,
                 );
                 if (book) {
+                    books.push(book);
                     onBookImported?.(book);
                 } else {
-                    onBookFailed?.(filePath, new Error('[Import] Failed to import file'));
+                    onBookFailed?.(filePath, new Error('This kind of file is not supported'));
                 }
-                return book;
             } catch (error) {
                 onBookFailed?.(filePath, error);
-                return null;
             }
+            completed += 1;
+            options.onProgress?.(completed, filePaths.length);
         },
+        options.signal,
     );
 
-    return imported.filter((book): book is Book => book !== null);
+    return books;
 }
 
 export async function pickAndImportBooks(): Promise<Book[]> {
@@ -877,23 +978,46 @@ export async function pickAndImportBooksIncremental(
 }
 
 export async function scanFolderForBooks(folderPath: string): Promise<ScannedBookFile[]> {
+    return (await scanBookFolder(folderPath)).files;
+}
+
+/**
+ * List the supported books under a folder, with the folders and files that
+ * could not be read. Aborting `signal` stops the native walk.
+ */
+export async function scanBookFolder(folderPath: string, signal?: AbortSignal): Promise<FolderScanResult> {
     const rootFolderPath = normalizeImportPath(folderPath);
     if (!rootFolderPath) {
-        return [];
+        return normalizeFolderScan(null);
     }
 
     if (isTauri() && !isMobile()) {
+        const jobId = signal ? newJobId() : undefined;
+        const onAbort = () => jobId && cancelNativeJob(jobId);
+        signal?.addEventListener('abort', onAbort, { once: true });
         try {
-            const { invoke } = await import('@tauri-apps/api/core');
-            const result = await invoke<ScannedBookFile[]>('scan_library_folder_desktop', {
-                folderPath: rootFolderPath,
-            });
-            return Array.isArray(result) ? result : [];
+            const result = await invoke<unknown>(
+                'scan_library_folder_desktop',
+                jobId ? { folderPath: rootFolderPath, jobId } : { folderPath: rootFolderPath },
+            );
+            return normalizeFolderScan(result);
         } catch (error) {
-            
+            // A folder that cannot be opened is reported, not walked again in JS.
+            const message = error instanceof Error ? error.message : String(error);
+            if (/^(Cannot open|Not a folder)/.test(message)) {
+                throw new Error(message);
+            }
+        } finally {
+            signal?.removeEventListener('abort', onAbort);
         }
     }
 
+    const issues: ScanIssue[] = [];
+    const files = await scanFolderWithFs(rootFolderPath, issues, signal);
+    return { files, issues, cancelled: signal?.aborted === true };
+}
+
+async function scanFolderWithFs(rootFolderPath: string, issues: ScanIssue[], signal?: AbortSignal): Promise<ScannedBookFile[]> {
     const plugins = await initTauriPlugins();
     if (!plugins?.fs) throw new Error('FS plugin not available - folder scanning requires Tauri');
     const fs = plugins.fs;
@@ -983,7 +1107,7 @@ export async function scanFolderForBooks(folderPath: string): Promise<ScannedBoo
 
     async function scanDir(dir: string, relativeDirectory = '') {
         const normalizedDir = normalizeImportPath(dir);
-        if (visitedDirectories.has(normalizedDir)) {
+        if (visitedDirectories.has(normalizedDir) || signal?.aborted) {
             return;
         }
         visitedDirectories.add(normalizedDir);
@@ -1002,17 +1126,19 @@ export async function scanFolderForBooks(folderPath: string): Promise<ScannedBoo
                 const kind = await resolveEntryKind(entryLike, fullPath);
 
                 if (kind === 'directory') {
+                    if (entryName.startsWith('.')) continue;
                     await scanDir(fullPath, `${relativeDirectory}${entryName}/`);
                 } else if (kind === 'file') {
                     const lowerName = entryName.toLowerCase();
                     const isSupportedBook = isSupportedImportFilename(lowerName);
 
-                    if (isSupportedBook) {
+                    if (isSupportedBook && !entryName.startsWith('.')) {
                         bookFiles.push({ path: fullPath, relativePath: `${relativeDirectory}${entryName}`, rootName });
                     }
                 }
             }
         } catch (error) {
+            issues.push({ path: normalizedDir, reason: error instanceof Error ? error.message : String(error) });
         }
     }
 

@@ -1332,70 +1332,27 @@ fn library_add(output: &Output, ctx: &Ctx, paths: &[String]) -> i32 {
     ingest_and_register(output, ctx, paths)
 }
 
-const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "epub", "mobi", "azw", "azw3", "fb2", "fbz", "pdf", "cbz", "cbr",
-];
-
-fn is_supported_book_file(path: &std::path::Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| SUPPORTED_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
-}
-
-/// Every supported book file under `root`, recursively, sorted. Symlinked
-/// folders are followed, but each real folder is visited once, so a symlink
-/// loop ends instead of recursing forever.
-fn collect_book_files(root: &std::path::Path) -> Result<Vec<PathBuf>, String> {
-    let root = std::fs::canonicalize(root)
-        .map_err(|e| format!("Cannot read directory {}: {e}", root.display()))?;
-    if !root.is_dir() {
-        return Err(format!("{} is not a directory", root.display()));
-    }
-    let mut visited = std::collections::HashSet::new();
-    let mut files = Vec::new();
-    let mut stack = vec![root];
-    while let Some(dir) = stack.pop() {
-        let Ok(real) = std::fs::canonicalize(&dir) else {
-            continue;
-        };
-        if !visited.insert(real) {
-            continue;
-        }
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            // `metadata` follows symlinks: a link to a folder is a folder.
-            match std::fs::metadata(&path) {
-                Ok(meta) if meta.is_dir() => stack.push(path),
-                Ok(meta) if meta.is_file() && is_supported_book_file(&path) => files.push(path),
-                _ => {}
-            }
-        }
-    }
-    files.sort();
-    files.dedup();
-    Ok(files)
-}
-
 fn library_import(output: &Output, ctx: &Ctx, dir: &str) -> i32 {
-    let files = match collect_book_files(std::path::Path::new(dir)) {
-        Ok(files) => files,
+    // The same walker as the app's "Scan Folder": follows links without
+    // looping, skips hidden folders, and reports what it could not read.
+    let scan = match crate::folder_walk::walk_book_folder(
+        std::path::Path::new(dir),
+        &std::sync::atomic::AtomicBool::new(false),
+    ) {
+        Ok(scan) => scan,
         Err(e) => return output.error(&e),
     };
-    if files.is_empty() {
+    for issue in &scan.issues {
+        output.note(&format!("skipped {}: {}", issue.path, issue.reason));
+    }
+    if scan.files.is_empty() {
         output.note(&format!("no supported book files found under {dir}"));
         if output.json {
             return output.print_json(&ImportReport::default());
         }
         return 0;
     }
-    let files: Vec<String> = files
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
+    let files: Vec<String> = scan.files.iter().map(|f| f.path.to_string()).collect();
     ingest_and_register(output, ctx, &files)
 }
 
@@ -1491,11 +1448,15 @@ fn ingest_file(
     if !path.is_file() {
         return Err("not a file".to_string());
     }
-    if !is_supported_book_file(path) {
-        return Err(format!(
-            "unsupported file type (supported: {})",
-            SUPPORTED_EXTENSIONS.join(", ")
-        ));
+    let supported = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(crate::folder_walk::is_supported_book_name);
+    if !supported {
+        return Err(
+            "unsupported file type (supported: epub, mobi, azw, azw3, fb2, fbz, pdf, cbz, cbr)"
+                .to_string(),
+        );
     }
     let content_hash = crate::batch_ingest::compute_file_sha256(path)
         .ok_or_else(|| "cannot read the file".to_string())?;

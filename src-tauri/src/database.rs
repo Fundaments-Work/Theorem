@@ -73,7 +73,9 @@ pub struct DataStore {
 impl DataStore {
     /// Open the database in `app_data_dir` with a pool of its own (not the
     /// app's global pool), creating the folder when needed. Schema
-    /// migrations are not run; see `run_schema_migrations_in`.
+    /// migrations are not run; see `run_schema_migrations_in`. Used by the
+    /// CLI, which is not built for Android.
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     pub fn open(app_data_dir: &Path) -> Result<Self, String> {
         let db_path = database_path_in(app_data_dir)?;
         let pool = build_db_pool(&db_path, 2)?;
@@ -165,6 +167,7 @@ pub fn run_startup_migrations(app: &AppHandle) -> Result<(), String> {
 /// The startup migrations only, for the database in `app_data_dir`. The CLI
 /// uses this: the app runs the slower maintenance (and `VACUUM`) itself, so a
 /// command never pays for it.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub fn run_startup_migrations_in(app_data_dir: &Path) -> Result<(), String> {
     run_startup_migrations_at(&database_path_in(app_data_dir)?)
 }

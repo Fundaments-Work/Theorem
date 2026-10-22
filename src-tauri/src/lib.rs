@@ -29,6 +29,7 @@ mod epub_parser;
 mod epub_rewriter;
 pub mod epubcfi;
 mod file_transfer;
+pub mod folder_walk;
 pub mod fuzzy_search;
 pub mod image_ops;
 mod iroh_sync;
@@ -1099,14 +1100,19 @@ fn pick_library_folder_mobile(app: tauri::AppHandle) -> Result<Option<String>, S
     }
 }
 
+/// Async so the Android scan never blocks the main thread.
 #[tauri::command]
-fn scan_library_folder_mobile(
+async fn scan_library_folder_mobile(
     app: tauri::AppHandle,
     tree_uri: String,
-) -> Result<Vec<tauri_plugin_mobile_folder_scan::ScannedBookFile>, String> {
+) -> Result<tauri_plugin_mobile_folder_scan::FolderScan, String> {
     #[cfg(target_os = "android")]
     {
-        tauri_plugin_mobile_folder_scan::scan_folder(&app, &tree_uri)
+        tauri::async_runtime::spawn_blocking(move || {
+            tauri_plugin_mobile_folder_scan::scan_folder(&app, &tree_uri)
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -1117,63 +1123,24 @@ fn scan_library_folder_mobile(
 
 fn scan_library_folder_desktop(
     folder_path: String,
-) -> Result<Vec<tauri_plugin_mobile_folder_scan::ScannedBookFile>, String> {
+    job_id: Option<String>,
+) -> Result<tauri_plugin_mobile_folder_scan::FolderScan, String> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        let _ = folder_path;
+        let _ = (folder_path, job_id);
         Err("Desktop folder scanning is only available on desktop.".to_string())
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        let path = Path::new(&folder_path);
-        if !path.is_dir() {
-            return Err(format!("Not a directory: {}", folder_path));
-        }
-
-        const SUPPORTED_EXTENSIONS: &[&str] = &[
-            ".epub", ".mobi", ".azw", ".azw3", ".fb2", ".fbz", ".fb2.zip", ".cbz", ".cbr", ".pdf",
-        ];
-
-        let mut book_files = Vec::new();
-        let root_name = path
-            .file_name()
-            .unwrap_or(path.as_os_str())
-            .to_string_lossy();
-
-        for entry in walkdir::WalkDir::new(path)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() {
-                let entry_path = entry.path();
-                let name_lower = entry_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.to_lowercase())
-                    .unwrap_or_default();
-
-                if SUPPORTED_EXTENSIONS
-                    .iter()
-                    .any(|ext| name_lower.ends_with(ext))
-                {
-                    if let Ok(relative) = entry_path.strip_prefix(path) {
-                        book_files.push(tauri_plugin_mobile_folder_scan::ScannedBookFile {
-                            path: entry_path.to_string_lossy().into_owned().into_boxed_str(),
-                            relative_path: relative
-                                .to_string_lossy()
-                                .replace('\\', "/")
-                                .into_boxed_str(),
-                            root_name: root_name.to_string().into_boxed_str(),
-                        });
-                    }
-                }
-            }
-        }
-
-        book_files.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok(book_files)
+        let job = folder_walk::register_job(job_id);
+        folder_walk::walk_book_folder(Path::new(&folder_path), &job.flag)
     }
+}
+
+/// Stop a folder scan or native import started with this `job_id`.
+#[tauri::command]
+fn cancel_import_job(job_id: String) {
+    folder_walk::cancel_job(&job_id);
 }
 
 #[tauri::command]
@@ -1903,6 +1870,7 @@ pub fn run() {
             offload_commands::fetch_binary_content,
             pick_library_folder_mobile,
             scan_library_folder_mobile,
+            cancel_import_job,
             offload_commands::scan_library_folder_desktop,
             save_share_image_mobile,
             save_file_mobile,

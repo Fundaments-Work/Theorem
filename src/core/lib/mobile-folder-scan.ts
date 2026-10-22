@@ -1,4 +1,4 @@
-import type { ScannedBookFile } from "./source-folders";
+import { normalizeFolderScan, type FolderScanResult, type ScannedBookFile } from "./source-folders";
 import { invoke } from "@tauri-apps/api/core";
 import { isMobile, isTauri } from "./env";
 
@@ -15,17 +15,16 @@ export async function pickLibraryFolderMobile(): Promise<string | null> {
 }
 
 export async function scanLibraryFolderMobile(treeUri: string): Promise<ScannedBookFile[]> {
-    if (!isTauri() || !isMobile()) {
-        return [];
-    }
+    return (await scanLibraryFolderMobileDetailed(treeUri)).files;
+}
 
+/** Scan an Android tree URI, keeping the folders it could not read. */
+export async function scanLibraryFolderMobileDetailed(treeUri: string): Promise<FolderScanResult> {
     const normalizedTreeUri = treeUri.trim();
-    if (!normalizedTreeUri) {
-        return [];
+    if (!isTauri() || !isMobile() || !normalizedTreeUri) {
+        return normalizeFolderScan(null);
     }
-
-    const files = await invoke<ScannedBookFile[]>("scan_library_folder_mobile", {
+    return normalizeFolderScan(await invoke<unknown>("scan_library_folder_mobile", {
         treeUri: normalizedTreeUri,
-    });
-    return Array.isArray(files) ? files : [];
+    }));
 }

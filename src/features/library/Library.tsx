@@ -8,8 +8,10 @@ import { FILTER_CHIP_SELECTED } from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
 import { sanitizeHtml } from "../../core/lib/sanitize";
 import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
-import { ensureFilenameForFormat, extractFilenameFromPath, importBooksIncremental, pickAndImportBooksIncremental, scanFolderForBooks } from "../../core/lib/import";
-import { pickLibraryFolderMobile, scanLibraryFolderMobile } from "../../core/lib/mobile-folder-scan";
+import { ensureFilenameForFormat, extractFilenameFromPath, pickAndImportBooksIncremental, scanBookFolder } from "../../core/lib/import";
+import { pickLibraryFolderMobile, scanLibraryFolderMobileDetailed } from "../../core/lib/mobile-folder-scan";
+import { describeFolderImport, importFolder, type FolderImportDeps, type FolderImportProgress } from "../../core/lib/folder-import";
+import { FolderImportStatus } from "./components/FolderImportStatus";
 import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
 import { useLibraryStore, useUIStore, useSettingsStore, useRssStore } from "../../core/store";
@@ -38,8 +40,8 @@ import { localDateKey } from "../../core/lib/date-keys";
 import { useFilteredSelection } from "./useFilteredSelection";
 import { FolderImportModal } from "./components/modals/FolderImportModal";
 import { SourceFolderBrowser } from "./components/SourceFolderBrowser";
-import { attachSourceFolder, buildSourceFolderIndex, validRelativeBookPath } from "../../core/lib/source-folders";
-import type { ScannedBookFile, SourceFolderSelection } from "../../core/lib/source-folders";
+import { buildSourceFolderIndex } from "../../core/lib/source-folders";
+import type { SourceFolderSelection } from "../../core/lib/source-folders";
 
 const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     grid: <LayoutGrid className="w-4 h-4" />,
@@ -1209,6 +1211,9 @@ export function LibraryPage() {
     const [isImporting, setIsImporting] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
     const scanInProgress = useRef(false);
+    const [folderImportProgress, setFolderImportProgress] = useState<FolderImportProgress | null>(null);
+    const folderImportAbort = useRef<AbortController | null>(null);
+    const [stoppingFolderImport, setStoppingFolderImport] = useState(false);
     const [showFolderImport, setShowFolderImport] = useState(false);
     const [selectedSourceFolder, setSelectedSourceFolder] = useState<SourceFolderSelection | null>(null);
     const sourceFolderIndex = useMemo(() => buildSourceFolderIndex(books), [books]);
@@ -1833,62 +1838,42 @@ export function LibraryPage() {
         }
     }, [addBook, extractImportedBookMetadata]);
 
-    const importDiscoveredBooks = useCallback(async (files: ScannedBookFile[], root: string, preserve: boolean) => {
-        if (files.length === 0) {
-            setAlertInfo({ title: "No Books Found", message: "No supported books were found in the selected folder." });
-            return;
+    const runFolderImport = useCallback(async (root: string, preserve: boolean, scan: FolderImportDeps["scan"]) => {
+        const controller = new AbortController();
+        folderImportAbort.current = controller;
+        setStoppingFolderImport(false);
+        try {
+            const result = await importFolder(root, preserve, {
+                scan,
+                getBooks: () => useLibraryStore.getState().books,
+                addBooks: (batch) => useLibraryStore.getState().addBooks(batch),
+                updateBooks: (updates) => useLibraryStore.getState().updateBooks(updates),
+                onBooksAdded: (batch) => {
+                    for (const book of batch) void extractImportedBookMetadata(book);
+                },
+                onProgress: setFolderImportProgress,
+            }, controller.signal);
+            if (!result.cancelled) setLastScannedAt(new Date());
+            if (preserve && result.imported + result.alreadyInLibrary > 0) {
+                setSelectedSourceFolder({ root, path: "" });
+                setSelectedShelfId(null);
+                sessionStorage.removeItem("theorem-selected-shelf");
+                setShowFavoritesOnly(false);
+                setShowUnshelvedOnly(false);
+            }
+            const summary = describeFolderImport(result);
+            if (summary) setAlertInfo(summary);
+        } finally {
+            folderImportAbort.current = null;
+            setFolderImportProgress(null);
+            setStoppingFolderImport(false);
         }
+    }, [extractImportedBookMetadata, setLastScannedAt]);
 
-        if (preserve && files.some((file) => !validRelativeBookPath(file.relativePath))) {
-            throw new Error("The selected folder contains names that cannot be preserved. Try importing as a flat library.");
-        }
-        const sources = new Map(files.map((file) => [normalizeFilePath(file.path), file]));
-        const failedImports: Array<{ source: string; message: string }> = [];
-        await importBooksIncremental(
-            files.map((file) => file.path),
-            (book) => {
-                const source = sources.get(normalizeFilePath(book.filePath));
-                book = attachSourceFolder(book, source, root, preserve);
-                addBook(book);
-                void extractImportedBookMetadata(book);
-            },
-            (source, error) => {
-                failedImports.push({
-                    source,
-                    message: error instanceof Error ? error.message : String(error),
-                });
-            },
-        );
-        setLastScannedAt(new Date());
-        if (preserve) {
-            setSelectedSourceFolder({ root, path: "" });
-            setSelectedShelfId(null);
-            sessionStorage.removeItem("theorem-selected-shelf");
-            setShowFavoritesOnly(false);
-            setShowUnshelvedOnly(false);
-        }
-        if (failedImports.length > 0) {
-            const preview = failedImports
-                .slice(0, 3)
-                .map((failure) => `- ${failure.source}: ${failure.message}`)
-                .join('\n');
-            setAlertInfo({
-                title: "Import Errors",
-                message: `Some books failed to import (${failedImports.length}).\n\n${preview}` +
-                    (failedImports.length > 3 ? `\n\n(+${failedImports.length - 3} more)` : ''),
-            });
-        }
-    }, [addBook, extractImportedBookMetadata, setLastScannedAt]);
-
-    const scanAndImportFolder = useCallback(async (folderPath: string, preserve: boolean) => {
-        const normalizedFolderPath = normalizeFilePath(folderPath);
-        if (!normalizedFolderPath) {
-            return;
-        }
-
-        const bookPaths = await scanFolderForBooks(normalizedFolderPath);
-        await importDiscoveredBooks(bookPaths, normalizedFolderPath, preserve);
-    }, [importDiscoveredBooks]);
+    const stopFolderImport = useCallback(() => {
+        setStoppingFolderImport(true);
+        folderImportAbort.current?.abort();
+    }, []);
 
     const handleScanFolder = useCallback(async (preserve: boolean) => {
         if (scanInProgress.current || isImporting) return;
@@ -1911,8 +1896,7 @@ export function LibraryPage() {
                 updateSettings({ scanFolders: [pickedFolder] });
 
                 try {
-                    const bookUris = await scanLibraryFolderMobile(pickedFolder);
-                    await importDiscoveredBooks(bookUris, pickedFolder, preserve);
+                    await runFolderImport(pickedFolder, preserve, (root) => scanLibraryFolderMobileDetailed(root));
                 } catch (err) {
                     
                     updateSettings({ scanFolders: [] });
@@ -1940,7 +1924,7 @@ export function LibraryPage() {
             updateSettings({ scanFolders: [normalizedFolderPath] });
 
             setIsScanning(true);
-            await scanAndImportFolder(normalizedFolderPath, preserve);
+            await runFolderImport(normalizedFolderPath, preserve, (root, signal) => scanBookFolder(root, signal));
         } catch (err) {
             setAlertInfo({ title: "Scan Error", message: err instanceof Error ? err.message : 'Failed to scan selected folder.' });
         } finally {
@@ -1949,8 +1933,7 @@ export function LibraryPage() {
         }
     }, [
         isImporting,
-        importDiscoveredBooks,
-        scanAndImportFolder,
+        runFolderImport,
         settings.scanFolders,
         updateSettings,
     ]);
@@ -2164,10 +2147,17 @@ export function LibraryPage() {
         return <div role={smartShelvesError ? "alert" : "status"} className="p-6">{smartShelvesError ?? "Updating smart shelves…"}</div>;
     }
 
+    const folderImportStatus = folderImportProgress && (
+        <div className="mt-2 mb-4">
+            <FolderImportStatus progress={folderImportProgress} stopping={stoppingFolderImport} onStop={stopFolderImport} />
+        </div>
+    );
+
     if (books.length === 0) {
         return (<>
             {folderImportModal}
             {alertInfo && <AlertDialog isOpen title={alertInfo.title} message={alertInfo.message} onClose={() => setAlertInfo(null)} />}
+            {folderImportStatus && <div className="mx-auto w-full max-w-[26rem] px-4 pt-6 sm:px-6">{folderImportStatus}</div>}
             <EmptyLibrary
                 onAddBooks={handleAddBooks}
                 onScanFolder={isTauri() ? () => setShowFolderImport(true) : undefined}
@@ -2266,6 +2256,7 @@ export function LibraryPage() {
             </PageHeader>
             <SourceFolderBrowser index={sourceFolderIndex} selected={selectedSourceFolder}
                 onSelect={(folder) => { setSelectedSourceFolder(folder); clearSelection(); }} />
+            {folderImportStatus}
             </div>
 
             {isSelecting && (

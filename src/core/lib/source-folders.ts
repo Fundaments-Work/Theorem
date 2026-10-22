@@ -4,6 +4,34 @@ export interface ScannedBookFile {
     path: string;
     relativePath: string;
     rootName: string;
+    /** Size in bytes, when the scanner could read it. */
+    size?: number;
+    /** Last modification time (Unix ms), when known. */
+    modifiedMs?: number;
+}
+
+/** A folder or book file a scan could not use, and why. */
+export interface ScanIssue {
+    path: string;
+    reason: string;
+}
+
+export interface FolderScanResult {
+    files: ScannedBookFile[];
+    issues: ScanIssue[];
+    /** The scan stopped before it finished. */
+    cancelled: boolean;
+}
+
+/** Accept the current scanner result or the older plain list of files. */
+export function normalizeFolderScan(value: unknown): FolderScanResult {
+    if (Array.isArray(value)) return { files: value as ScannedBookFile[], issues: [], cancelled: false };
+    const scan = (value ?? {}) as Partial<FolderScanResult>;
+    return {
+        files: Array.isArray(scan.files) ? scan.files : [],
+        issues: Array.isArray(scan.issues) ? scan.issues : [],
+        cancelled: scan.cancelled === true,
+    };
 }
 
 /** Apply scan metadata only when preservation was explicitly selected. */

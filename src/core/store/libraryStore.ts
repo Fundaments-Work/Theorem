@@ -607,6 +607,8 @@ interface LibraryStore {
     removeBook: (bookId: string) => void;
     removeBooks: (bookIds: string[]) => void;
     updateBook: (bookId: string, updates: Partial<Book>) => void;
+    /** Many `updateBook`s in one store change (a folder rescan can touch thousands). */
+    updateBooks: (updates: ReadonlyArray<readonly [string, Partial<Book>]>) => void;
     updateProgress: (bookId: string, progress: number, location: string, lastClickFraction?: number, pageProgress?: { currentPage: number; endPage?: number; totalPages: number; range: string }) => void;
     updatePdfReadingState: (bookId: string, state: PdfViewState) => void;
     toggleFavorite: (bookId: string) => void;
@@ -748,6 +750,11 @@ export const useLibraryStore = create<LibraryStore>()(
                     return -1;
                 };
 
+                // Only books kept in the library are written to SQLite and the
+                // search index; a discarded duplicate must not come back as a row.
+                const addedIndices = new Set<number>();
+                const mergedIndices = new Set<number>();
+
                 for (const incomingBook of incomingBooks) {
                     const duplicateIndex = findDuplicate(incomingBook);
 
@@ -757,6 +764,7 @@ export const useLibraryStore = create<LibraryStore>()(
                             booksChanged = true;
                         }
                         nextBooks.push(incomingBook);
+                        addedIndices.add(nextBooks.length - 1);
                         const idx = nextBooks.length - 1;
                         const hash = normalizeContentHash(incomingBook.contentHash);
                         if (hash) contentHashToIndex.set(hash, idx);
@@ -779,6 +787,7 @@ export const useLibraryStore = create<LibraryStore>()(
                             booksChanged = true;
                         }
                         nextBooks[duplicateIndex] = mergedBook;
+                        mergedIndices.add(duplicateIndex);
 
                         const updatedCache = syncRecentBooksCacheWithBook(
                             nextRecentBooksCache,
@@ -802,13 +811,17 @@ export const useLibraryStore = create<LibraryStore>()(
                 );
                 scheduleMutationSync();
                 if (isTauri()) {
-                    for (const book of incomingBooks) {
-                        persistBookToSqlite(book);
+                    // Final versions only: a book added earlier in this batch
+                    // may have been merged with a later copy.
+                    for (const index of new Set([...addedIndices, ...mergedIndices])) {
+                        persistBookToSqlite(nextBooks[index]);
                     }
-                }
-                if (isTauri() && incomingBooks.length > 0) {
-                    const ftsEntries: Array<[string, string, string]> = incomingBooks.map(b => [b.id, b.title, b.author]);
-                    sqliteIndexBooksFtsBatch(ftsEntries).catch(e => console.error("[catch]", e));
+                    if (addedIndices.size > 0) {
+                        const ftsEntries: Array<[string, string, string]> = [...addedIndices]
+                            .map((index) => nextBooks[index])
+                            .map(b => [b.id, b.title, b.author]);
+                        sqliteIndexBooksFtsBatch(ftsEntries).catch(e => console.error("[catch]", e));
+                    }
                 }
             },
 
@@ -891,6 +904,36 @@ export const useLibraryStore = create<LibraryStore>()(
                         ? { books }
                         : { books, recentBooksCache };
                 }),
+
+            updateBooks: (updates) => {
+                if (updates.length === 0) return;
+                const merged = new Map<string, Partial<Book>>();
+                for (const [bookId, update] of updates) {
+                    merged.set(bookId, { ...(merged.get(bookId) ?? {}), ...update });
+                }
+                set((state) => {
+                    const lookup = new Map(state.books.map((book, index) => [book.id, index]));
+                    let books = state.books;
+                    let recentBooksCache = state.recentBooksCache;
+                    const changed: Book[] = [];
+                    for (const [bookId, update] of merged) {
+                        const index = lookup.get(bookId);
+                        if (index === undefined) continue;
+                        const current = books[index];
+                        const next = withMetadataStamp(current, { ...current, ...update });
+                        if (next === current) continue;
+                        if (books === state.books) books = books.slice();
+                        books[index] = next;
+                        changed.push(next);
+                        recentBooksCache = syncRecentBooksCacheWithBook(recentBooksCache, next);
+                    }
+                    if (changed.length === 0) return state;
+                    for (const book of changed) persistBookToSqlite(book);
+                    return recentBooksCache === state.recentBooksCache
+                        ? { books }
+                        : { books, recentBooksCache };
+                });
+            },
 
             updateProgress: (bookId, progress, location, lastClickFraction, pageProgress) =>
                 set((state) => {

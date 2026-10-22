@@ -98,6 +98,7 @@ readability = { version = "0.3.0", default-features = false }
 url = "2.5.8"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rars = "0.10.0"
+jpeg-encoder = { version = "0.7", features = ["simd"] }
 
 [dev-dependencies]
 # tauri::test::mock_app, for the pairing protocol tests in iroh_sync.rs.
@@ -163,4 +164,16 @@ chunks_exact_to_as_chunks = "allow"
 
 # RAR decoding is CPU intensive; Android debug APKs must handle real comics.
 [profile.dev.package.rars]
+opt-level = 3
+
+# Cover thumbnails (decode, downscale, re-encode) are most of the cost of a
+# folder import. At the release profile's size-first opt-level they took
+# ~63 ms per 1200x1800 cover; at opt-level 3 they are several times faster.
+[profile.release.package.image]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.release.package.jpeg-encoder]
+opt-level = 3
+[profile.dev.package.jpeg-encoder]
 opt-level = 3
