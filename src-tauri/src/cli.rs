@@ -41,6 +41,8 @@ const LOGO: &str = r"
 
 /// Exit code for a command line that does not make sense (as clap uses).
 const EXIT_USAGE: i32 = 2;
+/// Exit code when a command would change the library while the app runs.
+const EXIT_APP_RUNNING: i32 = 5;
 
 /// Shared output policy: `--json` for machine consumption, ANSI color only
 /// when writing to a real terminal (piped output stays machine-parseable).
@@ -127,6 +129,10 @@ struct Cli {
     /// Disable ANSI colors (also auto-disabled when output is piped)
     #[arg(long, global = true)]
     no_color: bool,
+
+    /// Change the library even while the Theorem app is running
+    #[arg(long, global = true)]
+    force: bool,
 
     #[command(subcommand)]
     command: Command,
@@ -420,7 +426,49 @@ fn dispatch(args: &[String]) -> i32 {
         }
     };
     let output = Output::new(cli.json, cli.no_color);
+    // Commands that change the library refuse to run next to the app: the
+    // app keeps the library in memory and would write its own copy over
+    // theirs (and sync would spread the loser). `_guard` keeps the app from
+    // starting until the command is done.
+    let _guard = if command_writes(&cli.command) && !cli.force {
+        let dir = match app_data_dir() {
+            Ok(dir) => dir,
+            Err(e) => return output.error(&e),
+        };
+        match crate::app_lock::check_from_cli(&dir) {
+            Ok(crate::app_lock::AppState::NotRunning(guard)) => Some(guard),
+            Ok(crate::app_lock::AppState::Running) => {
+                output.error(
+                    "Theorem is running. Quit the app (also from the tray) and run the \
+                     command again, or add --force to change the library anyway (the app \
+                     may overwrite the change).",
+                );
+                return EXIT_APP_RUNNING;
+            }
+            Err(e) => return output.error(&e),
+        }
+    } else {
+        None
+    };
     run(cli.command, &output)
+}
+
+/// Whether a command changes the library (or runs the sync engine, which
+/// must not run twice).
+fn command_writes(command: &Command) -> bool {
+    match command {
+        Command::Library { command } => !matches!(
+            command,
+            LibraryCommand::List { .. } | LibraryCommand::Info { .. } | LibraryCommand::Export { .. }
+        ),
+        Command::Shelf { command } => !matches!(command, ShelfCommand::List),
+        Command::Highlights { command } => !matches!(command, HighlightsCommand::List { .. }),
+        Command::Feeds { command } => !matches!(command, FeedsCommand::List),
+        Command::Opds { command } => matches!(command, OpdsCommand::Download { .. }),
+        Command::Storage { command } => matches!(command, StorageCommand::Cleanup),
+        Command::Sync { .. } => true,
+        _ => false,
+    }
 }
 
 fn run(command: Command, output: &Output) -> i32 {

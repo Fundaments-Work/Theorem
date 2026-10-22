@@ -11,6 +11,8 @@ mod book_import;
 pub mod book_search;
 pub mod cbr;
 #[cfg(not(target_os = "android"))]
+pub mod app_lock;
+#[cfg(not(target_os = "android"))]
 pub mod cli;
 #[cfg(not(target_os = "android"))]
 pub mod cli_tui;
@@ -1607,6 +1609,13 @@ pub fn run() {
     apply_linux_webkit_workarounds();
 
     let _ = rustls::crypto::ring::default_provider().install_default();
+
+    // Tell `theorem` commands that the app is running, so they do not write
+    // to the library behind its back (see `app_lock`).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if let Ok(dir) = cli::app_data_dir() {
+        app_lock::hold_for_app(&dir);
+    }
 
     let builder = tauri::Builder::default()
         .manage(PendingOpenFiles::default())

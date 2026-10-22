@@ -41,7 +41,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem setup-cli` | Creates the `theorem` link in `~/.local/bin` (Linux only) |
 | `theorem version` | Prints the version |
 
-Two options work with every command: `--json` prints machine-readable output, and `--no-color` turns off color. Color is also off by default whenever the output is not a terminal. `-h` and `-V` print help and the version. There is no `help` subcommand. Use `theorem <command> --help`.
+Three options work with every command: `--json` prints machine-readable output, `--no-color` turns off color, and `--force` lets a command change the library while the app is running. Color is also off by default whenever the output is not a terminal. `-h` and `-V` print help and the version. There is no `help` subcommand. Use `theorem <command> --help`.
 
 ## How do I put theorem on my PATH?
 
@@ -146,7 +146,7 @@ An agent that can run shell commands, such as Claude Code, can read your books t
 
 To give an agent standing instructions, put a short note in its project file, for example in `CLAUDE.md`: use `theorem --json` for all commands, read with `search` then `read`, and never run commands that change the library unless asked. Chapters can be long, so ask the agent to search first and read only the chapters it needs.
 
-Commands that change data are: `library add`, `import`, `remove`, `favorite`, `edit-meta`, `shelf` create, delete, add and remove, `highlights add` and `delete`, `feeds add`, `remove` and `refresh`, `opds download`, `storage cleanup`, and `sync pair`, `unpair` and `now`. `library edit-meta` rewrites the EPUB file itself. If you let an agent run commands with an allow list, allow the read commands only. The source says the app picks up changes made from the CLI the next time it starts, so close the Theorem window before running commands that write.
+Commands that change data are: `library add`, `import`, `remove`, `favorite`, `edit-meta`, `shelf` create, delete, add and remove, `highlights add` and `delete`, `feeds add`, `remove` and `refresh`, `opds download`, `storage cleanup`, and `sync pair`, `unpair` and `now`. `library edit-meta` rewrites the EPUB file itself. If you let an agent run commands with an allow list, allow the read commands only. While the Theorem app is running (a window or the tray icon), these commands stop with `error: Theorem is running` and exit code 5, because the app would write its own copy of the library over the change. Quit the app first. `--force` writes anyway, at that risk. Reading commands work while the app runs.
 
 ## What does the text interface do?
 

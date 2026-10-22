@@ -610,3 +610,57 @@ fn storage_cleanup_keeps_synced_books_and_removes_real_leftovers() {
     assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", APP_BOOK), 1);
     assert_eq!(count(&conn, "SELECT COUNT(*) FROM books WHERE id = ?1", "synced-1"), 1);
 }
+
+// ── A4: no lost updates, and no writes behind the running app ───────────────
+
+#[test]
+fn parallel_writes_are_not_lost() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+    let children: Vec<_> = (0..8)
+        .map(|i| {
+            sb.command(&["shelf", "create", &format!("Shelf {i}")])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for child in children {
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+    let kv = library_kv(&sb).unwrap();
+    // The seeded shelf plus all eight.
+    assert_eq!(kv["state"]["collections"].as_array().unwrap().len(), 9, "{kv}");
+}
+
+#[test]
+fn writes_are_refused_while_the_app_runs() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+    // Hold the lock the way the running app does.
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(sb.data_dir().join("theorem-app.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+
+    let refused = sb.run(&["shelf", "create", "Blocked"]);
+    assert_no_panic(&refused);
+    assert_eq!(refused.status.code(), Some(5));
+    assert!(stderr(&refused).contains("Theorem is running"), "{}", stderr(&refused));
+    let kv = library_kv(&sb).unwrap();
+    assert_eq!(kv["state"]["collections"].as_array().unwrap().len(), 1);
+
+    // Reading is fine while the app runs.
+    assert_ok(&sb.run(&["library", "list"]));
+    // --force writes anyway.
+    assert_ok(&sb.run(&["--force", "shelf", "create", "Forced"]));
+    drop(lock);
+    assert_ok(&sb.run(&["shelf", "create", "After"]));
+    let kv = library_kv(&sb).unwrap();
+    assert_eq!(kv["state"]["collections"].as_array().unwrap().len(), 3);
+}
