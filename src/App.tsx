@@ -16,6 +16,8 @@ import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
 import { flushAllPersistence } from "./core/lib/persist-storage";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
+import { subscribeUntilCleanup } from "./core/lib/async-subscription";
+import { bootstrapAutoSync } from "./core/lib/sync-bootstrap";
 import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
 import { Toaster } from "sonner";
@@ -257,65 +259,49 @@ function App() {
 
     useEffect(() => {
         if (!isTauri()) return;
-        let unlisten: (() => void) | null = null;
-        const setupCloseHandler = async () => {
-            try {
-                const win = getCurrentWebviewWindow();
-                unlisten = await win.onCloseRequested(async (event) => {
-                    const handled = dispatchBackAction();
-                    if (handled) {
-                        event.preventDefault();
-                        return;
-                    }
-                    const currentUIState = useUIStore.getState();
-                    if (currentUIState.currentRoute === "reader") {
-                        event.preventDefault();
-                        setRoute("library", undefined, false);
-                        return;
-                    }
-                    if (currentUIState.currentRoute !== "library") {
-                        event.preventDefault();
-                        setRoute("library", undefined, false);
-                        return;
-                    }
-                    // Tauri awaits this handler before destroying the window.
-                    await flushAllPersistence();
-                });
-            } catch {}
-        };
-        void setupCloseHandler();
-        return () => {
-            unlisten?.();
-        };
+        return subscribeUntilCleanup("Window close handler", () =>
+            getCurrentWebviewWindow().onCloseRequested(async (event) => {
+                const handled = dispatchBackAction();
+                if (handled) {
+                    event.preventDefault();
+                    return;
+                }
+                const currentUIState = useUIStore.getState();
+                if (currentUIState.currentRoute === "reader") {
+                    event.preventDefault();
+                    setRoute("library", undefined, false);
+                    return;
+                }
+                if (currentUIState.currentRoute !== "library") {
+                    event.preventDefault();
+                    setRoute("library", undefined, false);
+                    return;
+                }
+                // Tauri awaits this handler before destroying the window.
+                await flushAllPersistence();
+            }),
+        );
     }, [setRoute]);
 
     // Tray "Quit": Rust waits (bounded) for every window to acknowledge that
     // its pending store writes reached SQLite before exiting the process.
     useEffect(() => {
         if (!isTauri()) return;
-        let cancelled = false;
-        let unlisten: (() => void) | null = null;
-        void (async () => {
-            try {
-                const [{ listen }, { invoke }] = await Promise.all([
-                    import("@tauri-apps/api/event"),
-                    import("@tauri-apps/api/core"),
-                ]);
-                const stop = await listen("app-quit-requested", async () => {
-                    try {
-                        await flushAllPersistence();
-                    } finally {
-                        await invoke("app_quit_ready").catch(() => undefined);
-                    }
-                });
-                if (cancelled) stop();
-                else unlisten = stop;
-            } catch {}
-        })();
-        return () => {
-            cancelled = true;
-            unlisten?.();
-        };
+        return subscribeUntilCleanup("Quit handler", async () => {
+            const [{ listen }, { invoke }] = await Promise.all([
+                import("@tauri-apps/api/event"),
+                import("@tauri-apps/api/core"),
+            ]);
+            return listen("app-quit-requested", async () => {
+                try {
+                    await flushAllPersistence();
+                } finally {
+                    await invoke("app_quit_ready").catch((error) => {
+                        console.error("[App] Acknowledging quit failed:", error);
+                    });
+                }
+            });
+        });
     }, []);
 
     // CLI auto-heal: if the user enabled the Terminal CLI and the
@@ -491,45 +477,17 @@ function App() {
             return;
         }
 
-        let cancelled = false;
-        let bridgeCleanup: (() => void) | null = null;
-        let cleanupStopSync: (() => void) | null = null;
-        const bootstrap = async () => {
-            if (cancelled) return;
-
-            const syncModule = await import("./core/lib/sync-orchestrator");
-
-            if (!autoSyncEnabled) {
-                syncModule.stopAutoSync();
-                return;
-            }
-
-            try {
-                await syncModule.ensureResponderSyncReady();
-            } catch {}
-            if (cancelled) return;
-
-            try {
-                bridgeCleanup = syncModule.subscribeZustandToIrohDocs();
-            } catch {}
-
-            try {
-                await syncModule.startAutoSync();
-            } catch {}
-
-            cleanupStopSync = syncModule.stopAutoSync;
-        };
-
-        const timer = setTimeout(() => {
-            void bootstrap();
-        }, 2000);
+        const stopSync = bootstrapAutoSync(
+            () => import("./core/lib/sync-orchestrator"),
+            autoSyncEnabled,
+            2000,
+        );
 
         return () => {
-            cancelled = true;
-            clearTimeout(timer);
-            bridgeCleanup?.();
-            cleanupStopSync?.();
-            import("./core/lib/device-sync").then(m => m.irohStop()).catch(() => {});
+            stopSync();
+            import("./core/lib/device-sync").then(m => m.irohStop()).catch((error) => {
+                console.error("[App] Stopping sync transport failed:", error);
+            });
         };
     }, [hasCompletedOnboarding, autoSyncEnabled]);
 
