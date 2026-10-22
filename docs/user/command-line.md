@@ -54,7 +54,18 @@ The commands run without opening a window and without a display, so they work ov
 
 ## What does the JSON output look like?
 
-With `--json`, results go to standard output as pretty-printed JSON. Short notes such as `# 2 matches` and all error messages go to standard error, so a pipe such as `theorem --json library list | jq` stays clean. Errors print `error: <message>` and exit with code 1. A missing argument to `library add` or `library edit-meta` exits with 2.
+With `--json`, results go to standard output as pretty-printed JSON. Short notes such as `# 2 matches` and all error messages go to standard error, so a pipe such as `theorem --json library list | jq` stays clean. Errors print `error: <message>` on standard error. With `--json` they are printed as one JSON object instead, `{"error": "<message>", "exitCode": <code>}`, still on standard error. The exit codes are:
+
+| Code | Meaning |
+| :--- | :--- |
+| 0 | Success |
+| 1 | The command failed (for an import: at least one file failed) |
+| 2 | The command line does not make sense: an unknown command or option, a missing argument, an invalid value |
+| 3 | The book, shelf, highlight, feed or catalog entry does not exist |
+| 4 | The network failed: a feed, a catalog or a download could not be fetched |
+| 5 | The command would change the library while the Theorem app is running |
+
+Colors are off when the output is not a terminal, with `--no-color`, and when the `NO_COLOR` environment variable is set.
 
 Note that `theorem highlights list` and `theorem bookmarks list` always print JSON, with or without `--json`.
 

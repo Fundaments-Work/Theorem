@@ -1039,3 +1039,31 @@ fn library_search_takes_any_text_and_matches_word_starts() {
     let limited = sb.run(&["--json", "search", "--limit", "0", "Field"]);
     assert_eq!(json(&limited), serde_json::json!([]));
 }
+
+// ── quick wins: exit codes and JSON errors ──────────────────────────────────
+
+#[test]
+fn errors_have_exit_codes_and_json_form() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+    for line in [
+        &["library", "info", "nope"][..],
+        &["read", "nope"],
+        &["library", "favorite", "nope"],
+        &["shelf", "delete", "No Such Shelf"],
+        &["highlights", "delete", "nope"],
+        &["feeds", "remove", "nope"],
+    ] {
+        let out = sb.run(line);
+        assert_eq!(out.status.code(), Some(3), "{line:?}: {}", stderr(&out));
+    }
+    let usage = sb.run(&["library", "favorite", APP_BOOK, "sideways"]);
+    assert_eq!(usage.status.code(), Some(2));
+
+    let out = sb.run(&["--json", "library", "info", "nope"]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(out.stdout.is_empty(), "errors never go to stdout");
+    let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(error["exitCode"], 3);
+    assert!(error["error"].as_str().unwrap().contains("nope"));
+}

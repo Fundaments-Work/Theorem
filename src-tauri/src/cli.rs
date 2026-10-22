@@ -57,9 +57,11 @@ struct Output {
 
 impl Output {
     fn new(json: bool, no_color: bool) -> Self {
+        // https://no-color.org: any non-empty NO_COLOR turns color off.
+        let no_color_env = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
         Self {
             json,
-            color: !no_color && std::io::stdout().is_terminal(),
+            color: !no_color && !no_color_env && std::io::stdout().is_terminal(),
         }
     }
 
@@ -81,9 +83,32 @@ impl Output {
         eprintln!("{}", self.dim(message));
     }
 
+    /// Report a failure on stderr (as JSON with `--json`) and return its
+    /// exit code: 3 when something asked for does not exist, else 1.
     fn error(&self, message: &str) -> i32 {
-        eprintln!("{} {message}", self.red("error:"));
-        1
+        let code = if message.contains("not found") {
+            EXIT_NOT_FOUND
+        } else {
+            1
+        };
+        self.fail(message, code)
+    }
+
+    /// A command line that does not make sense: exit code 2.
+    fn usage(&self, message: &str) -> i32 {
+        self.fail(message, EXIT_USAGE)
+    }
+
+    fn fail(&self, message: &str, code: i32) -> i32 {
+        if self.json {
+            eprintln!(
+                "{}",
+                serde_json::json!({ "error": message, "exitCode": code })
+            );
+        } else {
+            eprintln!("{} {message}", self.red("error:"));
+        }
+        code
     }
 
     fn wrap(&self, code: &str, text: &str) -> String {
@@ -843,8 +868,7 @@ fn fts_query(input: &str) -> Option<String> {
 
 fn library_search(output: &Output, ctx: &Ctx, query: &str, limit: usize) -> i32 {
     let Some(fts) = fts_query(query) else {
-        eprintln!("error: the search is empty");
-        return EXIT_USAGE;
+        return output.usage("the search is empty");
     };
     let limit = u32::try_from(limit).unwrap_or(u32::MAX);
     match ctx
@@ -1301,8 +1325,7 @@ fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
 
 fn library_add(output: &Output, ctx: &Ctx, paths: &[String]) -> i32 {
     if paths.is_empty() {
-        eprintln!("usage: theorem library add <files...> | theorem library import <dir>");
-        return EXIT_USAGE;
+        return output.usage("usage: theorem library add <files...> | theorem library import <dir>");
     }
     ingest_and_register(output, ctx, paths)
 }
@@ -1799,8 +1822,9 @@ fn library_favorite(output: &Output, ctx: &Ctx, book_id: &str, state: Option<&st
         "off" | "false" | "no" => Some(false),
         "toggle" => None,
         other => {
-            eprintln!("error: invalid state '{other}' (expected on, off or toggle)");
-            return EXIT_USAGE;
+            return output.usage(&format!(
+                "invalid state '{other}' (expected on, off or toggle)"
+            ));
         }
     };
     let result = update_book(ctx, book_id, |book| {
@@ -1898,8 +1922,9 @@ fn library_edit_meta(
     author: Option<String>,
 ) -> i32 {
     if title.is_none() && author.is_none() {
-        eprintln!("usage: theorem library edit-meta <book-id> --title <title> --author <author>");
-        return EXIT_USAGE;
+        return output.usage(
+            "usage: theorem library edit-meta <book-id> --title <title> --author <author>",
+        );
     }
 
     let book = match load_book(ctx, book_id) {
@@ -2026,8 +2051,7 @@ fn find_collection_position(collections: &[serde_json::Value], shelf: &str) -> O
 fn shelf_create(output: &Output, ctx: &Ctx, name: &str) -> i32 {
     let name = name.trim();
     if name.is_empty() {
-        eprintln!("error: a shelf needs a name");
-        return EXIT_USAGE;
+        return output.usage("a shelf needs a name");
     }
     let id = uuid::Uuid::new_v4().to_string();
     let created = update_library_kv(ctx, |_, envelope| {
@@ -2244,8 +2268,7 @@ fn highlights_add(
     let annotation_type = match annotation_type {
         "highlight" | "note" => annotation_type.to_string(),
         other => {
-            eprintln!("error: invalid --type '{other}' (highlight or note)");
-            return EXIT_USAGE;
+            return output.usage(&format!("invalid --type '{other}' (highlight or note)"));
         }
     };
 
@@ -2468,8 +2491,7 @@ fn feeds_list(output: &Output, ctx: &Ctx) -> i32 {
 fn feeds_add(output: &Output, ctx: &Ctx, url: &str) -> i32 {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        eprintln!("error: a feed address starts with http:// or https://");
-        return EXIT_USAGE;
+        return output.usage("a feed address starts with http:// or https://");
     }
     match load_feeds(ctx) {
         Ok(feeds) => {
@@ -2550,8 +2572,7 @@ fn feeds_remove(output: &Output, ctx: &Ctx, feed: &str) -> i32 {
         .find(|f| &*f.id == feed)
         .or_else(|| feeds.iter().find(|f| normalize_feed_url(&f.url) == wanted))
     else {
-        output.error(&format!("feed '{feed}' not found"));
-        return EXIT_NOT_FOUND;
+        return output.error(&format!("feed '{feed}' not found"));
     };
     let feed_id = found.id.to_string();
 
@@ -2770,10 +2791,9 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
         }),
     };
     let Some(entry) = entry else {
-        output.error(&format!(
+        return output.error(&format!(
             "entry '{entry_selector}' not found among the catalog's books"
         ));
-        return EXIT_NOT_FOUND;
     };
     let Some(acquisition) = entry.primary.and_then(|i| entry.acquisitions.get(i)) else {
         return output.error(&format!(
