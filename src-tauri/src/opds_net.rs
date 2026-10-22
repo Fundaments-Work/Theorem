@@ -434,10 +434,33 @@ pub async fn opds_download(
     url: String,
     auth: Option<Credentials>,
 ) -> Result<DownloadedFile, OpdsError> {
+    download(&url, auth.as_ref(), |received, total| {
+        let _ = app.emit(
+            "opds-download-progress",
+            Progress {
+                id: &id,
+                received,
+                total,
+            },
+        );
+    })
+    .await
+}
+
+/// Download a book into its own folder under `<temp>/theorem-opds/`,
+/// refusing web pages, empty files and files over the size cap.
+/// `on_progress(received, total)` is called at most every 120 ms and once
+/// at the end. The `opds_download` command and the CLI share it.
+pub async fn download(
+    url: &str,
+    auth: Option<&Credentials>,
+    mut on_progress: impl FnMut(u64, Option<u64>),
+) -> Result<DownloadedFile, OpdsError> {
+    let url = url.to_string();
     let parsed = check_url(&url)?;
     let resp = request(
         parsed,
-        auth.as_ref(),
+        auth,
         "application/epub+zip, application/pdf, application/octet-stream, */*;q=0.5",
     )?
     .timeout(Duration::from_secs(600))
@@ -561,7 +584,7 @@ pub async fn opds_download(
             file.write_all(&chunk).await.map_err(|e| OpdsError::Io { message: e.to_string() })?;
             if last_emit.elapsed() >= Duration::from_millis(120) {
                 last_emit = std::time::Instant::now();
-                let _ = app.emit("opds-download-progress", Progress { id: &id, received, total });
+                on_progress(received, total);
             }
         }
         file.flush().await.map_err(|e| OpdsError::Io { message: e.to_string() })
@@ -573,14 +596,7 @@ pub async fn opds_download(
         let _ = tokio::fs::remove_dir_all(&dir).await;
         return Err(e);
     }
-    let _ = app.emit(
-        "opds-download-progress",
-        Progress {
-            id: &id,
-            received,
-            total: Some(received),
-        },
-    );
+    on_progress(received, Some(received));
     if received == 0 {
         let _ = tokio::fs::remove_dir_all(&dir).await;
         return Err(OpdsError::Unsupported {

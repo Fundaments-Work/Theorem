@@ -189,7 +189,8 @@ mod tests {
         };
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
-            "CREATE TABLE covers (book_id TEXT PRIMARY KEY, data_url TEXT NOT NULL, data BLOB, mime TEXT, updated_at INTEGER);
+            "CREATE TABLE books (id TEXT PRIMARY KEY, data BLOB, updated_at INTEGER);
+             CREATE TABLE covers (book_id TEXT PRIMARY KEY, data_url TEXT NOT NULL, data BLOB, mime TEXT, updated_at INTEGER);
              INSERT INTO covers VALUES ('legacy', 'data:image/webp;base64,UklGRg==', NULL, NULL, 7);",
         )
         .unwrap();

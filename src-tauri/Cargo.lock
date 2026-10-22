@@ -7945,6 +7945,7 @@ dependencies = [
  "bzip2",
  "chrono",
  "clap",
+ "dirs",
  "flate2",
  "futures",
  "hex",

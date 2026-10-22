@@ -33,6 +33,37 @@ pub struct ParsedArticle {
 
 /// Parse RSS 2.0, Atom 1.0, or RDF XML bytes into a typed `ParsedFeed`.
 pub fn parse_feed_bytes(bytes: &[u8]) -> Result<ParsedFeed, String> {
+    match detect_feed_type(bytes) {
+        FeedType::Rss => parse_rss_2(bytes),
+        FeedType::Atom => parse_atom(bytes),
+        FeedType::Rdf => parse_rdf(bytes),
+        FeedType::Unknown => {
+            // Fallback attempt: try RSS 2 then Atom
+            parse_rss_2(bytes).or_else(|_| parse_atom(bytes))
+        }
+    }
+}
+
+/// Whether the document's root is an RSS, Atom or RDF feed (a web page or
+/// any other XML is not).
+pub fn is_feed_document(bytes: &[u8]) -> bool {
+    let mut reader = Reader::from_reader(bytes);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            // Only the root element counts: a page that mentions a feed
+            // somewhere inside is still a page.
+            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                return matches!(e.local_name().as_ref(), b"rss" | b"feed" | b"RDF");
+            }
+            Ok(Event::Eof) | Err(_) => return false,
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
+fn detect_feed_type(bytes: &[u8]) -> FeedType {
     let mut reader = Reader::from_reader(bytes);
     reader.config_mut().trim_text(true);
 
@@ -70,15 +101,7 @@ pub fn parse_feed_bytes(bytes: &[u8]) -> Result<ParsedFeed, String> {
         buf.clear();
     }
 
-    match feed_type {
-        FeedType::Rss => parse_rss_2(bytes),
-        FeedType::Atom => parse_atom(bytes),
-        FeedType::Rdf => parse_rdf(bytes),
-        FeedType::Unknown => {
-            // Fallback attempt: try RSS 2 then Atom
-            parse_rss_2(bytes).or_else(|_| parse_atom(bytes))
-        }
-    }
+    feed_type
 }
 
 enum FeedType {
@@ -638,6 +661,27 @@ pub async fn render_markdown_batch(items: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_feed_roots_are_feeds() {
+        assert!(is_feed_document(
+            b"<?xml version='1.0'?><rss version='2.0'><channel/></rss>"
+        ));
+        assert!(is_feed_document(
+            b"<feed xmlns='http://www.w3.org/2005/Atom'></feed>"
+        ));
+        assert!(is_feed_document(
+            b"<rdf:RDF xmlns:rdf='x'><channel/></rdf:RDF>"
+        ));
+        assert!(!is_feed_document(
+            b"<!DOCTYPE html><html><body><channel/></body></html>"
+        ));
+        assert!(!is_feed_document(
+            b"<html><head><title>t</title></head></html>"
+        ));
+        assert!(!is_feed_document(b"plain text"));
+        assert!(!is_feed_document(b""));
+    }
 
     #[test]
     fn test_parse_rss2() {

@@ -132,7 +132,7 @@ pub(crate) struct ParsedMetadata {
 }
 
 /// Extract metadata & cover from an EPUB file using streaming XML
-fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
+pub(crate) fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open EPUB: {e}"))?;
     let mut archive =
         crate::zip_util::open_zip_archive(file).map_err(|e| format!("Invalid EPUB ZIP: {e}"))?;

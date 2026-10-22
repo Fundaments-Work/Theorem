@@ -392,10 +392,20 @@ pub fn rewrite_epub_metadata(
     cover: Option<Vec<u8>>,
 ) -> Result<RewriteResult, String> {
     let path = database::materialized_book_path(&app, &book_id)?;
+    rewrite_epub_metadata_at(&path, &book_id, metadata, cover)
+}
+
+/// Rewrite the stored EPUB at `path` (the book's `book-cache` file) in place.
+pub fn rewrite_epub_metadata_at(
+    path: &std::path::Path,
+    book_id: &str,
+    metadata: Option<EpubMetadataEdit>,
+    cover: Option<Vec<u8>>,
+) -> Result<RewriteResult, String> {
     // The file is replaced in place; close cached archives (Windows keeps
     // open files locked, and the cache must not serve the old central directory).
     crate::epub_entries::clear_cache();
-    let bytes = std::fs::read(&path)
+    let bytes = std::fs::read(path)
         .map_err(|e| format!("Failed to read stored book file for '{book_id}': {e}"))?;
 
     let new_bytes = rewrite_epub_bytes(&bytes, &metadata.unwrap_or_default(), cover.as_deref())?;
@@ -404,7 +414,7 @@ pub fn rewrite_epub_metadata(
     let tmp_path = path.with_extension(format!("rewrite-tmp-{}", std::process::id()));
     std::fs::write(&tmp_path, &new_bytes)
         .map_err(|e| format!("Failed to write rewritten EPUB: {e}"))?;
-    std::fs::rename(&tmp_path, &path)
+    std::fs::rename(&tmp_path, path)
         .map_err(|e| format!("Failed to replace stored book file: {e}"))?;
 
     Ok(RewriteResult { size })

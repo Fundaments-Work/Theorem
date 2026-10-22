@@ -1,6 +1,8 @@
 #![allow(unknown_lints)]
 #![allow(clippy::chunks_exact_to_as_chunks)]
 
+#[cfg(not(target_os = "android"))]
+pub mod app_lock;
 pub mod article_epub;
 pub mod article_extractor;
 pub mod audio_player;
@@ -12,6 +14,8 @@ pub mod book_search;
 pub mod cbr;
 #[cfg(not(target_os = "android"))]
 pub mod cli;
+#[cfg(not(target_os = "android"))]
+mod cli_text;
 #[cfg(not(target_os = "android"))]
 pub mod cli_tui;
 pub mod cover_protocol;
@@ -1623,6 +1627,13 @@ pub fn run() {
     apply_linux_webkit_workarounds();
 
     let _ = rustls::crypto::ring::default_provider().install_default();
+
+    // Tell `theorem` commands that the app is running, so they do not write
+    // to the library behind its back (see `app_lock`).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if let Ok(dir) = cli::app_data_dir() {
+        app_lock::hold_for_app(&dir);
+    }
 
     let builder = tauri::Builder::default()
         .manage(PendingOpenFiles::default())

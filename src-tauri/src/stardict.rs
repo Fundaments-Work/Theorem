@@ -937,13 +937,10 @@ fn get_or_load_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<StarDict
     Ok(dict)
 }
 
-/// List dictionary ids installed on disk (subfolders of `dictionaries/`).
-pub fn list_installed_dict_ids(app: &AppHandle) -> Vec<String> {
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let root = app_data.join("dictionaries");
+/// List dictionary ids installed on disk (subfolders of `dictionaries/` in
+/// the app data folder).
+pub fn list_installed_dict_ids(app_data_dir: &Path) -> Vec<String> {
+    let root = app_data_dir.join("dictionaries");
     let mut ids = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&root) {
         for entry in entries.flatten() {
@@ -956,14 +953,30 @@ pub fn list_installed_dict_ids(app: &AppHandle) -> Vec<String> {
     ids
 }
 
-/// Look up a term in every installed StarDict dictionary (headless CLI fast path).
-pub fn lookup_all_installed(app: &AppHandle, term: &str) -> Vec<StarDictEntryResult> {
+/// Look up a term in every installed StarDict dictionary (headless CLI fast
+/// path). Needs only the app data folder: dictionaries still stored as legacy
+/// database blobs are moved to disk by the app, not here.
+pub fn lookup_all_installed(app_data_dir: &Path, term: &str) -> Vec<StarDictEntryResult> {
     let mut results = Vec::new();
-    for id in list_installed_dict_ids(app) {
-        if let Ok(dict) = get_or_load_dictionary(app, &id) {
-            if let Ok(Some(entry)) = dict.lookup(term) {
-                results.push(entry);
-            }
+    for id in list_installed_dict_ids(app_data_dir) {
+        let dir = app_data_dir.join("dictionaries").join(&id);
+        if !is_valid_stardict_dir(&dir) {
+            continue;
+        }
+        let cached = dict_cache()
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .cloned();
+        let dict = match cached {
+            Some(dict) => dict,
+            None => match StarDict::open(&dir) {
+                Ok(dict) => Arc::new(dict),
+                Err(_) => continue,
+            },
+        };
+        if let Ok(Some(entry)) = dict.lookup(term) {
+            results.push(entry);
         }
     }
     results
