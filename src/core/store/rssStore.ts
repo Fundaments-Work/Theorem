@@ -17,6 +17,60 @@ import { needsMarkdownRender, renderMarkdownBatch } from "../lib/article-markdow
 
 const RSS_REFRESH_CONCURRENCY = 4;
 
+type SqliteStorage = typeof import("../lib/sqlite-storage");
+let sqliteModule: Promise<SqliteStorage> | null = null;
+type RssWriteResult = Promise<unknown> | ReadonlyArray<Promise<unknown>> | void;
+
+/**
+ * Runs an RSS write against SQLite and reports every failure. The in-memory
+ * state has already changed by the time this runs, so a failed write means
+ * the change is lost on the next launch: it must be visible, never swallowed.
+ * `op` may return one promise or several (one per article); each rejection
+ * is reported on its own.
+ */
+function persistRss(label: string, op: (sqlite: SqliteStorage) => RssWriteResult): Promise<void> {
+    const report = (err: unknown) => {
+        console.error(`[RssStore] SQLite write failed (${label}):`, err);
+    };
+    // One shared import: a failed load is retried on the next write.
+    sqliteModule ??= import("../lib/sqlite-storage").catch((err: unknown) => {
+        sqliteModule = null;
+        throw err;
+    });
+    return sqliteModule
+        .then(async (sqlite) => {
+            const result = op(sqlite);
+            if (Array.isArray(result)) {
+                const settled = await Promise.allSettled(result as ReadonlyArray<Promise<unknown>>);
+                for (const outcome of settled) {
+                    if (outcome.status === "rejected") report(outcome.reason);
+                }
+            } else {
+                await result;
+            }
+        })
+        .catch(report);
+}
+
+function rssArticleRow(a: RssArticle) {
+    return {
+        id: a.id,
+        feedId: a.feedId,
+        title: a.title,
+        author: a.author,
+        url: a.url,
+        summary: a.summary,
+        contentSource: a.contentSource,
+        imageUrl: a.imageUrl,
+        publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
+        fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
+        isRead: a.isRead,
+        isFavorite: a.isFavorite,
+        isSaved: a.isSaved ?? false,
+        progress: a.progress,
+    };
+}
+
 const rssArticleSortCache = new WeakMap<RssArticle[], {
     allSorted: RssArticle[];
     feedSorted: Map<string, RssArticle[]>;
@@ -244,8 +298,8 @@ export const useRssStore = create<RssStore>()(
                     });
 
                     if (isTauri()) {
-                        import("../lib/sqlite-storage").then(({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
-                            sqliteSaveRssFeed({
+                        void persistRss("add feed", ({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
+                            const writes: Promise<unknown>[] = [sqliteSaveRssFeed({
                                 id: feed.id,
                                 title: feed.title,
                                 url: feed.url,
@@ -256,28 +310,14 @@ export const useRssStore = create<RssStore>()(
                                 addedAt: new Date().getTime(),
                                 errorMessage: feed.errorMessage,
                                 unreadCount: feed.unreadCount,
-                            }).catch(() => {});
+                            })];
                             const existingArticleUrls = new Set(get().articles.map(a => normalizeUrl(a.url)));
                             const unique = articles.filter(a => !existingArticleUrls.has(normalizeUrl(a.url)));
                             for (const a of unique) {
-                                sqliteSaveRssArticle({
-                                    id: a.id,
-                                    feedId: a.feedId,
-                                    title: a.title,
-                                    author: a.author,
-                                    url: a.url,
-                                    summary: a.summary,
-                                    contentSource: a.contentSource,
-                                    imageUrl: a.imageUrl,
-                                    publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
-                                    fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
-                                    isRead: a.isRead,
-                                    isFavorite: a.isFavorite,
-                                    isSaved: a.isSaved ?? false,
-                                    progress: a.progress,
-                                }, a.content, a.fullContent).catch(() => {});
+                                writes.push(sqliteSaveRssArticle(rssArticleRow(a), a.content, a.fullContent));
                             }
-                        }).catch(() => {});
+                            return writes;
+                        });
                     }
 
                     scheduleMutationSync();
@@ -296,9 +336,7 @@ export const useRssStore = create<RssStore>()(
                     articles: state.articles.filter(a => a.feedId !== feedId),
                 }));
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteDeleteRssFeed }) => {
-                        sqliteDeleteRssFeed(feedId).catch(() => {});
-                    }).catch(() => {});
+                    void persistRss("remove feed", ({ sqliteDeleteRssFeed }) => sqliteDeleteRssFeed(feedId));
                 }
                 useLibraryStore.setState(state => ({
                     deletionTombstones: [
@@ -315,9 +353,7 @@ export const useRssStore = create<RssStore>()(
                     articles: state.articles.filter(a => a.id !== articleId),
                 }));
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteDeleteRssArticle }) => {
-                        sqliteDeleteRssArticle(articleId).catch(() => {});
-                    }).catch(() => {});
+                    void persistRss("delete article", ({ sqliteDeleteRssArticle }) => sqliteDeleteRssArticle(articleId));
                 }
                 useLibraryStore.setState(state => ({
                     deletionTombstones: [
@@ -374,10 +410,11 @@ export const useRssStore = create<RssStore>()(
                     });
 
                     if (isTauri()) {
-                        import("../lib/sqlite-storage").then(({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
+                        void persistRss("refresh feed", ({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
+                            const writes: Promise<unknown>[] = [];
                             const updatedFeed = get().feeds.find(f => f.id === feedId);
                             if (updatedFeed) {
-                                sqliteSaveRssFeed({
+                                writes.push(sqliteSaveRssFeed({
                                     id: updatedFeed.id,
                                     title: updatedFeed.title,
                                     url: updatedFeed.url,
@@ -387,27 +424,13 @@ export const useRssStore = create<RssStore>()(
                                     lastFetched: now.getTime(),
                                     errorMessage: undefined,
                                     unreadCount: updatedFeed.unreadCount,
-                                }).catch(() => {});
+                                }));
                             }
                             for (const a of newArticles) {
-                                sqliteSaveRssArticle({
-                                    id: a.id,
-                                    feedId: a.feedId,
-                                    title: a.title,
-                                    author: a.author,
-                                    url: a.url,
-                                    summary: a.summary,
-                                    contentSource: a.contentSource,
-                                    imageUrl: a.imageUrl,
-                                    publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
-                                    fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
-                                    isRead: a.isRead,
-                                    isFavorite: a.isFavorite,
-                                    isSaved: a.isSaved ?? false,
-                                    progress: a.progress,
-                                }, a.content, a.fullContent).catch(() => {});
+                                writes.push(sqliteSaveRssArticle(rssArticleRow(a), a.content, a.fullContent));
                             }
-                        }).catch(() => {});
+                            return writes;
+                        });
                     }
 
                     scheduleMutationSync();
@@ -447,9 +470,7 @@ export const useRssStore = create<RssStore>()(
                     };
                 });
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleRead }) => {
-                        sqliteMarkArticleRead(articleId, true).catch(() => {});
-                    }).catch(() => {});
+                    void persistRss("mark read", ({ sqliteMarkArticleRead }) => sqliteMarkArticleRead(articleId, true));
                 }
                 scheduleMutationSync();
             },
@@ -476,9 +497,7 @@ export const useRssStore = create<RssStore>()(
                     };
                 });
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleRead }) => {
-                        sqliteMarkArticleRead(articleId, nextRead).catch(() => {});
-                    }).catch(() => {});
+                    void persistRss("toggle read", ({ sqliteMarkArticleRead }) => sqliteMarkArticleRead(articleId, nextRead));
                 }
                 scheduleMutationSync();
             },
@@ -498,9 +517,7 @@ export const useRssStore = create<RssStore>()(
                     };
                 });
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleFavorite }) => {
-                        sqliteMarkArticleFavorite(articleId, nextFav).catch(() => {});
-                    }).catch(() => {});
+                    void persistRss("toggle favorite", ({ sqliteMarkArticleFavorite }) => sqliteMarkArticleFavorite(articleId, nextFav));
                 }
                 scheduleMutationSync();
             },
@@ -520,30 +537,20 @@ export const useRssStore = create<RssStore>()(
                     };
                 });
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleSaved, sqliteSaveRssArticle }) => {
-                        sqliteMarkArticleSaved(articleId, nextSaved).catch(() => {});
+                    void persistRss("toggle saved", ({ sqliteMarkArticleSaved, sqliteSaveRssArticle }) => {
+                        const writes: Promise<unknown>[] = [sqliteMarkArticleSaved(articleId, nextSaved)];
                         if (nextSaved) {
                             const article = get().articles.find(a => a.id === articleId) || get().currentArticle;
                             if (article && (article.content || article.fullContent)) {
-                                sqliteSaveRssArticle({
-                                    id: article.id,
-                                    feedId: article.feedId,
-                                    title: article.title,
-                                    author: article.author,
-                                    url: article.url,
-                                    summary: article.summary,
-                                    contentSource: article.contentSource,
-                                    imageUrl: article.imageUrl,
-                                    publishedAt: article.publishedAt ? new Date(article.publishedAt).getTime() : undefined,
-                                    fetchedAt: article.fetchedAt ? new Date(article.fetchedAt).getTime() : undefined,
-                                    isRead: article.isRead,
-                                    isFavorite: article.isFavorite,
-                                    isSaved: true,
-                                    progress: article.progress,
-                                }, article.content, article.fullContent).catch(() => {});
+                                writes.push(sqliteSaveRssArticle(
+                                    { ...rssArticleRow(article), isSaved: true },
+                                    article.content,
+                                    article.fullContent,
+                                ));
                             }
                         }
-                    }).catch(() => {});
+                        return writes;
+                    });
                 }
                 scheduleMutationSync();
             },
@@ -558,9 +565,7 @@ export const useRssStore = create<RssStore>()(
                         : state.currentArticle,
                 }));
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleSaved }) => {
-                        sqliteMarkArticleSaved(articleId, isSaved).catch(() => {});
-                    }).catch(() => {});
+                    void persistRss("mark saved", ({ sqliteMarkArticleSaved }) => sqliteMarkArticleSaved(articleId, isSaved));
                 }
                 scheduleMutationSync();
             },
@@ -582,7 +587,8 @@ export const useRssStore = create<RssStore>()(
                         }));
                     }
                     return cleanedCount;
-                } catch {
+                } catch (err) {
+                    console.error("[RssStore] Article retention cleanup failed:", err);
                     return 0;
                 }
             },
@@ -634,7 +640,9 @@ export const useRssStore = create<RssStore>()(
                             }));
                             return article;
                         }
-                    } catch {}
+                    } catch (err) {
+                        console.error("[RssStore] Failed to load article from SQLite:", err);
+                    }
                 }
                 return undefined;
             },
@@ -642,7 +650,7 @@ export const useRssStore = create<RssStore>()(
             openArticleInReader: (article: RssArticle) => {
                 let fresh = get().articles.find(a => a.id === article.id) || article;
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteGetRssArticleContent, sqliteSaveRssArticle }) => {
+                    void persistRss("open article", ({ sqliteGetRssArticleContent, sqliteSaveRssArticle }) =>
                         sqliteGetRssArticleContent(fresh.id).then((cached) => {
                             if (cached && (cached.content || cached.fullContent)) {
                                 set(state => ({
@@ -657,25 +665,10 @@ export const useRssStore = create<RssStore>()(
                                 }));
                             } else if (fresh.content || fresh.fullContent) {
                                 // Save opened article content cleanly into SQLite
-                                sqliteSaveRssArticle({
-                                    id: fresh.id,
-                                    feedId: fresh.feedId,
-                                    title: fresh.title,
-                                    author: fresh.author,
-                                    url: fresh.url,
-                                    summary: fresh.summary,
-                                    contentSource: fresh.contentSource,
-                                    imageUrl: fresh.imageUrl,
-                                    publishedAt: fresh.publishedAt ? new Date(fresh.publishedAt).getTime() : undefined,
-                                    fetchedAt: fresh.fetchedAt ? new Date(fresh.fetchedAt).getTime() : undefined,
-                                    isRead: fresh.isRead,
-                                    isFavorite: fresh.isFavorite,
-                                    isSaved: fresh.isSaved ?? false,
-                                    progress: fresh.progress,
-                                }, fresh.content, fresh.fullContent).catch(() => {});
+                                return sqliteSaveRssArticle(rssArticleRow(fresh), fresh.content, fresh.fullContent);
                             }
-                        }).catch(() => {});
-                    }).catch(() => {});
+                            return undefined;
+                        }));
                 }
                 set({ currentArticle: fresh });
                 useUIStore.getState().setRoute('reader');
@@ -708,27 +701,15 @@ export const useRssStore = create<RssStore>()(
                         : state.currentArticle,
                 }));
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteSaveRssArticle }) => {
+                    void persistRss("save extracted content", ({ sqliteSaveRssArticle }) => {
                         const a = get().articles.find(art => art.id === articleId);
-                        if (a) {
-                            sqliteSaveRssArticle({
-                                id: a.id,
-                                feedId: a.feedId,
-                                title: a.title,
-                                author: a.author,
-                                url: a.url,
-                                summary: a.summary,
-                                contentSource: 'extracted',
-                                imageUrl: a.imageUrl,
-                                publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
-                                fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
-                                isRead: a.isRead,
-                                isFavorite: a.isFavorite,
-                                isSaved: a.isSaved ?? false,
-                                progress: a.progress,
-                            }, a.content, fullContent).catch(() => {});
-                        }
-                    }).catch(() => {});
+                        if (!a) return undefined;
+                        return sqliteSaveRssArticle(
+                            { ...rssArticleRow(a), contentSource: 'extracted' },
+                            a.content,
+                            fullContent,
+                        );
+                    });
                 }
                 scheduleMutationSync();
             },
@@ -756,30 +737,25 @@ export const useRssStore = create<RssStore>()(
                 }));
 
                 if (isTauri()) {
-                    import("../lib/sqlite-storage").then(({ sqliteMarkArticleRead, sqliteSaveRssArticle }) => {
+                    void persistRss("save progress", ({ sqliteMarkArticleRead, sqliteSaveRssArticle }) => {
+                        const writes: Promise<unknown>[] = [];
                         if (isCompleted) {
-                            sqliteMarkArticleRead(articleId, true).catch(() => {});
+                            writes.push(sqliteMarkArticleRead(articleId, true));
                         }
                         const a = get().articles.find(art => art.id === articleId) || get().currentArticle;
                         if (a) {
-                            sqliteSaveRssArticle({
-                                id: a.id,
-                                feedId: a.feedId,
-                                title: a.title,
-                                author: a.author,
-                                url: a.url,
-                                summary: a.summary,
-                                contentSource: a.contentSource,
-                                imageUrl: a.imageUrl,
-                                publishedAt: a.publishedAt ? new Date(a.publishedAt).getTime() : undefined,
-                                fetchedAt: a.fetchedAt ? new Date(a.fetchedAt).getTime() : undefined,
-                                isRead: isCompleted ? true : a.isRead,
-                                isFavorite: a.isFavorite,
-                                isSaved: a.isSaved ?? false,
-                                progress: safeProgress,
-                            }, a.content, a.fullContent).catch(() => {});
+                            writes.push(sqliteSaveRssArticle(
+                                {
+                                    ...rssArticleRow(a),
+                                    isRead: isCompleted ? true : a.isRead,
+                                    progress: safeProgress,
+                                },
+                                a.content,
+                                a.fullContent,
+                            ));
                         }
-                    }).catch(() => {});
+                        return writes;
+                    });
                 }
 
                 scheduleMutationSync();
@@ -823,7 +799,9 @@ export const useRssStore = create<RssStore>()(
                     try {
                         const settings = useSettingsStore.getState().settings;
                         if (settings?.rssRetentionDays > 0) {
-                            sqliteCleanupOldRssArticles(settings.rssRetentionDays, settings.rssKeepUnread).catch(() => {});
+                            sqliteCleanupOldRssArticles(settings.rssRetentionDays, settings.rssKeepUnread).catch((err) => {
+                                console.error("[RssStore] Article retention cleanup failed:", err);
+                            });
                         }
 
                         const [dbFeeds, dbArticles] = await Promise.all([
@@ -889,7 +867,9 @@ export const useRssStore = create<RssStore>()(
                     } catch (e) {
                         console.error("[RssStore] SQLite rehydration failed:", e);
                     }
-                }).catch(() => {});
+                }).catch((e) => {
+                    console.error("[RssStore] SQLite rehydration failed:", e);
+                });
             },
             partialize: memoizePartialize((state) => [state.feeds, state.articles], (state) => {
                 const annotations = useLibraryStore.getState?.()?.annotations;

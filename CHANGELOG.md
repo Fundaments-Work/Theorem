@@ -90,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Untrusted URLs are allowlisted** — Feed links, extracted article markup, book covers and the Library's HTML preview now pass through `src/core/lib/url-safety.ts`: only `http(s)`, `mailto` and `tel` links, only image-type `data:` URIs as image sources, and control-character tricks such as `java\tscript:` are normalized before checking. The Library's regex sanitizer was replaced by the existing DOMPurify `sanitizeHtml`.
 - **Lower memory on desktop** — PDF.js and Foliate are no longer pre-warmed at startup (they load when a book of that format opens), the PDF offscreen page cache dropped from 6 pages / ~96 MB to 4 pages / ~48 MB and is cleared on unmount, and session Replay was removed from Sentry.
 - **Sentry bundle** — Named imports let the bundler drop session Replay: the Sentry chunk is 158 KB instead of 446 KB (54 KB instead of 149 KB gzipped).
+- **Feed changes that fail to save are reported** — Marking an article read, favouriting, saving, reading progress, extracted text and feed add/remove/refresh wrote to SQLite with every error discarded, so a failed write was only noticed when the change was gone after a restart. Each failure is now logged with the operation that failed; a failure in one article no longer hides the others.
 
 ## [1.5.9] - 2026-10-04 (Beta)
 
