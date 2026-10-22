@@ -35,17 +35,17 @@ struct EntryBatchPayload {
 /// arrives as a few `docs-entry-batch` events instead of one event per entry.
 /// Later values for the same key replace earlier ones, so only the newest
 /// state of each record crosses the bridge.
-struct EntryBatcher {
-    app: tauri::AppHandle,
+struct EntryBatcher<R: tauri::Runtime> {
+    app: tauri::AppHandle<R>,
     entries: std::sync::Mutex<Vec<EntryPayload>>,
     flush_scheduled: std::sync::atomic::AtomicBool,
 }
 
-impl EntryBatcher {
+impl<R: tauri::Runtime> EntryBatcher<R> {
     const FLUSH_DELAY_MS: u64 = 300;
     const MAX_BATCH: usize = 64;
 
-    fn new(app: tauri::AppHandle) -> Arc<Self> {
+    fn new(app: tauri::AppHandle<R>) -> Arc<Self> {
         Arc::new(Self {
             app,
             entries: std::sync::Mutex::new(Vec::new()),
@@ -113,8 +113,9 @@ pub struct IrohPeerInfo {
     pub fingerprint: String,
 }
 
-pub struct SyncTransportState {
-    pub app_handle: tauri::AppHandle,
+/// Generic over the Tauri runtime only so tests can use the mock runtime.
+pub struct SyncTransportState<R: tauri::Runtime = tauri::Wry> {
+    pub app_handle: tauri::AppHandle<R>,
     pub device_id: String,
     pub fingerprint: String,
     pub device_name: String,
@@ -132,7 +133,7 @@ pub struct SyncTransportState {
     pub pairing_confirms: std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
 }
 
-impl SyncTransportState {
+impl<R: tauri::Runtime> SyncTransportState<R> {
     /// Saves the paired devices and updates who may connect. Every change to
     /// `paired_devices` goes through here so the two never disagree.
     pub fn persist_paired(&self, devices: &HashMap<String, PairedDevice>) -> Result<(), String> {
@@ -289,8 +290,8 @@ async fn recv_from_bi(recv: &mut iroh::endpoint::RecvStream) -> Result<Vec<u8>, 
     Ok(buf)
 }
 
-pub fn subscribe_doc_events(
-    app: tauri::AppHandle,
+pub fn subscribe_doc_events<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     doc: iroh_docs::api::Doc,
     blobs: iroh_blobs::api::Store,
 ) {
@@ -465,7 +466,7 @@ pub fn subscribe_doc_events(
 }
 
 /// Marks when this device last completed a sync with `peer`.
-async fn record_last_sync(app: &tauri::AppHandle, peer: &PublicKey) {
+async fn record_last_sync<R: tauri::Runtime>(app: &tauri::AppHandle<R>, peer: &PublicKey) {
     use tauri::Manager;
     let Some(sync_state) = app.try_state::<crate::sync_commands::SyncState>() else {
         return;
@@ -485,14 +486,13 @@ async fn record_last_sync(app: &tauri::AppHandle, peer: &PublicKey) {
     }
 }
 
-#[derive(Clone)]
-pub struct PairingProtocolHandler {
-    pub state: Arc<SyncTransportState>,
+pub struct PairingProtocolHandler<R: tauri::Runtime = tauri::Wry> {
+    pub state: Arc<SyncTransportState<R>>,
     /// This device's sync identity (part of the verification code).
     pub host_key: PublicKey,
 }
 
-impl std::fmt::Debug for PairingProtocolHandler {
+impl<R: tauri::Runtime> std::fmt::Debug for PairingProtocolHandler<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PairingProtocolHandler").finish()
     }
@@ -516,7 +516,7 @@ async fn send_envelope(
     let _ = send_on_bi(send, &env).await;
 }
 
-impl ProtocolHandler for PairingProtocolHandler {
+impl<R: tauri::Runtime> ProtocolHandler for PairingProtocolHandler<R> {
     /// One pairing request per connection. This protocol is the only one a
     /// device that is not paired may use, so it reads one capped message under
     /// a timeout and closes.
@@ -881,8 +881,8 @@ fn pair_error(message: &str) -> serde_json::Value {
     serde_json::json!({ "error": message })
 }
 
-async fn handle_pair_req(
-    state: &Arc<SyncTransportState>,
+async fn handle_pair_req<R: tauri::Runtime>(
+    state: &Arc<SyncTransportState<R>>,
     host_key: &PublicKey,
     joiner_key: PublicKey,
     data: &serde_json::Value,
@@ -1095,4 +1095,192 @@ pub fn load_paired_devices_from_disk(
     app_data_dir: &std::path::Path,
 ) -> HashMap<String, PairedDevice> {
     sync_persistence::load_paired_devices(app_data_dir)
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    //! The pairing protocol between two real endpoints over loopback, with the
+    //! user's answer on the host scripted.
+    use super::*;
+    use iroh::endpoint::presets;
+    use tauri::Listener;
+
+    struct Host {
+        state: Arc<SyncTransportState<tauri::test::MockRuntime>>,
+        router: Router,
+        _dir: tempfile::TempDir,
+        _app: tauri::App<tauri::test::MockRuntime>,
+    }
+
+    async fn host() -> Host {
+        let app = tauri::test::mock_app();
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(SyncTransportState {
+            app_handle: app.handle().clone(),
+            device_id: "host-device".into(),
+            fingerprint: String::new(),
+            device_name: "Host".into(),
+            app_data_dir: dir.path().to_path_buf(),
+            paired_devices: Mutex::new(HashMap::new()),
+            docs_api: Mutex::new(None),
+            docs_generation: std::sync::atomic::AtomicU64::new(0),
+            allowlist: Arc::new(PeerAllowlist::default()),
+            pairing: PairingSessions::default(),
+            pairing_confirms: Default::default(),
+        });
+        let ep = iroh::Endpoint::builder(presets::Minimal)
+            .hooks(PeerGate::new(state.allowlist.clone(), ALPN))
+            .bind()
+            .await
+            .unwrap();
+        let handler = PairingProtocolHandler {
+            state: state.clone(),
+            host_key: ep.id(),
+        };
+        let router = Router::builder(ep).accept(ALPN, handler).spawn();
+        Host {
+            state,
+            router,
+            _dir: dir,
+            _app: app,
+        }
+    }
+
+    /// Answers every approval prompt on the host with `accept`, and records
+    /// the codes it was shown.
+    fn answer_prompts(host: &Host, accept: bool) -> Arc<std::sync::Mutex<Vec<String>>> {
+        let shown = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (state, shown_in) = (host.state.clone(), shown.clone());
+        host.state
+            .app_handle
+            .listen("pairing-confirm-request", move |event| {
+                let payload: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+                shown_in
+                    .lock()
+                    .unwrap()
+                    .push(payload["code"].as_str().unwrap().to_string());
+                let id = payload["requestId"].as_str().unwrap().to_string();
+                if let Some(tx) = state.pairing_confirms.lock().unwrap().remove(&id) {
+                    let _ = tx.send(accept);
+                }
+            });
+        shown
+    }
+
+    async fn pair(
+        joiner: &iroh::Endpoint,
+        host: &Host,
+        secret: &str,
+        claimed_node_id: &str,
+    ) -> Result<PairingResponse, String> {
+        let conn = joiner
+            .connect(host.router.endpoint().addr(), ALPN)
+            .await
+            .map_err(|e| e.to_string())?;
+        let request = PairingRequest {
+            device_id: "joiner-device".into(),
+            device_name: "Joiner".into(),
+            fingerprint: String::new(),
+            node_id: claimed_node_id.into(),
+            relay_url: String::new(),
+            secret: secret.into(),
+        };
+        send_pair_request(&conn, &request).await
+    }
+
+    async fn paired_node_ids(host: &Host) -> Vec<String> {
+        host.state
+            .paired_devices
+            .lock()
+            .await
+            .values()
+            .map(|d| d.iroh_node_id.clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_right_secret_and_an_accept_pair_the_real_identity() {
+        let host = host().await;
+        let shown = answer_prompts(&host, true);
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let secret = host.state.pairing.open();
+
+        // The joiner claims another device's identity; the host ignores it.
+        let impostor = iroh::SecretKey::from_bytes(&[9; 32]).public().to_string();
+        let response = pair(&joiner, &host, &secret, &impostor).await.unwrap();
+        assert_eq!(response.device_id, "host-device");
+        assert_eq!(paired_node_ids(&host).await, vec![joiner.id().to_string()]);
+        assert!(host.state.allowlist.is_allowed(&joiner.id()));
+
+        // The host showed the code the joiner computes on its side.
+        let expected =
+            sync_access::verification_code(&host.router.endpoint().id(), &joiner.id(), &secret);
+        assert_eq!(*shown.lock().unwrap(), vec![expected]);
+
+        // The secret is used up.
+        let other = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let err = pair(&other, &host, &secret, "").await.unwrap_err();
+        assert!(err.contains("expired or was already used"), "{err}");
+        assert!(!host.state.allowlist.is_allowed(&other.id()));
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_declined_request_pairs_nothing() {
+        let host = host().await;
+        answer_prompts(&host, false);
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let secret = host.state.pairing.open();
+        let err = pair(&joiner, &host, &secret, "").await.unwrap_err();
+        assert!(err.contains("not accepted"), "{err}");
+        assert!(paired_node_ids(&host).await.is_empty());
+        assert!(!host.state.allowlist.is_allowed(&joiner.id()));
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wrong_or_missing_secrets_never_reach_the_user() {
+        let host = host().await;
+        let shown = answer_prompts(&host, true);
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+
+        // No QR code on screen.
+        let err = pair(&joiner, &host, &"0".repeat(64), "").await.unwrap_err();
+        assert!(err.contains("expired"), "{err}");
+
+        let secret = host.state.pairing.open();
+        for guess in ["", "nothex", &"0".repeat(64)] {
+            let err = pair(&joiner, &host, guess, "").await.unwrap_err();
+            assert!(err.contains("not valid"), "{err}");
+        }
+        assert!(shown.lock().unwrap().is_empty());
+        assert!(paired_node_ids(&host).await.is_empty());
+
+        // Still within the attempt limit, the real secret works.
+        pair(&joiner, &host, &secret, "").await.unwrap();
+        assert_eq!(shown.lock().unwrap().len(), 1);
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_oversized_message_is_refused_without_allocating_it() {
+        let host = host().await;
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let conn = joiner
+            .connect(host.router.endpoint().addr(), ALPN)
+            .await
+            .unwrap();
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
+        // Claims 4 GiB, then sends a little.
+        send.write_all(&u32::MAX.to_be_bytes()).await.unwrap();
+        send.write_all(b"{}").await.unwrap();
+        let _ = send.finish();
+        // The host drops the stream without answering.
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), recv.read_to_end(1024))
+            .await
+            .expect("host answered or hung");
+        assert!(reply.map(|r| r.is_empty()).unwrap_or(true));
+        assert!(paired_node_ids(&host).await.is_empty());
+        host.router.shutdown().await.unwrap();
+    }
 }

@@ -152,7 +152,8 @@ describe("Unified iroh-docs CRDT sync (Rust)", () => {
     it("PairingProtocolHandler exists for QR pairing", () => {
         const content = readSource("src-tauri/src/iroh_sync.rs");
         expect(content).toContain("PairingProtocolHandler");
-        expect(content).toContain("impl ProtocolHandler for PairingProtocolHandler");
+        // Generic over the Tauri runtime (so tests can use the mock runtime).
+        expect(content).toMatch(/impl(<[^>]+>)? ProtocolHandler for PairingProtocolHandler\b/);
     });
 });
 

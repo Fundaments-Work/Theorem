@@ -96,6 +96,10 @@ url = "2.5.8"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rars = "0.10.0"
 
+[dev-dependencies]
+# tauri::test::mock_app, for the pairing protocol tests in iroh_sync.rs.
+tauri = { version = "2", features = ["test"] }
+
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # Desktop TTS shells (spd-say / say / powershell) need tokio process spawning.
 # Feature sets are additive per-target, so this only applies on desktop.

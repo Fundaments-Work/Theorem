@@ -859,15 +859,21 @@ static DELIVERY: std::sync::Mutex<Option<Delivery>> = std::sync::Mutex::new(None
 /// the last read the app acknowledged. Comparing content, not timestamps,
 /// means a device with a wrong clock is never skipped; an unacknowledged
 /// read (the merge failed) is simply sent again.
+/// With `full`, every entry is returned (a periodic safety net), and the
+/// acknowledgement still records them for the reads after it.
 #[tauri::command]
-pub async fn docs_get_changed_entries(app: tauri::AppHandle) -> Result<ChangedDocEntries, String> {
+pub async fn docs_get_changed_entries(
+    app: tauri::AppHandle,
+    full: Option<bool>,
+) -> Result<ChangedDocEntries, String> {
     let applied = DELIVERY
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get_or_insert_with(Default::default)
         .applied
         .clone();
-    let (entries, seen) = read_doc_entries(&app, Some(&applied)).await?;
+    let baseline = (!full.unwrap_or(false)).then_some(&applied);
+    let (entries, seen) = read_doc_entries(&app, baseline).await?;
     let mut guard = DELIVERY.lock().unwrap_or_else(|e| e.into_inner());
     let delivery = guard.get_or_insert_with(Default::default);
     delivery.next_token += 1;
@@ -1059,9 +1065,10 @@ fn combine_doc_values(
             .iter()
             .filter_map(|(_, v)| serde_json::from_str(v).ok())
             .collect();
-        let combined = if parsed.len() != values.len() {
-            None
-        } else if parsed.iter().all(|v| v.is_object()) {
+        let all_parsed = parsed.len() == values.len();
+        let all_objects = all_parsed && parsed.iter().all(|v| v.is_object());
+        let all_arrays = all_parsed && parsed.iter().all(|v| v.is_array());
+        let combined = if all_objects {
             let mut merged = serde_json::Map::new();
             for obj in parsed.iter().filter_map(|v| v.as_object()) {
                 for (k, val) in obj {
@@ -1069,7 +1076,7 @@ fn combine_doc_values(
                 }
             }
             serde_json::to_string(&merged).ok()
-        } else if parsed.iter().all(|v| v.is_array()) {
+        } else if all_arrays {
             let merged: Vec<serde_json::Value> = parsed
                 .iter()
                 .filter_map(|v| v.as_array())
