@@ -2029,7 +2029,7 @@ fn parse_feed_items(xml: &str) -> Vec<FeedItem> {
 }
 
 fn fetch_url_blocking(url: &str) -> Result<String, String> {
-    let response = crate::shared_http_client()
+    let response = crate::shared_http_client()?
         .get(url)
         .send()
         .map_err(|e| format!("Failed to fetch {url}: {e}"))?;
@@ -2337,10 +2337,11 @@ fn opds_download(output: &Output, app: &tauri::AppHandle, url: &str, entry_selec
 
     output.note(&format!("downloading '{}'...", entry.title));
     let bytes = {
-        let response = match crate::shared_http_client()
-            .get(download_url.as_str())
-            .send()
-        {
+        let client = match crate::shared_http_client() {
+            Ok(client) => client,
+            Err(e) => return output.error(&e),
+        };
+        let response = match client.get(download_url.as_str()).send() {
             Ok(response) => response,
             Err(e) => return output.error(&e.to_string()),
         };

@@ -7958,6 +7958,7 @@ dependencies = [
  "iroh-mdns-address-lookup",
  "jni 0.22.4",
  "libc",
+ "log",
  "memmap2",
  "mp4ameta",
  "ndarray",

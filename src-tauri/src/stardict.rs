@@ -905,7 +905,7 @@ pub fn is_valid_stardict_dir(dir: &Path) -> bool {
 /// Ensure dictionary is loaded into memory map cache
 fn get_or_load_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<StarDict>, String> {
     {
-        let cache = dict_cache().read().unwrap();
+        let cache = dict_cache().read().unwrap_or_else(|e| e.into_inner());
         if let Some(dict) = cache.get(dict_id) {
             return Ok(dict.clone());
         }
@@ -931,7 +931,7 @@ fn get_or_load_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<StarDict
         }
     };
 
-    let mut cache = dict_cache().write().unwrap();
+    let mut cache = dict_cache().write().unwrap_or_else(|e| e.into_inner());
     cache.insert(dict_id.to_string(), dict.clone());
 
     Ok(dict)
@@ -1058,7 +1058,7 @@ pub async fn stardict_lookup(
 #[tauri::command]
 pub async fn stardict_delete(app: AppHandle, dict_id: String) -> Result<(), String> {
     {
-        let mut cache = dict_cache().write().unwrap();
+        let mut cache = dict_cache().write().unwrap_or_else(|e| e.into_inner());
         cache.remove(&dict_id);
     }
 

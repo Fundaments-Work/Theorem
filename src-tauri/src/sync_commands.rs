@@ -62,7 +62,11 @@ pub(crate) fn get_sync_state(
 pub(crate) async fn get_or_init_iroh(
     app: &tauri::AppHandle,
 ) -> Result<Arc<IrohSyncEndpoint>, String> {
-    if let Some(ep) = IROH_ENDPOINT.lock().unwrap().clone() {
+    if let Some(ep) = IROH_ENDPOINT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         return Ok(ep);
     }
     let data_dir = app
@@ -81,19 +85,16 @@ pub(crate) async fn get_or_init_iroh(
         )
         .await?,
     );
-    let mut guard = IROH_ENDPOINT.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(ep);
-    }
+    let mut guard = IROH_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner());
     // Return the cached endpoint so every caller talks to the same transport
     // the accept loop uses (a concurrently-built endpoint would be orphaned).
-    Ok(guard.as_ref().unwrap().clone())
+    Ok(guard.get_or_insert(ep).clone())
 }
 
 pub fn get_iroh_relay_url() -> String {
     IROH_ENDPOINT
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|ep| {
             ep.endpoint
@@ -202,11 +203,14 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
             let _ = std::fs::remove_dir_all(&blobs_path);
             let _ = std::fs::remove_dir_all(&docs_path);
 
-            let old_ep = IROH_ENDPOINT.lock().unwrap().clone();
+            let old_ep = IROH_ENDPOINT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             if let Some(ep) = old_ep {
                 ep.close().await;
             }
-            *IROH_ENDPOINT.lock().unwrap() = None;
+            *IROH_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
     }
 
@@ -227,11 +231,14 @@ pub async fn iroh_stop(app: tauri::AppHandle) -> Result<(), String> {
     // holds a handle to the now-dead iroh-docs actor (which would otherwise
     // surface as "sending to iroh_docs actor failed" on the next sync).
     *sync_state.transport_state.docs_api.lock().await = None;
-    let endpoint = IROH_ENDPOINT.lock().unwrap().clone();
+    let endpoint = IROH_ENDPOINT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     if let Some(ep) = endpoint {
         ep.close().await;
     }
-    *IROH_ENDPOINT.lock().unwrap() = None;
+    *IROH_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner()) = None;
     Ok(())
 }
 
@@ -579,7 +586,7 @@ pub async fn get_device_identity(app: tauri::AppHandle) -> Result<DeviceIdentity
     let sync_state = get_sync_state(&app)?;
     let public_key = IROH_ENDPOINT
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map(|ep| ep.public_key_string())
         .unwrap_or_default();

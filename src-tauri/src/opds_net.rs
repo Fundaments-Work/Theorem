@@ -92,20 +92,31 @@ impl std::fmt::Display for OpdsError {
     }
 }
 
-fn client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .user_agent(concat!(
-                "Theorem/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://theorem.fundaments.work)"
-            ))
-            .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(8))
-            .build()
-            .expect("failed to build OPDS HTTP client")
-    })
+/// The shared OPDS client. Building it can fail (no usable TLS backend); that
+/// is reported to the caller as a network error instead of panicking, and the
+/// failure is remembered so every request does not retry the build.
+fn client() -> Result<&'static Client, OpdsError> {
+    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .user_agent(concat!(
+                    "Theorem/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (+https://theorem.fundaments.work)"
+                ))
+                .connect_timeout(Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::limited(8))
+                .build()
+                .map_err(|e| {
+                    log::error!("[opds] Failed to build HTTP client: {e}");
+                    format!("Could not start the network client: {e}")
+                })
+        })
+        .as_ref()
+        .map_err(|message| OpdsError::Network {
+            message: message.clone(),
+        })
 }
 
 fn check_url(url: &str) -> Result<reqwest::Url, OpdsError> {
@@ -135,12 +146,16 @@ fn map_send_error(e: reqwest::Error) -> OpdsError {
     }
 }
 
-fn request(url: reqwest::Url, auth: Option<&Credentials>, accept: &str) -> reqwest::RequestBuilder {
-    let mut req = client().get(url).header(ACCEPT, accept);
+fn request(
+    url: reqwest::Url,
+    auth: Option<&Credentials>,
+    accept: &str,
+) -> Result<reqwest::RequestBuilder, OpdsError> {
+    let mut req = client()?.get(url).header(ACCEPT, accept);
     if let Some(c) = auth {
         req = req.basic_auth(&c.username, Some(&c.password));
     }
-    req
+    Ok(req)
 }
 
 struct Fetched {
@@ -167,7 +182,7 @@ fn parse_www_authenticate(h: &str) -> (Option<String>, Option<String>) {
 
 async fn fetch_document(url: &str, auth: Option<&Credentials>) -> Result<Fetched, OpdsError> {
     let parsed = check_url(url)?;
-    let resp = request(parsed, auth, ACCEPT_CATALOG)
+    let resp = request(parsed, auth, ACCEPT_CATALOG)?
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -424,7 +439,7 @@ pub async fn opds_download(
         parsed,
         auth.as_ref(),
         "application/epub+zip, application/pdf, application/octet-stream, */*;q=0.5",
-    )
+    )?
     .timeout(Duration::from_secs(600))
     .send()
     .await

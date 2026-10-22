@@ -56,17 +56,26 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
-fn shared_http_client() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .cookie_store(true)
-            .timeout(std::time::Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36")
-            .build()
-            .expect("Failed to create shared HTTP client — install OpenSSL (libssl-dev)")
-    })
+/// The shared blocking HTTP client. Building it can fail (no usable TLS
+/// backend); the failure is returned to the caller, never a panic, and is
+/// remembered so each request does not retry the build.
+fn shared_http_client() -> Result<&'static Client, String> {
+    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .cookie_store(true)
+                .timeout(std::time::Duration::from_secs(60))
+                .redirect(reqwest::redirect::Policy::limited(10))
+                .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36")
+                .build()
+                .map_err(|e| {
+                    log::error!("[http] Failed to build shared HTTP client: {e}");
+                    format!("Could not start the network client: {e}")
+                })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 #[cfg(desktop)]
@@ -920,7 +929,7 @@ fn decode_hex_string(hex: &str) -> Option<String> {
 }
 
 fn fetch_rss_feed(url: String) -> Result<String, String> {
-    let response = shared_http_client()
+    let response = shared_http_client()?
         .get(&url)
         .timeout(std::time::Duration::from_secs(30))
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -958,13 +967,14 @@ fn fetch_url_content(url: String) -> Result<String, String> {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
     ];
 
+    let client = shared_http_client()?;
     let mut last_error: Option<String> = None;
     for (attempt, user_agent) in user_agents.iter().enumerate() {
         if attempt > 0 {
             std::thread::sleep(std::time::Duration::from_millis(150));
         }
 
-        let response = shared_http_client()
+        let response = client
             .get(parsed_url.clone())
             .timeout(std::time::Duration::from_secs(8))
             .header("User-Agent", *user_agent)
@@ -1039,7 +1049,7 @@ fn fetch_binary_content(url: String) -> Result<Response, String> {
         origin.to_string()
     };
 
-    let response = shared_http_client()
+    let response = shared_http_client()?
         .get(parsed_url)
         .timeout(std::time::Duration::from_secs(90))
         .header(

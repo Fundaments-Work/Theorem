@@ -53,7 +53,7 @@ impl EntryBatcher {
 
     fn push(self: &Arc<Self>, key: String, value: String) {
         let should_flush = {
-            let mut guard = self.entries.lock().unwrap();
+            let mut guard = self.entries.lock().unwrap_or_else(|e| e.into_inner());
             match guard.iter_mut().find(|e| e.key == key) {
                 Some(existing) => {
                     existing.value = value;
@@ -85,7 +85,7 @@ impl EntryBatcher {
     }
 
     fn flush(&self) {
-        let drained = std::mem::take(&mut *self.entries.lock().unwrap());
+        let drained = std::mem::take(&mut *self.entries.lock().unwrap_or_else(|e| e.into_inner()));
         if drained.is_empty() {
             return;
         }
