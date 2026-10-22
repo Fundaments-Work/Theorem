@@ -249,14 +249,11 @@ fn strip_all_tags(html: &str) -> String {
 pub async fn fetch_and_extract_article_native(
     url: String,
 ) -> Result<NativeExtractedArticle, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(6))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build()
-        .map_err(|e| format!("Client build error: {e}"))?;
-
-    let res = client
+    let res = crate::http::client()?
         .get(&url)
+        .timeout(Duration::from_secs(6))
+        // Article sites often refuse clients that are not a browser.
+        .header(reqwest::header::USER_AGENT, crate::http::BROWSER_USER_AGENT)
         .header(
             "Accept",
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
