@@ -213,7 +213,7 @@ export function ReaderSettings({
 
     return (
         <>
-            <Backdrop visible={visible} onClick={onClose} />
+            <Backdrop visible={visible} onClick={onClose} dim={false} />
 
             <FloatingPanel visible={visible} label="Reading settings" className={cn("overflow-hidden bg-[var(--color-surface)]", className)}>
                 <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
