@@ -544,14 +544,9 @@ pub async fn parse_rss_feed_native(xml: String) -> Result<ParsedFeed, String> {
 
 #[tauri::command]
 pub async fn fetch_and_parse_rss_feed(url: String) -> Result<ParsedFeed, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Theorem/1.5 (Desktop Reader; +https://github.com/fundaments-work/Theorem)")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
-
-    let resp = client
+    let resp = crate::http::client()?
         .get(&url)
+        .timeout(std::time::Duration::from_secs(15))
         .send()
         .await
         .map_err(|e| format!("Network request failed: {e}"))?;

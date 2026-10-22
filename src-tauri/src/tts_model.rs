@@ -11,8 +11,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Asset bundle version tag in the supertonic-assets repo.
-const ASSETS_TAG: &str = "v1";
+/// Asset bundle version tag in the supertonic-assets repo. Part of the
+/// synthesized-audio cache key, so new models never replay old audio.
+pub(crate) const ASSETS_TAG: &str = "v1";
 const ASSETS_BASE: &str = "https://github.com/fundaments-work/supertonic-assets/releases/download";
 
 /// One downloadable asset. GitHub release assets are flat filenames, so
@@ -273,15 +274,10 @@ pub async fn tts_model_download_asset(
         .find(|a| a.dest == name)
         .ok_or_else(|| format!("Unknown TTS asset '{name}'"))?;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(1800))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .user_agent("Mozilla/5.0 Theorem")
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
-
-    let response = client
+    let response = crate::http::download_client()?
         .get(asset_url(&asset))
+        .timeout(std::time::Duration::from_secs(1800))
+        .header(reqwest::header::USER_AGENT, crate::http::THEOREM_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Download failed: {e}"))?;

@@ -836,9 +836,11 @@ pub mod desktop {
 
     /// A usable cached WAV at `path`, marked as just used so [`trim_cache`]
     /// (which evicts oldest modification time first) is least-recently-used.
+    /// Entries are only ever created by a rename of a complete file
+    /// ([`write_wav_atomically`]), so one that exists is whole.
     pub fn cached_synthesis(path: &Path) -> Option<SynthesisResult> {
         let meta = std::fs::metadata(path).ok()?;
-        if meta.len() <= 44 {
+        if !meta.is_file() || meta.len() <= 44 {
             return None;
         }
         if let Ok(file) = std::fs::File::options().write(true).open(path) {
@@ -851,17 +853,37 @@ pub mod desktop {
         })
     }
 
+    /// Suffix of a WAV still being written (see [`write_wav_atomically`]).
+    const PARTIAL_SUFFIX: &str = ".part";
+    /// A partial file this old was left by a crash; younger ones are in use.
+    const STALE_PARTIAL: std::time::Duration = std::time::Duration::from_secs(3600);
+
     /// Evict least-recently-used entries until the cache fits in `limit` bytes.
+    /// Files still being written are never evicted (only stale leftovers).
     pub fn trim_cache(dir: &Path, limit: u64) {
+        let now = std::time::SystemTime::now();
         let mut files: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
         let mut total = 0u64;
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
-                if let Ok(meta) = entry.metadata() {
-                    total += meta.len();
-                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    files.push((modified, entry.path(), meta.len()));
+                let Ok(meta) = entry.metadata() else { continue };
+                if !meta.is_file() {
+                    continue;
                 }
+                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let partial = entry
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(PARTIAL_SUFFIX);
+                if partial {
+                    let age = now.duration_since(modified).unwrap_or_default();
+                    if age >= STALE_PARTIAL {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                    continue;
+                }
+                total += meta.len();
+                files.push((modified, entry.path(), meta.len()));
             }
         }
         if total <= limit {
@@ -879,10 +901,21 @@ pub mod desktop {
         }
     }
 
-    pub fn cache_key(text: &str, voice: &str, speed: f32) -> String {
+    /// Bumped whenever the audio cached for the same input changes (WAV
+    /// layout, the synthesis pipeline), so old entries miss and age out.
+    const CACHE_FORMAT_VERSION: u32 = 2;
+
+    /// Cache key of one synthesis: the cache format, the model release, and
+    /// every input that changes the audio. Each text field is length-prefixed
+    /// so no two different inputs hash the same bytes.
+    pub fn cache_key(text: &str, voice: &str, speed: f32, lang: &str) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(text.as_bytes());
-        hasher.update(voice.as_bytes());
+        hasher.update(b"theorem-tts-cache");
+        hasher.update(CACHE_FORMAT_VERSION.to_le_bytes());
+        for field in [crate::tts_model::ASSETS_TAG, lang, voice, text] {
+            hasher.update((field.len() as u64).to_le_bytes());
+            hasher.update(field.as_bytes());
+        }
         hasher.update(speed.to_le_bytes());
         hex::encode(hasher.finalize())
     }
@@ -915,6 +948,61 @@ pub mod desktop {
             .finalize()
             .map_err(|e| format!("WAV finalize failed: {e}"))
     }
+
+    /// [`write_wav`] to a private temporary file next to `path`, then rename it
+    /// into place, so a reader (the player, a racing request) sees either no
+    /// entry or a complete one, never a half-written WAV.
+    pub fn write_wav_atomically(
+        path: &Path,
+        samples: &[f32],
+        sample_rate: u32,
+    ) -> Result<(), String> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let name = path
+            .file_name()
+            .ok_or_else(|| format!("Invalid cache path {path:?}"))?
+            .to_string_lossy();
+        let temp = path.with_file_name(format!(
+            ".{name}.{}.{}{PARTIAL_SUFFIX}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let result = write_wav(&temp, samples, sample_rate).and_then(|()| {
+            std::fs::rename(&temp, path).map_err(|e| format!("Failed to store WAV: {e}"))
+        });
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temp);
+        }
+        result
+    }
+
+    /// The cached WAV at `out_path`, or a fresh synthesis written there.
+    ///
+    /// `engine` serializes synthesis. The cache is checked again once it is
+    /// held: a request that waited behind another for the same key (prefetch
+    /// and speak racing for the next page) finds that one's result instead of
+    /// synthesizing the same audio twice.
+    pub fn synthesize_cached<T>(
+        out_path: &Path,
+        engine: &Mutex<T>,
+        synthesize: impl FnOnce(&mut T) -> Result<(Vec<f32>, u32), String>,
+    ) -> Result<SynthesisResult, String> {
+        if let Some(hit) = cached_synthesis(out_path) {
+            return Ok(hit);
+        }
+        let mut engine = engine.lock().map_err(|e| e.to_string())?;
+        if let Some(hit) = cached_synthesis(out_path) {
+            return Ok(hit);
+        }
+        let (samples, sample_rate) = synthesize(&mut engine)?;
+        write_wav_atomically(out_path, &samples, sample_rate)?;
+        Ok(SynthesisResult {
+            path: out_path.display().to_string(),
+            duration_sec: samples.len() as f32 / sample_rate as f32,
+            cached: false,
+        })
+    }
+
     // ── Command implementation bodies ────────────────────────────────────────
 
     /// Synthesize `text` (one page / one generation unit) to a cached WAV file.
@@ -926,7 +1014,7 @@ pub mod desktop {
         lang: String,
     ) -> Result<SynthesisResult, String> {
         tokio::task::spawn_blocking(move || {
-            let key = cache_key(&text, &voice, speed);
+            let key = cache_key(&text, &voice, speed, &lang);
             let dir = cache_dir(&app);
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let out_path = dir.join(format!("{key}.wav"));
@@ -936,24 +1024,19 @@ pub mod desktop {
 
             ensure_engine(&app)?;
             let style = load_style(&voices_dir(&app), &voice)?;
-            let mut slot = engine_slot().lock().map_err(|e| e.to_string())?;
-            let engine = slot
-                .as_mut()
-                .ok_or_else(|| "Engine not initialized".to_string())?;
-
-            let samples = engine.synthesize(&text, &lang, &style, 8, speed)?;
-            let duration_sec = samples.len() as f32 / engine.sample_rate as f32;
-
-            write_wav(&out_path, &samples, engine.sample_rate)?;
-            std::thread::spawn(move || {
-                trim_cache(&dir, CACHE_LIMIT_BYTES);
-            });
-
-            Ok(SynthesisResult {
-                path: out_path.display().to_string(),
-                duration_sec,
-                cached: false,
-            })
+            let result = synthesize_cached(&out_path, engine_slot(), |slot| {
+                let engine = slot
+                    .as_mut()
+                    .ok_or_else(|| "Engine not initialized".to_string())?;
+                let samples = engine.synthesize(&text, &lang, &style, 8, speed)?;
+                Ok((samples, engine.sample_rate))
+            })?;
+            if !result.cached {
+                std::thread::spawn(move || {
+                    trim_cache(&dir, CACHE_LIMIT_BYTES);
+                });
+            }
+            Ok(result)
         })
         .await
         .map_err(|e| format!("Synthesis task failed: {e}"))?
@@ -967,7 +1050,7 @@ pub mod desktop {
         speed: f32,
         lang: String,
     ) -> Result<(), String> {
-        let key = cache_key(&text, &voice, speed);
+        let key = cache_key(&text, &voice, speed, &lang);
         let out_path = cache_dir(&app).join(format!("{key}.wav"));
         if cached_synthesis(&out_path).is_some() {
             return Ok(());
@@ -1254,6 +1337,148 @@ pub mod desktop {
             assert!(left("old"), "a just-replayed entry was evicted");
             assert!(!left("mid"), "the least recently used entry survived");
             assert!(left("new"));
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn cache_key_covers_every_input_and_the_model_release() {
+            let base = cache_key("Hello.", "F1", 1.0, "en");
+            assert_eq!(base.len(), 64);
+            assert_eq!(base, cache_key("Hello.", "F1", 1.0, "en"), "deterministic");
+            for other in [
+                cache_key("Hello!", "F1", 1.0, "en"),
+                cache_key("Hello.", "F2", 1.0, "en"),
+                cache_key("Hello.", "F1", 1.25, "en"),
+                // The same words in another language are other audio.
+                cache_key("Hello.", "F1", 1.0, "de"),
+            ] {
+                assert_ne!(base, other);
+            }
+            // Field boundaries cannot shift between voice and text.
+            assert_ne!(
+                cache_key("1text", "F", 1.0, "en"),
+                cache_key("text", "F1", 1.0, "en")
+            );
+            // Old (pre-language, pre-version) keys simply miss.
+            let mut legacy = Sha256::new();
+            legacy.update("Hello.".as_bytes());
+            legacy.update("F1".as_bytes());
+            legacy.update(1.0f32.to_le_bytes());
+            assert_ne!(base, hex::encode(legacy.finalize()));
+        }
+
+        fn temp_cache_dir(tag: &str) -> PathBuf {
+            let dir = std::env::temp_dir().join(format!(
+                "theorem-tts-{tag}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        }
+
+        fn names_in(dir: &Path) -> Vec<String> {
+            let mut names: Vec<String> = std::fs::read_dir(dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        }
+
+        #[test]
+        fn wav_is_written_whole_or_not_at_all() {
+            let dir = temp_cache_dir("atomic");
+            let path = dir.join("key.wav");
+            let samples = vec![0.25f32; 4410];
+            write_wav_atomically(&path, &samples, 44_100).unwrap();
+            assert_eq!(names_in(&dir), ["key.wav"], "no temporary file is left");
+            let hit = cached_synthesis(&path).expect("a complete entry");
+            assert!((hit.duration_sec - 0.1).abs() < 1e-3);
+
+            // A failed store leaves neither an entry nor a partial file.
+            let blocked = dir.join("blocked.wav");
+            std::fs::create_dir(&blocked).unwrap();
+            assert!(write_wav_atomically(&blocked, &samples, 44_100).is_err());
+            assert_eq!(names_in(&dir), ["blocked.wav", "key.wav"]);
+            assert!(
+                cached_synthesis(&blocked).is_none(),
+                "a directory is no entry"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn trim_never_evicts_a_file_being_written() {
+            use std::time::{Duration, SystemTime};
+            let dir = temp_cache_dir("partial");
+            let in_flight = dir.join(".a.wav.1.0.part");
+            let stale = dir.join(".b.wav.1.1.part");
+            for path in [&in_flight, &stale] {
+                std::fs::write(path, vec![0u8; 5000]).unwrap();
+            }
+            std::fs::File::options()
+                .write(true)
+                .open(&stale)
+                .unwrap()
+                .set_modified(SystemTime::now() - Duration::from_secs(2 * 3600))
+                .unwrap();
+            std::fs::write(dir.join("done.wav"), vec![0u8; 1000]).unwrap();
+            trim_cache(&dir, 0);
+            assert!(in_flight.exists(), "an in-progress write was evicted");
+            assert!(!stale.exists(), "a crash leftover was kept");
+            assert!(!dir.join("done.wav").exists());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn racing_requests_for_one_key_synthesize_once() {
+            use std::sync::{Arc, Barrier};
+            let dir = temp_cache_dir("dedupe");
+            let path = Arc::new(dir.join("same.wav"));
+            let engine = Arc::new(Mutex::new(0u32));
+            let barrier = Arc::new(Barrier::new(4));
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    let (path, engine, barrier) = (path.clone(), engine.clone(), barrier.clone());
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        synthesize_cached(&path, &engine, |runs| {
+                            *runs += 1;
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            Ok((vec![0.1; 4410], 44_100))
+                        })
+                        .unwrap()
+                    })
+                })
+                .collect();
+            let results: Vec<SynthesisResult> =
+                handles.into_iter().map(|h| h.join().unwrap()).collect();
+            assert_eq!(
+                *engine.lock().unwrap(),
+                1,
+                "the same audio was synthesized twice"
+            );
+            assert_eq!(results.iter().filter(|r| !r.cached).count(), 1);
+            assert!(results.iter().all(|r| r.path == path.display().to_string()));
+
+            // Another key is synthesized on its own.
+            let other = dir.join("other.wav");
+            let result = synthesize_cached(&other, &engine, |runs| {
+                *runs += 1;
+                Ok((vec![0.1; 4410], 44_100))
+            })
+            .unwrap();
+            assert!(!result.cached);
+            assert_eq!(*engine.lock().unwrap(), 2);
+
+            // A failed synthesis stores nothing, and the next request retries.
+            let failing = dir.join("failing.wav");
+            assert!(synthesize_cached(&failing, &engine, |_| Err("boom".into())).is_err());
+            assert!(!failing.exists());
+            assert!(synthesize_cached(&failing, &engine, |_| Ok((vec![0.1; 100], 44_100))).is_ok());
             let _ = std::fs::remove_dir_all(&dir);
         }
 

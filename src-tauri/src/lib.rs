@@ -31,6 +31,7 @@ pub mod epubcfi;
 mod file_transfer;
 pub mod folder_walk;
 pub mod fuzzy_search;
+pub(crate) mod http;
 pub mod image_ops;
 mod iroh_sync;
 pub mod mdict;
@@ -53,39 +54,23 @@ pub mod tts_model;
 pub mod vault_export;
 mod zip_util;
 
-use reqwest::blocking::Client;
 use serde::Serialize;
 use std::env;
 
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use tauri::ipc::Response;
 use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
-/// The shared blocking HTTP client. Building it can fail (no usable TLS
-/// backend); the failure is returned to the caller, never a panic, and is
-/// remembered so each request does not retry the build.
-fn shared_http_client() -> Result<&'static Client, String> {
-    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            Client::builder()
-                .cookie_store(true)
-                .timeout(std::time::Duration::from_secs(60))
-                .redirect(reqwest::redirect::Policy::limited(10))
-                .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36")
-                .build()
-                .map_err(|e| {
-                    log::error!("[http] Failed to build shared HTTP client: {e}");
-                    format!("Could not start the network client: {e}")
-                })
-        })
-        .as_ref()
-        .map_err(Clone::clone)
+/// The shared blocking HTTP client (see `http::blocking_client`). Building it
+/// can fail (no usable TLS backend); the failure is returned to the caller,
+/// never a panic, and is remembered so each request does not retry the build.
+fn shared_http_client() -> Result<&'static reqwest::blocking::Client, String> {
+    http::blocking_client()
 }
 
 #[cfg(desktop)]
@@ -1224,10 +1209,12 @@ fn apply_linux_webkit_workarounds() {
     }
 }
 
-/// Speak `text` with the platform voice. `lang` (the book's language) and
-/// `utterance_id` (echoed in the utterance events so stale ones can be told
-/// apart) are used on Android; the result may carry a `languageWarning` when
-/// the engine has no voice for `lang`.
+/// Speak `text` with the platform voice. `utterance_id` is echoed in the
+/// utterance events so stale ones can be told apart. `lang` (the book's
+/// language) is used on Android and Linux; on Android the result may carry a
+/// `languageWarning` when the engine has no voice for `lang`. Desktop OS
+/// voices answer `completionEvents: true`: `tts-utterance-done` (or
+/// `tts-utterance-error`) follows when the narration process exits.
 #[tauri::command]
 #[allow(unused_variables, unreachable_code)]
 fn tts_speak(
@@ -1249,13 +1236,15 @@ fn tts_speak(
             utterance_id,
         },
     );
+    #[cfg(not(target_os = "android"))]
+    let on_end = tts_desktop::emit_utterance_end(app, utterance_id);
     #[cfg(target_os = "linux")]
-    return tts_linux::linux_tts_speak(&text, speed).map(|()| serde_json::Value::Null);
+    tts_linux::linux_tts_speak(&text, speed, lang.as_deref(), on_end)?;
     #[cfg(target_os = "macos")]
     {
         let mut cmd = std::process::Command::new("say");
         cmd.args(tts_desktop::mac_say_args(&text, &voice, speed));
-        tts_desktop::spawn_tracked(cmd, None).map_err(|e| format!("say: {e}"))?;
+        tts_desktop::spawn_tracked(cmd, None, on_end).map_err(|e| format!("say: {e}"))?;
     }
     #[cfg(target_os = "windows")]
     {
@@ -1271,9 +1260,9 @@ fn tts_speak(
             tts_desktop::windows_rate(speed).to_string(),
         )
         .env("THEOREM_TTS_VOICE", &voice);
-        tts_desktop::spawn_tracked(cmd, Some(text)).map_err(|e| format!("TTS: {e}"))?;
+        tts_desktop::spawn_tracked(cmd, Some(text), on_end).map_err(|e| format!("TTS: {e}"))?;
     }
-    Ok(serde_json::Value::Null)
+    Ok(serde_json::json!({ "completionEvents": true }))
 }
 
 #[tauri::command]
@@ -2170,16 +2159,9 @@ async fn download_and_extract_stardict(
 ) -> Result<serde_json::Value, String> {
     use futures::StreamExt;
 
-    let client = reqwest::Client::builder()
-        .cookie_store(true)
-        .timeout(std::time::Duration::from_secs(300))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36")
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
-
-    let response = client
+    let response = http::download_client()?
         .get(&url)
+        .timeout(std::time::Duration::from_secs(300))
         .send()
         .await
         .map_err(|e| format!("Download failed: {e}"))?;
@@ -2425,14 +2407,9 @@ async fn fetch_online_definition(term: String) -> Result<serde_json::Value, Stri
         .to_string();
     let url = format!("https://api.dictionaryapi.dev/api/v2/entries/en/{encoded}");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(4))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
-
-    let resp = client
+    let resp = http::client()?
         .get(&url)
+        .timeout(std::time::Duration::from_secs(4))
         .send()
         .await
         .map_err(|e| format!("Network request failed: {e}"))?;

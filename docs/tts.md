@@ -28,9 +28,18 @@ narration process is tracked, so Stop kills only Theorem's own `say` /
 
 Backend wiring: `tts_speak` / `tts_stop` in `src-tauri/src/lib.rs` dispatch to
 the platform implementation (`src-tauri/src/tts_linux.rs` on Linux, the
-`tauri-plugin-android-tts-audio` plugin on Android). Desktop OS voices report
-no completion signal, so completion falls back to a duration estimate; Android
-reports real completion.
+`tauri-plugin-android-tts-audio` plugin on Android). Every platform reports
+the real end of speech. On desktop the narration process lives exactly as long
+as the speech (`say` and the PowerShell script return when done; Linux runs
+`spd-say -w`, which waits for speech-dispatcher, and passes the book's language
+with `-l` when it is a valid language tag), so when the tracked process exits
+by itself a watcher emits `tts-utterance-done` (exit status 0) or
+`tts-utterance-error`, carrying the `utteranceId`, the same events Android
+sends. A stopped or replaced process reports nothing; on Linux, Stop drops our
+`spd-say -w` before `spd-say --cancel`. `tts_speak` answers
+`completionEvents: true` on desktop; the reader then ends the page on the
+event and keeps its duration estimate only for the sentence highlight and as
+a late fallback (twice the estimate plus 5 s) in case no event arrives.
 
 **Android engine selection**: the plugin supports `tts_get_engines` /
 `tts_set_engine` (re-initializes `TextToSpeech` with the chosen engine
@@ -79,11 +88,18 @@ releases and verified against a SHA-256 manifest compiled into the app.
   followed by a lowercase word; `。！？` always do. A sentence over the limit is
   packed greedily at commas, semicolons and colons, then wrapped at words
   (characters for unspaced CJK). Chunks are joined with short silences.
-- **Cache + prefetch**: synthesized audio is cached as WAV keyed by
-  SHA-256(text + voice + speed) in `tts/cache`, capped at 150 MB and trimmed
+- **Cache + prefetch**: synthesized audio is cached as WAV in `tts/cache`,
+  keyed by SHA-256 of a cache-format version, the model release
+  (`tts_model::ASSETS_TAG`), language, voice, speed and text (old entries
+  simply miss and age out). It is capped at 150 MB and trimmed
   least-recently-used first (a cache hit refreshes the file's modification
   time, which is what the trim sorts by) — replays are instant and
-  `tts_prefetch` warms the next chunk while the current one plays.
+  `tts_prefetch` warms the next chunk while the current one plays. Entries are
+  written to a `.part` file and renamed into place, so the player never reads
+  a half-written WAV; the trim never deletes a `.part` in progress (only
+  leftovers older than an hour). Synthesis is serialized by the engine lock
+  and the cache is checked again once it is held, so a prefetch and a speak
+  racing for the same chunk synthesize it once.
 - **Voices**: F1–F5 / M1–M5 (per-voice style files, 292KB each). Selected
   from the reader playback bar. Speed chips (0.75–1.5×) only change the
   native player's pitch-preserving time-stretch (WSOLA): the reader always
@@ -115,9 +131,9 @@ TTS.
   starts (`tts_text_chunks`), the rest are queued as they finish
   (`tts_audio_append`), and the engine is pre-warmed in the background when
   the reader opens (`tts_engine_preload`).
-- **Platform**: `tts_speak` as before; Android completion arrives via the
-  `tts-utterance-done` event and pause resumes from the last real word
-  boundary.
+- **Platform**: `tts_speak` as before; completion arrives via the
+  `tts-utterance-done` event on every platform, and on Android pause resumes
+  from the last real word boundary.
 - **UI**: the reader bottom navbar swaps to the immersion row (state,
   play/pause/stop, voice & speed popover when neural is installed, and a
   neural-install shortcut when it is not). Toggling immersion mode on a book

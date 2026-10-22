@@ -159,8 +159,15 @@ function errorMessage(err: unknown): string {
  *  listener's speed (instant changes, and one cache entry per sentence for every speed). */
 const NEURAL_SYNTH_SPEED = 1;
 
-// Fallback duration estimate for desktop OS voices, which report no completion.
+// Duration estimate for desktop OS voices: drives the sentence highlight, and ends
+// the page only when the backend cannot report the real end of speech.
 const BASE_CHARS_PER_SEC = (158 * 5.1) / 60;
+
+/** When the backend reports the real end of speech (`completionEvents`), the
+ *  estimate only guards against a lost event, so it is allowed to run long. */
+function fallbackCompletionMs(estimatedMs: number): number {
+    return estimatedMs * 2 + 5000;
+}
 
 class ImmersionPlayer {
     private callbacks: PlaybackCallbacks = {};
@@ -450,7 +457,7 @@ class ImmersionPlayer {
         this.setState('loading');
         await this.bindPlatformEvents();
         try {
-            const result = await invoke<{ languageWarning?: string | null } | null>("tts_speak", {
+            const result = await invoke<{ languageWarning?: string | null; completionEvents?: boolean } | null>("tts_speak", {
                 text, voice: voice || "", speed: this.platformSpeed, lang: lang || null, utteranceId,
             });
             if (sid !== this.session) return;
@@ -467,24 +474,28 @@ class ImmersionPlayer {
             }
 
             if (!isAndroid()) {
-                // Desktop OS voices report no events; simulate progress with speed setting.
+                // Desktop OS voices report no word ranges; estimate progress from the speed.
                 const safeSpeed = speed > 0 ? speed : 1;
                 const charsPerSec = BASE_CHARS_PER_SEC * safeSpeed;
                 const estimatedMs = Math.max(2000, (text.length / charsPerSec) * 1000);
 
                 this.startPlatformFallbackTimer(charsPerSec);
 
+                // The page ends on `tts-utterance-done` when the narration process
+                // exits; the timer only covers a backend without that event.
+                const completionMs = result?.completionEvents ? fallbackCompletionMs(estimatedMs) : estimatedMs;
                 this.completeTimer = setTimeout(() => {
                     this.completeTimer = null;
                     this._onDone();
-                }, estimatedMs);
+                }, completionMs);
             }
         } catch (err: unknown) {
             if (sid === this.session) this._onError(errorMessage(err), "platform");
         }
     }
 
-    /** Listeners for the Android plugin's utterance events, bound once until destroy(). */
+    /** Listeners for the utterance events (the Android plugin, and the end of a
+     *  desktop OS voice), bound once until destroy(). */
     private async bindPlatformEvents() {
         if (this.platformEventsBound || !isTauri()) return;
         this.platformEventsBound = true;
