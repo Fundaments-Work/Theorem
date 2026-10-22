@@ -41,7 +41,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem setup-cli` | Creates the `theorem` link in `~/.local/bin` (Linux only) |
 | `theorem version` | Prints the version |
 
-Three options work with every command: `--json` prints machine-readable output, `--no-color` turns off color, and `--force` lets a command change the library while the app is running. Color is also off by default whenever the output is not a terminal. `-h` and `-V` print help and the version. There is no `help` subcommand. Use `theorem <command> --help`.
+Three options work with every command: `--json` prints machine-readable output, `--no-color` turns off color, and `--force` lets a command change the library while the app is running. Color is also off by default whenever the output is not a terminal. `-h` and `-V` print help and the version, and `theorem help <command>` prints the help of one command. A command line that is not a command (a typo, an option on its own, a file that does not exist) prints a usage error and exits with code 2. Only `theorem` alone, or files and links to open, start the app window.
 
 ## How do I put theorem on my PATH?
 

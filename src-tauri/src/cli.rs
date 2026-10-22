@@ -118,7 +118,6 @@ impl Output {
     name = "theorem",
     version,
     after_help = LOGO.trim(),
-    disable_help_subcommand = true,
     subcommand_required = true
 )]
 struct Cli {
@@ -367,8 +366,7 @@ enum OpdsCommand {
 
 // ── Dispatch ─────────────────────────────────────────────────────────────────
 
-/// Top-level subcommand names. Anything else (notably file paths handed to the
-/// GUI by the desktop) falls through to `theorem_lib::run()`.
+/// Top-level subcommand names.
 const SUBCOMMANDS: &[&str] = &[
     "search",
     "read",
@@ -391,29 +389,67 @@ const SUBCOMMANDS: &[&str] = &[
     "version",
 ];
 
-pub fn maybe_dispatch(args: &[String]) -> Option<i32> {
+/// An argument the desktop (or `theorem open`) hands to the app window: a
+/// file to open, a URI, or the app's own `--open-book=<id>`.
+fn is_gui_argument(arg: &str) -> bool {
+    if arg.starts_with("--open-book=") || arg.starts_with("-psn_") {
+        // `-psn_…`: the process serial number old macOS Finder versions add.
+        return true;
+    }
+    if arg.starts_with('-') {
+        return false;
+    }
+    if arg.contains("://") {
+        return true;
+    }
+    std::path::Path::new(arg).exists()
+}
+
+/// Whether these arguments launch the app window rather than the CLI: no
+/// arguments at all, or only files/URIs to open. A known subcommand always
+/// runs the CLI, even when a file of that name exists in the folder.
+fn launches_gui(args: &[String]) -> bool {
     if args.is_empty() {
+        return true;
+    }
+    let first_positional = args.iter().find(|a| !a.starts_with('-'));
+    if first_positional.is_some_and(|a| SUBCOMMANDS.contains(&a.as_str())) {
+        return false;
+    }
+    args.iter().all(|a| is_gui_argument(a))
+}
+
+/// Run the CLI when the arguments ask for it, returning the exit code;
+/// `None` means "launch the app". Anything that is not a file or URI to open
+/// is a command line, so a mistyped command or a lone flag prints a usage
+/// error (exit 2) instead of starting the app.
+pub fn maybe_dispatch(args: &[String]) -> Option<i32> {
+    if launches_gui(args) {
         return None;
     }
-    // Top-level flags: `--help`, `-h`, `--version`, `-V` must stay in the CLI
-    // and print help/version text rather than launching the GUI window.
-    if args
-        .iter()
-        .any(|a| a == "--help" || a == "-h" || a == "--version" || a == "-V")
-    {
-        return Some(dispatch(args));
-    }
-    // Find the first positional argument, skipping global flags (`--json`,
-    // `--no-color` — none take values). That argument must be a known
-    // subcommand; anything else (notably file paths handed to the GUI by the
-    // desktop) falls through to `theorem_lib::run()`.
-    let first = args
-        .iter()
-        .find(|a| !a.starts_with('-'))
-        .filter(|a| SUBCOMMANDS.contains(&a.as_str()))?;
-    let _ = first;
+    attach_parent_console();
     Some(dispatch(args))
 }
+
+/// Release builds on Windows are GUI programs (no console of their own), so
+/// a CLI run's output would go nowhere. Attach to the console of the shell
+/// that started us; output that is already redirected keeps its target.
+#[cfg(windows)]
+fn attach_parent_console() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+    }
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    // SAFETY: AttachConsole takes a plain integer and has no memory effects;
+    // failure (no parent console, or one already attached) is harmless.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}
 
 fn dispatch(args: &[String]) -> i32 {
     let cli = match Cli::try_parse_from(
@@ -3430,5 +3466,37 @@ fn run_extract(output: &Output, url: &str) -> i32 {
             None => print!("{}", article.content),
         }
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn only_no_arguments_or_files_launch_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let book = dir.path().join("book.epub");
+        std::fs::write(&book, b"x").unwrap();
+        let book = book.to_string_lossy().into_owned();
+
+        assert!(launches_gui(&[]));
+        assert!(launches_gui(&args(&[&book])));
+        assert!(launches_gui(&args(&["file:///tmp/a.epub"])));
+        assert!(launches_gui(&args(&["--open-book=abc"])));
+
+        assert!(!launches_gui(&args(&["library", "list"])));
+        assert!(!launches_gui(&args(&["--json", "library", "list"])));
+        assert!(!launches_gui(&args(&["help"])));
+        // Typos, flags alone and missing files are usage errors, not the app.
+        assert!(!launches_gui(&args(&["libary"])));
+        assert!(!launches_gui(&args(&["--json"])));
+        assert!(!launches_gui(&args(&["--verbose"])));
+        assert!(!launches_gui(&args(&["/no/such/book.epub"])));
+        assert!(!launches_gui(&args(&[&book, "--json"])));
     }
 }

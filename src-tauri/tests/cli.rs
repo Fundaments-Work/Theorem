@@ -692,3 +692,23 @@ fn read_prints_clean_paragraphs() {
         "{text:?}"
     );
 }
+
+// ── A10/A12: help, and usage errors never start the app ─────────────────────
+
+#[test]
+fn help_works_and_bad_command_lines_are_usage_errors() {
+    let sb = Sandbox::new();
+    let help = sb.run(&["help"]);
+    assert_ok(&help);
+    assert!(stdout(&help).contains("Usage: theorem"), "{}", stdout(&help));
+    let sub = sb.run(&["help", "library"]);
+    assert_ok(&sub);
+    assert!(stdout(&sub).contains("Usage: theorem library"), "{}", stdout(&sub));
+
+    // Without a display the app would abort; a usage error exits 2 cleanly.
+    for line in [&["libary"][..], &["--json"], &["--frobnicate"], &["missing.epub"]] {
+        let out = sb.run(line);
+        assert_no_panic(&out);
+        assert_eq!(out.status.code(), Some(2), "{line:?}: {}", stderr(&out));
+    }
+}
