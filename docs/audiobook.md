@@ -64,10 +64,18 @@ reader's TTS row for `src/features/reader/audio/AudiobookBar.tsx`:
 ## Save as Audiobook (desktop)
 
 With the Neural Voice installed, the immersion bar offers **Generate
-Audiobook**: the foliate engine extracts the full text of every EPUB section
-(`getAllSectionsForAudio`), and `generate_audiobook`
+Audiobook**: the foliate engine extracts the text of every section worth
+narrating (`getAllSectionsForAudio` → `engines/audio-sections.ts`), and `generate_audiobook`
 (`src-tauri/src/audiobook_gen.rs`) narrates the whole book in a detached task:
 
+- Chapters are named from the table of contents: each spine section takes
+  the deepest TOC entry pointing at its start (else the first entry pointing
+  into it), then its first heading, then "Section N"; a file the TOC does not
+  list and that has no heading continues the previous chapter (split
+  chapters). Non-linear items (`linear="no"`), the navigation document, a
+  contents or cover page named in the landmarks/guide, the cover and pages
+  that are only an image are skipped. Paragraph breaks are kept so headings
+  and paragraphs end a sentence.
 - Reuses the Supertonic sentence chunker and WAV cache; joins chunks with
   0.3s gaps. Text is normalised for the book's language, and cancel is checked
   before every chunk, not just every section.

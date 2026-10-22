@@ -66,7 +66,9 @@ releases and verified against a SHA-256 manifest compiled into the app.
   packed greedily at commas, semicolons and colons, then wrapped at words
   (characters for unspaced CJK). Chunks are joined with short silences.
 - **Cache + prefetch**: synthesized audio is cached as WAV keyed by
-  SHA-256(text + voice + speed) with a 1GB LRU cap — replays are instant and
+  SHA-256(text + voice + speed) in `tts/cache`, capped at 150 MB and trimmed
+  least-recently-used first (a cache hit refreshes the file's modification
+  time, which is what the trim sorts by) — replays are instant and
   `tts_prefetch` warms the next chunk while the current one plays.
 - **Voices**: F1–F5 / M1–M5 (per-voice style files, 292KB each). Selected
   from the reader playback bar. Speed chips (0.75–1.5×) only change the

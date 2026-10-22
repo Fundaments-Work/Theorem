@@ -28,6 +28,7 @@ import {
 } from '../../../core/lib/design-tokens';
 import { isTauri } from '../../../core/lib/env';
 import { toDocMetadata } from './doc-metadata';
+import { collectAudioSections } from './audio-sections';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 import { useLibraryStore } from '../../../core/store';
 
@@ -1841,27 +1842,19 @@ export class FoliateEngine {
         return '';
     }
 
-    /** Full text of every section, for Save-as-Audiobook generation. */
+    /** Text of every narratable section with its chapter name, for Save-as-Audiobook generation
+     *  (see audio-sections.ts: TOC names, no cover, contents page or non-linear items). */
     public async getAllSectionsForAudio(): Promise<{ id: string; title: string; text: string }[]> {
-        const sections = this.book.sections || [];
-        if (sections.length === 0) return [];
-        const out: { id: string; title: string; text: string }[] = [];
-        for (let i = 0; i < sections.length; i++) {
-            const section = sections[i];
-            try {
-                const doc = await section.createDocument?.();
-                const text = (doc?.body?.textContent || '').replace(/\s+/g, ' ').trim();
-                if (!text) continue;
-                out.push({
-                    id: `section-${i}`,
-                    title: section.title || section.label || `Section ${i + 1}`,
-                    text,
-                });
-            } catch {
-                // Skip unreadable sections; narration continues with the rest.
-            }
-        }
-        return out;
+        const book = this.book as any;
+        if (!book) return [];
+        return collectAudioSections({
+            sections: book.sections || [],
+            toc: book.toc,
+            landmarks: book.landmarks,
+            navPath: book.resources?.navPath,
+            coverHref: book.resources?.cover?.href,
+            resolveIndex: (href: string) => book.resolveHref?.(href)?.index,
+        });
     }
 
     clearSearch(): void {

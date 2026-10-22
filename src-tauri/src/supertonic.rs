@@ -831,8 +831,27 @@ pub mod desktop {
         crate::tts_model::tts_dir(app).join("cache")
     }
 
-    const CACHE_LIMIT_BYTES: u64 = 150_000_000; // 150MB LRU cap
+    /// Size cap of the synthesized-audio cache (about 30 minutes of 44.1kHz speech).
+    const CACHE_LIMIT_BYTES: u64 = 150_000_000;
 
+    /// A usable cached WAV at `path`, marked as just used so [`trim_cache`]
+    /// (which evicts oldest modification time first) is least-recently-used.
+    pub fn cached_synthesis(path: &Path) -> Option<SynthesisResult> {
+        let meta = std::fs::metadata(path).ok()?;
+        if meta.len() <= 44 {
+            return None;
+        }
+        if let Ok(file) = std::fs::File::options().write(true).open(path) {
+            let _ = file.set_modified(std::time::SystemTime::now());
+        }
+        Some(SynthesisResult {
+            path: path.display().to_string(),
+            duration_sec: (meta.len() - 44) as f32 / 2.0 / SAMPLE_RATE,
+            cached: true,
+        })
+    }
+
+    /// Evict least-recently-used entries until the cache fits in `limit` bytes.
     pub fn trim_cache(dir: &Path, limit: u64) {
         let mut files: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
         let mut total = 0u64;
@@ -911,15 +930,8 @@ pub mod desktop {
             let dir = cache_dir(&app);
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let out_path = dir.join(format!("{key}.wav"));
-            if let Ok(meta) = std::fs::metadata(&out_path) {
-                if meta.len() > 44 {
-                    let duration = (meta.len() - 44) as f32 / 2.0 / SAMPLE_RATE;
-                    return Ok(SynthesisResult {
-                        path: out_path.display().to_string(),
-                        duration_sec: duration,
-                        cached: true,
-                    });
-                }
+            if let Some(hit) = cached_synthesis(&out_path) {
+                return Ok(hit);
             }
 
             ensure_engine(&app)?;
@@ -957,7 +969,7 @@ pub mod desktop {
     ) -> Result<(), String> {
         let key = cache_key(&text, &voice, speed);
         let out_path = cache_dir(&app).join(format!("{key}.wav"));
-        if out_path.exists() {
+        if cached_synthesis(&out_path).is_some() {
             return Ok(());
         }
         tokio::spawn(async move {
@@ -1214,6 +1226,35 @@ pub mod desktop {
                 chunks("Line one\r\n\r\nLine two."),
                 ["Line one", "Line two."]
             );
+        }
+
+        #[test]
+        fn cache_trim_evicts_the_least_recently_used_entry() {
+            use std::time::{Duration, SystemTime};
+            let dir = std::env::temp_dir().join(format!(
+                "theorem-tts-cache-test-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let now = SystemTime::now();
+            for (name, age_secs) in [("old", 300u64), ("mid", 200), ("new", 100)] {
+                let path = dir.join(format!("{name}.wav"));
+                std::fs::write(&path, vec![0u8; 1000]).unwrap();
+                let file = std::fs::File::options().write(true).open(&path).unwrap();
+                file.set_modified(now - Duration::from_secs(age_secs))
+                    .unwrap();
+            }
+            // Replaying the oldest entry is a cache hit: it becomes the most recent.
+            assert!(cached_synthesis(&dir.join("old.wav")).is_some());
+            assert!(cached_synthesis(&dir.join("absent.wav")).is_none());
+            trim_cache(&dir, 2000);
+            let left = |name: &str| dir.join(format!("{name}.wav")).exists();
+            assert!(left("old"), "a just-replayed entry was evicted");
+            assert!(!left("mid"), "the least recently used entry survived");
+            assert!(left("new"));
+            let _ = std::fs::remove_dir_all(&dir);
         }
 
         #[test]
