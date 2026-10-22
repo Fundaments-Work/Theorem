@@ -12,7 +12,7 @@ import {
     toSqliteVocabularyTerm,
     fromSqliteVocabularyTerm,
 } from "../store";
-import type { Annotation, Book, DeletionTombstone, DeviceSyncStatus, RssArticle, SyncConflict } from "../types";
+import type { Annotation, Book, Collection, DeletionTombstone, DeviceSyncStatus, RssArticle, SyncConflict } from "../types";
 import {
     mergeBooks,
     mergeAnnotations,
@@ -25,6 +25,7 @@ import {
     mergeReadingStats,
 } from "./sync-import";
 import { isTauri } from "./env";
+import { parseSyncEntityEntry, reportMalformedSyncEntry } from "./sync-entries";
 import {
     sqliteDeleteAnnotation,
     sqliteDeleteVocabularyTerm,
@@ -78,7 +79,8 @@ export function withLocalTombstones(
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) incoming = parsed;
         } catch {
-            // fall through with no incoming tombstones
+            // Fall through with no incoming tombstones.
+            reportMalformedSyncEntry("deletion_tombstones", "not valid JSON");
         }
     }
     return {
@@ -121,8 +123,8 @@ async function mergeIncomingData(
                 }
             }
         }
-    } catch {
-        
+    } catch (e) {
+        console.error("[sync] Validating incoming sync payloads failed:", e);
     }
 
     const perEntityBooks: Record<string, unknown>[] = [];
@@ -134,31 +136,21 @@ async function mergeIncomingData(
 
     for (const key of Object.keys(safeMap)) {
         if (key.startsWith("book:") && key !== "books") {
-            try {
-                const parsed = JSON.parse(safeMap[key]);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    perEntityBooks.push(parsed);
-                }
-            } catch {}
+            const parsed = parseSyncEntityEntry(key, safeMap[key]);
+            if (parsed) perEntityBooks.push(parsed);
         } else if ((key.startsWith("annotation:") || key.startsWith("anno:")) && key !== "annotations") {
-            try {
-                const parsed = JSON.parse(safeMap[key]);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    perEntityAnnotations.push(parsed);
-                }
-            } catch {}
+            const parsed = parseSyncEntityEntry(key, safeMap[key]);
+            if (parsed) perEntityAnnotations.push(parsed);
         } else if (key.startsWith(RSS_ARTICLE_KEY_PREFIX)) {
-            try {
-                const parsed = RssArticleSchema.safeParse(JSON.parse(safeMap[key]));
+            const raw = parseSyncEntityEntry(key, safeMap[key]);
+            if (raw) {
+                const parsed = RssArticleSchema.safeParse(raw);
                 if (parsed.success) perEntityArticles.push(parsed.data);
-            } catch {}
+                else reportMalformedSyncEntry(key, "does not match the article schema");
+            }
         } else if (key.startsWith("collection:") && key !== "collections") {
-            try {
-                const parsed = JSON.parse(safeMap[key]);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    perEntityCollections.push(parsed);
-                }
-            } catch {}
+            const parsed = parseSyncEntityEntry(key, safeMap[key]);
+            if (parsed) perEntityCollections.push(parsed);
         }
     }
 
@@ -1031,8 +1023,9 @@ async function prefetchRecentBooks(peerDeviceId: string): Promise<void> {
                         filePath: destPath,
                         storagePath: destPath,
                     });
-                } catch {
-                    // download failed silently for prefetch — will retry on-demand
+                } catch (e) {
+                    // Prefetch is best effort: the book downloads on demand when opened.
+                    debug(`[file-xfer] prefetch of ${book.id} failed: ${e}`);
                 }
             }
         }),
@@ -1045,16 +1038,16 @@ const _pendingDocsEntries = new Map<string, string>();
 
 const DOWNLOAD_CONCURRENCY = 3;
 
-let _progressiveBookBatch: any[] = [];
+let _progressiveBookBatch: Book[] = [];
 let _progressiveBookTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Annotations and collections ride the same progressive-batch pattern as
 // books: per-entry synchronous merges + setStates inside the gossip event
 // loop froze the UI (up to 64 full O(n) merges + store notifications per
 // batch). Batches coalesce over 200ms into one merge + one setState each.
-let _progressiveAnnoBatch: any[] = [];
+let _progressiveAnnoBatch: Annotation[] = [];
 let _progressiveAnnoTimer: ReturnType<typeof setTimeout> | null = null;
-let _progressiveCollectionBatch: any[] = [];
+let _progressiveCollectionBatch: Collection[] = [];
 let _progressiveCollectionTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Tombstone application re-merges the whole library and replaces three
@@ -1108,7 +1101,7 @@ function _flushProgressiveBooks() {
         }
     }
 
-    const mergedById = new Map(merged.map((b: any) => [b.id, b]));
+    const mergedById = new Map(merged.map((b) => [b.id, b]));
     for (const book of batch) {
         const added = mergedById.get(book.id);
         if (added && !added.blobHash) {
@@ -1170,8 +1163,13 @@ function _flushPendingTombstones() {
                     void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
                 }
             }
+        } else {
+            reportMalformedSyncEntry("deletion_tombstones", "not a list");
         }
-    } catch {}
+    } catch (e) {
+        if (e instanceof SyntaxError) reportMalformedSyncEntry("deletion_tombstones", "not valid JSON");
+        else console.error("[sync] Applying synced deletions failed:", e);
+    }
 }
 
 export async function initDocsLiveListener(): Promise<() => void> {
@@ -1217,37 +1215,33 @@ export async function initDocsLiveListener(): Promise<() => void> {
             return;
         }
 
+        // Entries are unvalidated peer JSON with an id; the merges tolerate
+        // missing fields, as they always have.
         if (key.startsWith("book:")) {
-            try {
-                const parsed = JSON.parse(value);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
-                    _progressiveBookBatch.push(parsed);
-                    if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
-                    _progressiveBookTimer = setTimeout(_flushProgressiveBooks, 200);
-                }
-            } catch {}
+            const parsed = parseSyncEntityEntry(key, value, { requireId: true });
+            if (parsed) {
+                _progressiveBookBatch.push(parsed as unknown as Book);
+                if (_progressiveBookTimer) clearTimeout(_progressiveBookTimer);
+                _progressiveBookTimer = setTimeout(_flushProgressiveBooks, 200);
+            }
             return;
         }
         if (key.startsWith("annotation:") || key.startsWith("anno:")) {
-            try {
-                const parsed = JSON.parse(value);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
-                    _progressiveAnnoBatch.push(parsed);
-                    if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
-                    _progressiveAnnoTimer = setTimeout(_flushProgressiveAnnos, 200);
-                }
-            } catch {}
+            const parsed = parseSyncEntityEntry(key, value, { requireId: true });
+            if (parsed) {
+                _progressiveAnnoBatch.push(parsed as unknown as Annotation);
+                if (_progressiveAnnoTimer) clearTimeout(_progressiveAnnoTimer);
+                _progressiveAnnoTimer = setTimeout(_flushProgressiveAnnos, 200);
+            }
             return;
         }
         if (key.startsWith("collection:")) {
-            try {
-                const parsed = JSON.parse(value);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.id) {
-                    _progressiveCollectionBatch.push(parsed);
-                    if (_progressiveCollectionTimer) clearTimeout(_progressiveCollectionTimer);
-                    _progressiveCollectionTimer = setTimeout(_flushProgressiveCollections, 200);
-                }
-            } catch {}
+            const parsed = parseSyncEntityEntry(key, value, { requireId: true });
+            if (parsed) {
+                _progressiveCollectionBatch.push(parsed as unknown as Collection);
+                if (_progressiveCollectionTimer) clearTimeout(_progressiveCollectionTimer);
+                _progressiveCollectionTimer = setTimeout(_flushProgressiveCollections, 200);
+            }
             return;
         }
 
@@ -1417,8 +1411,8 @@ export async function startAutoSync(): Promise<() => void> {
                 void autoSyncRound(true); 
             });
             cleanups.push(unlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Tray sync listener could not be set up:", e);
         }
     }
 
@@ -1426,8 +1420,8 @@ export async function startAutoSync(): Promise<() => void> {
         try {
             const unlisten = await initDocsLiveListener();
             cleanups.push(unlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Live sync listener could not be set up:", e);
         }
     }
 
@@ -1449,13 +1443,13 @@ export async function startAutoSync(): Promise<() => void> {
                         debug(`[sync] Peer ${matched.deviceName} (${matched.deviceId}) came online — auto-syncing`);
                         void runDeviceSync(matched.deviceId);
                     }
-                } catch {
-                    
+                } catch (e) {
+                    console.error("[sync] Syncing with a peer that came online failed:", e);
                 }
             });
             cleanups.push(peerOnlineUnlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Peer-online listener could not be set up:", e);
         }
     }
 
@@ -1468,8 +1462,8 @@ export async function startAutoSync(): Promise<() => void> {
                 void autoSyncRound(true);
             });
             cleanups.push(docReimportedUnlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Doc re-import listener could not be set up:", e);
         }
     }
 
@@ -1487,8 +1481,8 @@ export async function startAutoSync(): Promise<() => void> {
                 },
             );
             cleanups.push(syncDocMissingUnlisten);
-        } catch {
-            
+        } catch (e) {
+            console.error("[sync] Missing-doc listener could not be set up:", e);
         }
     }
 
@@ -1516,7 +1510,10 @@ export async function docsCreateSyncDoc(peerDeviceId: string): Promise<string | 
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         return await invoke<string>("docs_create_sync_doc", { peerDeviceId });
-    } catch { return null; }
+    } catch (e) {
+        console.error("[sync] Creating the sync doc failed:", e);
+        return null;
+    }
 }
 
 export async function docsImportSyncDoc(
@@ -1527,7 +1524,10 @@ export async function docsImportSyncDoc(
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("docs_import_sync_doc", { peerDeviceId, ticketStr: ticket });
         return true;
-    } catch { return false; }
+    } catch (e) {
+        console.error("[sync] Importing the sync doc failed:", e);
+        return false;
+    }
 }
 
 export async function docsSetEntry(key: string, value: string): Promise<boolean> {
@@ -1535,14 +1535,20 @@ export async function docsSetEntry(key: string, value: string): Promise<boolean>
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("docs_set_entry", { key, value });
         return true;
-    } catch { return false; }
+    } catch (e) {
+        console.error(`[sync] Writing sync entry ${key} failed:`, e);
+        return false;
+    }
 }
 
 export async function docsGetAllEntries(): Promise<Record<string, string> | null> {
     try {
         const { invoke } = await import("@tauri-apps/api/core");
         return await invoke<Record<string, string>>("docs_get_all_entries");
-    } catch { return null; }
+    } catch (e) {
+        console.error("[sync] Reading sync entries failed:", e);
+        return null;
+    }
 }
 
 export async function docsSyncNow(peerDeviceId: string): Promise<string | null> {
@@ -1689,7 +1695,9 @@ export async function hydrateFromIrohDocs(): Promise<string[]> {
             localSettingsUpdatedAt,
         );
         return merged;
-    } catch {}
+    } catch (e) {
+        console.error("[sync] Reading the sync doc failed:", e);
+    }
 
     return domainsUpdated;
 }
