@@ -32,6 +32,7 @@ import {
     sqliteGetVocabularyTerms,
     sqliteMergeSyncEntries,
     sqliteRegisterMaterializedBook,
+    sqliteSaveBookMetadata,
     sqliteSaveVocabularyTerm,
     sqliteUpsertAnnotation,
     type SyncMergeResult,
@@ -1335,6 +1336,15 @@ function _flushProgressiveBooks() {
     }
 
     applyRemote(() => useLibraryStore.setState({ books: merged }));
+    // Persist what the live batch changed: on desktop and mobile the library
+    // is stored in SQLite, so a live-only book was gone after a restart.
+    if (isTauri()) {
+        const before = new Set(beforeBooks);
+        for (const book of merged) {
+            if (before.has(book)) continue;
+            void sqliteSaveBookMetadata(book.id, JSON.stringify(book)).catch((e) => console.error("[catch]", e));
+        }
+    }
 
     // Round progress only while a round runs; a live update outside one must
     // not leave the status stuck on "syncing".

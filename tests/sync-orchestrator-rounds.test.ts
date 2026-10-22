@@ -504,3 +504,16 @@ describe("deleted items leave the sync doc", () => {
         expect(calls).toBe(2);
     });
 });
+
+describe("live book entries are saved", () => {
+    it("a book that arrives between rounds is written to SQLite, an unchanged one is not", async () => {
+        const saved: string[] = [];
+        ipc.sqlite_save_book_metadata = (args) => { saved.push(args.bookId as string); return null; };
+        vi.useFakeTimers();
+        await orch.initDocsLiveListener();
+        emit("docs-entry-batch", { entries: [{ key: "book:b9", value: JSON.stringify(book("b9", { title: "Live" })) }] });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(lib().getBook("b9")?.title).toBe("Live");
+        expect(saved).toEqual(["b9"]);
+    });
+});
