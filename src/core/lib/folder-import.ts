@@ -149,6 +149,7 @@ export async function importFolder(
         onProgress: (completed, total) => report(completed, total),
         onDuplicate: (source, contentHash) => {
             result.alreadyInLibrary += 1;
+            // The same bytes are in the library, or were imported earlier in this run.
             const existing = byHash.get(contentHash.toLowerCase());
             if (!existing) return;
             const file = sources.get(pathKey(source));
@@ -164,7 +165,11 @@ export async function importFolder(
             toImport,
             (book) => {
                 result.imported += 1;
-                pending.push(attachSourceFolder(book, sources.get(pathKey(book.filePath)), root, preserve));
+                const added = attachSourceFolder(book, sources.get(pathKey(book.filePath)), root, preserve);
+                if (added.contentHash && !byHash.has(added.contentHash.toLowerCase())) {
+                    byHash.set(added.contentHash.toLowerCase(), added);
+                }
+                pending.push(added);
                 if (pending.length >= FLUSH_MAX_BOOKS) flush();
                 else if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_INTERVAL_MS);
             },

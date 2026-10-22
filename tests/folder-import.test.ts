@@ -120,6 +120,20 @@ describe("importFolder", () => {
         expect(again.alreadyInLibrary).toBe(1);
     });
 
+    it("adds the folder of a second copy to the book imported from the first", async () => {
+        const importBooks = vi.fn(async (paths: string[], onBook?: (b: Book) => void, _f?: unknown, o: ImportOptions = {}) => {
+            onBook?.(book("first", { filePath: paths[0], contentHash: "same" }));
+            o.onDuplicate?.(paths[1], "SAME");
+            return [];
+        });
+        const { deps, books } = harness([], scanOf([file("a/x.epub", 7), file("b/x copy.epub", 7)]), importBooks);
+        const result = await importFolder("/Books", true, deps);
+        expect(result).toMatchObject({ imported: 1, alreadyInLibrary: 1 });
+        expect(books).toHaveLength(1);
+        expect(books[0].filePath).toBe("/Books/a/x.epub");
+        expect(books[0].sourceFolders?.map((f) => f.relativePath)).toEqual(["a/x.epub", "b/x copy.epub"]);
+    });
+
     it("keeps the path of a duplicate whose original is still in the folder", async () => {
         const library = [book("orig", { filePath: "/Books/a.epub", fileSize: 50, contentHash: "h" })];
         const { deps, books } = harness(library, scanOf([file("a.epub", 50), file("copy of a.epub", 50)]),
