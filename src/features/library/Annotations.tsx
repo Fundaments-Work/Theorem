@@ -58,6 +58,28 @@ function isVisibleSource(sourceId: string, sourceLookup: Map<string, ResolvedAnn
     return sourceLookup.has(sourceId);
 }
 
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/** The Workbench subtitle, in the words its tabs use (highlights, notes, words). */
+export function workbenchSummary(
+    filter: string,
+    marks: ReadonlyArray<{ type: string; bookId: string }>,
+    wordCount: number,
+): string {
+    const words = plural(wordCount, "word", "words");
+    if (filter === "vocabulary") return words;
+    const notes = marks.filter((m) => m.type === "note").length;
+    const highlights = marks.length - notes;
+    const books = new Set(marks.map((m) => m.bookId)).size;
+    const parts = filter === "notes"
+        ? [plural(notes, "note", "notes")]
+        : filter === "highlights"
+            ? [plural(highlights, "highlight", "highlights")]
+            : [plural(highlights, "highlight", "highlights"), plural(notes, "note", "notes")];
+    const fromBooks = books > 0 ? ` from ${plural(books, "book", "books")}` : "";
+    return filter === "all" ? `${parts.join(", ")}${fromBooks} · ${words}` : `${parts[0]}${fromBooks}`;
+}
+
 function EmptyAnnotations({ type }: { type: "all" | "highlights" | "notes" }) {
     const icons = {
         all: Highlighter,
@@ -517,17 +539,13 @@ export function AnnotationsPage() {
             
             <PageHeader
                 title="Workbench"
-                description={activeFilter === "all"
-                    ? `${filteredAnnotations.length} annotation${filteredAnnotations.length === 1 ? "" : "s"} • ${vocabularyTerms.length} term${vocabularyTerms.length === 1 ? "" : "s"}`
-                    : activeFilter === "vocabulary"
-                        ? `${filteredVocabularyTerms.length} ${filteredVocabularyTerms.length === 1 ? "term" : "terms"}`
-                        : `${filteredAnnotations.length} ${filteredAnnotations.length === 1 ? "annotation" : "annotations"} across ${new Set(filteredAnnotations.map((a) => a.bookId)).size} sources`}
+                description={workbenchSummary(activeFilter, filteredAnnotations, activeFilter === "all" ? vocabularyTerms.length : filteredVocabularyTerms.length)}
             />
 
             {currentBookId && (
                 <div className="mb-8 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px]">
                     <span className="text-[color:var(--color-text-secondary)]">
-                        Showing annotations for:
+                        Showing highlights and notes for:
                     </span>
                     <span className="text-[color:var(--color-text-primary)]">{selectedBookTitle}</span>
                     <button

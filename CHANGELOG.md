@@ -111,6 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every Settings tab visible on phones** — The tabs were a sideways-scrolling row of wide buttons that hid four of six; they now wrap into a grid. About names the maker correctly ("Fundaments") and drops the developer-only stack line.
 - **Room above the first line on desktop** — The reader toolbar sits over the top of the page, and the first line of text nearly touched it; the page now leaves a proper margin above and below the text.
 - **Feed names fit, and feeds open from the keyboard** — A feed's refresh and remove buttons kept their space while hidden, cutting names to "The Pub…"; they now take no room until the row is hovered or focused. Each feed in the sidebar is a real button, reachable with Tab and opened with Enter or Space.
+- **Workbench speaks its tabs' language** — Its subtitle read "4 annotations • 6 terms"; it now says "3 highlights, 1 note from 1 book · 6 words", matching the Highlights, Notes and Words tabs.
 
 ### Fixed
 
