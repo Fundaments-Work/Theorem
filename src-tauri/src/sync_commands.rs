@@ -1029,6 +1029,125 @@ fn hashes_by_key(
     by_key
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedEntity {
+    pub entity_type: String,
+    pub entity_id: String,
+}
+
+/// Which of `keys` hold a record of a deleted entity: a book's entry, cover
+/// and annotations, an annotation, collection, article or word.
+fn keys_of_deleted(entities: &[DeletedEntity], keys: &[String]) -> Vec<String> {
+    let mut books = std::collections::HashSet::new();
+    let mut by_kind: std::collections::HashMap<&str, std::collections::HashSet<&str>> =
+        std::collections::HashMap::new();
+    for e in entities {
+        if e.entity_id.is_empty() {
+            continue;
+        }
+        if e.entity_type == "book" {
+            books.insert(e.entity_id.as_str());
+        }
+        by_kind
+            .entry(e.entity_type.as_str())
+            .or_default()
+            .insert(e.entity_id.as_str());
+    }
+    let is = |kind: &str, id: &str| by_kind.get(kind).is_some_and(|ids| ids.contains(id));
+    keys.iter()
+        .filter(|key| {
+            if let Some(id) = key
+                .strip_prefix("book:")
+                .or_else(|| key.strip_prefix("cover:"))
+            {
+                return books.contains(id);
+            }
+            if let Some(rest) = key.strip_prefix("anno:") {
+                // anno:{bookId}:{annotationId}
+                return match rest.split_once(':') {
+                    Some((book, ann)) => books.contains(book) || is("annotation", ann),
+                    None => false,
+                };
+            }
+            if let Some(id) = key.strip_prefix("annotation:") {
+                return is("annotation", id);
+            }
+            if let Some(id) = key.strip_prefix("collection:") {
+                return is("collection", id);
+            }
+            if let Some(id) = key.strip_prefix("rss_article:") {
+                return is("rss_article", id);
+            }
+            if let Some(id) = key
+                .strip_prefix("vocab:")
+                .or_else(|| key.strip_prefix("vocabulary:"))
+            {
+                return is("vocabulary", id);
+            }
+            false
+        })
+        .cloned()
+        .collect()
+}
+
+/// Removes this device's doc entries for deleted entities. Doc entries
+/// outlive deletions, so once the deletion record expired (90 days) every
+/// device used to bring the item back from them. Each device removes its own
+/// copies (a doc deletion only covers its author), as tombstones reach it.
+/// Returns how many entries were removed.
+#[tauri::command]
+pub async fn docs_purge_entities(
+    app: tauri::AppHandle,
+    entities: Vec<DeletedEntity>,
+) -> Result<usize, String> {
+    use futures::pin_mut;
+    use futures::StreamExt;
+    if entities.is_empty() {
+        return Ok(0);
+    }
+    let snapshot = get_docs_snapshot(&app).await?;
+    let sync_state = get_sync_state(&app)?;
+    let doc_ids: Vec<iroh_docs::NamespaceId> = {
+        let devices = sync_state.transport_state.paired_devices.lock().await;
+        devices
+            .values()
+            .filter_map(|d| d.sync_doc_id.parse().ok())
+            .collect()
+    };
+    let mut removed = 0usize;
+    for doc_id in doc_ids {
+        let Ok(Some(doc)) = snapshot.api.open(doc_id).await else {
+            continue;
+        };
+        let mut own_keys = Vec::new();
+        if let Ok(stream) = doc
+            .get_many(iroh_docs::store::Query::author(snapshot.author).build())
+            .await
+        {
+            pin_mut!(stream);
+            while let Some(Ok(entry)) = stream.next().await {
+                own_keys.push(String::from_utf8_lossy(entry.key()).to_string());
+            }
+        }
+        for key in keys_of_deleted(&entities, &own_keys) {
+            // A doc deletion is by prefix: never remove a longer key that is
+            // not itself deleted (book:12 would take book:123 with it).
+            let shadows_live_key = own_keys
+                .iter()
+                .any(|other| other.len() > key.len() && other.starts_with(&key));
+            if shadows_live_key {
+                continue;
+            }
+            match doc.del(snapshot.author, key.clone().into_bytes()).await {
+                Ok(n) => removed += n,
+                Err(e) => eprintln!("[iroh-sync] could not remove {key}: {e}"),
+            }
+        }
+    }
+    Ok(removed)
+}
+
 /// Keys that hold one record each: with several paired devices, the copy
 /// written last wins whole.
 fn is_per_entity_key(key: &str) -> bool {
@@ -1320,6 +1439,66 @@ mod tests {
         let merged: serde_json::Value = serde_json::from_str(&out["settings"]).unwrap();
         assert_eq!(merged["theme"], "dark");
         assert_eq!(merged["fontSize"], 18);
+    }
+
+    fn deleted(kind: &str, id: &str) -> DeletedEntity {
+        DeletedEntity {
+            entity_type: kind.into(),
+            entity_id: id.into(),
+        }
+    }
+
+    #[test]
+    fn a_deleted_entity_takes_all_its_doc_keys_and_nothing_else() {
+        let keys: Vec<String> = [
+            "book:b1",
+            "cover:b1",
+            "anno:b1:a1",
+            "anno:b1:a2",
+            "book:b2",
+            "cover:b2",
+            "anno:b2:a3",
+            "anno:b2:a4",
+            "annotation:a4",
+            "collection:c1",
+            "collection:c2",
+            "rss_article:r1",
+            "vocab:v1",
+            "vocabulary:v1",
+            "settings",
+            "book:b10",
+        ]
+        .iter()
+        .map(|k| k.to_string())
+        .collect();
+        let mut purged = keys_of_deleted(
+            &[
+                deleted("book", "b1"),
+                deleted("annotation", "a4"),
+                deleted("collection", "c1"),
+                deleted("rss_article", "r1"),
+                deleted("vocabulary", "v1"),
+                deleted("book", ""),
+                deleted("feed", "settings"),
+            ],
+            &keys,
+        );
+        purged.sort();
+        assert_eq!(
+            purged,
+            vec![
+                "anno:b1:a1",
+                "anno:b1:a2",
+                "anno:b2:a4",
+                "annotation:a4",
+                "book:b1",
+                "collection:c1",
+                "cover:b1",
+                "rss_article:r1",
+                "vocab:v1",
+                "vocabulary:v1",
+            ]
+        );
     }
 
     #[test]

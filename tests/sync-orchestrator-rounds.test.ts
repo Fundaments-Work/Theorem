@@ -456,3 +456,51 @@ describe("hydrate reads only changed entries", () => {
         expect(acks).toEqual([]);
     });
 });
+
+describe("deleted items leave the sync doc", () => {
+    it("provisioning removes this device's doc entries for deletions, once per change", async () => {
+        const purges: Array<Array<{ entityType: string; entityId: string }>> = [];
+        ipc.docs_purge_entities = (args) => {
+            purges.push(args.entities as Array<{ entityType: string; entityId: string }>);
+            return 3;
+        };
+        const deletedAt = new Date().toISOString();
+        stores.useLibraryStore.setState({
+            deletionTombstones: [{ entityType: "book", entityId: "gone", deletedAt }],
+        });
+        await orch.provisionToIrohDocs();
+        expect(purges).toEqual([[{ entityType: "book", entityId: "gone" }]]);
+
+        // Nothing new deleted: no second pass.
+        await orch.provisionToIrohDocs();
+        expect(purges).toHaveLength(1);
+
+        stores.useLibraryStore.setState({
+            deletionTombstones: [
+                { entityType: "book", entityId: "gone", deletedAt },
+                { entityType: "annotation", entityId: "a9", deletedAt },
+            ],
+        });
+        await orch.provisionToIrohDocs();
+        expect(purges).toHaveLength(2);
+        expect(purges[1]).toContainEqual({ entityType: "annotation", entityId: "a9" });
+    });
+
+    it("a failed removal is retried on the next provisioning", async () => {
+        let fail = true;
+        let calls = 0;
+        ipc.docs_purge_entities = () => {
+            calls++;
+            if (fail) throw new Error("engine restarting");
+            return 1;
+        };
+        stores.useLibraryStore.setState({
+            deletionTombstones: [{ entityType: "book", entityId: "gone", deletedAt: new Date().toISOString() }],
+        });
+        await orch.provisionToIrohDocs();
+        fail = false;
+        await orch.provisionToIrohDocs();
+        await orch.provisionToIrohDocs();
+        expect(calls).toBe(2);
+    });
+});

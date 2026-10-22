@@ -1934,6 +1934,7 @@ pub fn run() {
             sync_commands::docs_get_all_entries,
             sync_commands::docs_get_changed_entries,
             sync_commands::docs_ack_entries,
+            sync_commands::docs_purge_entities,
             sync_commands::docs_sync_now,
             file_transfer::download_book_file,
             sync_commands::clear_sync_databases,

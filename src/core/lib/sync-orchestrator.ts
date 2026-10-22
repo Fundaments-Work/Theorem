@@ -1840,6 +1840,28 @@ export async function docsSyncNow(peerDeviceId: string): Promise<string | null> 
     }
 }
 
+let _purgedTombstonesKey = "";
+
+/**
+ * Removes this device's doc entries for deleted items. Doc entries outlive a
+ * deletion; without this, every device brought the item back once its
+ * deletion record expired (90 days). Runs when the set of deletions changed
+ * (or the peer set did, which clears `_purgedTombstonesKey`).
+ */
+async function purgeDeletedDocEntries(tombstones: DeletionTombstone[]): Promise<void> {
+    const key = tombstones.map((t) => `${t.entityType}:${t.entityId}`).sort().join("|");
+    if (key === _purgedTombstonesKey) return;
+    try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke<number>("docs_purge_entities", {
+            entities: tombstones.map((t) => ({ entityType: t.entityType, entityId: t.entityId })),
+        });
+        _purgedTombstonesKey = key;
+    } catch (e) {
+        if (import.meta.env.DEV) console.warn("[sync] could not remove deleted items from the sync doc", e);
+    }
+}
+
 export async function provisionToIrohDocs(): Promise<boolean> {
     try {
         const lib = useLibraryStore.getState();
@@ -1857,6 +1879,7 @@ export async function provisionToIrohDocs(): Promise<boolean> {
         // while allowing mutations (e.g. reading progress updates) to push to iroh-docs.
         if (fingerprint !== _lastProvisionFingerprint || _forceReProvision) {
             _provisionedValues.clear();
+            _purgedTombstonesKey = "";
         }
         _lastProvisionFingerprint = fingerprint;
         _forceReProvision = false;
@@ -1939,6 +1962,8 @@ export async function provisionToIrohDocs(): Promise<boolean> {
             const allErrors = [...bookErrors, ...domainErrors];
             console.error(`[sync] Provision completed with ${allErrors.length} error(s):`, allErrors);
         }
+
+        await purgeDeletedDocEntries([...lib.deletionTombstones, ...(rss.deletionTombstones ?? [])]);
 
         return true;
     } catch (e) {
