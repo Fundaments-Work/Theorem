@@ -2,34 +2,91 @@
 
 ## Overview
 
-**Discover** (`src/features/catalogs/CatalogsPage.tsx`) is one page with a row of *sources*: the
-curated public-domain storefront, the two built-in catalogs (Project Gutenberg, Standard Ebooks)
-and every catalog the user adds. Choosing a source opens it in place. It works on desktop, phones
-(it is a bottom-bar tab) and the web build.
+**Discover** (`src/features/catalogs/CatalogsPage.tsx`) is a front page for free books, plus the
+catalogs the reader adds. It works on desktop, phones (it is a bottom-bar tab) and the web build.
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ [Discover] [Project Gutenberg] [Standard Ebooks] [My Calibre 🔒] │ [+ Add]  ← sources
-├────────────────────────────────────────────────────────────────┤
-│  Discover home (DiscoverPage)   or   OpdsBrowser (one catalog)   │
-│                                                                  │
-│  ← Title            trail: Catalog › Newest › Search: dune   ⟳ ⋯ │
-│  [ search ]  [Format ▾] [Catalog order ▾] [English] [EPUB] [Clear]│
-│  section rows · shelves with "See all" · virtualized book grid    │
-└────────────────────────────────────────────────────────────────┘
+ no catalogs added                         catalogs added
+┌──────────────────────────────────┐      ┌──────────────────────────────────────────┐
+│ Discover                 ⟳  + Add │      │ [◎ Discover] [Patan Library] [Calibre 🔒] [+]│ ← tabs
+│ [ Search free books…            ] │      ├──────────────────────────────────────────┤
+│ recent: (tolstoy ×) (poetry ×)    │      │ Discover home, or the selected catalog   │
+│ ┌ hero ─────────┐ ┌ hero ───────┐ │      │ in OpdsBrowser                           │
+│ └───────────────┘ └─────────────┘ │      └──────────────────────────────────────────┘
+│ shelves (carousels, See all)      │
+│ Browse by subject  [Novels 24k]…  │
+│ Bring your library   [Add a catalog]
+└──────────────────────────────────┘
 ```
 
-Why a row of sources and not a separate "Catalogs" page: a catalog is where you look for books, and
-so is the storefront. Sources the user added used to be saved but never shown (the full browser was
-unmounted); now the row is the single entry point.
+- **The home is Fundaments' own catalog**, laid out by `DiscoverHome.tsx`. It is the page itself,
+  never a tab and never named in the UI (the trail says "Discover").
+- **Tabs exist only for catalogs the reader adds** (a school, a university, their own Calibre):
+  `Discover` + those catalogs + Add. With none added there is no tab row, and Add sits in the
+  home's header and in the "Bring your library" card.
+- **Drilling down is the regular browser.** `OpdsBrowser` takes a `renderHome` prop: at the
+  catalog's root it renders `DiscoverHome`; shelves (*See all*), subjects and search results are
+  the normal browser with trail, Back, grid, filters and downloads.
+
+## The Discover home
+
+`DiscoverHome` turns the server's OPDS 2.0 home feed into a front page:
+
+| Feed | Shown as |
+|---|---|
+| `metadata.subtitle` | Line under the "Discover" title |
+| search template | Large search box (`Search free books…`); submitting runs the catalog search |
+| first group with books | Its first two books as **hero cards** (large cover beside the text on a tonal step, no image behind text, summary as plain text, Add to Library / About), the rest as a "More new editions" carousel |
+| other groups with books | Carousels with *See all* |
+| first group with only navigation | **Browse by subject** tiles (title + compact count, e.g. "24k books"), *All subjects* opens the full list |
+
+- **Recent searches** are kept on this device only (`localStorage`,
+  `theorem-discover-recent-searches`, newest first, case-insensitive duplicates removed, at most
+  8). Chips run a search again or can be removed one by one; *Clear all* empties the list. Missing
+  or corrupt storage just means no chips.
+- **Design:** the Fundaments design system (dark base, one lime accent, square corners, DM Sans
+  300/400; hierarchy from size). Hover on tiles and hero cards is a lime edge, never a fill.
+- **Covers** in hero cards are
+  `TheoremBookCover`, so a missing or unsafe image gets the drawn fallback.
+
+## The built-in catalog
+
+Until 1.6.0 Discover opened on a storefront assembled *inside the app* (`DiscoverPage` and
+`DiscoverService` fetched Gutenberg and Standard Ebooks feeds and built the shelves), next to two
+built-in catalogs, Project Gutenberg and Standard Ebooks. In 1.6.0 all of that became one built-in
+source: **Fundaments' own OPDS 2.0 catalog**, whose home file the app loads directly at
+`https://catalog.fundaments.work/opds/index.json` (`/opds` redirects there for people and other
+readers, but a static redirect carries no CORS header, so browsers must skip it)
+(`DEFAULT_OPDS_PRESETS` in `OpdsService.ts`), shown as the Discover home.
+
+- **Curated on the server.** Shelves, the spotlight, search and categories are decided by the
+  private `fundaments-catalog` service (a Cloudflare Worker reading D1 and KV, refreshed by a sync
+  job). Changing them needs no app release, and later the same address carries the free eLibrary,
+  sign-in and a store section (store links never appear in the free shelves).
+- **Its home has its own layout** (`DiscoverHome`, above); everything below the home is the normal
+  catalog browser, so shelves, subjects and search behave exactly as in any catalog.
+- **Content.** Today it serves curated Project Gutenberg books (from Gutenberg's public catalog
+  data, with full-text search over all ~78,000 texts and 72 categories) and Standard Ebooks' new
+  releases. Book files and covers still download straight from gutenberg.org and
+  standardebooks.org.
+- **Gutenberg and Standard Ebooks themselves** are no longer in the app at all: their books reach
+  readers through the home. Anyone can still add either by address, like any catalog. On upgrade
+  the old built-in tabs are removed, except one the reader had signed in to (see Persistence).
+- **Offline copy.** The last good home feed of a built-in catalog is kept in `localStorage`
+  (`theorem-opds-offline:<url>`) and shown when the server cannot be reached (network, timeout,
+  HTTP error, rate limit). Only built-in catalogs, never with credentials: a private catalog's
+  data is never written to storage. A corrupt or non-feed copy is ignored.
+- **The server must be live before a release that points at it.** Its contract (paths, link
+  meanings) only grows; see the service's `AGENTS.md`.
 
 ## Layers
 
 ```
- UI            CatalogsPage → DiscoverPage | OpdsBrowser (useOpdsBrowser)
-               CatalogBookCard · OpdsEntrySheet · AddCatalogModal · OpdsAuthPanel
+ UI            CatalogsPage → OpdsBrowser (useOpdsBrowser), renderHome → DiscoverHome
+               CatalogBookCard · DiscoverCarousel · OpdsEntrySheet · AddCatalogModal · OpdsAuthPanel
  TS service    OpdsService      load / search / probe / loadDetail / download, typed OpdsError,
-                                5-minute feed cache, URL normalisation
+                                5-minute feed cache, offline copy of built-in catalogs,
+                                URL normalisation, the built-in preset
                opds-quirks      per-catalog adapters (Gutenberg) + edition merging
  Transport     desktop/mobile:  Tauri commands in src-tauri/src/opds_net.rs
                web:             fetch() + the same Rust parser compiled to WebAssembly
@@ -150,9 +207,16 @@ the adapter turns those into partial books (real cover addresses, downloads reso
 
 ## Persistence
 
-`opdsStore` (version 3): `catalogs` and `activeCatalogId` (`null` = the Discover home). The built-in
-catalogs are always present and cannot be removed. Migration from version 2 keeps every
-user-added catalog and starts on Discover.
+`opdsStore` (version 5): `catalogs` and `activeCatalogId` (`null` = the built-in catalog). The
+built-in catalog is always present, always first and cannot be removed; a remembered catalog that
+no longer exists falls back to it.
+
+- **v3 → v4 (and v4 → v5):** Project Gutenberg and Standard Ebooks stop being presets and are removed: they were
+  the app's defaults, not the reader's choice. One the reader signed in to (a Standard Ebooks
+  patron) stays as an ordinary catalog with its sign-in. The open catalog is kept if it still
+  exists; the retired storefront caches (`theorem_discover_cache*`) are deleted. v5 repeats this for stores that an early 1.6.0 development build had
+  migrated to v4 by keeping the two as ordinary tabs.
+- **Older versions** keep every user-added catalog; malformed entries are dropped.
 
 ## Ingestion
 
@@ -173,8 +237,8 @@ Library  (same import pipeline as "Add Books": metadata, cover extraction, dupli
   no image, the image fails to load, or its scheme is unsafe.
 - **Virtualization.** `OpdsGrid` mounts only the rows near the viewport (`@tanstack/react-virtual`,
   fixed row height, `ResizeObserver` for the column count); 3,000 books cost the same DOM as 30.
-- **Caching.** Feeds are cached 5 minutes in memory (cleared by Refresh); Discover's curated
-  sections are cached for 24 hours and shown instantly when offline.
+- **Caching.** Feeds are cached 5 minutes in memory (cleared by Refresh). The built-in catalog's
+  home feed is also kept on disk and shown when offline (see The built-in catalog).
 
 ## Testing
 

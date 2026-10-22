@@ -1,5 +1,6 @@
 import { isTauri } from './env';
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
+import type { SyncConflict } from '../types';
 
 export interface SqliteStorageStats {
     total_books: number;
@@ -284,6 +285,8 @@ export interface SyncMergeResult {
     deletedVocabulary: string[];
     updatedRssArticles: string[];
     deletedRssArticles: string[];
+    /** Conflicts this merge found (listed by `sqliteListSyncConflicts`). */
+    conflicts?: number;
 }
 
 export async function sqliteMergeSyncEntries(
@@ -291,6 +294,18 @@ export async function sqliteMergeSyncEntries(
 ): Promise<SyncMergeResult> {
     const invoke = await getInvoke();
     return invoke('sqlite_merge_sync_entries', { entries }) as Promise<SyncMergeResult>;
+}
+
+/** Sync conflicts not yet dismissed, newest first. */
+export async function sqliteListSyncConflicts(): Promise<SyncConflict[]> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_list_sync_conflicts') as Promise<SyncConflict[]>;
+}
+
+/** Hides conflicts from the list; with no IDs, all of them. */
+export async function sqliteDismissSyncConflicts(ids: string[] = []): Promise<number> {
+    const invoke = await getInvoke();
+    return invoke('sqlite_dismiss_sync_conflicts', { ids }) as Promise<number>;
 }
 
 let lastShrinkMemoryAt = 0;
@@ -606,34 +621,24 @@ export interface SqliteVocabularyTerm {
     updatedAt?: number;
 }
 
+/** Rejects when SQLite cannot be read: an empty list would read as "no terms". */
 export async function sqliteGetVocabularyTerms(): Promise<SqliteVocabularyTerm[]> {
     if (!isTauri()) return [];
-    try {
-        const invoke = await getInvoke();
-        return (await invoke('sqlite_get_vocabulary_terms')) as SqliteVocabularyTerm[];
-    } catch {
-        return [];
-    }
+    const invoke = await getInvoke();
+    return (await invoke('sqlite_get_vocabulary_terms')) as SqliteVocabularyTerm[];
 }
 
+/** Rejects when the write fails, so callers can report it or keep a copy. */
 export async function sqliteSaveVocabularyTerm(term: SqliteVocabularyTerm): Promise<void> {
     if (!isTauri()) return;
-    try {
-        const invoke = await getInvoke();
-        await invoke('sqlite_save_vocabulary_term', { term });
-    } catch {
-        // Non-blocking
-    }
+    const invoke = await getInvoke();
+    await invoke('sqlite_save_vocabulary_term', { term });
 }
 
 export async function sqliteDeleteVocabularyTerm(termId: string): Promise<void> {
     if (!isTauri()) return;
-    try {
-        const invoke = await getInvoke();
-        await invoke('sqlite_delete_vocabulary_term', { termId });
-    } catch {
-        // Non-blocking
-    }
+    const invoke = await getInvoke();
+    await invoke('sqlite_delete_vocabulary_term', { termId });
 }
 
 

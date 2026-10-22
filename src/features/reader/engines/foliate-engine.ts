@@ -27,7 +27,7 @@ import {
     getHighlightSolidColor,
 } from '../../../core/lib/design-tokens';
 import { isTauri } from '../../../core/lib/env';
-import { normalizeAuthor } from '../../../core/lib/utils';
+import { toDocMetadata } from './doc-metadata';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 import { useLibraryStore } from '../../../core/store';
 
@@ -757,17 +757,7 @@ export class FoliateEngine {
             return { title: '', author: '' };
         }
 
-        const meta = this.book.metadata || {};
-        return {
-            title: this.formatLanguageMap(meta.title) || 'Unknown Title',
-            
-            author: normalizeAuthor(meta.author) || 'Unknown Author',
-            description: meta.description,
-            publisher: meta.publisher,
-            language: meta.language,
-            pubdate: meta.published,
-            identifier: meta.identifier,
-        };
+        return toDocMetadata(this.book.metadata);
     }
 
     private extractToc(): TocItem[] {
@@ -784,13 +774,6 @@ export class FoliateEngine {
         };
 
         return convertToc(this.book.toc);
-    }
-
-    private formatLanguageMap(x: any): string {
-        if (!x) return '';
-        if (typeof x === 'string') return x;
-        const keys = Object.keys(x);
-        return x[keys[0]] || '';
     }
 
     private applySettingsSync(): void {

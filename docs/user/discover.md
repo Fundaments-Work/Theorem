@@ -1,41 +1,38 @@
-# Discover Free Books
+# Discover Free Books and Browse Online Catalogs
 
-Browse and search public-domain books from Project Gutenberg and Standard Ebooks and add any title to your Theorem library; your own catalogs arrive in 1.6.0.
+Browse and search free public-domain books, add your school, university or library catalog, or your own Calibre or Komga server, and add any title to your Theorem library with one tap.
 
 Discover works on desktop and on Android phones and tablets. It needs an internet connection, or a connection to your own network for a home server, to load catalogs and to download books.
 
 ## Open Discover
 
-- **Desktop.** Click Discover in the sidebar, the compass icon near the bottom of the icon list, or press `Ctrl+6` (`⌘6` on a Mac).
+- **Desktop.** Click Discover in the sidebar, the compass icon (third from the top), or press `Ctrl+3` (`⌘3` on a Mac).
 - **Android.** Tap Discover in the bottom bar.
 
-At the top is a row of sources: Discover, Project Gutenberg, Standard Ebooks, and any catalog you have added. Tap a source to open it. A plus button at the end of the row adds a catalog. The row scrolls sideways when there are many sources, and the plus button stays in place.
+Once you add a catalog, a row of tabs appears at the top: Discover, then each catalog you added, then a plus button that adds another. Tap a tab to open it. The row scrolls sideways when there are many catalogs, and the plus button stays in place. Until you add one, there are no tabs: Discover is the whole page.
 
-## The Discover storefront
+## The Discover page
 
-The Discover source opens on a storefront. At the top is a featured book labeled Featured Classic, and below it are rows of books in sections:
+Discover opens on free books chosen by hand:
 
-- Timeless Essentials
-- New & Restored Editions
-- Philosophy & Essays
-- Classic Fiction
+- **Search.** The large box at the top searches about 78,000 free books by title, author or subject. Press Enter to search. Books in your device's language come first, and you can type part of the last word, so "pride prej" finds Pride and Prejudice.
+- **Recent searches.** Your last few searches appear under the box. Tap one to search again, tap × to remove it, or tap Clear all. They are kept only on this device.
+- **Newest editions.** Two large cards show the newest releases, with Add to Library and About. More new editions follow in a row.
+- **Shelves.** Rows of books such as Timeless essentials, Philosophy & essays, Poetry & drama and Adventure & mystery. Scroll a row sideways, or tap See all for the whole shelf.
+- **Browse by subject.** Tiles such as Novels or Poetry, each with its number of books. Tap one to open it, or tap All subjects for the full list.
+- **Bring your library.** A card at the bottom adds your school, university or library catalog.
 
-Most sections come from Project Gutenberg. New & Restored Editions comes from Standard Ebooks. Scroll a row sideways to see more books.
+Shelves, subjects and search results open in place. The trail at the top, for example Discover › Poetry, shows where you are, and the back arrow returns to the Discover page.
 
-Theorem remembers the last sections it loaded, so the page still shows them if your connection drops. Click the refresh button (Refresh Discover) to load them again. If nothing can be loaded and nothing is cached, the page says "Could not connect to online libraries" and offers a Try Again button.
+The shelves are chosen on our side, so they can change and grow without an app update. Theorem keeps the last copy of the Discover page it loaded, so it still shows if your connection drops. Tap the refresh button to load it again.
 
-### Search the storefront
+### Where the books come from
 
-1. Click the search box, which reads "Search classics, authors, subjects…".
-2. Type at least two characters. Results appear after a short pause.
-3. Scroll through the results grid.
-4. Click Clear Search, or empty the box, to return to the storefront.
-
-Search looks through the Project Gutenberg catalog. If it finds nothing, the page says so and suggests searching by author, title or topic.
+The books are free public-domain books from Project Gutenberg and Standard Ebooks. When you add one, Theorem downloads it straight from their websites. The Discover page has no accounts and keeps no logs of what you browse or search, and what you read stays on your device.
 
 ## Add a book to your library
 
-1. Tap a book, or tap View Book on the featured book. A window opens with the cover, title, author and description.
+1. Tap a book. A window opens with the cover, title, author and description.
 2. If the book comes in more than one format, each one is listed with its size. The best choice, usually EPUB, is outlined. Tap Add to Library, or tap the format you want.
 3. Wait for the download. A message at the corner shows the progress and then confirms that the book is in your library.
 4. Open the book from the Library page. Once a title is in your library, Read Now in the window opens it directly.
@@ -55,14 +52,12 @@ Some catalogs list books that Theorem cannot simply download. The book window sa
 
 ## Add your own catalog
 
-> **New in Theorem 1.6.0, not released yet.** Adding and browsing your own OPDS catalogs, including sign-in to private ones, is in version 1.6.0. In the latest release, 1.5.9, Discover shows the curated storefront, Project Gutenberg and Standard Ebooks only. This section and the sections below it describe 1.6.0.
+Catalogs that follow the OPDS standard work in Theorem. This includes many school, university and public library catalogs, Calibre content servers, Calibre-Web, Kavita, Komga, COPS, and public collections. Both OPDS 1.x and OPDS 2.0 are supported.
 
-Catalogs that follow the OPDS standard work in Theorem. This includes Calibre content servers, Calibre-Web, Kavita, Komga, COPS, many libraries, and public collections. Both OPDS 1.x and OPDS 2.0 are supported.
-
-1. Tap the plus button at the end of the sources row.
+1. Tap Add a catalog at the top of Discover, or in the Bring your library card. Once you have catalogs, it is the plus button at the end of the tabs.
 2. Type or paste the catalog's address. You can leave out `https://`, and addresses such as `192.168.1.10:8080/opds` or `nas.local/opds` work. Links that start with `opds://` also work. Addresses on your own network use `http` unless you say otherwise.
 3. Tap Check address. Theorem contacts the catalog and tells you what it found, for example "OPDS 2.0 · 4 sections · search", or explains the problem.
-4. If the catalog asks for a sign-in, tap This catalog needs a sign-in, enter your username and password, and check again.
+4. If the catalog asks for a sign-in, the username and password fields appear by themselves, with the catalog's own wording. Fill them in and check again. If the catalog opens without a sign-in but you have an account there (some libraries show more books to members), tap Have an account? Add sign-in details, then check again.
 5. Edit the name if you like, then tap Add catalog.
 
 If the catalog is on a server that is switched off right now, the dialog offers Add anyway after the check fails, so you can save it and open it later.
@@ -80,13 +75,15 @@ Tap the refresh button to load the catalog again, or the three dots for more opt
 
 ### Sign in to a private catalog
 
-When a catalog needs a login, you see a sign-in form. Enter your username and password. Leave Remember on this device on to stay signed in. Your login is stored only on this device. It is not synced to your other devices, and it is saved only after the catalog accepts it, so a mistyped password never replaces a working one. A lock icon on the source shows that you are signed in. To forget a login, tap the three dots and choose Forget sign-in.
+When a catalog needs a login, you see a sign-in form. Enter your username and password. Leave Remember on this device on to stay signed in. Your login is stored only on this device. It is not synced to your other devices, and it is saved only after the catalog accepts it, so a mistyped password never replaces a working one. A lock icon on the catalog's tab shows that you are signed in. To forget a login, tap the three dots and choose Forget sign-in.
 
 Some libraries sign in with a method Theorem cannot use yet. The sign-in form says so. You can still use that library's public pages in a web browser.
 
 ### Remove a catalog you added
 
-Open the catalog, tap the three dots and choose Remove catalog. Books you already added stay in your library. Project Gutenberg and Standard Ebooks cannot be removed.
+Open the catalog, tap the three dots and choose Remove catalog. Books you already added stay in your library. When you remove the last one, the tabs disappear and Discover is the whole page again.
+
+Before version 1.6.0, Project Gutenberg and Standard Ebooks were tabs of their own. Their books are now on the Discover page, so those tabs are gone, except one you had signed in to. You can still add either by its address.
 
 ## Troubleshooting catalogs
 

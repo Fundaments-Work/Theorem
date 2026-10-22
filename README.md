@@ -128,7 +128,7 @@ EPUB, MOBI, AZW, AZW3, FB2, FBZ, CBZ, CBR, PDF, and RSS articles (DRM-free files
 </p>
 
 ### Discover & OPDS Catalogs
-Browse curated storefronts and search over 75,000+ public domain classics from Project Gutenberg and Standard Ebooks with 1-click downloads. Add any **OPDS catalog** (Calibre, Kavita, Komga, COPS, a library, a public collection) from one row of sources: OPDS 1.x and **OPDS 2.0**, sections and shelves, server search, sort/language/format filters, series and covers, and books that load as you scroll. Catalogs that need a login sign in with HTTP Basic (kept on your device only). Purchases, loans and DRM-locked files are explained rather than faked. Everything downloads through the same import as "Add Books". Works on phones, too (Discover is a bottom-bar tab). One Rust parser serves the desktop, Android and web builds.
+Discover is a front page for free books, curated on our server: full-text search over 78,000+ public domain classics, the newest Standard Ebooks editions, hand-picked shelves and subjects, recent searches, and 1-click downloads. Add your school, university or library catalog, or any **OPDS catalog** (Calibre, Kavita, Komga, COPS), and it appears as a tab: OPDS 1.x and **OPDS 2.0**, sections and shelves, server search, sort/language/format filters, series and covers, and books that load as you scroll. Catalogs that need a login sign in with HTTP Basic (kept on your device only). Purchases, loans and DRM-locked files are explained rather than faked. Everything downloads through the same import as "Add Books". Works on phones, too (Discover is a bottom-bar tab). One Rust parser serves the desktop, Android and web builds.
 
 ### Reading Customization
 Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-serif, monospace). Font size (12–32), line height (1.0–2.2). Text alignment. Reading flow (paged, scroll). Brightness slider. Zoom for fixed-layout formats. Full-screen mode. Tap to hide the toolbars.
@@ -265,3 +265,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines, code conventions, and t
 ## License
 
 MIT License — see [LICENSE](./LICENSE) for details.
+
+The Theorem™ name and logo are not covered by the MIT License. See [TRADEMARKS.md](./TRADEMARKS.md) for how to use them, and how to name a fork.

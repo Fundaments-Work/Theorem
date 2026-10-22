@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react';
 import { Bookmark, X, Trash2, ExternalLink, Highlighter, MoreVertical, Pencil, Share2 } from 'lucide-react';
 import { HIGHLIGHT_PICKER_COLORS } from "../../../core/lib/design-tokens";
 import { cn } from "../../../core/lib/utils";
-import { useLibraryStore, useUIStore, useRssStore } from "../../../core/store";
+import { isTauriDesktop } from "../../../core/lib/env";
+import { useLibraryStore, useUIStore, useRssStore, useSettingsStore } from "../../../core/store";
 import { format } from 'date-fns';
 import { useShallow } from 'zustand/react/shallow';
 import { Backdrop, FloatingPanel } from "../../../ui";
@@ -44,6 +45,8 @@ export function ReaderAnnotationsPanel({
     const removeAnnotationAction = useLibraryStore((state) => state.removeAnnotation);
     const updateAnnotation = useLibraryStore((state) => state.updateAnnotation);
     const vaultSyncStatus = useUIStore((state) => state.vaultSyncStatus);
+    const vaultEnabled = useSettingsStore((state) => state.settings.vault.enabled);
+    const showVaultStatus = vaultEnabled && isTauriDesktop();
 
     const bookmarks = useMemo(
         () => annotations.filter((annotation) => annotation.type === 'bookmark'),
@@ -313,9 +316,11 @@ export function ReaderAnnotationsPanel({
                             <X className="w-4 h-4" />
                         </button>
                     </div>
-                    <div className="border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] mx-4 mb-3 border px-3 py-1.5 text-xs text-[color:var(--color-text-secondary)]">
-                        {vaultStatusText}
-                    </div>
+                    {showVaultStatus && (
+                        <div className="border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] mx-4 mb-3 border px-3 py-1.5 text-xs text-[color:var(--color-text-secondary)]">
+                            {vaultStatusText}
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2 px-4 pb-3">
                         <button

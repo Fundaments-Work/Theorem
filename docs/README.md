@@ -32,7 +32,7 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 | [sub-shelves.md](sub-shelves.md) | One level of nested sub-shelves |
 | [comic-scrolling.md](comic-scrolling.md) | Continuous vertical strip reading for CBZ/CBR |
 | [cbr-android-fix.md](cbr-android-fix.md) | Native CBR/RAR→CBZ path on Android |
-| [discover.md](discover.md) | Discover: public-domain storefront and a browser for any OPDS catalog (Atom/OPDS 1.x and OPDS 2.0), sign-in, downloads |
+| [discover.md](discover.md) | Discover: the built-in Fundaments catalog and a browser for any OPDS catalog (Atom/OPDS 1.x and OPDS 2.0), sign-in, downloads |
 | [sync.md](sync.md) | P2P device sync via iroh |
 | [annotations.md](annotations.md) | Highlights, notes, bookmarks |
 | [vocabulary.md](vocabulary.md) | Dictionary lookups, StarDict + MDict |

@@ -2,7 +2,10 @@ import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } f
 import { invoke } from "@tauri-apps/api/core";
 import { PageHeader } from "../../ui";
 import { cn, formatFileSize } from "../../core/lib/utils";
-import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
+import { isMobile, isTauri, isTauriDesktop, isTauriMobile } from "../../core/lib/env";
+import { requestNotificationPermission } from "../../core/lib/notifications";
+import { refreshScheduledReminders } from "../reader/hooks/useDailyGoalReminder";
+import { ReminderDeliveryNotice } from "./ReminderDeliveryNotice";
 import { getAllShortcuts, formatShortcutKeys } from "../../core/lib/keyboard-shortcuts";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
 import { ConfirmDialog, AlertDialog } from "../../ui";
@@ -31,10 +34,10 @@ import {
     Trash2,
     AlertTriangle,
     ChevronRight,
-    FolderOpen,
+    NotebookPen,
     BookOpen,
     Languages,
-    Rss,
+    Newspaper,
     Download,
     Globe,
     WifiOff,
@@ -227,7 +230,7 @@ const StorageTab = memo(function StorageTab({ onClearData }: { onClearData: () =
 
                     <div className="flex items-center justify-between p-4 bg-[var(--color-surface-muted)]">
                         <div className="flex items-center gap-3">
-                            <FolderOpen className="w-5 h-5 text-[color:var(--color-text-muted)]" />
+                            <NotebookPen className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
                                 <p className="text-sm text-[color:var(--color-text-primary)]">Highlights & Notes</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
@@ -239,7 +242,7 @@ const StorageTab = memo(function StorageTab({ onClearData }: { onClearData: () =
 
                     <div className="flex items-center justify-between p-4 bg-[var(--color-surface-muted)]">
                         <div className="flex items-center gap-3">
-                            <Rss className="w-5 h-5 text-[color:var(--color-text-muted)]" />
+                            <Newspaper className="w-5 h-5 text-[color:var(--color-text-muted)]" />
                             <div>
                                 <p className="text-sm text-[color:var(--color-text-primary)]">RSS Articles</p>
                                 <p className="text-xs text-[color:var(--color-text-muted)]">
@@ -319,7 +322,9 @@ export const SettingsPage = memo(function SettingsPage() {
     const stats = useSettingsStore((state) => state.stats);
     const updateStats = useSettingsStore((state) => state.updateStats);
     const highlightsExportName = normalizeHighlightsExportName(settings.vault.highlightsFileName);
-    const isMobilePlatform = isMobile();
+    // Markdown export writes through the desktop shell; the web build skips it
+    // and mobile has no folder picker, so the section only exists on desktop.
+    const canExportMarkdown = isTauriDesktop();
     const isLinuxDesktop = isTauriDesktop() && navigator.userAgent.includes("Linux");
     const setVaultSyncStatus = useUIStore((state) => state.setVaultSyncStatus);
     const vaultSyncStatus = useUIStore((state) => state.vaultSyncStatus);
@@ -328,6 +333,9 @@ export const SettingsPage = memo(function SettingsPage() {
     const importStarDict = useVocabularyStore((state) => state.importStarDict);
     const removeDictionary = useVocabularyStore((state) => state.removeDictionary);
     const installedDictionaries = useVocabularyStore((state) => state.installedDictionaries);
+    // Phones and tablets have no keyboard to press shortcuts on, so the tab is desktop and
+    // desktop-web only.
+    const showShortcuts = !isMobile();
     const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
         if (typeof window === "undefined") {
             return "general";
@@ -338,7 +346,7 @@ export const SettingsPage = memo(function SettingsPage() {
             persisted === "dictionary" ||
             persisted === "integrations" ||
             persisted === "storage" ||
-            persisted === "shortcuts" ||
+            (persisted === "shortcuts" && showShortcuts) ||
             persisted === "about"
         ) {
             return persisted;
@@ -588,11 +596,6 @@ export const SettingsPage = memo(function SettingsPage() {
     };
 
     const handlePickVaultDirectory = async () => {
-        if (isMobilePlatform) {
-            setAlertInfo({ title: "Not Available", message: "Folder selection is not supported on mobile. Configure the export folder on desktop." });
-            return;
-        }
-
         const selectedPath = await showOpenDirectoryDialog({
             title: "Choose Export Folder",
             defaultPath: settings.vault.vaultPath || undefined,
@@ -663,15 +666,15 @@ export const SettingsPage = memo(function SettingsPage() {
     const tabButtons = [
         { id: "general" as const, label: "General" },
         { id: "dictionary" as const, label: "Dictionary" },
-        { id: "integrations" as const, label: "Devices & Export" },
+        { id: "integrations" as const, label: canExportMarkdown ? "Devices & Export" : "Devices" },
         { id: "storage" as const, label: "Data & Storage" },
-        { id: "shortcuts" as const, label: "Shortcuts" },
+        ...(showShortcuts ? [{ id: "shortcuts" as const, label: "Shortcuts" }] : []),
         { id: "about" as const, label: "About" },
     ];
 
     return (
         <>
-        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
+        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
             
             <PageHeader
                 title="Settings"
@@ -777,7 +780,14 @@ export const SettingsPage = memo(function SettingsPage() {
                             >
                                 <Toggle
                                     checked={settings.goalNotifications}
-                                    onChange={(checked) => updateSettings({ goalNotifications: checked })}
+                                    onChange={(checked) => {
+                                        updateSettings({ goalNotifications: checked });
+                                        // Asking needs the tap that turned reminders on; the
+                                        // background planner never prompts.
+                                        if (checked && isTauri()) {
+                                            void requestNotificationPermission().then(() => refreshScheduledReminders());
+                                        }
+                                    }}
                                 />
                             </SettingRow>
 
@@ -799,6 +809,8 @@ export const SettingsPage = memo(function SettingsPage() {
                                     )}
                                 />
                             </SettingRow>
+
+                            {isTauriMobile() && <ReminderDeliveryNotice enabled={settings.goalNotifications} />}
 
                             <SettingRow
                                 label="Sync Notifications"
@@ -924,7 +936,7 @@ export const SettingsPage = memo(function SettingsPage() {
                     <Section
                         title="RSS & Articles Retention"
                         description="Configure local retention and offline storage cleanup for RSS articles and content"
-                        icon={<Rss className="w-4 h-4" />}
+                        icon={<Newspaper className="w-4 h-4" />}
                     >
                         <SettingRow
                             label="Article Retention Period"
@@ -1110,7 +1122,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         </Section>
                     )}
 
-                    <div ref={markdownExportSectionRef}>
+                    {canExportMarkdown && <div ref={markdownExportSectionRef}>
                         <Section
                             title="Markdown Export"
                             description="Export highlights and vocabulary as markdown files"
@@ -1118,11 +1130,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         >
                             <SettingRow
                                 label="Export Folder"
-                                description={
-                                    isMobilePlatform
-                                        ? "Folder selection is unavailable on mobile. Configure on desktop."
-                                        : "Choose a folder for your exported markdown files"
-                                }
+                                description="Choose a folder for your exported markdown files"
                             >
                                 <div className="flex flex-wrap items-center gap-2">
                                     <input
@@ -1141,8 +1149,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                         onClick={() => {
                                             void handlePickVaultDirectory();
                                         }}
-                                        disabled={isMobilePlatform}
-                                        className={cn("ui-btn", isMobilePlatform && "pointer-events-none opacity-50")}
+                                        className="ui-btn"
                                     >
                                         Pick folder
                                     </button>
@@ -1276,14 +1283,14 @@ export const SettingsPage = memo(function SettingsPage() {
                                 </div>
                             </details>
                         </Section>
-                    </div>
+                    </div>}
                 </div>}
 
             {(activeTab === "storage" || visitedTabs.has("storage")) && <div className={activeTab === "storage" ? "" : "hidden"}>
                 <StorageTab onClearData={handleClearData} />
             </div>}
 
-            {(activeTab === "shortcuts" || visitedTabs.has("shortcuts")) && <div className={activeTab === "shortcuts" ? "space-y-8" : "hidden"}>
+            {showShortcuts && (activeTab === "shortcuts" || visitedTabs.has("shortcuts")) && <div className={activeTab === "shortcuts" ? "space-y-8" : "hidden"}>
                     <Section
                         title="Keyboard Shortcuts"
                         description="Available shortcuts throughout the app"

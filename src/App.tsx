@@ -5,17 +5,21 @@ import { PageLoader, SplashScreen } from "./ui/loading";
 import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
-import { isTauriDesktop, isTauri } from "./core/lib/env";
+import { isTauriDesktop, isTauri, isTauriMobile } from "./core/lib/env";
 import { initReaderStyles } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
+import { startSystemInsets } from "./core/lib/system-insets";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
 import { normalizeFilePath } from "./core/lib/utils";
+import { navigationShortcuts } from "./shell/layout/nav-items";
 import { registerShortcuts, useKeyboardShortcuts, SELECT_ALL_EVENT } from "./core/lib/keyboard-shortcuts";
 import { initLogger } from "./core/lib/debug";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
 import { flushAllPersistence } from "./core/lib/persist-storage";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
+import { subscribeUntilCleanup } from "./core/lib/async-subscription";
+import { bootstrapAutoSync } from "./core/lib/sync-bootstrap";
 import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
 import { Toaster } from "sonner";
@@ -151,14 +155,13 @@ function App() {
                 handler: () => setShowShortcutsHelp((prev) => !prev),
             },
             
-            { label: "Go to Library",       keys: "Ctrl+1", category: "Navigation", handler: () => setRoute("library") },
-            { label: "Go to Shelves",       keys: "Ctrl+2", category: "Navigation", handler: () => setRoute("shelves") },
-            { label: "Go to Feeds",         keys: "Ctrl+3", category: "Navigation", handler: () => setRoute("feeds") },
-            { label: "Go to Workbench",    keys: "Ctrl+4", category: "Navigation", handler: () => setRoute("annotations") },
-            { label: "Go to Statistics",    keys: "Ctrl+5", category: "Navigation", handler: () => setRoute("statistics") },
-            { label: "Go to Discover",      keys: "Ctrl+6", category: "Navigation", handler: () => setRoute("opds") },
-            { label: "Go to Bookmarks",     keys: "Ctrl+7", category: "Navigation", handler: () => setRoute("bookmarks") },
-            { label: "Go to Settings",      keys: "Ctrl+,", category: "Navigation", handler: () => setRoute("settings") },
+            // Numbered like the rail and the bottom bar (nav-items.ts), so Ctrl+N is the Nth icon.
+            ...navigationShortcuts().map(({ label, keys, route }) => ({
+                label,
+                keys,
+                category: "Navigation",
+                handler: () => setRoute(route),
+            })),
             
             { label: "Find / Search",       keys: "Ctrl+F", category: "Search",     handler: () => {
                 const route = useUIStore.getState().currentRoute;
@@ -242,8 +245,11 @@ function App() {
         pruneExpiredTombstones();
     }, []);
 
+    // Phones: trim memory when the app goes to the background. Desktop does this from Rust when
+    // the window loses focus: asking from a page that is being hidden makes WebKit cancel the IPC
+    // request and log an "access control checks" error.
     useEffect(() => {
-        if (!isTauri() || typeof document === "undefined") return;
+        if (!isTauriMobile() || typeof document === "undefined") return;
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === "hidden") {
@@ -257,65 +263,49 @@ function App() {
 
     useEffect(() => {
         if (!isTauri()) return;
-        let unlisten: (() => void) | null = null;
-        const setupCloseHandler = async () => {
-            try {
-                const win = getCurrentWebviewWindow();
-                unlisten = await win.onCloseRequested(async (event) => {
-                    const handled = dispatchBackAction();
-                    if (handled) {
-                        event.preventDefault();
-                        return;
-                    }
-                    const currentUIState = useUIStore.getState();
-                    if (currentUIState.currentRoute === "reader") {
-                        event.preventDefault();
-                        setRoute("library", undefined, false);
-                        return;
-                    }
-                    if (currentUIState.currentRoute !== "library") {
-                        event.preventDefault();
-                        setRoute("library", undefined, false);
-                        return;
-                    }
-                    // Tauri awaits this handler before destroying the window.
-                    await flushAllPersistence();
-                });
-            } catch {}
-        };
-        void setupCloseHandler();
-        return () => {
-            unlisten?.();
-        };
+        return subscribeUntilCleanup("Window close handler", () =>
+            getCurrentWebviewWindow().onCloseRequested(async (event) => {
+                const handled = dispatchBackAction();
+                if (handled) {
+                    event.preventDefault();
+                    return;
+                }
+                const currentUIState = useUIStore.getState();
+                if (currentUIState.currentRoute === "reader") {
+                    event.preventDefault();
+                    setRoute("library", undefined, false);
+                    return;
+                }
+                if (currentUIState.currentRoute !== "library") {
+                    event.preventDefault();
+                    setRoute("library", undefined, false);
+                    return;
+                }
+                // Tauri awaits this handler before destroying the window.
+                await flushAllPersistence();
+            }),
+        );
     }, [setRoute]);
 
     // Tray "Quit": Rust waits (bounded) for every window to acknowledge that
     // its pending store writes reached SQLite before exiting the process.
     useEffect(() => {
         if (!isTauri()) return;
-        let cancelled = false;
-        let unlisten: (() => void) | null = null;
-        void (async () => {
-            try {
-                const [{ listen }, { invoke }] = await Promise.all([
-                    import("@tauri-apps/api/event"),
-                    import("@tauri-apps/api/core"),
-                ]);
-                const stop = await listen("app-quit-requested", async () => {
-                    try {
-                        await flushAllPersistence();
-                    } finally {
-                        await invoke("app_quit_ready").catch(() => undefined);
-                    }
-                });
-                if (cancelled) stop();
-                else unlisten = stop;
-            } catch {}
-        })();
-        return () => {
-            cancelled = true;
-            unlisten?.();
-        };
+        return subscribeUntilCleanup("Quit handler", async () => {
+            const [{ listen }, { invoke }] = await Promise.all([
+                import("@tauri-apps/api/event"),
+                import("@tauri-apps/api/core"),
+            ]);
+            return listen("app-quit-requested", async () => {
+                try {
+                    await flushAllPersistence();
+                } finally {
+                    await invoke("app_quit_ready").catch((error) => {
+                        console.error("[App] Acknowledging quit failed:", error);
+                    });
+                }
+            });
+        });
     }, []);
 
     // CLI auto-heal: if the user enabled the Terminal CLI and the
@@ -447,6 +437,9 @@ function App() {
         void initLogger();
     }, []);
 
+    // Before anything is laid out under the status or gesture bar (Android edge-to-edge).
+    useEffect(() => startSystemInsets(), []);
+
     useEffect(() => {
         void requestNotificationPermission();
     }, []);
@@ -491,45 +484,17 @@ function App() {
             return;
         }
 
-        let cancelled = false;
-        let bridgeCleanup: (() => void) | null = null;
-        let cleanupStopSync: (() => void) | null = null;
-        const bootstrap = async () => {
-            if (cancelled) return;
-
-            const syncModule = await import("./core/lib/sync-orchestrator");
-
-            if (!autoSyncEnabled) {
-                syncModule.stopAutoSync();
-                return;
-            }
-
-            try {
-                await syncModule.ensureResponderSyncReady();
-            } catch {}
-            if (cancelled) return;
-
-            try {
-                bridgeCleanup = syncModule.subscribeZustandToIrohDocs();
-            } catch {}
-
-            try {
-                await syncModule.startAutoSync();
-            } catch {}
-
-            cleanupStopSync = syncModule.stopAutoSync;
-        };
-
-        const timer = setTimeout(() => {
-            void bootstrap();
-        }, 2000);
+        const stopSync = bootstrapAutoSync(
+            () => import("./core/lib/sync-orchestrator"),
+            autoSyncEnabled,
+            2000,
+        );
 
         return () => {
-            cancelled = true;
-            clearTimeout(timer);
-            bridgeCleanup?.();
-            cleanupStopSync?.();
-            import("./core/lib/device-sync").then(m => m.irohStop()).catch(() => {});
+            stopSync();
+            import("./core/lib/device-sync").then(m => m.irohStop()).catch((error) => {
+                console.error("[App] Stopping sync transport failed:", error);
+            });
         };
     }, [hasCompletedOnboarding, autoSyncEnabled]);
 

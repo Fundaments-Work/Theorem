@@ -88,7 +88,7 @@ export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverPr
         <div
             className={cn(
                 "fixed z-[150] transition-[opacity,transform] duration-200 ease-out animate-fade-in",
-                isMobileDevice && "inset-x-0 bottom-0 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+                isMobileDevice && "inset-x-0 bottom-0 p-4 pb-[calc(var(--safe-area-bottom)+1rem)]"
             )}
             style={isMobileDevice ? undefined : (anchorStyle ? {
                 position: anchorStyle.position,

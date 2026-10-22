@@ -4,7 +4,7 @@ See your reading time, streaks and a 12-week heatmap, set daily and yearly readi
 
 ## Open the Statistics page
 
-Click the bar chart icon at the top right of the window, or press `Ctrl+5`. On Android the icon is in the top bar too.
+Click the bar chart icon at the bottom of the sidebar, just above Settings, or press `Ctrl+6`. On Android the icon is in the top bar.
 
 The page shows:
 
@@ -47,6 +47,15 @@ In the same Reading Goals section:
 - **Sync Notifications** (on by default) tells you when a device sync finishes or fails.
 
 These use your operating system's notifications. On Android, Theorem may ask for notification permission.
+
+On Android the daily reminder is kept by the system, so it arrives even when Theorem is closed and after the phone restarts. It is skipped on a day you have already met your goal. Under the reminder time, Settings shows when the next one is due. Two things can stop it, and Settings shows a note with a button for each instead:
+
+- **Notifications are off for Theorem.** Tap **Allow notifications**.
+- **Android may deliver the reminder up to an hour late.** From Android 12, an app needs the "Alarms & reminders" permission to remind you at the exact minute, and Android 14 and later don't give it by default. Tap **Remind me on time** and turn it on.
+
+Some phones (Xiaomi, Huawei, Oppo, Vivo and others) also stop apps in the background to save battery. If reminders still don't arrive, set Theorem's battery use to "No restrictions" in the phone's settings.
+
+On a computer the reminder shows while Theorem is open.
 
 ## Achievements
 

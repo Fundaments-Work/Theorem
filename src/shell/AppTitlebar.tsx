@@ -8,7 +8,7 @@ import {
     X,
     Search,
     BarChart3,
-    ArrowDownUp,
+    RefreshCw,
     Settings,
 } from "lucide-react";
 import { cn } from "../core/lib/utils";
@@ -19,6 +19,7 @@ import { getSearchPlaceholder, hasSearchDomain, resolveSearchDomain } from "../c
 import { TheoremLogo } from "./TheoremLogo";
 import { MomoIcon } from "../ui/MomoIcon";
 import { useSupportPrompt } from "../core/lib/support-prompt";
+import { openDeviceSyncSettings } from "../core/lib/settings-navigation";
 
 interface AppTitlebarProps {
     title: string;
@@ -199,12 +200,14 @@ export const AppTitlebar = memo(function AppTitlebar({
     };
 
     const handleQuickSync = async () => {
-        if (isQuickSyncing || deviceSyncStatus === "syncing") {
+        // A round already running (auto-sync) is waited for, not refused.
+        if (isQuickSyncing) {
             return;
         }
 
+        // Nothing to sync with yet: go where devices are paired.
         if (!isTauriRuntime) {
-            setDeviceSyncStatus("idle", "Device sync is available in desktop/mobile app.");
+            openDeviceSyncSettings();
             return;
         }
 
@@ -214,12 +217,13 @@ export const AppTitlebar = memo(function AppTitlebar({
             const pairedDevices = await getPairedDevices();
 
             if (pairedDevices.length === 0) {
-                setDeviceSyncStatus("idle", "No paired devices. Open Settings > Integrations to pair.");
+                openDeviceSyncSettings();
                 return;
             }
 
-            const { runDeviceSync } = await import("../core/lib/sync-orchestrator");
-            await runDeviceSync(pairedDevices[0].deviceId, undefined, true);
+            // Every paired device, one after another (was only the first).
+            const { syncAllPairedDevices } = await import("../core/lib/sync-orchestrator");
+            await syncAllPairedDevices(pairedDevices.map((d) => d.deviceId), true);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             setDeviceSyncStatus("error", message);
@@ -232,7 +236,7 @@ export const AppTitlebar = memo(function AppTitlebar({
         <header
             className={cn(
                 "w-full z-50 select-none border-b border-[var(--color-border)] bg-[var(--color-surface)]",
-                "px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),4px)] lg:py-0",
+                "px-4 pb-2 pt-[max(var(--safe-area-top),4px)] lg:py-0",
                 showDesktopWindowControls ? "lg:pl-14 lg:pr-2" : "lg:px-14",
                 className
             )}
@@ -372,7 +376,12 @@ export const AppTitlebar = memo(function AppTitlebar({
                             aria-label="Sync devices"
                         >
                             <span className="relative inline-flex">
-                                <ArrowDownUp className="w-5 h-5" />
+                                <RefreshCw
+                                    className={cn(
+                                        "w-[18px] h-[18px]",
+                                        (deviceSyncStatus === "syncing" || isQuickSyncing) && "motion-safe:animate-spin",
+                                    )}
+                                />
                                 <span
                                     className={cn(
                                         "absolute -bottom-px -right-px w-2.5 h-2.5 ring-2 ring-[var(--color-surface)] transition-colors duration-300",
@@ -387,14 +396,16 @@ export const AppTitlebar = memo(function AppTitlebar({
                         <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
                             {deviceSyncStatus === "syncing" ? "Syncing with remote device"
                                 : deviceSyncStatus === "synced" ? "Sync complete"
-                                : deviceSyncStatus === "error" ? `Sync error: ${deviceSyncStatus || ""}`
+                                : deviceSyncStatus === "error" ? "Sync failed"
                                 : ""}
                         </span>
                     </div>
 
+                    {/* Phones: Statistics and Settings sit here, the bottom bar holds the five
+                        destinations. Desktop has both at the foot of the rail. */}
                     <button
                         onClick={() => setRoute("statistics")}
-                        className={TITLEBAR_ICON_BUTTON}
+                        className={cn("md:!hidden", TITLEBAR_ICON_BUTTON)}
                         aria-label="Statistics"
                         data-active={currentRoute === "statistics" ? "true" : undefined}
                         aria-pressed={currentRoute === "statistics"}
@@ -402,7 +413,6 @@ export const AppTitlebar = memo(function AppTitlebar({
                         <BarChart3 className="w-5 h-5" />
                     </button>
 
-                    {/* Phones: the bottom bar is full, so Settings sits here. Desktop has it in the rail. */}
                     <button
                         onClick={() => setRoute("settings")}
                         className={cn("md:!hidden", TITLEBAR_ICON_BUTTON)}

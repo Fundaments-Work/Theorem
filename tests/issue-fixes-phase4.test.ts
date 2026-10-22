@@ -156,7 +156,7 @@ describe("sync live path batches gossip bursts", () => {
     });
 
     it("defers tombstone re-merges off the event loop", () => {
-        expect(orchestrator).toContain("_pendingTombstonesValue");
+        expect(orchestrator).toContain("_pendingTombstones");
         expect(orchestrator).toContain("scheduleIdleTask(_flushPendingTombstones)");
     });
 

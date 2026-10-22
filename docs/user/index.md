@@ -42,7 +42,7 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
   Review every highlight, note, saved word and bookmark across your library in one place.
 
 - **[Markdown export for Obsidian and Logseq](vault-sync.md)**
-  Choose an export folder, pick a note style, and keep Markdown files of your highlights and vocabulary up to date.
+  Choose an export folder, pick a note style, and keep Markdown files of your highlights and vocabulary up to date. Desktop app only.
 
 - **[Get ebook highlights into Obsidian](highlights-to-obsidian.md)**
   Step by step: pick your vault as the export folder, highlight in an EPUB or PDF, see the exact Markdown Theorem writes, and set up Logseq or a custom template.
@@ -60,7 +60,7 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
   Subscribe to RSS and Atom feeds, read articles in the reader, save them offline, and control how long they are kept.
 
 - **[Discover free books and online catalogs](discover.md)**
-  Browse public-domain books from Project Gutenberg and Standard Ebooks, and add books with one tap. Connecting your own catalogs and signing in to private libraries arrives in 1.6.0. Works on phones too.
+  Browse and search free public-domain books, add your school, university or library catalog or your own Calibre or Komga server, sign in to private libraries, and add books with one tap. Works on phones too.
 
 - **[Listening with text-to-speech and audiobooks](listening.md)**
   Have a book read aloud, install the offline neural voice, attach an audiobook file, and generate an audiobook.
@@ -85,7 +85,7 @@ Theorem keeps your library, highlights, notes and reading progress on your own d
 
 ## Try it without installing
 
-A browser demo runs at [read.fundaments.work](https://read.fundaments.work). Some features need the desktop or Android app, including smart shelves, folder scanning, device sync and Markdown export.
+A browser demo runs at [read.fundaments.work](https://read.fundaments.work). Some features need the desktop or Android app, including smart shelves, folder scanning and device sync. Markdown export needs the desktop app.
 
 ## Compare Theorem
 

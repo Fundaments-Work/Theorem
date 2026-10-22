@@ -17,6 +17,7 @@ pub mod cli_tui;
 pub mod cover_protocol;
 mod database;
 mod db_backup;
+mod device_name;
 pub mod epub_entries;
 mod epub_parser;
 mod epub_rewriter;
@@ -34,6 +35,7 @@ mod smart_shelves;
 pub mod stardict;
 pub mod stemmer;
 pub mod supertonic;
+mod sync_access;
 mod sync_commands;
 pub mod text_normalizer;
 #[cfg(not(target_os = "android"))]
@@ -1604,6 +1606,13 @@ pub fn run() {
             },
         )
         .on_window_event(|window, event| {
+            // Give memory back when the user switches away, from here rather than from the
+            // page: a webview being hidden cancels IPC requests, and WebKit logs each one as
+            // "Fetch API cannot load ipc://localhost/… due to access control checks".
+            #[cfg(desktop)]
+            if let WindowEvent::Focused(false) = event {
+                trim_memory_soon(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     // Reader windows are separate webviews, so closing the main
@@ -1693,12 +1702,7 @@ pub fn run() {
             // a damaged database is reported to the frontend, not hidden.
             db_backup::run_startup_guard(app.handle());
 
-            let device_name = std::env::var("HOSTNAME")
-                .or_else(|_| std::env::var("COMPUTERNAME"))
-                .unwrap_or_else(|_| "Theorem Device".to_string());
-
-            eprintln!("[startup] Initializing device sync for: {}", device_name);
-            match sync_commands::init_sync(app_data_dir, device_name, app.handle().clone()) {
+            match sync_commands::init_sync(app_data_dir, app.handle().clone()) {
                 Ok(sync_state) => {
                     app.manage(sync_state);
                 }
@@ -1890,6 +1894,8 @@ pub fn run() {
             offload_commands::sqlite_upsert_annotation,
             offload_commands::sqlite_delete_annotation,
             offload_commands::sqlite_merge_sync_entries,
+            offload_commands::sqlite_list_sync_conflicts,
+            offload_commands::sqlite_dismiss_sync_conflicts,
             offload_commands::sqlite_shrink_memory,
             offload_commands::sqlite_query_books_window,
             offload_commands::sqlite_get_rss_feeds,
@@ -1913,22 +1919,34 @@ pub fn run() {
             fuzzy_search::two_tier_search_books,
             sync_commands::iroh_start,
             sync_commands::iroh_stop,
-            sync_commands::iroh_pair,
             sync_commands::generate_pairing_qr,
             sync_commands::submit_pairing_code,
             sync_commands::get_device_identity,
             sync_commands::set_device_fingerprint,
             sync_commands::get_paired_devices,
             sync_commands::unpair_device,
+            sync_commands::set_device_name,
+            sync_commands::sync_probe_device,
+            sync_commands::respond_pairing_request,
+            sync_commands::close_pairing_qr,
             sync_commands::docs_create_sync_doc,
             sync_commands::docs_import_sync_doc,
             sync_commands::docs_set_entry,
+            sync_commands::docs_set_entries,
+            sync_commands::docs_retain_own_entries,
             sync_commands::docs_get_all_entries,
+            sync_commands::docs_get_changed_entries,
+            sync_commands::docs_ack_entries,
+            sync_commands::docs_purge_entities,
             sync_commands::docs_sync_now,
-            file_transfer::request_book_file,
             file_transfer::download_book_file,
             sync_commands::clear_sync_databases,
             set_android_fingerprint,
+            reminder_status,
+            system_insets,
+            configure_reading_reminder,
+            open_exact_alarm_settings,
+            open_notification_settings,
             hide_to_tray,
             download_and_extract_stardict,
             stardict::stardict_lookup,
@@ -1965,6 +1983,91 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// The system bars' and cutout's size at each edge (Android). Elsewhere the webview's own
+/// `env(safe-area-inset-*)` is right, so this reports nothing.
+#[tauri::command]
+fn system_insets(
+    app: tauri::AppHandle,
+) -> Result<tauri_plugin_mobile_folder_scan::SystemInsets, String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::system_insets(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(tauri_plugin_mobile_folder_scan::SystemInsets::default())
+    }
+}
+
+/// Whether daily reading reminders fire at the exact minute (Android "Alarms & reminders").
+/// Elsewhere there is nothing to grant.
+#[tauri::command]
+fn reminder_status(
+    app: tauri::AppHandle,
+) -> Result<tauri_plugin_mobile_folder_scan::ReminderStatus, String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::reminder_status(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(tauri_plugin_mobile_folder_scan::ReminderStatus {
+            exact_alarms: true,
+            can_request_exact_alarms: false,
+            next_reminder_at: None,
+        })
+    }
+}
+
+/// Hands the daily reminder settings to Android, which schedules and re-arms the reminder
+/// itself. Desktop reminds from the running app instead, so this does nothing there.
+#[tauri::command]
+fn configure_reading_reminder(
+    app: tauri::AppHandle,
+    config: tauri_plugin_mobile_folder_scan::ReminderConfig,
+) -> Result<(), String> {
+    if config.hour > 23 || config.minute > 59 {
+        return Err("Invalid reminder time".into());
+    }
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::configure_reminder(&app, &config)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (&app, &config);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn open_exact_alarm_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::open_exact_alarm_settings(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn open_notification_settings(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        tauri_plugin_mobile_folder_scan::open_notification_settings(&app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -2324,6 +2427,29 @@ async fn fetch_online_definition(term: String) -> Result<serde_json::Value, Stri
         .map_err(|e| format!("JSON parse error: {e}"))?;
 
     Ok(json)
+}
+
+/// `trim_memory` off the UI thread, at most once every 30 seconds (focus can flicker).
+#[cfg(desktop)]
+fn trim_memory_soon(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST_TRIM_SECS: AtomicU64 = AtomicU64::new(0);
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let last = LAST_TRIM_SECS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 30
+        || LAST_TRIM_SECS
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || trim_memory(app));
 }
 
 fn trim_memory(app: tauri::AppHandle) {

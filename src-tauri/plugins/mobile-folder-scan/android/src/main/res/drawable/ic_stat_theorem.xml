@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Theorem's "T" (public/favicon.svg) as a status-bar icon: one colour, transparent ground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M4,4 H20 V8 L14,8 V16 H18 V20 H14 L10,20 V8 L4,8 V4 Z M10,16 H14 V20 H10 V16 Z" />
+</vector>

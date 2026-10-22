@@ -50,5 +50,5 @@ On the Dictionary tab, turn Show Pronunciation on or off to show or hide the pho
 ## Review and export your vocabulary
 
 - **In the app.** Open the Workbench and select the Words tab. Click a word to see its definitions, or choose Delete this term to remove it. See [Workbench and bookmarks](workbench.md#review-saved-words).
-- **As Markdown.** Saved words are written to `Vocabulary.md` in your export folder. See [Markdown export for Obsidian and Logseq](vault-sync.md#vocabulary-file).
+- **As Markdown.** In the desktop app, saved words are written to `Vocabulary.md` in your export folder. See [Markdown export for Obsidian and Logseq](vault-sync.md#vocabulary-file).
 - **On other devices.** Vocabulary is included in [device sync](device-sync.md).

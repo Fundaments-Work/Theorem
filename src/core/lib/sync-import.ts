@@ -1,4 +1,5 @@
 import { normalizeShelfHierarchy } from "./shelf-hierarchy";
+import { BOOK_EDITABLE_FIELDS } from "./book-edit-stamp";
 
 import type {
     Book,
@@ -111,7 +112,15 @@ export function mergeBooks(
             continue;
         }
 
-        const remoteIsNewer = toEpoch(inc.lastReadAt) > toEpoch(match.lastReadAt);
+        const remoteReadAt = toEpoch(inc.lastReadAt);
+        const localReadAt = toEpoch(match.lastReadAt);
+        const remoteIsNewer = remoteReadAt > localReadAt;
+        const localIsNewer = localReadAt > remoteReadAt;
+        // Progress and position travel together: the newer read wins both, so
+        // re-reading from the start is not undone by an older, higher progress.
+        // Only when neither read is newer (tie or both unknown) does the
+        // higher progress win, with the position that goes with it.
+        const tieTakesRemote = (inc.progress ?? 0) > (match.progress ?? 0);
 
         const merged: Book = {
             ...match,
@@ -131,9 +140,11 @@ export function mergeBooks(
             
             progress: remoteIsNewer
                 ? (inc.progress ?? match.progress)
-                : Math.max(match.progress ?? 0, inc.progress ?? 0),
+                : localIsNewer
+                    ? (match.progress ?? inc.progress)
+                    : Math.max(match.progress ?? 0, inc.progress ?? 0),
             lastReadAt: remoteIsNewer ? inc.lastReadAt : match.lastReadAt,
-            currentLocation: remoteIsNewer
+            currentLocation: remoteIsNewer || (!localIsNewer && tieTakesRemote)
                 ? inc.currentLocation ?? match.currentLocation
                 : match.currentLocation,
             
@@ -165,6 +176,27 @@ export function mergeBooks(
             manualCompletionState: match.manualCompletionState ?? inc.manualCompletionState,
             progressBeforeFinish: match.progressBeforeFinish ?? inc.progressBeforeFinish,
         };
+
+        // Once either side has stamped an edit, the details are last-writer-
+        // wins as a unit: removing a favourite, a tag or a rating, or marking
+        // a book unread, reaches the other devices instead of being merged
+        // back. Without stamps (older app versions) the union rules above stay.
+        const remoteEditAt = toEpoch(inc.metadataUpdatedAt);
+        const localEditAt = toEpoch(match.metadataUpdatedAt);
+        if (remoteEditAt > 0 || localEditAt > 0) {
+            const winner = remoteEditAt > localEditAt ? inc : match;
+            const target = merged as unknown as Record<string, unknown>;
+            for (const field of BOOK_EDITABLE_FIELDS) {
+                target[field] = winner[field];
+            }
+            merged.progressBeforeFinish = winner.progressBeforeFinish;
+            merged.title = merged.title || match.title || inc.title;
+            merged.author = merged.author || match.author || inc.author;
+            merged.tags = merged.tags ?? [];
+            merged.isFavorite = Boolean(merged.isFavorite);
+            merged.metadataUpdatedAt = winner.metadataUpdatedAt;
+            merged.metadataBaseAt = winner.metadataBaseAt;
+        }
 
         byId.set(match.id, merged);
         if (merged.blobHash) byBlobHash.set(merged.blobHash, merged);

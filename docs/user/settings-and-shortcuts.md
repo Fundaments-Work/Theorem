@@ -2,7 +2,7 @@
 
 Find every Theorem setting by tab, learn the keyboard shortcuts for the app and the reader, back up your data, clear it, and use the command line on desktop.
 
-Open Settings from the gear icon at the bottom of the sidebar, from the gear icon in the top bar on Android, or with `Ctrl+,`. Settings has six tabs: General, Dictionary, Devices & Export, Data & Storage, Shortcuts and About. Theorem remembers the tab you used last during a session.
+Open Settings from the gear icon at the bottom of the sidebar, from the gear icon in the top bar on Android, or with `Ctrl+,`. Settings has six tabs: General, Dictionary, Devices & Export, Data & Storage, Shortcuts and About. On phones and tablets there is no Shortcuts tab, since there is no keyboard to use them with, and Devices & Export is called Devices. Theorem remembers the tab you used last during a session.
 
 ## General
 
@@ -107,10 +107,10 @@ This guide writes `Ctrl` for the main shortcut key. On Windows and Linux that is
 | :--- | :--- |
 | `Ctrl+1` | Library |
 | `Ctrl+2` | Shelves |
-| `Ctrl+3` | Feeds |
-| `Ctrl+4` | Workbench |
-| `Ctrl+5` | Statistics |
-| `Ctrl+6` | Discover |
+| `Ctrl+3` | Discover |
+| `Ctrl+4` | Feeds |
+| `Ctrl+5` | Workbench |
+| `Ctrl+6` | Statistics |
 | `Ctrl+7` | Bookmarks |
 | `Ctrl+,` | Settings |
 | `Ctrl+F` | Focus the search box (outside the reader) |

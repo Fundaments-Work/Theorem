@@ -18,20 +18,21 @@ import type {
 } from "../types";
 import { applyCatalogQuirks, mergeEditions } from "./opds-quirks";
 
+/**
+ * The app's own catalog: Fundaments' OPDS server. Its shelves, spotlight and search are curated
+ * on the server (the private `fundaments-catalog` repo), so they change without an app release.
+ */
+export const FUNDAMENTS_CATALOG_ID = "fundaments-library";
+
 export const DEFAULT_OPDS_PRESETS: OpdsCatalog[] = [
     {
-        id: "project-gutenberg",
-        title: "Project Gutenberg",
-        url: "https://www.gutenberg.org/ebooks.opds/",
+        id: FUNDAMENTS_CATALOG_ID,
+        title: "Fundaments Library",
+        // The home file itself, not /opds: that address is a redirect, and a browser following a
+        // cross-origin redirect needs CORS on the redirect too, which static redirects lack.
+        url: "https://catalog.fundaments.work/opds/index.json",
         isPreset: true,
-        description: "Over 70,000 free classics and public domain literature.",
-    },
-    {
-        id: "standard-ebooks",
-        title: "Standard Ebooks",
-        url: "https://standardebooks.org/feeds/atom/new-releases",
-        isPreset: true,
-        description: "Carefully produced, beautifully formatted public domain ebooks.",
+        description: "Free classics and restored editions, chosen with care.",
     },
 ];
 
@@ -221,13 +222,53 @@ function expectFeed(loaded: OpdsLoaded): LoadedFeed {
     }
 }
 
+// ── offline copy of the built-in catalog's home ─────────────────────────────
+// The last good home feed of each built-in catalog is kept on the device, so Discover still
+// shows something without a connection. Only built-in catalogs: never a private catalog's data.
+
+const OFFLINE_PREFIX = "theorem-opds-offline:";
+const OFFLINE_FALLBACK_KINDS = new Set<OpdsErrorKind>(["network", "timeout", "http", "rateLimited", "cors"]);
+
+function offlineEligible(url: string, auth?: OpdsCredentials): boolean {
+    return !auth && DEFAULT_OPDS_PRESETS.some((p) => normalizeCatalogUrl(p.url) === url);
+}
+
+function saveOffline(url: string, loaded: OpdsLoaded): void {
+    try {
+        localStorage.setItem(OFFLINE_PREFIX + url, JSON.stringify(loaded));
+    } catch {
+        // Storage full or unavailable: the copy is a convenience, never required.
+    }
+}
+
+function readOffline(url: string): OpdsLoaded | null {
+    try {
+        const raw = localStorage.getItem(OFFLINE_PREFIX + url);
+        if (!raw) return null;
+        const loaded = JSON.parse(raw) as OpdsLoaded;
+        return loaded?.outcome?.type === "feed" && typeof loaded.finalUrl === "string" ? loaded : null;
+    } catch {
+        return null;
+    }
+}
+
 async function loadRaw(url: string, opts: LoadOptions = {}): Promise<OpdsLoaded> {
     const key = cacheKey(url, opts.auth);
     const hit = feedCache.get(key);
     if (!opts.force && hit && Date.now() - hit.at < FEED_TTL_MS) return hit.loaded;
-    const loaded = isTauri() ? await loadNative(url, opts.auth) : await loadInBrowser(url, opts.auth);
+    let loaded: OpdsLoaded;
+    try {
+        loaded = isTauri() ? await loadNative(url, opts.auth) : await loadInBrowser(url, opts.auth);
+    } catch (error) {
+        const offline = error instanceof OpdsError && OFFLINE_FALLBACK_KINDS.has(error.kind) && offlineEligible(url, opts.auth) ? readOffline(url) : null;
+        if (offline) return offline;
+        throw error;
+    }
     // Only documents that are feeds are worth keeping; an auth challenge must be re-asked.
-    if (loaded.outcome.type === "feed") remember(key, loaded);
+    if (loaded.outcome.type === "feed") {
+        remember(key, loaded);
+        if (offlineEligible(url, opts.auth)) saveOffline(url, loaded);
+    }
     return loaded;
 }
 

@@ -294,7 +294,7 @@ export function WindowTitlebar({
             className={cn(
                 "w-full z-[150] select-none reader-toolbar relative",
                 "border-b border-[var(--color-border)] bg-[var(--color-surface)]",
-                "pt-[max(env(safe-area-inset-top,0px),2px)] lg:pt-0",
+                "pt-[max(var(--safe-area-top),2px)] lg:pt-0",
                 className
             )}
             onDoubleClick={showDesktopWindowControls ? handleMaximize : undefined}

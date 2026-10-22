@@ -34,7 +34,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 - Dictionary size and import status
 
 ### Devices & Export (id: `integrations`)
-- **Vault sync**: Path to Obsidian/Logseq vault, auto-export toggle, filenames
+- **Vault sync**: Path to Obsidian/Logseq vault, auto-export toggle, filenames. Rendered only when `isTauriDesktop()`; on mobile and web the section is hidden and the tab is labelled "Devices"
 - **Device sync**: Device identity, QR pair, paired devices list, unpair, auto-sync toggle
 - **CLI Setup**: enable/disable the headless `theorem` CLI with auto-heal — see [plans/done/2026-09-01-headless-cli-architecture.md](plans/done/2026-09-01-headless-cli-architecture.md)
 

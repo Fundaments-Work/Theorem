@@ -6,7 +6,7 @@ import type { OpdsCatalog, OpdsCredentials } from "../types";
 
 export interface OpdsState {
     catalogs: OpdsCatalog[];
-    /** The catalog being browsed, or `null` for the curated Discover home. */
+    /** The catalog being browsed, or `null` for the built-in Fundaments catalog. */
     activeCatalogId: string | null;
 
     addCatalog: (catalog: Omit<OpdsCatalog, "id">) => string;
@@ -15,6 +15,12 @@ export interface OpdsState {
     setCredentials: (id: string, auth: OpdsCredentials | undefined) => void;
     setActiveCatalog: (id: string | null) => void;
 }
+
+/** Sources that were built in before 1.6.0, when the app gained its own catalog. */
+const FORMER_PRESET_IDS = new Set(["project-gutenberg", "standard-ebooks"]);
+
+/** Keys of the client-side Discover storefront's cache, retired in 1.6.0. */
+const RETIRED_STORAGE_KEYS = ["theorem_discover_cache_v3", "theorem_discover_cache_v2", "theorem_discover_cache"];
 
 function withPresets(catalogs: unknown): OpdsCatalog[] {
     const list = Array.isArray(catalogs) ? (catalogs as OpdsCatalog[]) : [];
@@ -79,7 +85,7 @@ export const useOpdsStore = create<OpdsState>()(
         }),
         {
             name: "theorem-opds",
-            version: 3,
+            version: 5,
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
                 (state) => [state.catalogs, state.activeCatalogId],
@@ -93,13 +99,33 @@ export const useOpdsStore = create<OpdsState>()(
                 let catalogs = Array.isArray(state.catalogs) ? state.catalogs : [];
                 if (version < 2) {
                     catalogs = catalogs.map((c) => {
-                        if (c.url === "https://m.gutenberg.org/ebooks.opds/") return { ...c, url: "https://www.gutenberg.org/ebooks.opds/" };
+                        if (c?.url === "https://m.gutenberg.org/ebooks.opds/") return { ...c, url: "https://www.gutenberg.org/ebooks.opds/" };
                         return c;
                     });
                 }
-                // v3: the old browser was replaced and "Add Source" entries were never browsable.
-                // Keep every catalog the user added; start on the Discover home.
-                return { catalogs: withPresets(catalogs), activeCatalogId: null };
+                let activeCatalogId: string | null = null;
+                if (version < 5) {
+                    // v4/v5: Fundaments' own catalog replaces Project Gutenberg and Standard Ebooks
+                    // as the built-in source (Discover's home now carries both). They were the app's
+                    // defaults, not the reader's choice, so they go; one the reader signed in to
+                    // (a Standard Ebooks patron) was a choice and stays as an ordinary catalog.
+                    // v5 repeats it for stores an early 1.6.0 build migrated to v4 by keeping them
+                    // as ordinary tabs. Catalogs the reader added have generated ids and are kept.
+                    catalogs = catalogs.flatMap((c) => {
+                        if (!c || !FORMER_PRESET_IDS.has(c.id)) return [c];
+                        return c.auth ? [{ ...c, isPreset: false }] : [];
+                    });
+                    try {
+                        for (const key of RETIRED_STORAGE_KEYS) localStorage.removeItem(key);
+                    } catch {
+                        // No storage (tests, private mode): nothing to clean.
+                    }
+                }
+                if (version >= 3 && typeof state.activeCatalogId === "string") activeCatalogId = state.activeCatalogId;
+                const migrated = withPresets(catalogs.filter((c) => c && typeof c.id === "string" && typeof c.url === "string"));
+                // A remembered catalog that no longer exists falls back to the built-in one.
+                if (activeCatalogId && !migrated.some((c) => c.id === activeCatalogId)) activeCatalogId = null;
+                return { catalogs: migrated, activeCatalogId };
             },
         },
     ),

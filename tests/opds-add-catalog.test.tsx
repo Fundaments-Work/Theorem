@@ -119,6 +119,41 @@ describe("add catalog", () => {
         expect(btn("Check address")).toBeDefined();
     });
 
+    it("does not ask for a sign-in before the server has been asked", async () => {
+        mount();
+        typeAddress("books.example.org/opds");
+        expect(dialog().textContent).not.toMatch(/needs a sign-in|asks for a sign-in|account/i);
+        expect(dialog().querySelector('input[autocomplete="username"]')).toBeNull();
+    });
+
+    it("does not offer a sign-in when the check fails for another reason", async () => {
+        probe.mockRejectedValue(new OpdsError("unsupported", "Not a catalog."));
+        mount();
+        typeAddress("example.org");
+        await submit();
+        expect(dialog().textContent).not.toMatch(/sign-in|account/i);
+        expect(dialog().querySelector('input[autocomplete="username"]')).toBeNull();
+    });
+
+    it("after a successful check, offers an optional sign-in for members-only books, and checks again with it", async () => {
+        probe.mockResolvedValue({ feed: makeFeed({ title: "Town Library" }), finalUrl: "https://lib.example/opds" });
+        const { onAdd } = mount();
+        typeAddress("https://lib.example/opds");
+        await submit();
+        expect(btn("Add catalog")).toBeDefined();
+        const optional = Array.from(dialog().querySelectorAll("button")).find((b) => /have an account/i.test(b.textContent ?? ""))!;
+        expect(optional).toBeDefined();
+        act(() => optional.click());
+        setInputValue(dialog(), 'input[autocomplete="username"]', "member");
+        setInputValue(dialog(), 'input[autocomplete="current-password"]', "pw");
+        // New details have not been checked yet: the main button checks again instead of adding.
+        expect(btn("Add catalog")).toBeUndefined();
+        await submit();
+        expect(probe).toHaveBeenLastCalledWith("https://lib.example/opds", { username: "member", password: "pw" });
+        await submit();
+        expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ auth: { username: "member", password: "pw" } }));
+    });
+
     it("cannot be submitted empty", async () => {
         mount();
         expect(btn("Check address")!.disabled).toBe(true);

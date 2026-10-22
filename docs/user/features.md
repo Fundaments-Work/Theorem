@@ -21,7 +21,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 
 ## Finding books
 
-- **Discover.** The curated storefront, Project Gutenberg and Standard Ebooks, plus any OPDS catalog you add (Calibre, Komga, Kavita and others), with sign-in for private catalogs. Works on desktop and Android. [Discover](discover.md)
+- **Discover.** Hand-picked free books with search over about 78,000 titles, newest editions, shelves and subjects, plus your school, university or library catalog or your own OPDS server (Calibre, Komga, Kavita and others) as tabs, with sign-in for private catalogs. Works on desktop and Android. [Discover](discover.md)
 
 ## Reading
 
@@ -54,7 +54,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 
 ## Your data
 
-- **Markdown export.** Keep highlights and vocabulary as plain files for Obsidian or Logseq, with built-in note styles and your own template. Needs the desktop or Android app. [Markdown export](vault-sync.md), [Write a custom template](vault-sync.md#write-a-custom-template)
+- **Markdown export.** Keep highlights and vocabulary as plain files for Obsidian or Logseq, with built-in note styles and your own template. Desktop app only. [Markdown export](vault-sync.md), [Write a custom template](vault-sync.md#write-a-custom-template)
 - **Sync between devices.** Pair devices directly with a QR code, with no cloud account. Needs the desktop or Android app. [Sync between devices](device-sync.md)
 - **Backups.** Create a backup file, and see or clear your storage. [Data and storage](settings-and-shortcuts.md#data--storage)
 - **Everything stays on your device.** There is no account and no cloud service.

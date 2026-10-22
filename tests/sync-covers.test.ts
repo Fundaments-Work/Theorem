@@ -6,7 +6,10 @@ let docsEntries: Record<string, string> = {};
 vi.mock("@tauri-apps/api/core", () => ({
     invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
         if (cmd === "docs_set_entry") { docsWrites.push({ key: args!.key as string, value: args!.value as string }); return null; }
+        if (cmd === "docs_set_entries") { docsWrites.push(...(args!.entries as Array<{ key: string; value: string }>)); return null; }
         if (cmd === "docs_get_all_entries") return docsEntries;
+        // A sync round reads only changed entries (the first read is full).
+        if (cmd === "docs_get_changed_entries") return { entries: docsEntries, token: 1 };
         return null;
     }),
     convertFileSrc: (p: string, proto = "asset") => `${proto}://localhost/${encodeURIComponent(p)}`,

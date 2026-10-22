@@ -14,6 +14,8 @@ use theorem_sync_core::sync_crypto;
 use theorem_sync_core::sync_persistence;
 use theorem_sync_core::sync_protocol::{PairedDevice, PairingRequest, PairingResponse};
 
+use crate::sync_access::{self, PairingCheck, PairingSessions, PeerAllowlist, PeerGate};
+
 const ALPN: &[u8] = b"theorem-sync/v1";
 pub const ALPN_BYTES: &[u8] = ALPN;
 
@@ -27,39 +29,73 @@ struct EntryPayload {
 #[derive(serde::Serialize, Clone)]
 struct EntryBatchPayload {
     entries: Vec<EntryPayload>,
+    /// Items another device deleted (their newest entry is a deletion).
+    deleted: Vec<crate::sync_commands::DeletedDocKey>,
+}
+
+#[derive(Default)]
+struct PendingBatch {
+    entries: Vec<EntryPayload>,
+    deleted: Vec<crate::sync_commands::DeletedDocKey>,
+}
+
+impl PendingBatch {
+    fn len(&self) -> usize {
+        self.entries.len() + self.deleted.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Batches remote doc entries before emitting them over IPC so a bulk sync
 /// arrives as a few `docs-entry-batch` events instead of one event per entry.
 /// Later values for the same key replace earlier ones, so only the newest
 /// state of each record crosses the bridge.
-struct EntryBatcher {
-    app: tauri::AppHandle,
-    entries: std::sync::Mutex<Vec<EntryPayload>>,
+struct EntryBatcher<R: tauri::Runtime> {
+    app: tauri::AppHandle<R>,
+    pending: std::sync::Mutex<PendingBatch>,
     flush_scheduled: std::sync::atomic::AtomicBool,
 }
 
-impl EntryBatcher {
+impl<R: tauri::Runtime> EntryBatcher<R> {
     const FLUSH_DELAY_MS: u64 = 300;
     const MAX_BATCH: usize = 64;
 
-    fn new(app: tauri::AppHandle) -> Arc<Self> {
+    fn new(app: tauri::AppHandle<R>) -> Arc<Self> {
         Arc::new(Self {
             app,
-            entries: std::sync::Mutex::new(Vec::new()),
+            pending: std::sync::Mutex::new(PendingBatch::default()),
             flush_scheduled: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     fn push(self: &Arc<Self>, key: String, value: String) {
         let should_flush = {
-            let mut guard = self.entries.lock().unwrap();
-            match guard.iter_mut().find(|e| e.key == key) {
+            let mut guard = self.pending.lock().unwrap();
+            guard.deleted.retain(|d| d.key != key);
+            match guard.entries.iter_mut().find(|e| e.key == key) {
                 Some(existing) => {
                     existing.value = value;
                 }
-                None => guard.push(EntryPayload { key, value }),
+                None => guard.entries.push(EntryPayload { key, value }),
             }
+            guard.len() >= Self::MAX_BATCH
+        };
+        if should_flush {
+            self.flush();
+        } else {
+            self.schedule_flush();
+        }
+    }
+
+    fn push_deleted(self: &Arc<Self>, deleted: crate::sync_commands::DeletedDocKey) {
+        let should_flush = {
+            let mut guard = self.pending.lock().unwrap();
+            guard.entries.retain(|e| e.key != deleted.key);
+            guard.deleted.retain(|d| d.key != deleted.key);
+            guard.deleted.push(deleted);
             guard.len() >= Self::MAX_BATCH
         };
         if should_flush {
@@ -85,13 +121,17 @@ impl EntryBatcher {
     }
 
     fn flush(&self) {
-        let drained = std::mem::take(&mut *self.entries.lock().unwrap());
+        let drained = std::mem::take(&mut *self.pending.lock().unwrap());
         if drained.is_empty() {
             return;
         }
-        let _ = self
-            .app
-            .emit("docs-entry-batch", EntryBatchPayload { entries: drained });
+        let _ = self.app.emit(
+            "docs-entry-batch",
+            EntryBatchPayload {
+                entries: drained.entries,
+                deleted: drained.deleted,
+            },
+        );
     }
 }
 
@@ -111,17 +151,41 @@ pub struct IrohPeerInfo {
     pub fingerprint: String,
 }
 
-pub struct SyncTransportState {
-    pub app_handle: tauri::AppHandle,
+/// Generic over the Tauri runtime only so tests can use the mock runtime.
+pub struct SyncTransportState<R: tauri::Runtime = tauri::Wry> {
+    pub app_handle: tauri::AppHandle<R>,
     pub device_id: String,
     pub fingerprint: String,
-    pub device_name: String,
+    /// What paired devices see; the user can rename it (`set_device_name`).
+    pub device_name: std::sync::RwLock<String>,
     pub app_data_dir: PathBuf,
     pub paired_devices: Mutex<HashMap<String, PairedDevice>>,
     pub docs_api: Mutex<Option<DocsApiSnapshot>>,
     /// Incremented each time an accept loop spawns; lets readers detect a
     /// snapshot that outlived its engine (stale generation = dead actor).
     pub docs_generation: std::sync::atomic::AtomicU64,
+    /// The devices allowed to connect, kept in step with `paired_devices`.
+    pub allowlist: Arc<PeerAllowlist>,
+    /// The secret of the pairing QR code on screen, if any.
+    pub pairing: PairingSessions,
+    /// Pairing requests waiting for the user to accept or decline them.
+    pub pairing_confirms: std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
+}
+
+impl<R: tauri::Runtime> SyncTransportState<R> {
+    pub fn device_name(&self) -> String {
+        self.device_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Saves the paired devices and updates who may connect. Every change to
+    /// `paired_devices` goes through here so the two never disagree.
+    pub fn persist_paired(&self, devices: &HashMap<String, PairedDevice>) -> Result<(), String> {
+        self.allowlist.set_paired(devices);
+        sync_persistence::save_paired_devices(&self.app_data_dir, devices)
+    }
 }
 
 #[derive(Clone)]
@@ -133,11 +197,25 @@ pub struct DocsApiSnapshot {
     pub generation: u64,
 }
 
+/// How long a connection may go silent before it counts as gone. iroh sends
+/// a keep-alive every 5 s, so a live device never gets near this; a device
+/// that vanished (app killed, out of range) is reported offline after it,
+/// instead of after QUIC's default 30 s.
+pub const CONNECTION_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
+fn transport_config() -> iroh::endpoint::QuicTransportConfig {
+    let builder = iroh::endpoint::QuicTransportConfig::builder();
+    match CONNECTION_IDLE_TIMEOUT.try_into() {
+        Ok(idle) => builder.max_idle_timeout(Some(idle)),
+        Err(_) => builder,
+    }
+    .build()
+}
+
 pub struct IrohSyncEndpoint {
     pub endpoint: iroh::endpoint::Endpoint,
     pub public_key: PublicKey,
     pub peer_info: IrohPeerInfo,
-    peers: Mutex<HashMap<String, IrohPeerInfo>>,
 }
 
 impl IrohSyncEndpoint {
@@ -146,6 +224,7 @@ impl IrohSyncEndpoint {
         device_id: String,
         device_name: String,
         fingerprint: String,
+        allowlist: Arc<PeerAllowlist>,
     ) -> Result<Self, String> {
         let secret_key = load_or_create_key(key_path)?;
         let public_key = secret_key.public();
@@ -157,7 +236,9 @@ impl IrohSyncEndpoint {
                 iroh_docs::ALPN.to_vec(),
                 iroh_gossip::ALPN.to_vec(),
             ])
-            .relay_mode(RelayMode::Default);
+            .relay_mode(RelayMode::Default)
+            .transport_config(transport_config())
+            .hooks(PeerGate::new(allowlist, ALPN));
 
         let builder = if std::env::var("THEOREM_DISABLE_MDNS").is_err() {
             builder.address_lookup(MdnsAddressLookup::builder())
@@ -179,7 +260,6 @@ impl IrohSyncEndpoint {
             endpoint,
             public_key,
             peer_info,
-            peers: Mutex::new(HashMap::new()),
         })
     }
 
@@ -187,27 +267,56 @@ impl IrohSyncEndpoint {
         self.public_key.to_string()
     }
 
-    pub async fn add_peer(&self, peer: IrohPeerInfo) {
-        self.peers.lock().await.insert(peer.device_id.clone(), peer);
-    }
-
     pub async fn close(&self) {
         self.endpoint.close().await;
     }
 }
 
+/// The device's sync identity. A new one is made only when there is none, or
+/// when the file is not a key at all (then it is kept as `iroh-key.corrupt`):
+/// a key that merely failed to read is never replaced, because a new identity
+/// silently unpairs every device.
 pub fn load_or_create_key(path: &PathBuf) -> Result<SecretKey, String> {
-    if let Ok(bytes) = std::fs::read(path) {
-        if let Ok(arr) = <[u8; 32]>::try_from(bytes) {
-            return Ok(SecretKey::from_bytes(&arr));
-        }
+    match std::fs::read(path) {
+        Ok(bytes) => match <[u8; 32]>::try_from(bytes) {
+            Ok(arr) => {
+                // Keys written by older versions were readable by other users.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+                }
+                return Ok(SecretKey::from_bytes(&arr));
+            }
+            Err(_) => {
+                eprintln!("[iroh-sync] Sync key file is malformed; keeping it as iroh-key.corrupt");
+                let _ = std::fs::rename(path, path.with_extension("corrupt"));
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("read sync key: {e}")),
     }
     let key = SecretKey::generate();
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p).ok();
     }
-    std::fs::write(path, key.to_bytes()).map_err(|e| e.to_string())?;
+    write_private(path, &key.to_bytes()).map_err(|e| format!("write sync key: {e}"))?;
     Ok(key)
+}
+
+/// Writes a file only this user can read.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 async fn send_on_bi(
@@ -225,12 +334,17 @@ async fn send_on_bi(
     send.finish().map_err(|e| format!("finish: {e}"))
 }
 
+/// Reads one length-prefixed message. The length is checked before anything
+/// is allocated, so a peer cannot make us reserve gigabytes.
 async fn recv_from_bi(recv: &mut iroh::endpoint::RecvStream) -> Result<Vec<u8>, String> {
     let mut lb = [0u8; 4];
     recv.read_exact(&mut lb)
         .await
         .map_err(|e| format!("read len: {e}"))?;
     let len = u32::from_be_bytes(lb) as usize;
+    if len > sync_access::MAX_PAIRING_FRAME {
+        return Err(format!("pairing message too large ({len} bytes)"));
+    }
     let mut buf = vec![0u8; len];
     recv.read_exact(&mut buf)
         .await
@@ -238,8 +352,8 @@ async fn recv_from_bi(recv: &mut iroh::endpoint::RecvStream) -> Result<Vec<u8>, 
     Ok(buf)
 }
 
-pub fn subscribe_doc_events(
-    app: tauri::AppHandle,
+pub fn subscribe_doc_events<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     doc: iroh_docs::api::Doc,
     blobs: iroh_blobs::api::Store,
 ) {
@@ -267,6 +381,7 @@ pub fn subscribe_doc_events(
                 }
             };
             subscribe_failures = 0;
+            let stream_started = std::time::Instant::now();
             use futures::StreamExt;
             let mut pending: std::collections::HashMap<iroh_blobs::Hash, String> =
                 std::collections::HashMap::new();
@@ -276,13 +391,30 @@ pub fn subscribe_doc_events(
                     Ok(LiveEvent::InsertRemote { entry, .. }) => {
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
-                        if let Ok(content) = blobs.blobs().get_bytes(hash).await {
-                            if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                batcher.push(key.clone(), value);
+                        if hash == iroh_blobs::Hash::EMPTY {
+                            // A deletion. It counts only if nothing in this doc
+                            // is newer (this device may have written the key since).
+                            if crate::sync_commands::is_deletable_key(&key)
+                                && newest_is_deletion(&doc, &key).await
+                            {
+                                batcher.push_deleted(crate::sync_commands::DeletedDocKey {
+                                    key,
+                                    at: entry.timestamp() / 1000,
+                                });
+                            }
+                            continue;
+                        }
+                        // Content already here: deliver it now. Otherwise wait for
+                        // ContentReady (delivering on both would send it twice).
+                        match blobs.blobs().get_bytes(hash).await {
+                            Ok(content) => {
+                                if let Ok(value) = String::from_utf8(content.to_vec()) {
+                                    batcher.push(key, value);
+                                }
+                            }
+                            Err(_) => {
                                 pending.insert(hash, key);
                             }
-                        } else {
-                            pending.insert(hash, key);
                         }
                     }
                     Ok(LiveEvent::ContentReady { hash }) => {
@@ -322,12 +454,37 @@ pub fn subscribe_doc_events(
                         struct SyncFinishedPayload {
                             peer: String,
                             synced: bool,
+                            received: usize,
+                            sent: usize,
+                        }
+                        let (synced, received, sent) = sync_outcome(
+                            event
+                                .result
+                                .as_ref()
+                                .map(|d| (d.entries_received, d.entries_sent))
+                                .map_err(String::as_str),
+                        );
+                        if let Err(e) = &event.result {
+                            eprintln!(
+                                "[iroh-sync] sync with {} {}: {e:?}",
+                                event.peer,
+                                if synced {
+                                    "finished, teardown failed"
+                                } else {
+                                    "failed"
+                                }
+                            );
+                        }
+                        if synced {
+                            record_last_sync(&app, &event.peer).await;
                         }
                         let _ = app.emit(
                             "docs-sync-finished",
                             SyncFinishedPayload {
                                 peer: event.peer.to_string(),
-                                synced: true,
+                                synced,
+                                received,
+                                sent,
                             },
                         );
                     }
@@ -364,13 +521,22 @@ pub fn subscribe_doc_events(
 
                         let msg = err.to_string();
                         if msg.contains("actor failed") || msg.contains("actor closed") {
-                            break;
+                            // This doc's engine was shut down (unpairing, sync
+                            // turned off, a restart). A new engine subscribes its
+                            // own docs; retrying here only spins for minutes.
+                            return;
                         }
                     }
                     _ => {}
                 }
             }
 
+            // A stream that ran for a while was healthy: only rapid, repeated
+            // failures count towards giving up.
+            if stream_started.elapsed() > std::time::Duration::from_secs(60) {
+                stream_deaths = 0;
+                backoff_ms = 1000;
+            }
             stream_deaths += 1;
             if stream_deaths > MAX_STREAM_DEATHS {
                 eprintln!(
@@ -388,73 +554,134 @@ pub fn subscribe_doc_events(
     });
 }
 
-#[derive(Clone)]
-pub struct PairingProtocolHandler {
-    pub state: Arc<SyncTransportState>,
+/// Whether the newest entry for `key` in `doc` (by any device) is a deletion.
+async fn newest_is_deletion(doc: &iroh_docs::api::Doc, key: &str) -> bool {
+    matches!(
+        doc.get_one(
+            iroh_docs::store::Query::single_latest_per_key()
+                .key_exact(key.as_bytes())
+                .include_empty()
+                .build(),
+        )
+        .await,
+        Ok(Some(entry)) if entry.content_hash() == iroh_blobs::Hash::EMPTY
+    )
 }
 
-impl std::fmt::Debug for PairingProtocolHandler {
+/// Whether a finished iroh-docs exchange actually synced, and its counts.
+/// iroh-docs reports an error when only the connection teardown failed
+/// ("Failed to close ..."), typically when the other side hangs up first over
+/// a relay; the exchange itself completed, so that counts as synced.
+/// (`result` is the event's entry counts, received and sent, or its error.)
+fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize, usize) {
+    match result {
+        Ok((received, sent)) => (true, received, sent),
+        Err(e) if e.starts_with("Failed to close") => (true, 0, 0),
+        Err(_) => (false, 0, 0),
+    }
+}
+
+/// Marks when this device last completed a sync with `peer`.
+async fn record_last_sync<R: tauri::Runtime>(app: &tauri::AppHandle<R>, peer: &PublicKey) {
+    use tauri::Manager;
+    let Some(sync_state) = app.try_state::<crate::sync_commands::SyncState>() else {
+        return;
+    };
+    let state = &sync_state.transport_state;
+    let peer = peer.to_string();
+    let mut devices = state.paired_devices.lock().await;
+    let mut changed = false;
+    for device in devices.values_mut() {
+        if device.iroh_node_id == peer {
+            device.last_sync_at = Some(sync_crypto::now_iso8601());
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = state.persist_paired(&devices);
+    }
+}
+
+pub struct PairingProtocolHandler<R: tauri::Runtime = tauri::Wry> {
+    pub state: Arc<SyncTransportState<R>>,
+    /// This device's sync identity (part of the verification code).
+    pub host_key: PublicKey,
+}
+
+impl<R: tauri::Runtime> std::fmt::Debug for PairingProtocolHandler<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PairingProtocolHandler").finish()
     }
 }
 
-impl ProtocolHandler for PairingProtocolHandler {
+/// How long a device waits for its pairing request to arrive.
+const PAIRING_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// How long the user has to accept a pairing request.
+pub const PAIRING_CONFIRM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
+async fn send_envelope(
+    send: &mut iroh::endpoint::SendStream,
+    msg_type: &str,
+    data: serde_json::Value,
+) {
+    let env = IrohEnvelope {
+        msg_type: msg_type.to_string(),
+        data,
+    };
+    let _ = send_on_bi(send, &env).await;
+}
+
+impl<R: tauri::Runtime> ProtocolHandler for PairingProtocolHandler<R> {
+    /// One pairing request per connection. This protocol is the only one a
+    /// device that is not paired may use, so it reads one capped message under
+    /// a timeout and closes.
     async fn accept(&self, conn: endpoint::Connection) -> Result<(), iroh::protocol::AcceptError> {
-        loop {
-            let stream = conn.accept_bi().await;
-            let (mut send, mut recv) = match stream {
-                Ok(s) => s,
-                Err(_) => break,
+        let Ok((mut send, mut recv)) = conn.accept_bi().await else {
+            return Ok(());
+        };
+        let req_bytes =
+            match tokio::time::timeout(PAIRING_READ_TIMEOUT, recv_from_bi(&mut recv)).await {
+                Ok(Ok(bytes)) => bytes,
+                _ => return Ok(()),
             };
-
-            let req_bytes = match recv_from_bi(&mut recv).await {
-                Ok(b) => b,
-                Err(_) => break,
-            };
-
-            let env: IrohEnvelope = match serde_json::from_slice(&req_bytes) {
-                Ok(e) => e,
-                Err(_) => {
-                    let empty = serde_json::json!({});
-                    if let Ok(json) = serde_json::to_vec(&empty) {
-                        let len = (json.len() as u32).to_be_bytes();
-                        let _ = send.write_all(&len).await;
-                        let _ = send.write_all(&json).await;
-                        let _ = send.finish();
-                    }
-                    continue;
-                }
-            };
-
-            if env.msg_type != "pair" {
-                continue;
+        let env: IrohEnvelope = match serde_json::from_slice::<IrohEnvelope>(&req_bytes) {
+            Ok(env) if env.msg_type == "pair" => env,
+            _ => {
+                send_envelope(
+                    &mut send,
+                    "pair_resp",
+                    serde_json::json!({"error": "not a pairing request"}),
+                )
+                .await;
+                return Ok(());
             }
+        };
 
-            let (remote_ip, remote_port) = {
-                let paths = conn.paths();
-                let mut direct = None;
-                for p in paths.iter() {
-                    if let iroh::TransportAddr::Ip(addr) = p.remote_addr() {
-                        direct = Some((addr.ip().to_string(), addr.port()));
-                        break;
-                    }
+        let (remote_ip, remote_port) = {
+            let paths = conn.paths();
+            let mut direct = None;
+            for p in paths.iter() {
+                if let iroh::TransportAddr::Ip(addr) = p.remote_addr() {
+                    direct = Some((addr.ip().to_string(), addr.port()));
+                    break;
                 }
-                direct.unwrap_or_default()
-            };
-
-            let resp_val = handle_pair_req(&self.state, &env.data, remote_ip, remote_port).await;
-            let resp_env = IrohEnvelope {
-                msg_type: "pair_resp".to_string(),
-                data: resp_val,
-            };
-            if let Ok(resp_json) = serde_json::to_vec(&resp_env) {
-                let len = (resp_json.len() as u32).to_be_bytes();
-                let _ = send.write_all(&len).await;
-                let _ = send.write_all(&resp_json).await;
-                let _ = send.finish();
             }
-        }
+            direct.unwrap_or_default()
+        };
+
+        let resp_val = handle_pair_req(
+            &self.state,
+            &self.host_key,
+            conn.remote_id(),
+            &env.data,
+            remote_ip,
+            remote_port,
+        )
+        .await;
+        send_envelope(&mut send, "pair_resp", resp_val).await;
+        // Let the response reach the other device before the connection drops.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), send.stopped()).await;
         Ok(())
     }
 }
@@ -495,7 +722,17 @@ pub fn start_accept_loop(
         // times out on fresh devices and first-pair doc creation is blocked).
 
         let _ = std::fs::create_dir_all(&blobs_path);
-        let blobs = match iroh_blobs::store::fs::FsStore::load(&blobs_path).await {
+        // A store still held by an engine that is shutting down fails to
+        // open for a moment; only a store that keeps failing is corrupt.
+        let mut blobs_load = iroh_blobs::store::fs::FsStore::load(&blobs_path).await;
+        for _ in 0..3 {
+            if blobs_load.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            blobs_load = iroh_blobs::store::fs::FsStore::load(&blobs_path).await;
+        }
+        let blobs = match blobs_load {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[iroh-sync] Failed to load blobs store: {e}");
@@ -514,13 +751,26 @@ pub fn start_accept_loop(
         let blobs_store: iroh_blobs::api::Store = blobs.into();
         let blobs_for_subscribe = blobs_store.clone();
         let blobs_for_cmds = blobs_store.clone();
-        let docs_handler = match iroh_docs::protocol::Docs::persistent(docs_path.clone())
-            .spawn(router_endpoint.clone(), blobs_store, gossip.clone())
-            .await
-        {
+        let mut docs_spawn = Err(None);
+        for attempt in 0..4 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            match iroh_docs::protocol::Docs::persistent(docs_path.clone())
+                .spawn(router_endpoint.clone(), blobs_store.clone(), gossip.clone())
+                .await
+            {
+                Ok(d) => {
+                    docs_spawn = Ok(d);
+                    break;
+                }
+                Err(e) => docs_spawn = Err(Some(e)),
+            }
+        }
+        let docs_handler = match docs_spawn {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("[iroh-sync] Failed to spawn iroh-docs: {e}");
+                eprintln!("[iroh-sync] Failed to spawn iroh-docs: {e:?}");
 
                 eprintln!("[iroh-sync] Removing corrupted databases and retrying...");
                 let _ = std::fs::remove_dir_all(&blobs_path);
@@ -532,6 +782,27 @@ pub fn start_accept_loop(
 
         let api = docs_handler.api().clone();
         let api_for_subscribe = api.clone();
+
+        // Delete the docs of devices unpaired since the last start, before
+        // anything opens them (an open doc cannot be deleted).
+        let to_drop = sync_persistence::load_docs_to_drop(&data_dir);
+        if !to_drop.is_empty() {
+            let mut kept = Vec::new();
+            for id in to_drop {
+                let Ok(ns) = id.parse::<iroh_docs::NamespaceId>() else {
+                    continue;
+                };
+                if let Err(e) = api.drop_doc(ns).await {
+                    let msg = e.to_string();
+                    // Already gone is done; anything else is retried next start.
+                    if !msg.contains("not found") && !msg.contains("NotFound") {
+                        eprintln!("[iroh-sync] Could not delete an unpaired device's doc: {msg}");
+                        kept.push(id);
+                    }
+                }
+            }
+            let _ = sync_persistence::save_docs_to_drop(&data_dir, &kept);
+        }
         let author = match api.author_default().await {
             Ok(a) => a,
             Err(_) => match api.author_create().await {
@@ -679,10 +950,7 @@ pub fn start_accept_loop(
                                 if let Some(device) = devices.get_mut(&device_id) {
                                     device.sync_doc_id = doc_id;
                                 }
-                                let _ = save_paired_devices_to_disk(
-                                    &state_clone.app_data_dir,
-                                    &devices,
-                                );
+                                let _ = state_clone.persist_paired(&devices);
                             }
                             Err(e) => {
                                 eprintln!(
@@ -715,10 +983,12 @@ pub fn start_accept_loop(
 
         let pairing_handler = PairingProtocolHandler {
             state: state_clone.clone(),
+            host_key: endpoint.public_key,
         };
 
         let file_handler = crate::file_transfer::FileTransferHandler {
             data_dir: data_dir.clone(),
+            state: state_clone.clone(),
         };
 
         let router = Router::builder(router_endpoint)
@@ -744,19 +1014,66 @@ pub fn start_accept_loop(
     }
 }
 
-async fn handle_pair_req(
-    state: &Arc<SyncTransportState>,
+fn pair_error(message: &str) -> serde_json::Value {
+    serde_json::json!({ "error": message })
+}
+
+async fn handle_pair_req<R: tauri::Runtime>(
+    state: &Arc<SyncTransportState<R>>,
+    host_key: &PublicKey,
+    joiner_key: PublicKey,
     data: &serde_json::Value,
     remote_ip: String,
     remote_port: u16,
 ) -> serde_json::Value {
     let pairing_req: PairingRequest = match serde_json::from_value(data.clone()) {
         Ok(r) => r,
-        Err(e) => return serde_json::json!({"error": format!("parse pair req: {e}")}),
+        Err(_) => return pair_error("The pairing request could not be read."),
     };
 
-    if pairing_req.node_id.is_empty() {
-        return serde_json::json!({"error": "pairing request missing node_id"});
+    match state.pairing.redeem(&pairing_req.secret) {
+        PairingCheck::Accepted => {}
+        PairingCheck::NoSession => {
+            return pair_error(
+                "This pairing code has expired or was already used. Show a new QR code on the other device.",
+            )
+        }
+        PairingCheck::WrongSecret => return pair_error("This pairing code is not valid."),
+    }
+
+    // Ask the user on this device. The same code shows on the other device,
+    // so someone who photographed the QR code cannot pair unnoticed.
+    let code = sync_access::verification_code(host_key, &joiner_key, &pairing_req.secret);
+    let request_id = sync_access::random_id();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .pairing_confirms
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(request_id.clone(), tx);
+    let _ = state.app_handle.emit(
+        "pairing-confirm-request",
+        serde_json::json!({
+            "requestId": request_id,
+            "deviceName": pairing_req.device_name,
+            "code": code,
+        }),
+    );
+    let accepted = matches!(
+        tokio::time::timeout(PAIRING_CONFIRM_TIMEOUT, rx).await,
+        Ok(Ok(true))
+    );
+    state
+        .pairing_confirms
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&request_id);
+    let _ = state.app_handle.emit(
+        "pairing-confirm-closed",
+        serde_json::json!({ "requestId": request_id }),
+    );
+    if !accepted {
+        return pair_error("Pairing was not accepted on the other device.");
     }
 
     let now = std::time::SystemTime::now()
@@ -764,7 +1081,8 @@ async fn handle_pair_req(
         .unwrap_or_default()
         .as_secs();
 
-    let scanner_node_id = pairing_req.node_id.clone();
+    // The connection proves who the other device is; the request only claims it.
+    let scanner_node_id = joiner_key.to_string();
 
     let paired = PairedDevice {
         device_id: pairing_req.device_id.clone(),
@@ -779,6 +1097,7 @@ async fn handle_pair_req(
         peer_relay_url: pairing_req.relay_url.clone(),
         sync_doc_id: String::new(),
         sync_doc_ticket: String::new(),
+        protocol: pairing_req.protocol,
     };
 
     let mut devices = state.paired_devices.lock().await;
@@ -801,7 +1120,7 @@ async fn handle_pair_req(
         }
     }
     devices.insert(paired.device_id.clone(), paired);
-    let _ = save_paired_devices_to_disk(&state.app_data_dir, &devices);
+    let _ = state.persist_paired(&devices);
     drop(devices);
 
     let sync_doc_ticket = {
@@ -824,8 +1143,8 @@ async fn handle_pair_req(
 
                     subscribe_doc_events(state.app_handle.clone(), doc.clone(), blobs);
 
-                    if let Ok(peer_pk) = pairing_req.node_id.parse::<iroh::PublicKey>() {
-                        let mut peer_addr = iroh::EndpointAddr::new(peer_pk);
+                    {
+                        let mut peer_addr = iroh::EndpointAddr::new(joiner_key);
                         if !remote_ip.is_empty() && remote_port > 0 {
                             if let Ok(ip) = remote_ip.parse::<std::net::IpAddr>() {
                                 peer_addr = peer_addr
@@ -845,7 +1164,7 @@ async fn handle_pair_req(
                         device.sync_doc_id = doc_id.to_string();
                         device.sync_doc_ticket = ticket.clone();
                     }
-                    let _ = save_paired_devices_to_disk(&state.app_data_dir, &devices);
+                    let _ = state.persist_paired(&devices);
                     ticket
                 }
                 Err(_) => String::new(),
@@ -871,11 +1190,12 @@ async fn handle_pair_req(
 
     let response = PairingResponse {
         device_id: state.device_id.clone(),
-        device_name: state.device_name.clone(),
+        device_name: state.device_name(),
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| state.fingerprint.clone()),
         sync_doc_ticket,
         relay_url: crate::sync_commands::get_iroh_relay_url(),
+        protocol: theorem_sync_core::sync_protocol::SYNC_PROTOCOL,
     };
 
     serde_json::to_value(response)
@@ -886,13 +1206,22 @@ pub async fn send_pair_request(
     conn: &endpoint::Connection,
     req: &PairingRequest,
 ) -> Result<PairingResponse, String> {
-    let (mut send, mut recv) = conn.open_bi().await.map_err(|e| format!("open_bi: {e}"))?;
+    let (mut send, mut recv) = tokio::time::timeout(PAIRING_READ_TIMEOUT, conn.open_bi())
+        .await
+        .map_err(|_| "The other device did not respond.".to_string())?
+        .map_err(|e| format!("open_bi: {e}"))?;
     let env = IrohEnvelope {
         msg_type: "pair".to_string(),
         data: serde_json::to_value(req).map_err(|e| format!("serialize req: {e}"))?,
     };
     send_on_bi(&mut send, &env).await?;
-    let resp_bytes = recv_from_bi(&mut recv).await?;
+    // The other device's user has PAIRING_CONFIRM_TIMEOUT to accept.
+    let resp_bytes = tokio::time::timeout(
+        PAIRING_CONFIRM_TIMEOUT + PAIRING_READ_TIMEOUT,
+        recv_from_bi(&mut recv),
+    )
+    .await
+    .map_err(|_| "Pairing was not accepted in time.".to_string())??;
     let resp_env: IrohEnvelope =
         serde_json::from_slice(&resp_bytes).map_err(|e| format!("parse resp: {e}"))?;
     if let Some(err) = resp_env.data.get("error") {
@@ -907,9 +1236,206 @@ pub fn load_paired_devices_from_disk(
     sync_persistence::load_paired_devices(app_data_dir)
 }
 
-pub fn save_paired_devices_to_disk(
-    app_data_dir: &std::path::Path,
-    devices: &HashMap<String, PairedDevice>,
-) -> Result<(), String> {
-    sync_persistence::save_paired_devices(app_data_dir, devices)
+#[cfg(test)]
+mod pairing_tests {
+    //! The pairing protocol between two real endpoints over loopback, with the
+    //! user's answer on the host scripted.
+    use super::*;
+    use iroh::endpoint::presets;
+    use tauri::Listener;
+
+    struct Host {
+        state: Arc<SyncTransportState<tauri::test::MockRuntime>>,
+        router: Router,
+        _dir: tempfile::TempDir,
+        _app: tauri::App<tauri::test::MockRuntime>,
+    }
+
+    async fn host() -> Host {
+        let app = tauri::test::mock_app();
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(SyncTransportState {
+            app_handle: app.handle().clone(),
+            device_id: "host-device".into(),
+            fingerprint: String::new(),
+            device_name: std::sync::RwLock::new("Host".into()),
+            app_data_dir: dir.path().to_path_buf(),
+            paired_devices: Mutex::new(HashMap::new()),
+            docs_api: Mutex::new(None),
+            docs_generation: std::sync::atomic::AtomicU64::new(0),
+            allowlist: Arc::new(PeerAllowlist::default()),
+            pairing: PairingSessions::default(),
+            pairing_confirms: Default::default(),
+        });
+        let ep = iroh::Endpoint::builder(presets::Minimal)
+            .hooks(PeerGate::new(state.allowlist.clone(), ALPN))
+            .bind()
+            .await
+            .unwrap();
+        let handler = PairingProtocolHandler {
+            state: state.clone(),
+            host_key: ep.id(),
+        };
+        let router = Router::builder(ep).accept(ALPN, handler).spawn();
+        Host {
+            state,
+            router,
+            _dir: dir,
+            _app: app,
+        }
+    }
+
+    /// Answers every approval prompt on the host with `accept`, and records
+    /// the codes it was shown.
+    fn answer_prompts(host: &Host, accept: bool) -> Arc<std::sync::Mutex<Vec<String>>> {
+        let shown = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (state, shown_in) = (host.state.clone(), shown.clone());
+        host.state
+            .app_handle
+            .listen("pairing-confirm-request", move |event| {
+                let payload: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+                shown_in
+                    .lock()
+                    .unwrap()
+                    .push(payload["code"].as_str().unwrap().to_string());
+                let id = payload["requestId"].as_str().unwrap().to_string();
+                if let Some(tx) = state.pairing_confirms.lock().unwrap().remove(&id) {
+                    let _ = tx.send(accept);
+                }
+            });
+        shown
+    }
+
+    async fn pair(
+        joiner: &iroh::Endpoint,
+        host: &Host,
+        secret: &str,
+        claimed_node_id: &str,
+    ) -> Result<PairingResponse, String> {
+        let conn = joiner
+            .connect(host.router.endpoint().addr(), ALPN)
+            .await
+            .map_err(|e| e.to_string())?;
+        let request = PairingRequest {
+            device_id: "joiner-device".into(),
+            device_name: "Joiner".into(),
+            fingerprint: String::new(),
+            node_id: claimed_node_id.into(),
+            relay_url: String::new(),
+            secret: secret.into(),
+            protocol: theorem_sync_core::sync_protocol::SYNC_PROTOCOL,
+        };
+        send_pair_request(&conn, &request).await
+    }
+
+    async fn paired_node_ids(host: &Host) -> Vec<String> {
+        host.state
+            .paired_devices
+            .lock()
+            .await
+            .values()
+            .map(|d| d.iroh_node_id.clone())
+            .collect()
+    }
+
+    #[test]
+    fn only_a_failed_teardown_still_counts_as_synced() {
+        assert_eq!(sync_outcome(Ok((3, 2))), (true, 3, 2));
+        assert!(sync_outcome(Err("Failed to close connection1")).0);
+        assert!(sync_outcome(Err("Failed to close Some(ns) with Some(peer)")).0);
+        for failure in [
+            "Failed to establish connection",
+            "Failed to sync",
+            "Remote peer aborted sync: NotFound",
+            "Failed to open replica with peer",
+        ] {
+            assert!(!sync_outcome(Err(failure)).0, "{failure}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_right_secret_and_an_accept_pair_the_real_identity() {
+        let host = host().await;
+        let shown = answer_prompts(&host, true);
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let secret = host.state.pairing.open();
+
+        // The joiner claims another device's identity; the host ignores it.
+        let impostor = iroh::SecretKey::from_bytes(&[9; 32]).public().to_string();
+        let response = pair(&joiner, &host, &secret, &impostor).await.unwrap();
+        assert_eq!(response.device_id, "host-device");
+        assert_eq!(paired_node_ids(&host).await, vec![joiner.id().to_string()]);
+        assert!(host.state.allowlist.is_allowed(&joiner.id()));
+
+        // The host showed the code the joiner computes on its side.
+        let expected =
+            sync_access::verification_code(&host.router.endpoint().id(), &joiner.id(), &secret);
+        assert_eq!(*shown.lock().unwrap(), vec![expected]);
+
+        // The secret is used up.
+        let other = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let err = pair(&other, &host, &secret, "").await.unwrap_err();
+        assert!(err.contains("expired or was already used"), "{err}");
+        assert!(!host.state.allowlist.is_allowed(&other.id()));
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_declined_request_pairs_nothing() {
+        let host = host().await;
+        answer_prompts(&host, false);
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let secret = host.state.pairing.open();
+        let err = pair(&joiner, &host, &secret, "").await.unwrap_err();
+        assert!(err.contains("not accepted"), "{err}");
+        assert!(paired_node_ids(&host).await.is_empty());
+        assert!(!host.state.allowlist.is_allowed(&joiner.id()));
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wrong_or_missing_secrets_never_reach_the_user() {
+        let host = host().await;
+        let shown = answer_prompts(&host, true);
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+
+        // No QR code on screen.
+        let err = pair(&joiner, &host, &"0".repeat(64), "").await.unwrap_err();
+        assert!(err.contains("expired"), "{err}");
+
+        let secret = host.state.pairing.open();
+        for guess in ["", "nothex", &"0".repeat(64)] {
+            let err = pair(&joiner, &host, guess, "").await.unwrap_err();
+            assert!(err.contains("not valid"), "{err}");
+        }
+        assert!(shown.lock().unwrap().is_empty());
+        assert!(paired_node_ids(&host).await.is_empty());
+
+        // Still within the attempt limit, the real secret works.
+        pair(&joiner, &host, &secret, "").await.unwrap();
+        assert_eq!(shown.lock().unwrap().len(), 1);
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_oversized_message_is_refused_without_allocating_it() {
+        let host = host().await;
+        let joiner = iroh::Endpoint::bind(presets::Minimal).await.unwrap();
+        let conn = joiner
+            .connect(host.router.endpoint().addr(), ALPN)
+            .await
+            .unwrap();
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
+        // Claims 4 GiB, then sends a little.
+        send.write_all(&u32::MAX.to_be_bytes()).await.unwrap();
+        send.write_all(b"{}").await.unwrap();
+        let _ = send.finish();
+        // The host drops the stream without answering.
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), recv.read_to_end(1024))
+            .await
+            .expect("host answered or hung");
+        assert!(reply.map(|r| r.is_empty()).unwrap_or(true));
+        assert!(paired_node_ids(&host).await.is_empty());
+        host.router.shutdown().await.unwrap();
+    }
 }

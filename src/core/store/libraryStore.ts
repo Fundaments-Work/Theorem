@@ -25,6 +25,8 @@ import {
     sqliteSetKv,
 } from "../lib/sqlite-storage";
 import { isTauri } from "../lib/env";
+import { withMetadataStamp } from "../lib/book-edit-stamp";
+import { writeAllReportingFailures } from "../lib/legacy-sqlite-move";
 
 function persistBookToSqlite(book: Book): void {
     if (!isTauri()) return;
@@ -84,7 +86,8 @@ function updateBookById(
     }
 
     const currentBook = books[index];
-    const nextBook = updater(currentBook);
+    // A user edit to the book's details is stamped, so sync can tell it is newer.
+    const nextBook = withMetadataStamp(currentBook, updater(currentBook));
     if (nextBook === currentBook) {
         return { books, updatedBook: currentBook };
     }
@@ -224,6 +227,53 @@ export function reconcileHydratedAnnotations(
     return { kept: [...byId.values()], purgedIds };
 }
 
+/**
+ * Books and annotations that stores older than v7/v8 kept in the persisted KV
+ * copy (desktop/mobile). They move to their SQLite tables at hydration, and
+ * the KV copy keeps them (see `partialize`) until SQLite is confirmed to hold
+ * every one, so a failed write is retried on the next launch instead of
+ * losing the records. Reset at the start of each hydration.
+ */
+let legacyPendingMove: { books: Book[]; annotations: Annotation[] } | null = null;
+
+/** Wraps the post-hydration callback; runs when a hydration starts. */
+function startingHydration<F>(afterHydration: F): F {
+    legacyPendingMove = null;
+    return afterHydration;
+}
+
+function isTombstoned(tombstones: DeletionTombstone[], entityType: "book" | "annotation", id: string): boolean {
+    return tombstones.some((t) => t.entityType === entityType && t.entityId === id);
+}
+
+/**
+ * Write the legacy records SQLite does not hold yet. Rows already there are
+ * left alone (they may be newer than the KV copy). Returns the records that
+ * were missing, so the caller can show them this session either way.
+ */
+async function moveMissingLegacyRecords<T extends { id: string }>(
+    kind: "books" | "annotations",
+    storedIds: ReadonlySet<string>,
+    write: (record: T) => Promise<unknown>,
+): Promise<T[]> {
+    const pending = legacyPendingMove?.[kind] as T[] | undefined;
+    if (!pending || pending.length === 0) return [];
+    const tombstones = useLibraryStore.getState().deletionTombstones;
+    const entityType = kind === "books" ? "book" : "annotation";
+    const missing = pending.filter((record) =>
+        record && record.id && !storedIds.has(record.id) && !isTombstoned(tombstones, entityType, record.id));
+    const moved = missing.length === 0 || await writeAllReportingFailures(`legacy ${kind}`, missing, write);
+    if (moved && legacyPendingMove) {
+        legacyPendingMove = { ...legacyPendingMove, [kind]: [] };
+        if (legacyPendingMove.books.length === 0 && legacyPendingMove.annotations.length === 0) {
+            legacyPendingMove = null;
+        }
+        // Rewrite the persisted copy without the records SQLite now holds.
+        useLibraryStore.setState({});
+    }
+    return missing;
+}
+
 function mergeBookIntoCachedEntry(entry: CachedBookMetadata, book: Book): CachedBookMetadata {
     return {
         ...entry,
@@ -262,6 +312,9 @@ function normalizeContentHash(contentHash?: string): string | undefined {
     return normalized.length > 0 ? normalized : undefined;
 }
 
+// Hash of the book list last indexed into `books_fts`. The native startup
+// reconcile (`reconcile_books_fts`) deletes this key whenever it had to repair
+// the index, so a stale hash never hides an out-of-date index.
 const FTS_HASH_KV_KEY = "fts:booksHash";
 
 function fnv1aInto(hash: number, value: string): number {
@@ -1196,7 +1249,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         if (!idSet.has(book.id)) return book;
                         if (book.completedAt && book.manualCompletionState === "read") return book;
                         changed = true;
-                        return {
+                        return withMetadataStamp(book, {
                             ...book,
                             progress: 1.0,
                             completedAt: book.completedAt || now,
@@ -1204,7 +1257,7 @@ export const useLibraryStore = create<LibraryStore>()(
                                 ? { progressBeforeFinish: Math.max(0, Math.min(1, book.progress || 0)) }
                                 : {}),
                             manualCompletionState: "read" as const,
-                        };
+                        }, now);
                     });
                     if (!changed) return state;
                     const touched = books.filter((b) => idSet.has(b.id));
@@ -1233,13 +1286,13 @@ export const useLibraryStore = create<LibraryStore>()(
                         if (!idSet.has(book.id)) return book;
                         if (!book.completedAt && book.manualCompletionState === "unread") return book;
                         changed = true;
-                        return {
+                        return withMetadataStamp(book, {
                             ...book,
                             completedAt: undefined,
                             manualCompletionState: "unread" as const,
                             progress: Math.max(0, Math.min(1, book.progressBeforeFinish ?? 0)),
                             progressBeforeFinish: undefined,
-                        };
+                        });
                     });
                     if (!changed) return state;
                     const touched = books.filter((b) => idSet.has(b.id));
@@ -1400,7 +1453,15 @@ export const useLibraryStore = create<LibraryStore>()(
                 set((state) => ({
                     annotations: state.annotations.map((a) => {
                         if (a.id === annotationId) {
-                            updatedAnnotation = { ...a, ...updates, updatedAt: new Date() };
+                            // The version this edit was made on: sync uses it to
+                            // tell a concurrent edit (a conflict) from a later one.
+                            const base = a.updatedAt ?? a.createdAt;
+                            updatedAnnotation = {
+                                ...a,
+                                ...updates,
+                                updatedAt: new Date(),
+                                ...(base ? { baseUpdatedAt: new Date(base) } : {}),
+                            };
                             return updatedAnnotation;
                         }
                         return a;
@@ -1612,6 +1673,12 @@ export const useLibraryStore = create<LibraryStore>()(
                     ? persisted.recentBooksCache as CachedBookMetadata[]
                     : [];
 
+                // On native platforms books and annotations live in SQLite. Any still in the
+                // KV copy stay there until hydration confirms SQLite holds them.
+                if (isTauri() && (books.length > 0 || annotations.length > 0)) {
+                    legacyPendingMove = { books, annotations };
+                }
+
                 // When upgrading from < 7 on native platforms, migrate existing annotations into SQLite
                 if (version < 7 && isTauri() && annotations.length > 0) {
                     for (const ann of annotations) {
@@ -1647,20 +1714,39 @@ export const useLibraryStore = create<LibraryStore>()(
                 } as PersistedLibraryState;
             },
             partialize: memoizePartialize(
-                (state) => [isTauri() ? [] : state.books, state.collections, isTauri() ? [] : state.annotations, state.deletionTombstones, state.lastScannedAt, state.recentBooksCache],
+                (state) => [
+                    isTauri() ? legacyPendingMove?.books : state.books,
+                    state.collections,
+                    isTauri() ? legacyPendingMove?.annotations : state.annotations,
+                    state.deletionTombstones,
+                    state.lastScannedAt,
+                    state.recentBooksCache,
+                ],
                 (state): PersistedLibraryState => ({
-                    books: isTauri() ? [] : (state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[]),
+                    books: isTauri()
+                        ? legacyPendingMove?.books ?? []
+                        : (state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[]),
                     collections: state.collections,
-                    annotations: isTauri() ? [] : state.annotations,
+                    annotations: isTauri() ? legacyPendingMove?.annotations ?? [] : state.annotations,
                     deletionTombstones: state.deletionTombstones,
                     lastScannedAt: state.lastScannedAt,
                     recentBooksCache: state.recentBooksCache.map(({ coverPath: _, ...book }) => book) as CachedBookMetadata[],
                 }),
             ),
-            onRehydrateStorage: () => (state) => {
+            onRehydrateStorage: () => startingHydration((state: LibraryStore | undefined) => {
                 if (!state) {
                     useLibraryStore.setState({ coversHydrated: true });
                     return;
+                }
+
+                // A KV copy at the current version (migrate did not run) can still hold
+                // records whose move failed on an earlier launch: retry them.
+                if (isTauri() && !legacyPendingMove
+                    && ((state.books?.length ?? 0) > 0 || (state.annotations?.length ?? 0) > 0)) {
+                    legacyPendingMove = {
+                        books: (state.books ?? []).map((book) => normalizePersistedBook(book)),
+                        annotations: state.annotations ?? [],
+                    };
                 }
 
                 state.collections = normalizeShelfHierarchy(state.collections
@@ -1668,10 +1754,9 @@ export const useLibraryStore = create<LibraryStore>()(
                     .filter((collection): collection is Collection => Boolean(collection)));
 
                 if (isTauri()) {
-                    void sqliteGetAllAnnotations().then((annStrings) => {
-                        if (!annStrings || annStrings.length === 0) return;
+                    void sqliteGetAllAnnotations().then(async (annStrings) => {
                         const parsed: Annotation[] = [];
-                        for (const s of annStrings) {
+                        for (const s of annStrings ?? []) {
                             try {
                                 const obj = JSON.parse(s);
                                 if (obj && obj.id) {
@@ -1685,6 +1770,19 @@ export const useLibraryStore = create<LibraryStore>()(
                                 // Ignore parse errors
                             }
                         }
+                        const legacyAnnotations = await moveMissingLegacyRecords<Annotation>(
+                            "annotations",
+                            new Set(parsed.map((annotation) => annotation.id)),
+                            (ann) => sqliteUpsertAnnotation(ann.id, ann.bookId, JSON.stringify(ann)),
+                        );
+                        for (const ann of legacyAnnotations) {
+                            parsed.push({
+                                ...ann,
+                                createdAt: ann.createdAt ? new Date(ann.createdAt) : new Date(),
+                                updatedAt: ann.updatedAt ? new Date(ann.updatedAt) : undefined,
+                            });
+                        }
+                        if (parsed.length === 0) return;
                         // Books hydrate concurrently, so "book not loaded yet" must never
                         // count as orphaned. Only explicit tombstones remove rows here.
                         const current = useLibraryStore.getState();
@@ -1805,7 +1903,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 };
 
                 if (isTauri()) {
-                    void sqliteLoadAllBooks().then((bookStrings) => {
+                    void sqliteLoadAllBooks().then(async (bookStrings) => {
                         let loadedBooks: Book[] = [];
                         if (bookStrings && bookStrings.length > 0) {
                             loadedBooks = bookStrings.map((s) => {
@@ -1816,6 +1914,14 @@ export const useLibraryStore = create<LibraryStore>()(
                                     return null;
                                 }
                             }).filter(Boolean) as Book[];
+                        }
+                        const legacyBooks = await moveMissingLegacyRecords<Book>(
+                            "books",
+                            new Set(loadedBooks.map((book) => book.id)),
+                            (book) => sqliteSaveBookMetadata(book.id, JSON.stringify(book)),
+                        );
+                        loadedBooks = legacyBooks.length > 0 ? [...loadedBooks, ...legacyBooks] : loadedBooks;
+                        if (loadedBooks.length > 0) {
                             useLibraryStore.setState({ books: loadedBooks });
                         }
                         hydrateCoversAndFts(loadedBooks, useLibraryStore.getState().recentBooksCache);
@@ -1823,7 +1929,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 } else {
                     hydrateCoversAndFts(state.books, state.recentBooksCache);
                 }
-            },
+            }),
         }
     )
 );

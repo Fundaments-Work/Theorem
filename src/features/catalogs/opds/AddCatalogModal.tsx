@@ -7,7 +7,7 @@ import { Modal, ModalBody, ModalFooter, ModalHeader } from "../../../ui";
 type Check =
     | { status: "idle" }
     | { status: "checking" }
-    | { status: "ok"; feed: OpdsFeed; url: string }
+    | { status: "ok"; feed: OpdsFeed; url: string; checkedAuth: string }
     | { status: "auth"; message: string; failed: boolean }
     | { status: "error"; message: string; kind: OpdsError["kind"] | "other" };
 
@@ -62,6 +62,9 @@ export function AddCatalogModal({
     }, [url]);
 
     const creds = needsAuth && (username || password) ? { username: username.trim(), password } : undefined;
+    const authKey = creds ? `${creds.username}\u0000${creds.password}` : "";
+    // A check only counts for the sign-in details it was made with.
+    const checked = check.status === "ok" && check.checkedAuth === authKey ? check : null;
 
     const runCheck = async () => {
         if (!url.trim()) return;
@@ -69,7 +72,7 @@ export function AddCatalogModal({
         const normalized = normalizeCatalogUrl(url);
         try {
             const { feed, finalUrl } = await OpdsService.probe(normalized, creds);
-            setCheck({ status: "ok", feed, url: finalUrl });
+            setCheck({ status: "ok", feed, url: finalUrl, checkedAuth: authKey });
             setTitle((t) => t || feed.title);
         } catch (error) {
             if (error instanceof OpdsError && error.kind === "authRequired") {
@@ -87,8 +90,8 @@ export function AddCatalogModal({
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
-        if (check.status === "ok") {
-            onAdd({ title: title.trim() || check.feed.title, url: check.url, auth: creds });
+        if (checked) {
+            onAdd({ title: title.trim() || checked.feed.title, url: checked.url, auth: creds });
             onClose();
         } else if (check.status !== "checking") {
             void runCheck();
@@ -109,7 +112,7 @@ export function AddCatalogModal({
                 <ModalHeader title="Add a catalog" onClose={onClose} />
                 <ModalBody className="space-y-4">
                     <p className="text-xs leading-relaxed text-[color:var(--color-text-muted)]">
-                        Paste the address of an OPDS catalog: a Calibre, Kavita, Komga or COPS server, a library, or a public collection.
+                        Paste the address of an OPDS catalog: your school, university or public library, or your own Calibre, Kavita, Komga or COPS server. It appears in Discover as a tab.
                     </p>
 
                     <label className="block space-y-1">
@@ -139,9 +142,12 @@ export function AddCatalogModal({
                             </label>
                         </div>
                     )}
-                    {!needsAuth && (
+                    {/* Sign-in is only offered once the server has answered: required (a 401 opens the
+                        fields above), or optional after a successful check, for catalogs that show
+                        more to members. Never asked for up front. */}
+                    {!needsAuth && check.status === "ok" && (
                         <button type="button" onClick={() => setNeedsAuth(true)} className="text-xs text-[color:var(--color-text-secondary)] underline underline-offset-2 transition-colors hover:text-[color:var(--color-accent)]">
-                            This catalog needs a sign-in
+                            Have an account? Add sign-in details
                         </button>
                     )}
 
@@ -151,12 +157,15 @@ export function AddCatalogModal({
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking…
                             </p>
                         )}
-                        {check.status === "ok" && (
+                        {check.status === "ok" && !checked && (
+                            <p className="text-[color:var(--color-text-secondary)]">Check again to try these sign-in details.</p>
+                        )}
+                        {checked && (
                             <p className="flex items-start gap-2 text-[color:var(--color-text-primary)]">
                                 <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-[color:var(--color-accent)]" />
                                 <span>
-                                    {check.feed.title}
-                                    <span className="block text-[color:var(--color-text-muted)]">{describeFeed(check.feed)}</span>
+                                    {checked.feed.title}
+                                    <span className="block text-[color:var(--color-text-muted)]">{describeFeed(checked.feed)}</span>
                                 </span>
                             </p>
                         )}
@@ -174,7 +183,7 @@ export function AddCatalogModal({
                         )}
                     </div>
 
-                    {check.status === "ok" && (
+                    {checked && (
                         <label className="block space-y-1">
                             <span className="text-xs text-[color:var(--color-text-secondary)]">Name</span>
                             <input className={field} value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -195,7 +204,7 @@ export function AddCatalogModal({
                         disabled={!url.trim() || check.status === "checking"}
                         className="bg-[var(--color-text-primary)] px-4 py-2 text-xs text-[var(--color-background)] transition-opacity hover:opacity-90 disabled:opacity-50"
                     >
-                        {check.status === "ok" ? "Add catalog" : "Check address"}
+                        {checked ? "Add catalog" : "Check address"}
                     </button>
                 </ModalFooter>
             </form>

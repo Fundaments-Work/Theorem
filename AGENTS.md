@@ -57,6 +57,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 ### Known-flaky tests
 
 - `tests/release-1.0.7-store-scale.test.ts` asserts a wall-clock budget (`expect(elapsed).toBeLessThan(25)`) and can exceed it under full-suite parallel load while passing in isolation. Treat a lone failure here as a perf-measurement flake: re-run the file alone (`pnpm test tests/release-1.0.7-store-scale.test.ts`) to confirm, but still verify no genuine O(n) scan was introduced.
+- `tests/library-virtualization.test.ts` ("Row height estimation") asserts `elapsed < 1` ms for a pure size calculation and can exceed it under full-suite load. Same rule: re-run the file alone to confirm.
 
 ## Architecture
 
@@ -80,7 +81,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 
 **Runtime split**: Guard desktop-only code with `isTauri()` / `isTauriDesktop()` / `isTauriMobile()` / `isMobile()` from `src/core/lib/env.ts`. Provide browser fallbacks.
 
-**Sync**: P2P via iroh stack (iroh + iroh-docs + iroh-blobs + iroh-gossip). 15 Tauri commands in `sync_commands.rs`. Iroh is always compiled (no feature gate). See `docs/sync.md`.
+**Sync**: P2P via iroh stack (iroh + iroh-docs + iroh-blobs + iroh-gossip). 23 Tauri commands in `sync_commands.rs`. Iroh is always compiled (no feature gate). See `docs/sync.md`. Security lives in `src-tauri/src/sync_access.rs`: every sync protocol except pairing is closed to devices that are not paired (`PeerGate`, an endpoint hook, so new protocols are covered automatically); pairing needs the QR code's one-time secret plus the user's approval; book requests are IDs, never paths, and only book files are served. Every change to `paired_devices` goes through `SyncTransportState::persist_paired` (it also updates the allowlist). Never take file paths from synced data, and never write a `kv_store` key from sync that is not in `is_syncable_kv_key`. Doc entries are one per item (`book:`, `anno:`, `collection:`, `vocab:`, `rss_feed:`, `rss_article:`, `tomb:`); whole lists go only to devices on sync protocol < 2. Never rewrite an unchanged doc entry (`write_own_entries` skips them): a rewrite dates it now and undoes other devices' deletions, which live in the docs as empty entries and are read back as `deleted`. Book and annotation edits carry a base stamp (`metadataBaseAt`, `baseUpdatedAt`) for conflict detection in the native merge.
 
 **TTS (Immersion Reading)**: two narration paths, orchestrated by `src/features/reader/audio/ImmersionPlayer.ts` (UI lives in the reader navbar's immersion row — there is no separate ImmersionBar component):
 - **Platform TTS (fallback, always available)**: Android `TextToSpeech` (custom `tauri-plugin-android-tts-audio`), Linux `spd-say` (`src-tauri/src/tts_linux.rs`), macOS `say`, Windows PowerShell `System.Speech`. Android supports engine selection (`tts_get_engines`/`tts_set_engine`), real word boundaries (`tts-utterance-range` events), and `tts_synthesize_to_file`.
@@ -91,7 +92,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 - Rust: `tauri-plugin-notification` registered in `lib.rs:1638`; `sqlite_check_goal_reminder` reads daily stats from `kv_store`
 - Frontend: `src/core/lib/notifications.ts` exports `notify()`, `notifyIfGranted()`, `requestNotificationPermission()`
 - Goal met detection: `src/features/reader/hooks/useReadingTime.ts` after each flush
-- Scheduled reminder: `src/features/reader/hooks/useDailyGoalReminder.ts` — 5-min interval calling Rust command
+- Scheduled reminder: `src/features/reader/hooks/useDailyGoalReminder.ts`. **Phones**: never a webview timer (Android pauses it in the background). The reminder is native: `ReadingReminder.kt` in the `mobile-folder-scan` plugin keeps only the next one in AlarmManager, posts it (own channel `reading-reminders`, icon `ic_stat_theorem`), schedules the next day, and re-arms on boot, app update, clock/time-zone change and exact-alarm grant. A reminder that was due in the last 2 h but never shown (phone off, or a clock correction rescheduled it inside Android's delivery window) is shown at once rather than skipped. The app only sends settings via `configure_reading_reminder` (`src/core/lib/daily-reminder.ts`: on/off, time, text, `skipDate` once today's goal is met); `startMobileReminderPlanner` sends them on start, settings/goal change and return to the app. Don't use tauri-plugin-notification's `schedule` on Android: 2.6.0 stores scheduled notifications as "null", so they are lost on reboot and `pending()` throws. Exact timing needs "Alarms & reminders" (`SCHEDULE_EXACT_ALARM`); without it Android 12+ may deliver up to an hour late (measured: 20:00 arrived 21:00). `reminder_status` / `open_exact_alarm_settings` / `open_notification_settings` back the Settings notice. **Desktop**: the in-app check every 60 s (the plugin shows a scheduled notification at once on desktop)
 - Sync notifications: `src/core/lib/sync-orchestrator.ts` after sync completion/error
 - UI: `<Toaster />` from `sonner` renders sonner toasts alongside OS notifications
 - Settings: Goal Notifications toggle, Daily Reminder Time picker, Sync Notifications toggle in Settings → Reading Goals
@@ -105,7 +106,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check) o
 - **UI**: `src/features/settings/DictionaryDownloadModal.tsx` — download/install UI with 1.35M-word MDX and StarDict releases; vocabulary workspace in Workbench.
 
 **Discover & Catalogs**:
-- **Page**: `src/features/catalogs/CatalogsPage.tsx` is Discover: a row of sources (the curated storefront `DiscoverPage.tsx`, the built-in Gutenberg and Standard Ebooks catalogs, and every catalog the user adds) with the selected source shown below. It is a bottom-bar tab on phones. `OpdsBrowser` (`src/features/catalogs/opds/`) browses one catalog: sections, shelves, facets, search, trail/Back, load-as-you-scroll, a virtualized grid, `OpdsEntrySheet` (purchase/loan/DRM are explained, never faked), HTTP Basic sign-in, and an add-catalog dialog that checks the address first. State lives in `useOpdsBrowser`, not the store.
+- **Page**: `src/features/catalogs/CatalogsPage.tsx` is Discover. Its home is the built-in catalog (`https://catalog.fundaments.work/opds`) laid out by `DiscoverHome.tsx` through `OpdsBrowser`'s `renderHome` (hero cards, shelves, subject tiles, recent searches, "Bring your library"); it is the page itself, never a tab. Tabs (`Discover` + catalogs) appear only once the user adds a catalog. The built-in catalog is curated on the server (private `fundaments-catalog` repo: Cloudflare Worker + D1/KV, refreshed by a sync job on the macroSapiens VM), so its shelves change without an app release; never add client-side curation, and never ship Gutenberg or Standard Ebooks as built-in sources. Its home feed is kept for offline use; user catalogs never are. It is a bottom-bar tab on phones. `OpdsBrowser` (`src/features/catalogs/opds/`) browses one catalog: sections, shelves, facets, search, trail/Back, load-as-you-scroll, a virtualized grid, `OpdsEntrySheet` (purchase/loan/DRM are explained, never faked), HTTP Basic sign-in, and an add-catalog dialog that checks the address first. State lives in `useOpdsBrowser`, not the store.
 - **One Rust parser**: `src-tauri/crates/theorem-core/src/opds/` parses Atom/OPDS 1.x, OPDS 2.0 JSON, OpenSearch descriptions, HTML autodiscovery and authentication documents into one model (`src/core/types/opds.ts` mirrors it field for field). Desktop/mobile call it natively; the web build calls it through WebAssembly (`wasm_opds_parse`, regenerate the glue per `docs/discover.md`). Do not add a second parser in TypeScript.
 - **Network**: `src-tauri/src/opds_net.rs` (`opds_load`, `opds_search`, `opds_download`, `opds_cleanup_download`): negotiated fetch, Basic auth, typed errors, size caps, streamed downloads that refuse web pages posing as books. `src/core/services/OpdsService.ts` is the TS facade (web fetch path, 5-minute cache, `OpdsError`); `opds-quirks.ts` holds per-catalog adapters (Gutenberg).
 - **Downloads** go through the Library's own import pipeline (`importBooksIncremental` / `importBooksFromFilesIncremental`), so metadata, covers and duplicate handling match "Add Books".
@@ -302,21 +303,22 @@ See the [Release](#release) section above. CI (`release.yml`) auto-builds and pu
 
 ## Cross-repo contracts
 
-Two other repos hold facts this repo depends on. Both are **read-only** from
-here: change them in the source repo, never here.
+Facts this repo shares with other repos. The design system is **read-only**
+from here: change it in its own repo, never here.
 
-### `Fundaments-Work/content` — shared facts
+### Buy Me Momo URL
 
-Machine-readable facts that more than one product must agree on. One
-`support.json` today; a product registry later.
+The URL is written out in this repo as literals, on purpose: a compiled bundle
+cannot depend on another repo at build time without real fragility in the
+release pipeline.
 
-- **Canonical home of the Buy Me Momo URL**: `support.json`, channel `buyMeMomo`.
-- This repo keeps the literal in `src/core/lib/support-prompt.ts` (the support
-  nudge) and `.github/FUNDING.yml` (the Sponsor button). Both are deliberate
-  literals — an Obsidian-style manifest and a compiled bundle cannot depend on
-  a sibling repo at build time without real fragility in the release pipeline.
+- Code and config: `src/core/lib/support-prompt.ts` (the support nudge) and
+  `.github/FUNDING.yml` (the Sponsor button).
+- Docs: `docs/settings.md` and `docs/ARCHITECTURE.md`.
 - There is no automated drift check (the `check:content` script and its CI job
-  were removed in 1.6.0). When the link changes, update both literals by hand.
+  were removed in 1.6.0). The same URL is used by Lemma and the landing sites;
+  every place it appears is listed in the handbook note `Brand/Support
+  channels`. Change them all together.
 
 ### `Fundaments-Work/design-system` — visual language
 
@@ -343,4 +345,5 @@ The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
 - `content-visibility: auto` + `overscroll-behavior: contain` on scroll containers
 - Animate only with Tailwind utilities; guard `animate-fade-in` behind `prefers-reduced-motion: no-preference`
 - Use `cn()` from `src/core/lib/utils.ts` for class composition
+- Safe areas: use `var(--safe-area-top|right|bottom|left)`, never `env(safe-area-inset-*)` (a test enforces it). Android's WebView reports only the camera cutout through `env()`, so with edge-to-edge (always on from Android 15) pages drew under the status and gesture bars; `src/core/lib/system-insets.ts` feeds Android's real insets (`system_insets` command) into the tokens
 - Design tokens in `src/core/styles/design-tokens.css` + `@theme` block in `src/index.css`

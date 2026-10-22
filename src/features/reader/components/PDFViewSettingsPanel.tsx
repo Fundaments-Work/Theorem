@@ -48,7 +48,7 @@ export function PDFViewSettingsPanel({
 
     return (
         <>
-            <Backdrop visible={visible} onClick={onClose} className="z-[145]" />
+            <Backdrop visible={visible} onClick={onClose} className="z-[145]" dim={false} />
 
             <FloatingPanel
                 label="PDF view settings"

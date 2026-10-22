@@ -172,6 +172,10 @@ class ImmersionPlayer {
     private startTime = 0;
     private completeTimer: ReturnType<typeof setTimeout> | null = null;
     private platformEventsBound = false;
+    /** Unlisten handles for the utterance events; released by destroy(). */
+    private platformUnlisteners: Array<() => void> = [];
+    /** Bumped on unbind so a listen() still in flight is undone when it lands. */
+    private platformBindGeneration = 0;
 
     private unloadTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -428,22 +432,39 @@ class ImmersionPlayer {
         }
     }
 
-    /** One-time listeners for the Android plugin's utterance events. */
+    /** Listeners for the Android plugin's utterance events, bound once until destroy(). */
     private async bindPlatformEvents() {
         if (this.platformEventsBound || !isTauri()) return;
         this.platformEventsBound = true;
-        await listen("tts-utterance-done", () => {
+        const generation = this.platformBindGeneration;
+        const keep = (unlisten: () => void) => {
+            if (generation === this.platformBindGeneration) this.platformUnlisteners.push(unlisten);
+            else unlisten();
+        };
+        keep(await listen("tts-utterance-done", () => {
             if (this._state === 'playing' && !this.nativeSession) this._onDone();
-        });
-        await listen("tts-utterance-error", () => {
+        }));
+        keep(await listen("tts-utterance-error", () => {
             if (!this.nativeSession && (this._state === 'playing' || this._state === 'loading')) {
                 this._onError("Speech engine error");
             }
-        });
-        await listen<{ id?: string; start: number; end: number }>("tts-utterance-range", (event) => {
+        }));
+        keep(await listen<{ id?: string; start: number; end: number }>("tts-utterance-range", (event) => {
             this.lastRangeEnd = event.payload.end;
             this.handlePlatformRange(event.payload.start, event.payload.end);
-        });
+        }));
+    }
+
+    private unbindPlatformEvents() {
+        this.platformBindGeneration++;
+        this.platformEventsBound = false;
+        for (const unlisten of this.platformUnlisteners.splice(0)) {
+            try {
+                unlisten();
+            } catch (err) {
+                console.error("[ImmersionPlayer] Removing a speech event listener failed:", err);
+            }
+        }
     }
 
     private handlePlatformRange(start: number, _end: number) {
@@ -646,6 +667,7 @@ class ImmersionPlayer {
     destroy() {
         this._clearAll();
         this.cancelEngineUnload();
+        this.unbindPlatformEvents();
         if (isTauri()) {
             invoke("tts_stop").catch(e => console.error("[catch]", e));
             invoke("tts_engine_unload").catch(e => console.error("[catch]", e));

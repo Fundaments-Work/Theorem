@@ -108,6 +108,15 @@ export interface Book {
 
     /** Position or sequence volume within the series (e.g. 1, 2, 2.5) */
     seriesIndex?: number;
+
+    /**
+     * When the user last changed the book's details (title, favourite, tags,
+     * rating, finished, series...). Sync keeps the newer edit whole, so
+     * removing a tag or a favourite also reaches the other devices.
+     */
+    metadataUpdatedAt?: string;
+    /** `metadataUpdatedAt` of the version the last edit was made on (sync conflicts). */
+    metadataBaseAt?: string;
 }
 
 export interface AudioChapter {
@@ -150,6 +159,8 @@ export interface Annotation {
     color?: HighlightColor;
     createdAt: Date;
     updatedAt?: Date;
+    /** `updatedAt` of the version the last edit was made on (sync conflicts). */
+    baseUpdatedAt?: Date;
     
     pageNumber?: number;
     pdfAnnotationType?: 'highlight' | 'drawing' | 'textNote';
@@ -279,8 +290,9 @@ export interface PairedDevice {
     peerRelayUrl?: string;
     
     syncDocId?: string;
-    
-    syncDocTicket?: string;
+
+    /** The sync protocol the device last reported (0: an older version). */
+    protocol?: number;
 }
 
 export interface DeviceSyncSettings {
@@ -316,13 +328,26 @@ export interface PairingQrData {
 
 export type DeviceSyncStatus = "idle" | "hosting" | "pairing" | "connecting" | "syncing" | "synced" | "error";
 
+/**
+ * Two devices edited the same item without seeing each other's change. The
+ * newer edit is in use; the other one is kept here so the user can see it
+ * and switch to it (from Rust: `sqlite_list_sync_conflicts`).
+ */
 export interface SyncConflict {
-    entityType: string;
+    id: string;
+    entityType: "book" | "annotation";
     entityId: string;
-    
+    /** The book's title, or the highlighted text. */
+    label: string;
+    /** "local": this device's edit is in use; "remote": the other device's. */
     winner: "local" | "remote";
-    
-    label?: string;
+    /** The fields that differ: the values in use… */
+    kept: Record<string, unknown>;
+    /** …and the values that were replaced. */
+    discarded: Record<string, unknown>;
+    keptAt: number;
+    discardedAt: number;
+    detectedAt: number;
 }
 
 export type DictionaryProvider = "stardict" | "free-dictionary-api";

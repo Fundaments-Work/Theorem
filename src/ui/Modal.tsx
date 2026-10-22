@@ -59,7 +59,9 @@ export function Modal({
                     {...(ariaLabelledby ? { "aria-labelledby": ariaLabelledby } : {})}
                     className={cn(
                         "fixed left-1/2 top-1/2 z-[calc(var(--z-modal)+1)] -translate-x-1/2 -translate-y-1/2",
-                        "flex w-full max-h-[var(--layout-modal-max-height)] max-w-[var(--layout-modal-width-md)] flex-col overflow-hidden",
+                        // On a phone the dialog keeps the page's 16px gutter on each side instead of touching the
+                        // screen edges; from the tablet width up the max-width takes over.
+                        "flex w-[calc(100%-2rem)] max-h-[var(--layout-modal-max-height)] max-w-[var(--layout-modal-width-md)] flex-col overflow-hidden",
                         "border border-[var(--color-border)] bg-[var(--color-surface)]",
                         "outline-none",
                         sizeClasses[size],

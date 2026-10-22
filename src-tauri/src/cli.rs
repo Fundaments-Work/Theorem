@@ -483,10 +483,7 @@ fn headless_app_with_sync(with_sync: bool) -> Result<tauri::App, String> {
     }
     if with_sync {
         use tauri::Manager;
-        let device_name = std::env::var("HOSTNAME")
-            .or_else(|_| std::env::var("COMPUTERNAME"))
-            .unwrap_or_else(|_| "Theorem Device".to_string());
-        match crate::sync_commands::init_sync(app_data_dir(&handle), device_name, handle.clone()) {
+        match crate::sync_commands::init_sync(app_data_dir(&handle), handle.clone()) {
             Ok(sync_state) => {
                 app.manage(sync_state);
             }
@@ -1126,26 +1123,11 @@ fn library_remove(output: &Output, app: &tauri::AppHandle, book_id: &str) -> i32
     })
     .unwrap_or_default();
 
-    // FK cascade is ON: covers, book_metadata, materialized_books and
-    // book_annotations all reference books(id) ON DELETE CASCADE.
-    if let Err(e) = crate::database::with_connection(app, |conn| {
-        conn.execute(
-            "DELETE FROM books WHERE id = ?1",
-            rusqlite::params![book_id],
-        )?;
-        conn.execute(
-            "DELETE FROM books_fts WHERE id = ?1",
-            rusqlite::params![book_id],
-        )?;
-        Ok(())
-    }) {
+    // Same path as the app: removes the cached file and, in one transaction,
+    // the book's covers, metadata, highlights and search row (foreign keys
+    // are off, so nothing cascades).
+    if let Err(e) = crate::database::sqlite_delete_book_data(app.clone(), book_id.to_string()) {
         return output.error(&e);
-    }
-
-    if let Ok(Some(path)) =
-        crate::database::sqlite_get_materialized_book_path(app.clone(), book_id.to_string())
-    {
-        let _ = std::fs::remove_file(path);
     }
 
     let mut kv = match LibraryKv::load(app) {

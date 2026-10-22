@@ -8,6 +8,7 @@ import {
     ArrowLeft,
 } from "lucide-react";
 import { cn } from "../../core/lib/utils";
+import { isTauriDesktop } from "../../core/lib/env";
 import { TheoremLogo } from "../../shell/TheoremLogo";
 
 interface OnboardingFlowProps {
@@ -250,6 +251,9 @@ interface OnboardingStep {
     illustration: React.ReactNode;
 }
 
+// Markdown export only exists in the desktop app.
+const canExportMarkdown = isTauriDesktop();
+
 const steps: OnboardingStep[] = [
     {
         id: "welcome",
@@ -291,9 +295,10 @@ const steps: OnboardingStep[] = [
         id: "vault",
         icon: <FolderSync className="h-5 w-5" />,
         title: "Sync Across Devices",
-        subtitle: "P2P sync + markdown export.",
-        description:
-            "Pair devices to sync reading progress, highlights, and books over LAN. Export to Markdown vaults for long-term ownership — no cloud required.",
+        subtitle: canExportMarkdown ? "P2P sync + markdown export." : "Peer-to-peer sync.",
+        description: canExportMarkdown
+            ? "Pair a device with a QR code and your progress, highlights and books sync straight between them, at home or away. Export to Markdown vaults for long-term ownership. No account, no cloud."
+            : "Pair a device with a QR code and your progress, highlights and books sync straight between them, at home or away. No account, no cloud.",
         illustration: <VaultIllustration />,
     },
 ];
@@ -327,24 +332,28 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             <div
                 className={cn(
                     "flex flex-col w-full h-full",
-                    "md:max-w-[640px] md:h-auto md:max-h-[90vh]",
+                    "md:max-w-[640px] md:h-[660px] md:max-h-[90vh]",
                     "md:border md:border-[var(--color-border)]",
                     "bg-[var(--color-surface)]",
                 )}
             >
                 
-                {!isLast && (
-                    <div className="flex justify-end px-6 pt-4 md:pt-5">
-                        <button
-                            onClick={handleSkip}
-                            className="text-[11px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
-                        >
-                            Skip
-                        </button>
-                    </div>
-                )}
+                {/* Kept on the last step (hidden) so the content does not shift. */}
+                <div className="flex justify-end px-6 pt-[calc(var(--safe-area-top)+1rem)] md:pt-[calc(var(--safe-area-top)+1.25rem)]">
+                    <button
+                        onClick={handleSkip}
+                        className={cn(
+                            "text-[11px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors",
+                            isLast && "invisible",
+                        )}
+                        tabIndex={isLast ? -1 : undefined}
+                        aria-hidden={isLast || undefined}
+                    >
+                        Skip
+                    </button>
+                </div>
 
-                <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-16 py-8 min-h-0">
+                <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-16 py-8 min-h-0 overflow-y-auto">
                     
                     <div
                         className={cn(
@@ -374,7 +383,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     </p>
                 </div>
 
-                <div className="border-t border-[var(--color-border)] px-8 md:px-16 py-5">
+                <div className="border-t border-[var(--color-border)] px-8 md:px-16 pt-5 pb-[calc(var(--safe-area-bottom)+1.25rem)]">
                     
                     <div className="flex items-center justify-center gap-2 mb-5">
                         {steps.map((_, index) => (

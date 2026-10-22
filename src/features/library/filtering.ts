@@ -33,6 +33,13 @@ export interface LibraryFilterOptions {
     sourceFolderBookIds?: Set<string>;
 }
 
+/** A date as milliseconds; missing or unreadable dates count as 0 so the sort stays consistent. */
+function toTime(value: Date | string | undefined): number {
+    if (!value) return 0;
+    const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+    return Number.isFinite(time) ? time : 0;
+}
+
 export function getFilteredAndSortedBooks({
     books,
     searchQuery,
@@ -134,14 +141,8 @@ export function getFilteredAndSortedBooks({
     type WithTimestamps = { book: Book; addedAt: number; lastReadAt: number };
     const decorated: WithTimestamps[] = result.map((book) => ({
         book,
-        addedAt: book.addedAt instanceof Date
-            ? book.addedAt.getTime()
-            : new Date(book.addedAt as string).getTime(),
-        lastReadAt: book.lastReadAt
-            ? (book.lastReadAt instanceof Date
-                ? book.lastReadAt.getTime()
-                : new Date(book.lastReadAt as string).getTime())
-            : 0,
+        addedAt: toTime(book.addedAt),
+        lastReadAt: toTime(book.lastReadAt),
     }));
 
     decorated.sort((a, b) => {
@@ -158,7 +159,8 @@ export function getFilteredAndSortedBooks({
                 comparison = a.addedAt - b.addedAt;
                 break;
             case "lastRead":
-                comparison = a.lastReadAt - b.lastReadAt;
+                // Never-opened books tie at 0; order those by when they were added.
+                comparison = a.lastReadAt - b.lastReadAt || a.addedAt - b.addedAt;
                 break;
             case "progress":
                 comparison = a.book.progress - b.book.progress;

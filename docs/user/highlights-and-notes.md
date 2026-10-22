@@ -2,7 +2,7 @@
 
 Highlight text in six colors, attach notes, save bookmarks, mark up PDFs with a pen, and share any highlight as an image from books, PDFs and RSS articles.
 
-Highlights, notes and bookmarks work in books, PDFs, comics and RSS articles. Everything is stored on your device. To get highlights and notes into another app, see [Markdown export for Obsidian and Logseq](vault-sync.md).
+Highlights, notes and bookmarks work in books, PDFs, comics and RSS articles. Everything is stored on your device. To get highlights and notes into another app from the desktop app, see [Markdown export for Obsidian and Logseq](vault-sync.md).
 
 ## Highlight text
 

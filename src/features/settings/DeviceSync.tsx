@@ -25,7 +25,13 @@ import {
     getDeviceIdentity,
     getPairedDevices,
     unpairDevice,
+    respondPairingRequest,
+    closePairingQr,
+    setDeviceName,
+    probePairedDevice,
 } from "../../core/lib/device-sync";
+import { PairingRequestDialog, type PairingRequest } from "./PairingRequestDialog";
+import { SyncConflictList, useSyncConflicts } from "./SyncConflicts";
 import {
     runDeviceSync,
     ensureResponderSyncReady,
@@ -147,6 +153,9 @@ function ReceiverDot({ active }: { active: boolean }) {
     );
 }
 
+/** How often the Device Sync page checks which paired devices are there. */
+const PRESENCE_CHECK_MS = 20_000;
+
 export function DeviceSyncSection() {
     const [identity, setIdentity] = useState<DeviceIdentityInfo | null>(null);
     const [nodeInfo, setNodeInfo] = useState<{ nodeId: string } | null>(null);
@@ -163,6 +172,11 @@ export function DeviceSyncSection() {
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [copiedCode, setCopiedCode] = useState(false);
     const [unpairDeviceId, setUnpairDeviceId] = useState<string | null>(null);
+    const [pairingRequest, setPairingRequest] = useState<PairingRequest | null>(null);
+    const [codeToCompare, setCodeToCompare] = useState<string | null>(null);
+    // Sync-mesh presence by iroh node id (docs-peer-online / -offline).
+    const [peerOnline, setPeerOnline] = useState<Record<string, boolean>>({});
+    const [nameDraft, setNameDraft] = useState<string | null>(null);
     const syncAbortRef = useRef(false);
 
     const syncStatus = useUIStore((state) => state.deviceSyncStatus);
@@ -220,6 +234,41 @@ export function DeviceSyncSection() {
         };
     }, [available, hasPairedDevices]);
 
+    // While this page is open, ask each paired device whether it is there
+    // (presence events update the Online/Offline labels; the devices also
+    // swap names, so a rename shows up here).
+    const pairedIds = useMemo(() => pairedDevices.map((d) => d.deviceId).join("|"), [pairedDevices]);
+    useEffect(() => {
+        if (!available || !isIrohRunning || pairedIds === "") return;
+        let cancelled = false;
+        const probeAll = async () => {
+            for (const deviceId of pairedIds.split("|")) {
+                if (cancelled) return;
+                await probePairedDevice(deviceId).catch(() => {});
+            }
+        };
+        void probeAll();
+        const timer = setInterval(() => void probeAll(), PRESENCE_CHECK_MS);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [available, isIrohRunning, pairedIds]);
+
+    const conflictList = useSyncConflicts(available);
+
+    const handleSaveName = useCallback(async () => {
+        const draft = nameDraft;
+        setNameDraft(null);
+        if (draft === null) return;
+        try {
+            const name = await setDeviceName(draft);
+            setIdentity((current) => (current ? { ...current, deviceName: name } : current));
+        } catch (e: any) {
+            setError(e?.message || String(e));
+        }
+    }, [nameDraft]);
+
     useEffect(() => {
         if (successMessage) {
             const timer = setTimeout(() => setSuccessMessage(null), 4000);
@@ -227,42 +276,96 @@ export function DeviceSyncSection() {
         }
     }, [successMessage]);
 
+    // Every QR code carries a fresh one-time secret, so it is generated each
+    // time it is shown and withdrawn when it is closed.
     const handleGenerateQr = useCallback(async () => {
-        if (qrData) {
-            setIsQrModalOpen(true);
-            return;
-        }
         setError(null);
         setIsLoading(true);
-            try {
-                const data = await generatePairingQr();
-                setQrData(data);
-                setIsQrModalOpen(true);
-                setIsIrohRunning(true);
-                setDeviceSyncStatus("hosting");
-            } catch (e: any) {
+        try {
+            const data = await generatePairingQr();
+            setQrData(data);
+            setIsQrModalOpen(true);
+            setIsIrohRunning(true);
+            setDeviceSyncStatus("hosting");
+        } catch (e: any) {
             setError(e?.message || String(e));
         } finally {
             setIsLoading(false);
         }
-    }, [qrData, setDeviceSyncStatus]);
+    }, [setDeviceSyncStatus]);
+
+    const handleCloseQr = useCallback(() => {
+        setIsQrModalOpen(false);
+        setQrData(null);
+        void closePairingQr().catch(() => {});
+    }, []);
+
+    // Leaving the page withdraws a QR code still on screen.
+    useEffect(() => () => {
+        void closePairingQr().catch(() => {});
+    }, []);
 
     useEffect(() => {
-        if (!available || !qrData) return;
+        if (!available) return;
         let cancelled = false;
-        let unlisten: (() => void) | null = null;
-        import("@tauri-apps/api/event").then(({ listen }) => {
-            if (cancelled) return;
-            listen<{ device_id: string; device_name: string }>("pairing-completed", () => {
-                if (cancelled) return;
-                setDeviceSyncStatus("synced", "Device paired!");
-            }).then((fn) => { unlisten = fn; });
+        const unlisteners: (() => void)[] = [];
+        import("@tauri-apps/api/event").then(async ({ listen }) => {
+            const handlers = [
+                listen<PairingRequest>("pairing-confirm-request", (event) => {
+                    // The secret is used up; the QR code has done its job.
+                    setIsQrModalOpen(false);
+                    setQrData(null);
+                    setPairingRequest(event.payload);
+                }),
+                listen<{ requestId: string }>("pairing-confirm-closed", (event) => {
+                    setPairingRequest((current) =>
+                        current?.requestId === event.payload.requestId ? null : current,
+                    );
+                }),
+                listen<{ peer: string }>("docs-peer-online", (event) => {
+                    setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: true }));
+                }),
+                listen<{ peer: string }>("docs-peer-offline", (event) => {
+                    setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: false }));
+                }),
+                listen<{ peer: string; online: boolean }>("sync-peer-presence", (event) => {
+                    setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: event.payload.online }));
+                }),
+                // A rename on the other device, or a device removed (by the
+                // user, or by the other device unpairing this one).
+                listen("paired-devices-changed", () => {
+                    void getPairedDevices().then(setPairedDevices).catch(() => {});
+                }),
+                listen<{ deviceName: string }>("sync-peer-removed", (event) => {
+                    setError(`${event.payload.deviceName || "A paired device"} removed this device. Pair them again to sync.`);
+                }),
+                listen<{ device_id: string; device_name: string }>("pairing-completed", (event) => {
+                    setDeviceSyncStatus("synced", "Device paired!");
+                    setSuccessMessage(`Paired with ${event.payload.device_name || event.payload.device_id}`);
+                    void getPairedDevices().then(setPairedDevices).catch(() => {});
+                }),
+            ];
+            for (const handler of handlers) {
+                const unlisten = await handler;
+                if (cancelled) unlisten();
+                else unlisteners.push(unlisten);
+            }
         }).catch(() => {});
         return () => {
             cancelled = true;
-            unlisten?.();
+            unlisteners.forEach((unlisten) => unlisten());
         };
-    }, [available, qrData]);
+    }, [available, setDeviceSyncStatus]);
+
+    const handlePairingAnswer = useCallback((accept: boolean) => {
+        const request = pairingRequest;
+        setPairingRequest(null);
+        if (!request) return;
+        void respondPairingRequest(request.requestId, accept).catch((e: any) => {
+            setError(e?.message || String(e));
+        });
+        if (!accept) setDeviceSyncStatus("idle", "Pairing declined");
+    }, [pairingRequest, setDeviceSyncStatus]);
 
     const submitPairingCodeValue = useCallback(
         async (code: string) => {
@@ -275,10 +378,13 @@ export function DeviceSyncSection() {
             let pairUnlisten: (() => void) | null = null;
             try {
                 const { listen } = await import("@tauri-apps/api/event");
-                pairUnlisten = await listen<{ step: string; message: string }>(
+                pairUnlisten = await listen<{ step: string; message: string; code?: string }>(
                     "pairing-progress",
                     (event) => {
                         setDeviceSyncStatus("pairing", event.payload.message);
+                        if (event.payload.step === "confirm" && event.payload.code) {
+                            setCodeToCompare(event.payload.code);
+                        }
                     },
                 );
             } catch {}
@@ -301,6 +407,7 @@ export function DeviceSyncSection() {
                 setDeviceSyncStatus("error", e?.message || String(e));
             } finally {
                 setIsPairing(false);
+                setCodeToCompare(null);
             }
         },
         [setDeviceSyncStatus],
@@ -454,7 +561,7 @@ export function DeviceSyncSection() {
         return (
             <Section
                 title="Device Sync"
-                description="Real app-data sync between your devices over LAN"
+                description="Sync your library, progress and highlights directly between your devices, on any network"
                 icon={<Smartphone className="w-5 h-5" />}
             >
                 <div className="p-6 bg-[var(--color-surface-muted)] text-center">
@@ -514,13 +621,45 @@ export function DeviceSyncSection() {
                         <div className="flex items-center gap-3">
                             <Monitor className="w-5 h-5 text-[color:var(--color-text-muted)] shrink-0" />
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm text-[color:var(--color-text-primary)] truncate">
-                                    {identity.deviceName || "This Device"}
-                                </p>
+                                {nameDraft === null ? (
+                                    <p className="text-sm text-[color:var(--color-text-primary)] truncate">
+                                        {identity.deviceName || "This Device"}
+                                    </p>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        autoFocus
+                                        aria-label="Device name"
+                                        value={nameDraft}
+                                        maxLength={64}
+                                        onChange={(e) => setNameDraft(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") void handleSaveName();
+                                            if (e.key === "Escape") setNameDraft(null);
+                                        }}
+                                        placeholder="Leave empty for the system name"
+                                        className={cn(
+                                            "w-full px-2 py-1.5 text-sm",
+                                            "bg-[var(--color-surface-muted)] border border-[var(--color-border)]",
+                                            "text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)]",
+                                            "focus:outline-none focus:border-[color:var(--color-accent)]",
+                                        )}
+                                    />
+                                )}
                                 <p className="text-[11px] text-[color:var(--color-text-muted)] font-mono truncate">
                                     {identity.deviceId}
                                 </p>
                             </div>
+                            <button
+                                onClick={() => (nameDraft === null ? setNameDraft(identity.deviceName || "") : void handleSaveName())}
+                                className={cn(
+                                    "shrink-0 px-2 py-1.5 min-h-[2.25rem] text-xs",
+                                    "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)]",
+                                    "transition-colors",
+                                )}
+                            >
+                                {nameDraft === null ? "Rename" : "Save"}
+                            </button>
                         </div>
                     )}
 
@@ -553,6 +692,16 @@ export function DeviceSyncSection() {
 
                 </div>
             </Card>
+
+            {conflictList.conflicts.length > 0 && (
+                <Card label={`Sync conflicts (${conflictList.conflicts.length})`}>
+                    <SyncConflictList
+                        conflicts={conflictList.conflicts}
+                        onRestore={(c) => void conflictList.restore(c)}
+                        onDismiss={(ids) => void conflictList.dismiss(ids)}
+                    />
+                </Card>
+            )}
 
             <Card label="Sync Settings">
                 <div className="p-4">
@@ -643,38 +792,17 @@ export function DeviceSyncSection() {
                         </button>
                     )}
 
-                    {qrData && (
-                        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    {codeToCompare && (
+                        <div className="p-4 space-y-2" role="status">
                             <p className="text-xs text-[color:var(--color-text-muted)]">
-                                QR code ready — show it or copy the manual code.
+                                On the other device, accept the request if it shows:
                             </p>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setIsQrModalOpen(true)}
-                                    className="ui-btn"
-                                >
-                                    Open QR
-                                </button>
-                                <button
-                                    onClick={handleCopyCode}
-                                    className={cn(
-                                        "inline-flex items-center gap-1.5 px-3 py-2 min-h-[2.25rem]",
-                                        "border border-[var(--color-border)]",
-                                        "text-xs text-[color:var(--color-text-muted)]",
-                                        "hover:bg-[var(--color-surface-muted)] transition-colors",
-                                    )}
-                                >
-                                    {copiedCode ? (
-                                        <>
-                                            <Check className="w-3 h-3" /> Copied
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Copy className="w-3 h-3" /> Copy code
-                                        </>
-                                    )}
-                                </button>
-                            </div>
+                            <p
+                                data-pairing-code
+                                className="text-center font-mono text-3xl tracking-[0.3em] text-[color:var(--color-text-primary)]"
+                            >
+                                {codeToCompare}
+                            </p>
                         </div>
                     )}
 
@@ -738,9 +866,24 @@ export function DeviceSyncSection() {
                                     <div className="flex items-center gap-3">
                                         <Smartphone className="w-5 h-5 text-[color:var(--color-text-muted)] shrink-0" />
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm text-[color:var(--color-text-primary)] truncate">
-                                                {device.deviceName ||
-                                                    device.deviceId}
+                                            <p className="flex items-center gap-2 text-sm text-[color:var(--color-text-primary)]">
+                                                <span className="truncate">
+                                                    {device.deviceName ||
+                                                        device.deviceId}
+                                                </span>
+                                                {peerOnline[device.irohNodeId] !== undefined && (
+                                                    <span
+                                                        data-peer-presence
+                                                        className={cn(
+                                                            "shrink-0 text-[10px]",
+                                                            peerOnline[device.irohNodeId]
+                                                                ? "text-[color:var(--color-success)]"
+                                                                : "text-[color:var(--color-text-muted)]",
+                                                        )}
+                                                    >
+                                                        {peerOnline[device.irohNodeId] ? "Online" : "Offline"}
+                                                    </span>
+                                                )}
                                             </p>
                                             <p className="text-[11px] text-[color:var(--color-text-muted)]">
                                                 {device.lastSyncAt
@@ -840,18 +983,18 @@ export function DeviceSyncSection() {
             <div className="flex items-center gap-2.5 py-2">
                 <Lock className="w-3.5 h-3.5 text-[color:var(--color-text-muted)] shrink-0 opacity-60" />
                 <p className="text-[11px] text-[color:var(--color-text-muted)] leading-relaxed">
-                    Sync uses iroh-docs CRDT with iroh QUIC transport security. Only paired devices share data.
+                    Sync is end-to-end encrypted between your devices, with no server. Only devices you approved can connect; pairing codes work once and expire after 10 minutes.
                 </p>
             </div>
 
             <Modal
                 isOpen={isQrModalOpen && !!qrData}
-                onClose={() => setIsQrModalOpen(false)}
+                onClose={handleCloseQr}
                 size="sm"
             >
                 <ModalHeader
                     title="Pair Device"
-                    onClose={() => setIsQrModalOpen(false)}
+                    onClose={handleCloseQr}
                 />
                 <ModalBody className="space-y-4 overflow-x-hidden">
                     <div className="mx-auto w-full max-w-[18rem]">
@@ -867,7 +1010,8 @@ export function DeviceSyncSection() {
                     </div>
                     <p className="text-sm text-center text-[color:var(--color-text-muted)]">
                         Scan this QR code from the other device&apos;s Theorem
-                        app.
+                        app. It works once, for 10 minutes, and you will be
+                        asked to approve the device.
                     </p>
                     <button
                         onClick={handleCopyCode}
@@ -892,6 +1036,8 @@ export function DeviceSyncSection() {
                     </button>
                 </ModalBody>
             </Modal>
+
+            <PairingRequestDialog request={pairingRequest} onAnswer={handlePairingAnswer} />
 
             <ConfirmDialog
                 isOpen={!!unpairDeviceId}

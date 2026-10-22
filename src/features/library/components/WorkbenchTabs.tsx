@@ -20,10 +20,10 @@ const TABS: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ComponentType
  * they present as one place with five tabs. On a phone this is also what keeps Bookmarks
  * reachable: the bottom bar has room for one "Workbench" item and the rest lives here.
  *
- * Five text labels need ~350px, more than a small phone has, and a row that scrolls sideways
- * would hide exactly the tab we are trying to expose. So below `sm` only the active tab spells
- * out its name and the others shrink to an icon (every tab keeps its accessible name); from `sm`
- * up it is the plain text row it always was.
+ * Five text labels side by side need ~350px, more than a small phone has, and a row that scrolls
+ * sideways would hide exactly the tab we are trying to expose. So below `sm` the five tabs share
+ * the width equally, each with its icon over a small label (icon-only tabs had to be guessed);
+ * from `sm` up it is the plain text row it always was.
  */
 export const WorkbenchTabs = memo(function WorkbenchTabs({
     active,
@@ -38,7 +38,7 @@ export const WorkbenchTabs = memo(function WorkbenchTabs({
         <div
             role="tablist"
             aria-label="Workbench sections"
-            className={cn("flex w-full max-w-full items-stretch gap-1 sm:w-fit", className)}
+            className={cn("grid w-full max-w-full grid-cols-5 items-stretch gap-1 sm:flex sm:w-fit", className)}
         >
             {TABS.map(({ id, label, icon: Icon }) => {
                 const isActive = active === id;
@@ -52,14 +52,15 @@ export const WorkbenchTabs = memo(function WorkbenchTabs({
                         title={label}
                         onClick={() => onSelect(id)}
                         className={cn(
-                            "flex min-w-10 items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--color-border)] px-2.5 py-2 font-sans text-xs transition-colors sm:min-w-0 sm:flex-none sm:px-3",
+                            "flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap border border-[var(--color-border)] px-1 py-2 font-sans text-[10px] transition-colors",
+                            "sm:flex-row sm:gap-1.5 sm:px-3 sm:text-xs",
                             isActive
-                                ? "ui-selected flex-auto"
-                                : "flex-none bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
+                                ? "ui-selected"
+                                : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
                         )}
                     >
-                        <Icon className="h-3.5 w-3.5 shrink-0 sm:hidden" />
-                        <span className={cn(!isActive && "hidden sm:inline")}>{label}</span>
+                        <Icon className="h-4 w-4 shrink-0 sm:hidden" />
+                        <span className="max-w-full truncate">{label}</span>
                     </button>
                 );
             })}

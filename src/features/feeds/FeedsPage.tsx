@@ -6,7 +6,7 @@ import { openExternalUrl } from "../../core/lib/open-external-url";
 import { useRssStore } from "../../core/store";
 import type { RssFeed, RssArticle } from "../../core/types";
 import {
-    Rss, Plus, RefreshCw, Trash2, Loader2,
+    Rss, Newspaper, Plus, RefreshCw, Trash2, Loader2,
     AlertCircle,
     LayoutTemplate, ArrowLeft,
     ExternalLink, BookOpen, CheckCheck, EyeOff, Link2,
@@ -430,7 +430,7 @@ function EmptyFeeds({ onAddFeed }: { onAddFeed: () => void }) {
     return (
         <div className="mx-auto w-full max-w-[26rem] min-w-0 px-4 sm:px-6 flex flex-col items-center justify-center py-20 text-center animate-fade-in">
             <div className="mb-5 inline-flex h-16 w-16 items-center justify-center border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]">
-                <Rss className="w-6 h-6" />
+                <Newspaper className="w-6 h-6" />
             </div>
             <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 Your Feed Reader
@@ -691,7 +691,7 @@ export function FeedsPage() {
 
     if (feeds.length === 0 && !isLoading) {
         return (
-            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
+            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
                 <EmptyFeeds onAddFeed={() => setIsAddModalOpen(true)} />
                 <AddFeedModal
                     isOpen={isAddModalOpen}

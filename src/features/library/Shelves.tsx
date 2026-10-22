@@ -20,7 +20,7 @@ import { isTauri } from "../../core/lib/env";
 import { exportBook } from "../../core/lib/book-export";
 import { toast } from "sonner";
 import {
-    FolderOpen,
+    Layers,
     Plus,
     MoreVertical,
     Edit3,
@@ -33,7 +33,7 @@ import {
     CheckCheck,
     BookMarked,
     RotateCcw,
-    Layers,
+    ListOrdered,
 } from "lucide-react";
 import type { Book, Collection, LibraryViewMode, SmartShelfDefinition } from "../../core/types";
 
@@ -52,7 +52,7 @@ function EmptyShelves({ onCreate }: { onCreate: () => void }) {
     return (
         <div className="mx-auto w-full max-w-[26rem] min-w-0 px-4 sm:px-6 flex flex-col items-center justify-center py-20 text-center animate-fade-in">
             <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
-                <FolderOpen className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
+                <Layers className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
             </div>
             <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
                 No Shelves Yet
@@ -156,7 +156,7 @@ const ShelfCard = memo(function ShelfCard({ shelf, books, actualBookCount, onCli
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full">
-                            <FolderOpen className="w-12 h-12 text-[color:var(--color-text-muted)] mb-2" />
+                            <Layers className="w-12 h-12 text-[color:var(--color-text-muted)] mb-2" />
                             <span className="text-sm text-[color:var(--color-text-secondary)]">Empty Shelf</span>
                         </div>
                     )}
@@ -683,7 +683,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             )}
                             title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
                         >
-                            <Layers className="w-4 h-4" />
+                            <ListOrdered className="w-4 h-4" />
                         </button>
 
                         <button
@@ -706,7 +706,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             ) : (
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                     <div className="flex min-h-0 flex-1 flex-col w-full">
-                        <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0">
+                        <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                         <p className="text-[color:var(--color-text-muted)] text-xs">No documents match criteria</p>
@@ -891,7 +891,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                 </div>
             )}
             {isSelecting && selectedBooks.length > 0 && (
-                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
+                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
                     <span className="text-sm text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>
@@ -939,7 +939,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         onClick={handleOpenSeriesModalForSelection}
                         className="ui-btn px-3 py-1.5 text-xs border-2"
                     >
-                        <Layers className="w-3.5 h-3.5" />
+                        <ListOrdered className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Set Series</span>
                     </button>
                     <div className="h-5 w-px bg-[var(--color-border)]" />
@@ -1182,7 +1182,7 @@ export function ShelvesPage() {
 
             <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                 <div className="flex min-h-0 flex-1 flex-col w-full">
-                    <section className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+env(safe-area-inset-bottom)+var(--spacing-lg))] md:pb-0 pt-4">
+                    <section className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0 pt-4">
                         {generalCollections.length === 0 ? (
                             <EmptyShelves onCreate={handleCreateShelf} />
                         ) : filteredShelves.length === 0 ? (

@@ -90,6 +90,8 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to open database for migration: {e}"))?;
     conn.execute_batch(DB_SCHEMA_PERSISTENT_PRAGMAS)
         .map_err(|e| format!("Failed to run schema migrations: {e}"))?;
+    conn.execute_batch(SYNC_CONFLICTS_SCHEMA)
+        .map_err(|e| format!("Failed to run schema migrations: {e}"))?;
     conn.execute_batch(DB_PER_CONNECTION_PRAGMAS)
         .map_err(|e| format!("Failed to set connection PRAGMAs: {e}"))?;
 
@@ -166,6 +168,12 @@ pub fn run_schema_migrations(app: &AppHandle) -> Result<(), String> {
 
     run_v159_database_migrations(&conn)
         .map_err(|e| format!("Failed to run v1.5.9 migrations: {e}"))?;
+
+    match normalize_rss_timestamp_units(&conn) {
+        Ok(0) => {}
+        Ok(n) => eprintln!("[database] Converted {n} RSS timestamps from seconds to ms"),
+        Err(e) => eprintln!("[database] RSS timestamp repair failed: {e}"),
+    }
 
     if let Err(e) = reconcile_books_fts(&conn) {
         eprintln!("[database] books_fts reconcile failed: {e}");
@@ -443,6 +451,10 @@ fn init_db_pool(db_path: &Path) -> Result<&DbPool, String> {
 const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
+    -- Per-connection: this only affects the one-off migration connection.
+    -- Pooled connections run with foreign keys OFF, so the ON DELETE CASCADE
+    -- clauses below never fire in normal use; deletes clear related rows
+    -- explicitly (see `delete_book_rows`).
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS books (
@@ -580,6 +592,24 @@ const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     CREATE INDEX IF NOT EXISTS idx_vocabulary_created_at ON vocabulary(created_at DESC);
 "#;
 
+/// Edits two devices made to the same item without seeing each other's
+/// (see `record_sync_conflict`).
+const SYNC_CONFLICTS_SCHEMA: &str = r#"
+    CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        winner TEXT NOT NULL,
+        kept_json TEXT NOT NULL,
+        discarded_json TEXT NOT NULL,
+        kept_at INTEGER NOT NULL,
+        discarded_at INTEGER NOT NULL,
+        detected_at INTEGER NOT NULL,
+        dismissed INTEGER NOT NULL DEFAULT 0
+    );
+"#;
+
 #[cfg(target_os = "android")]
 const DB_PER_CONNECTION_PRAGMAS: &str = r#"
     PRAGMA busy_timeout = 5000;
@@ -694,16 +724,38 @@ pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String>
     crate::epub_entries::clear_cache();
     remove_materialized_cache_file(&app, &id);
 
-    with_connection(&app, |connection| {
-        connection.execute(
-            "DELETE FROM materialized_books WHERE book_id = ?1",
-            params![id],
-        )?;
-        connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
+    with_connection(&app, |connection| sqlite_delete_book_inner(connection, &id))
+}
+
+/// Remove a book and everything stored for it, in one transaction.
+pub fn sqlite_delete_book_inner(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    delete_book_rows(&tx, id)?;
+    tx.commit()
+}
+
+/// Delete every row that belongs to book `id`. Runs no transaction of its
+/// own: callers wrap it in one (the sync merge runs it inside its own).
+///
+/// Foreign keys are deliberately OFF on pooled connections, so the
+/// `ON DELETE CASCADE` clauses in the schema never fire and each table is
+/// cleared here explicitly. They stay off because synced books legitimately
+/// carry `book_metadata` (and annotations) without a `books` row until their
+/// file arrives; enforcing the foreign keys would reject those rows. Any new
+/// table keyed by book id must be added here.
+pub(crate) fn delete_book_rows(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    for sql in [
+        "DELETE FROM covers WHERE book_id = ?1",
+        "DELETE FROM materialized_books WHERE book_id = ?1",
+        "DELETE FROM book_metadata WHERE book_id = ?1",
+        "DELETE FROM book_annotations WHERE book_id = ?1",
         // Deleted books must leave library search too.
-        connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
-        Ok(())
-    })
+        "DELETE FROM books_fts WHERE id = ?1",
+        "DELETE FROM books WHERE id = ?1",
+    ] {
+        connection.execute(sql, params![id])?;
+    }
+    Ok(())
 }
 
 pub fn sqlite_get_materialized_book_path(
@@ -986,12 +1038,16 @@ pub fn sqlite_cleanup_orphaned_storage(
 }
 
 pub fn sqlite_clear_all_storage_inner(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute("DELETE FROM covers", [])?;
-    connection.execute("DELETE FROM materialized_books", [])?;
-    connection.execute("DELETE FROM books", [])?;
-    connection.execute("DELETE FROM blob_store", [])?;
-    connection.execute("DELETE FROM kv_store", [])?;
-    Ok(())
+    let tx = connection.unchecked_transaction()?;
+    tx.execute("DELETE FROM covers", [])?;
+    tx.execute("DELETE FROM materialized_books", [])?;
+    tx.execute("DELETE FROM book_metadata", [])?;
+    tx.execute("DELETE FROM book_annotations", [])?;
+    tx.execute("DELETE FROM books_fts", [])?;
+    tx.execute("DELETE FROM books", [])?;
+    tx.execute("DELETE FROM blob_store", [])?;
+    tx.execute("DELETE FROM kv_store", [])?;
+    tx.commit()
 }
 
 pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), String> {
@@ -1523,7 +1579,10 @@ pub fn sqlite_save_book_annotations_inner(
     book_id: &str,
     annotations_json: &[String],
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    // Replace the book's annotations atomically: a failing insert must not
+    // leave the book with its old highlights deleted and the new ones missing.
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM book_annotations WHERE book_id = ?1",
         params![book_id],
     )?;
@@ -1536,12 +1595,18 @@ pub fn sqlite_save_book_annotations_inner(
                     .map(String::from)
             })
             .unwrap_or_else(|| format!("auto:{}:{}", book_id, i));
-        connection.execute(
-            "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch())",
+        // Ids are unique across books. A repeated id (in this list, or one
+        // still stored under another book) is an update: the last one wins.
+        tx.execute(
+            "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch())
+             ON CONFLICT(id) DO UPDATE SET
+                book_id = excluded.book_id,
+                annotation_json = excluded.annotation_json,
+                updated_at = excluded.updated_at",
             params![id, book_id, ann_json],
         )?;
     }
-    Ok(())
+    tx.commit()
 }
 
 pub fn sqlite_save_book_annotations(
@@ -1632,6 +1697,8 @@ pub struct SyncMergeResult {
     pub deleted_vocabulary: Vec<String>,
     pub updated_rss_articles: Vec<String>,
     pub deleted_rss_articles: Vec<String>,
+    /// Conflicts found by this merge (see `sqlite_list_sync_conflicts`).
+    pub conflicts: usize,
 }
 
 fn parse_sync_date(val: Option<&serde_json::Value>) -> Option<i64> {
@@ -1651,6 +1718,67 @@ fn parse_sync_date(val: Option<&serde_json::Value>) -> Option<i64> {
         }
         _ => None,
     }
+}
+
+/// Stores a synced annotation unless this device holds a newer edit of it
+/// (by `updatedAt`). Returns whether it was stored.
+fn upsert_synced_annotation(
+    connection: &Connection,
+    id: &str,
+    book_id: &str,
+    incoming: &serde_json::Value,
+    incoming_json: &str,
+    conflicts: &mut usize,
+) -> rusqlite::Result<bool> {
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT annotation_json FROM book_annotations WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(existing) = existing {
+        let existing_val = serde_json::from_str::<serde_json::Value>(&existing).ok();
+        if let Some(found) = existing_val.as_ref().and_then(|local| {
+            concurrent_edit(
+                local,
+                incoming,
+                "updatedAt",
+                "baseUpdatedAt",
+                ANNOTATION_EDITABLE_FIELDS,
+            )
+        }) {
+            let label = existing_val
+                .as_ref()
+                .and_then(|v| v.get("selectedText").or_else(|| v.get("noteContent")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .chars()
+                .take(80)
+                .collect::<String>();
+            if record_sync_conflict(connection, "annotation", id, &label, &found) {
+                *conflicts += 1;
+            }
+        }
+        let local_at = existing_val
+            .as_ref()
+            .and_then(|v| parse_sync_date(v.get("updatedAt")));
+        let incoming_at = parse_sync_date(incoming.get("updatedAt"));
+        if let (Some(local_at), Some(incoming_at)) = (local_at, incoming_at) {
+            if local_at > incoming_at {
+                return Ok(false);
+            }
+        }
+    }
+    connection.execute(
+        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+        params![book_id],
+    )?;
+    connection.execute(
+        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
+        params![id, book_id, incoming_json],
+    )?;
+    Ok(true)
 }
 
 fn upsert_sync_vocabulary_term(
@@ -1690,7 +1818,7 @@ fn upsert_sync_vocabulary_term(
     });
     let updated_at = parse_sync_date(term.get("updatedAt"));
 
-    connection.execute(
+    let changed = connection.execute(
         r#"
         INSERT INTO vocabulary (
             id, term, normalized_term, language, phonetic, audio_url,
@@ -1707,8 +1835,11 @@ fn upsert_sync_vocabulary_term(
             provider_history_json = excluded.provider_history_json,
             source_book_id = excluded.source_book_id,
             context_sentence = excluded.context_sentence,
-            created_at = excluded.created_at,
+            created_at = MIN(vocabulary.created_at, excluded.created_at),
             updated_at = excluded.updated_at
+        WHERE excluded.updated_at IS NULL
+            OR vocabulary.updated_at IS NULL
+            OR excluded.updated_at >= vocabulary.updated_at
         "#,
         params![
             id,
@@ -1725,7 +1856,8 @@ fn upsert_sync_vocabulary_term(
             updated_at,
         ],
     )?;
-    Ok(Some(id.to_string()))
+    // An older copy of a term this device already has is not applied.
+    Ok((changed > 0).then(|| id.to_string()))
 }
 
 fn upsert_sync_rss_article(
@@ -1785,7 +1917,7 @@ fn upsert_sync_rss_article(
             id, feed_id, title, author, url, summary,
             content_source, image_url, published_at, fetched_at,
             is_read, is_favorite, progress, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, unixepoch())
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch() * 1000), ?11, ?12, ?13, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             feed_id = excluded.feed_id,
             title = excluded.title,
@@ -1796,9 +1928,9 @@ fn upsert_sync_rss_article(
             image_url = excluded.image_url,
             published_at = excluded.published_at,
             fetched_at = excluded.fetched_at,
-            is_read = excluded.is_read,
-            is_favorite = excluded.is_favorite,
-            progress = excluded.progress,
+            is_read = MAX(rss_articles.is_read, excluded.is_read),
+            is_favorite = MAX(rss_articles.is_favorite, excluded.is_favorite),
+            progress = MAX(rss_articles.progress, excluded.progress),
             updated_at = unixepoch()
         "#,
         params![
@@ -1839,12 +1971,315 @@ fn upsert_sync_rss_article(
     Ok(Some(id.to_string()))
 }
 
+/// Fields of a synced book that describe this device's copy, not the book.
+/// Peers never send them (provisioning strips them), so an incoming value is
+/// at best stale and at worst an attempt to point us, and then the book server,
+/// at an arbitrary local file.
+const DEVICE_LOCAL_BOOK_FIELDS: &[&str] = &[
+    "filePath",
+    "file_path",
+    "storagePath",
+    "storage_path",
+    "syncedWithoutFile",
+];
+
+/// The book as a peer may describe it: device-local fields removed, and a
+/// cover only as an inline image.
+fn sanitize_incoming_book(incoming: &serde_json::Value) -> serde_json::Value {
+    let mut book = incoming.clone();
+    if let Some(obj) = book.as_object_mut() {
+        for field in DEVICE_LOCAL_BOOK_FIELDS {
+            obj.remove(*field);
+        }
+        let inline_cover = obj
+            .get("coverPath")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s.starts_with("data:image/"));
+        if !inline_cover {
+            obj.remove("coverPath");
+        }
+    }
+    book
+}
+
+/// The book details a user edits (mirrors `BOOK_EDITABLE_FIELDS` in
+/// book-edit-stamp.ts): the side with the newer `metadataUpdatedAt` wins them.
+const BOOK_EDITABLE_FIELDS: &[&str] = &[
+    "title",
+    "author",
+    "description",
+    "publisher",
+    "language",
+    "isbn",
+    "publishedDate",
+    "category",
+    "isFavorite",
+    "tags",
+    "rating",
+    "completedAt",
+    "manualCompletionState",
+    "progressBeforeFinish",
+    "series",
+    "seriesIndex",
+    "metadataUpdatedAt",
+    "metadataBaseAt",
+];
+
+/// What a user edits on an annotation (the newer `updatedAt` wins them).
+const ANNOTATION_EDITABLE_FIELDS: &[&str] = &["noteContent", "textNoteContent", "color", "type"];
+
+/// Two devices changed the same item without either seeing the other's
+/// change: the newer change is kept (the merge rules decide that, as always);
+/// this is the record of the one that was replaced.
+#[derive(Debug, Clone, PartialEq)]
+struct ConcurrentEdit {
+    /// True when this device's change was kept and the other device's replaced.
+    local_kept: bool,
+    /// The fields that differ: the values kept, and the values replaced.
+    kept: serde_json::Map<String, serde_json::Value>,
+    discarded: serde_json::Map<String, serde_json::Value>,
+    kept_at: i64,
+    discarded_at: i64,
+}
+
+/// Compares this device's copy of an item with a peer's, both stamped with
+/// when they were last edited (`stamp`) and which edit that one was made on
+/// top of (`base`). The newer edit replaces the older one; that is a conflict
+/// only if the newer edit was made without knowing the older one (its base
+/// is older than the older edit), and only for the fields where they differ.
+/// Items edited one after the other, after syncing, never conflict.
+fn concurrent_edit(
+    local: &serde_json::Value,
+    incoming: &serde_json::Value,
+    stamp: &str,
+    base: &str,
+    fields: &[&str],
+) -> Option<ConcurrentEdit> {
+    let local_at = parse_sync_date(local.get(stamp))?;
+    let incoming_at = parse_sync_date(incoming.get(stamp))?;
+    if local_at == incoming_at {
+        return None;
+    }
+    let local_kept = local_at > incoming_at;
+    let (winner, loser, kept_at, discarded_at) = if local_kept {
+        (local, incoming, local_at, incoming_at)
+    } else {
+        (incoming, local, incoming_at, local_at)
+    };
+    if parse_sync_date(winner.get(base)).is_some_and(|known| known >= discarded_at) {
+        return None;
+    }
+    let mut kept = serde_json::Map::new();
+    let mut discarded = serde_json::Map::new();
+    for field in fields {
+        if *field == stamp || *field == base {
+            continue;
+        }
+        let w = winner.get(*field).unwrap_or(&serde_json::Value::Null);
+        let l = loser.get(*field).unwrap_or(&serde_json::Value::Null);
+        if w != l {
+            kept.insert(field.to_string(), w.clone());
+            discarded.insert(field.to_string(), l.clone());
+        }
+    }
+    if kept.is_empty() {
+        return None;
+    }
+    Some(ConcurrentEdit {
+        local_kept,
+        kept,
+        discarded,
+        kept_at,
+        discarded_at,
+    })
+}
+
+/// Stores a conflict for the user to review. The same conflict seen again
+/// (the full reads repeat every entry) is stored once. Returns whether it is
+/// new. Never fails the merge: a conflict that cannot be stored is logged.
+fn record_sync_conflict(
+    connection: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    label: &str,
+    found: &ConcurrentEdit,
+) -> bool {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(
+        format!(
+            "{entity_type}|{entity_id}|{}|{}",
+            found.kept_at, found.discarded_at
+        )
+        .as_bytes(),
+    );
+    let id: String = hasher.finalize()[..12]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let now = chrono::Utc::now().timestamp_millis();
+    match connection.execute(
+        "INSERT OR IGNORE INTO sync_conflicts(id, entity_type, entity_id, label, winner, kept_json, discarded_json, kept_at, discarded_at, detected_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            id,
+            entity_type,
+            entity_id,
+            label,
+            if found.local_kept { "local" } else { "remote" },
+            serde_json::Value::Object(found.kept.clone()).to_string(),
+            serde_json::Value::Object(found.discarded.clone()).to_string(),
+            found.kept_at,
+            found.discarded_at,
+            now,
+        ],
+    ) {
+        Ok(n) => n > 0,
+        Err(e) => {
+            eprintln!("[sync] could not record a sync conflict: {e}");
+            false
+        }
+    }
+}
+
+/// How long a conflict stays listed.
+const SYNC_CONFLICT_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncConflictRecord {
+    pub id: String,
+    /// "book" or "annotation".
+    pub entity_type: String,
+    pub entity_id: String,
+    /// The book's title, or the highlighted text.
+    pub label: String,
+    /// "local": this device's change was kept; "remote": the other device's.
+    pub winner: String,
+    /// The fields that differ: the values in use now…
+    pub kept: serde_json::Value,
+    /// …and the values that were replaced.
+    pub discarded: serde_json::Value,
+    pub kept_at: i64,
+    pub discarded_at: i64,
+    pub detected_at: i64,
+}
+
+/// The conflicts not yet dismissed, newest first (older than 30 days are
+/// removed).
+pub fn sqlite_list_sync_conflicts_inner(
+    connection: &Connection,
+) -> rusqlite::Result<Vec<SyncConflictRecord>> {
+    let cutoff = chrono::Utc::now().timestamp_millis() - SYNC_CONFLICT_TTL_MS;
+    connection.execute(
+        "DELETE FROM sync_conflicts WHERE detected_at < ?1",
+        params![cutoff],
+    )?;
+    let mut stmt = connection.prepare(
+        "SELECT id, entity_type, entity_id, label, winner, kept_json, discarded_json, kept_at, discarded_at, detected_at FROM sync_conflicts WHERE dismissed = 0 ORDER BY detected_at DESC, id LIMIT 200",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let json = |s: String| serde_json::from_str(&s).unwrap_or(serde_json::Value::Null);
+        Ok(SyncConflictRecord {
+            id: row.get(0)?,
+            entity_type: row.get(1)?,
+            entity_id: row.get(2)?,
+            label: row.get(3)?,
+            winner: row.get(4)?,
+            kept: json(row.get(5)?),
+            discarded: json(row.get(6)?),
+            kept_at: row.get(7)?,
+            discarded_at: row.get(8)?,
+            detected_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn sqlite_list_sync_conflicts(app: AppHandle) -> Result<Vec<SyncConflictRecord>, String> {
+    with_connection(&app, sqlite_list_sync_conflicts_inner)
+}
+
+/// Hides conflicts from the list (all of them when `ids` is empty). They are
+/// kept as dismissed, so the same conflict read again is not listed again.
+pub fn sqlite_dismiss_sync_conflicts_inner(
+    connection: &Connection,
+    ids: &[String],
+) -> rusqlite::Result<usize> {
+    if ids.is_empty() {
+        return connection.execute("UPDATE sync_conflicts SET dismissed = 1", []);
+    }
+    let mut n = 0;
+    for id in ids {
+        n += connection.execute(
+            "UPDATE sync_conflicts SET dismissed = 1 WHERE id = ?1",
+            params![id],
+        )?;
+    }
+    Ok(n)
+}
+
+pub fn sqlite_dismiss_sync_conflicts(app: AppHandle, ids: Vec<String>) -> Result<usize, String> {
+    with_connection(&app, |c| sqlite_dismiss_sync_conflicts_inner(c, &ids))
+}
+
+/// Where the reader is: the side with the newer `lastReadAt` wins them.
+const BOOK_READING_FIELDS: &[&str] = &[
+    "progress",
+    "currentLocation",
+    "lastReadAt",
+    "lastClickFraction",
+    "pageProgress",
+    "pdfViewState",
+];
+
+/// Removes from `incoming` the groups of fields where `existing` is newer, so
+/// an older peer copy cannot undo a newer local edit or reading position.
+fn drop_older_fields(existing: &serde_json::Value, incoming: &mut serde_json::Value) {
+    let newer_here = |stamp: &str| match (
+        parse_sync_date(existing.get(stamp)),
+        parse_sync_date(incoming.get(stamp)),
+    ) {
+        (Some(local), Some(remote)) => local > remote,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    let drop_edits = newer_here("metadataUpdatedAt");
+    let drop_reading = newer_here("lastReadAt");
+    if let Some(obj) = incoming.as_object_mut() {
+        if drop_edits {
+            for field in BOOK_EDITABLE_FIELDS {
+                obj.remove(*field);
+            }
+        }
+        if drop_reading {
+            for field in BOOK_READING_FIELDS {
+                obj.remove(*field);
+            }
+        }
+    }
+}
+
+/// Keys a peer may store as-is in `kv_store`. Anything else (persisted app
+/// state, preferences that are not synced) is never written from sync.
+fn is_syncable_kv_key(key: &str) -> bool {
+    matches!(
+        key,
+        "settings" | "reading_stats" | "collections" | "rss_feeds"
+    ) || key.starts_with("collection:")
+        || key.starts_with("cover:")
+}
+
 fn merge_book_metadata_json(
     existing_json: Option<&str>,
     incoming: &serde_json::Value,
     cache_file_exists: bool,
     cache_path: Option<&str>,
 ) -> String {
+    let mut incoming = sanitize_incoming_book(incoming);
+    if let Some(existing) = existing_json.and_then(|ex| serde_json::from_str(ex).ok()) {
+        drop_older_fields(&existing, &mut incoming);
+    }
+    let incoming = &incoming;
     let mut merged = if let Some(ex) = existing_json {
         serde_json::from_str::<serde_json::Value>(ex).unwrap_or_else(|_| incoming.clone())
     } else {
@@ -1914,6 +2349,82 @@ fn merge_book_metadata_json(
     }
 }
 
+/// Stores one synced book's metadata (and its search entry) under `book_id`.
+/// Returns false, writing nothing, when the result equals what is stored:
+/// most books in a sync round have not changed.
+fn merge_synced_book(
+    connection: &Connection,
+    book_id: &str,
+    book_val: &serde_json::Value,
+    app_data_dir: Option<&Path>,
+    conflicts: &mut usize,
+) -> rusqlite::Result<bool> {
+    let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
+    let author = book_val.get("author").and_then(|v| v.as_str());
+
+    connection.execute(
+        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+        params![book_id],
+    )?;
+
+    let existing_meta: Option<String> = connection
+        .query_row(
+            "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
+            params![book_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+
+    if let Some(local) = existing_meta
+        .as_deref()
+        .and_then(|ex| serde_json::from_str::<serde_json::Value>(ex).ok())
+    {
+        if let Some(found) = concurrent_edit(
+            &local,
+            book_val,
+            "metadataUpdatedAt",
+            "metadataBaseAt",
+            BOOK_EDITABLE_FIELDS,
+        ) {
+            let label = local
+                .get("title")
+                .and_then(|v| v.as_str())
+                .filter(|t| !t.is_empty())
+                .unwrap_or(title);
+            if record_sync_conflict(connection, "book", book_id, label, &found) {
+                *conflicts += 1;
+            }
+        }
+    }
+
+    let cache_path = app_data_dir.map(|dir| materialized_book_path_in_dir(dir, book_id));
+    let cache_file_exists = cache_path.as_ref().is_some_and(|p| p.is_file());
+    let cache_path = cache_path.map(|p| p.to_string_lossy().into_owned());
+
+    let final_json = merge_book_metadata_json(
+        existing_meta.as_deref(),
+        book_val,
+        cache_file_exists,
+        cache_path.as_deref(),
+    );
+    if existing_meta.as_deref() == Some(final_json.as_str()) {
+        return Ok(false);
+    }
+
+    connection.execute(
+        "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
+        params![book_id, final_json],
+    )?;
+
+    let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
+    let _ = connection.execute(
+        "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+        params![book_id, title, author],
+    );
+    Ok(true)
+}
+
 #[allow(dead_code)]
 pub fn sqlite_merge_sync_entries_inner(
     connection: &Connection,
@@ -1922,7 +2433,32 @@ pub fn sqlite_merge_sync_entries_inner(
     sqlite_merge_sync_entries_with_dir(connection, entries, None)
 }
 
+/// Merge a batch of sync entries in one transaction: if any write fails the
+/// whole batch rolls back (it is retried on the next sync) instead of
+/// leaving, say, a book half-deleted. Cached files of books deleted by a
+/// tombstone are removed after the commit.
 pub fn sqlite_merge_sync_entries_with_dir(
+    connection: &Connection,
+    entries: std::collections::HashMap<String, String>,
+    app_data_dir: Option<&Path>,
+) -> rusqlite::Result<SyncMergeResult> {
+    let tx = connection.unchecked_transaction()?;
+    let result = merge_sync_entries_rows(&tx, entries, app_data_dir)?;
+    tx.commit()?;
+
+    if let Some(dir) = app_data_dir {
+        if !result.deleted_books.is_empty() {
+            // Close cached EPUB archives first: Windows cannot delete an open file.
+            crate::epub_entries::clear_cache();
+            for id in &result.deleted_books {
+                let _ = fs::remove_file(materialized_book_path_in_dir(dir, id));
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn merge_sync_entries_rows(
     connection: &Connection,
     entries: std::collections::HashMap<String, String>,
     app_data_dir: Option<&Path>,
@@ -1938,6 +2474,7 @@ pub fn sqlite_merge_sync_entries_with_dir(
     let mut deleted_vocabulary: Vec<String> = Vec::new();
     let mut updated_rss_articles: Vec<String> = Vec::new();
     let mut deleted_rss_articles: Vec<String> = Vec::new();
+    let mut conflicts = 0usize;
 
     // Tombstoned ids: entries for these must never be (re-)inserted below.
     // Per-entity doc keys (`anno:*`, `book:*`) outlive the deletion, so the
@@ -1962,35 +2499,27 @@ pub fn sqlite_merge_sync_entries_with_dir(
                 match entity_type {
                     "book" => {
                         tombstoned_books.insert(id.to_string());
-                        let _ = connection.execute("DELETE FROM books WHERE id = ?1", params![id]);
-                        let _ = connection
-                            .execute("DELETE FROM book_metadata WHERE book_id = ?1", params![id]);
-                        let _ =
-                            connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id]);
-                        let _ = connection.execute(
-                            "DELETE FROM book_annotations WHERE book_id = ?1",
-                            params![id],
-                        );
+                        // Errors propagate so the merge transaction rolls back.
+                        delete_book_rows(connection, id)?;
                         deleted_books.push(id.to_string());
                     }
                     "annotation" => {
                         tombstoned_annotations.insert(id.to_string());
-                        let _ = connection
-                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id]);
+                        connection
+                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id])?;
                         deleted_annotations.push(id.to_string());
                     }
                     "vocabulary" => {
-                        let _ =
-                            connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id]);
+                        connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id])?;
                         deleted_vocabulary.push(id.to_string());
                     }
                     "rss_article" => {
-                        let _ = connection.execute(
+                        connection.execute(
                             "DELETE FROM rss_article_content WHERE article_id = ?1",
                             params![id],
-                        );
-                        let _ = connection
-                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id]);
+                        )?;
+                        connection
+                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id])?;
                         deleted_rss_articles.push(id.to_string());
                     }
                     _ => {}
@@ -2014,54 +2543,15 @@ pub fn sqlite_merge_sync_entries_with_dir(
             )?;
             record_domain("deletion_tombstones");
         } else if let Some(book_id) = key.strip_prefix("book:") {
-            if tombstoned_books.contains(book_id) {
+            // The ID becomes a file name in book-cache.
+            if tombstoned_books.contains(book_id) || !crate::sync_access::is_valid_book_id(book_id)
+            {
                 continue;
             }
-            if let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) {
-                let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let author = book_val.get("author").and_then(|v| v.as_str());
-
-                connection.execute(
-                    "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                    params![book_id],
-                )?;
-
-                let existing_meta: Option<String> = connection
-                    .query_row(
-                        "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
-                        params![book_id],
-                        |row| row.get(0),
-                    )
-                    .optional()
-                    .unwrap_or(None);
-
-                let cache_file_exists = app_data_dir
-                    .map(|dir| materialized_book_path_in_dir(dir, book_id).is_file())
-                    .unwrap_or(false);
-                let cache_path = app_data_dir.map(|dir| {
-                    materialized_book_path_in_dir(dir, book_id)
-                        .to_string_lossy()
-                        .into_owned()
-                });
-
-                let final_json = merge_book_metadata_json(
-                    existing_meta.as_deref(),
-                    &book_val,
-                    cache_file_exists,
-                    cache_path.as_deref(),
-                );
-
-                connection.execute(
-                    "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
-                    params![book_id, final_json],
-                )?;
-
-                let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
-                let _ = connection.execute(
-                    "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-                    params![book_id, title, author],
-                );
-
+            let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) else {
+                continue;
+            };
+            if merge_synced_book(connection, book_id, &book_val, app_data_dir, &mut conflicts)? {
                 books_count += 1;
                 updated_books.push(book_id.to_string());
                 record_domain("books");
@@ -2070,55 +2560,16 @@ pub fn sqlite_merge_sync_entries_with_dir(
             if let Ok(books_vec) = serde_json::from_str::<Vec<serde_json::Value>>(value) {
                 for b in &books_vec {
                     if let Some(book_id) = b.get("id").and_then(|v| v.as_str()) {
-                        if tombstoned_books.contains(book_id) {
+                        if tombstoned_books.contains(book_id)
+                            || !crate::sync_access::is_valid_book_id(book_id)
+                        {
                             continue;
                         }
-                        let title = b.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                        let author = b.get("author").and_then(|v| v.as_str());
-
-                        connection.execute(
-                            "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                            params![book_id],
-                        )?;
-
-                        let existing_meta: Option<String> = connection
-                            .query_row(
-                                "SELECT metadata_json FROM book_metadata WHERE book_id = ?1",
-                                params![book_id],
-                                |row| row.get(0),
-                            )
-                            .optional()
-                            .unwrap_or(None);
-
-                        let cache_file_exists = app_data_dir
-                            .map(|dir| materialized_book_path_in_dir(dir, book_id).is_file())
-                            .unwrap_or(false);
-                        let cache_path = app_data_dir.map(|dir| {
-                            materialized_book_path_in_dir(dir, book_id)
-                                .to_string_lossy()
-                                .into_owned()
-                        });
-
-                        let final_json = merge_book_metadata_json(
-                            existing_meta.as_deref(),
-                            b,
-                            cache_file_exists,
-                            cache_path.as_deref(),
-                        );
-
-                        connection.execute(
-                            "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
-                            params![book_id, final_json],
-                        )?;
-
-                        let _ = connection
-                            .execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
-                        let _ = connection.execute(
-                            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-                            params![book_id, title, author],
-                        );
-                        books_count += 1;
-                        updated_books.push(book_id.to_string());
+                        if merge_synced_book(connection, book_id, b, app_data_dir, &mut conflicts)?
+                        {
+                            books_count += 1;
+                            updated_books.push(book_id.to_string());
+                        }
                     }
                 }
                 if !books_vec.is_empty() {
@@ -2127,11 +2578,16 @@ pub fn sqlite_merge_sync_entries_with_dir(
             }
         } else if key.starts_with("anno:") || key.starts_with("annotation:") {
             if let Ok(ann_val) = serde_json::from_str::<serde_json::Value>(value) {
-                let id = ann_val
+                // An annotation carries its own ID. One without cannot be
+                // stored as itself (the app would load it back ID-less).
+                let Some(id) = ann_val
                     .get("id")
                     .and_then(|v| v.as_str())
+                    .filter(|id| !id.is_empty())
                     .map(String::from)
-                    .unwrap_or_else(|| key.clone());
+                else {
+                    continue;
+                };
                 let book_id = ann_val
                     .get("bookId")
                     .or_else(|| ann_val.get("book_id"))
@@ -2141,16 +2597,15 @@ pub fn sqlite_merge_sync_entries_with_dir(
                 if !book_id.is_empty()
                     && !tombstoned_annotations.contains(&id)
                     && !tombstoned_books.contains(book_id)
+                    && upsert_synced_annotation(
+                        connection,
+                        &id,
+                        book_id,
+                        &ann_val,
+                        value,
+                        &mut conflicts,
+                    )?
                 {
-                    connection.execute(
-                        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                        params![book_id],
-                    )?;
-
-                    connection.execute(
-                        "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
-                        params![id, book_id, value],
-                    )?;
                     annotations_count += 1;
                     updated_annotations.push(id);
                     record_domain("annotations");
@@ -2170,16 +2625,17 @@ pub fn sqlite_merge_sync_entries_with_dir(
                             && !tombstoned_books.contains(book_id)
                         {
                             let ann_json = serde_json::to_string(a).unwrap_or_default();
-                            connection.execute(
-                                "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-                                params![book_id],
-                            )?;
-                            connection.execute(
-                                "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
-                                params![id, book_id, ann_json],
-                            )?;
-                            annotations_count += 1;
-                            updated_annotations.push(id.to_string());
+                            if upsert_synced_annotation(
+                                connection,
+                                id,
+                                book_id,
+                                a,
+                                &ann_json,
+                                &mut conflicts,
+                            )? {
+                                annotations_count += 1;
+                                updated_annotations.push(id.to_string());
+                            }
                         }
                     }
                 }
@@ -2232,7 +2688,7 @@ pub fn sqlite_merge_sync_entries_with_dir(
                     }
                 }
             }
-        } else {
+        } else if is_syncable_kv_key(key) {
             connection.execute(
                 "INSERT INTO kv_store(key, value, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = unixepoch()",
                 params![key, value],
@@ -2266,6 +2722,7 @@ pub fn sqlite_merge_sync_entries_with_dir(
         deleted_vocabulary,
         updated_rss_articles,
         deleted_rss_articles,
+        conflicts,
     })
 }
 
@@ -2409,7 +2866,7 @@ pub fn sqlite_save_rss_feed_inner(
         INSERT INTO rss_feeds (
             id, title, url, site_url, description, icon_url,
             last_fetched, added_at, error_message, unread_count, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, unixepoch()), ?9, ?10, unixepoch())
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, unixepoch() * 1000), ?9, ?10, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             url = excluded.url,
@@ -2445,16 +2902,17 @@ pub fn sqlite_delete_rss_feed_inner(
     connection: &Connection,
     feed_id: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM rss_article_content WHERE article_id IN (SELECT id FROM rss_articles WHERE feed_id = ?1)",
         params![feed_id],
     )?;
-    connection.execute(
+    tx.execute(
         "DELETE FROM rss_articles WHERE feed_id = ?1",
         params![feed_id],
     )?;
-    connection.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
-    Ok(())
+    tx.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
+    tx.commit()
 }
 
 pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), String> {
@@ -2588,7 +3046,7 @@ pub fn sqlite_save_rss_article_inner(
             id, feed_id, title, author, url, summary,
             content_source, image_url, published_at, fetched_at,
             is_read, is_favorite, is_saved, progress, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch()), ?11, ?12, ?13, ?14, unixepoch())
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE(?10, unixepoch() * 1000), ?11, ?12, ?13, ?14, unixepoch())
         ON CONFLICT(id) DO UPDATE SET
             feed_id = excluded.feed_id,
             title = excluded.title,
@@ -2699,15 +3157,17 @@ pub fn sqlite_delete_rss_article_inner(
     connection: &Connection,
     article_id: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    // Foreign keys are off (see `delete_book_rows`): content goes explicitly.
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM rss_article_content WHERE article_id = ?1",
         params![article_id],
     )?;
-    connection.execute(
+    tx.execute(
         "DELETE FROM rss_articles WHERE id = ?1",
         params![article_id],
     )?;
-    Ok(())
+    tx.commit()
 }
 
 pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
@@ -2738,64 +3198,84 @@ pub fn sqlite_mark_article_saved(
     })
 }
 
-/// Delete read articles (not saved, not favorite) older than `retention_days` days.
-/// If `retention_days` is 0, nothing is deleted.
-/// Content rows for read, non-saved articles older than `retention_days` are also pruned.
+/// Delete read articles (not saved, not favorite) older than `retention_days`
+/// days, and unread ones too unless `keep_unread`. Articles with annotations
+/// are kept. If `retention_days` is 0, nothing is deleted. Returns the number
+/// of articles deleted.
 pub fn sqlite_cleanup_old_rss_articles(
     app: AppHandle,
     retention_days: u32,
     keep_unread: bool,
 ) -> Result<u32, String> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    with_connection(&app, |conn| {
+        sqlite_cleanup_old_rss_articles_inner(conn, retention_days, keep_unread, now_ms)
+    })
+}
+
+/// Below this, an RSS timestamp is in seconds, not milliseconds: 1e11 ms is
+/// March 1973, 1e11 s is the year 5138.
+const RSS_SECONDS_THRESHOLD: i64 = 100_000_000_000;
+
+/// RSS times (`fetched_at`, `published_at`, `last_fetched`, `added_at`) are
+/// milliseconds, as the frontend writes them. Older fallbacks stored
+/// `unixepoch()` seconds instead (and peers on older versions still sync
+/// them); scale those up. Idempotent. Returns the number of rows changed.
+pub(crate) fn normalize_rss_timestamp_units(conn: &Connection) -> rusqlite::Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let mut changed = 0;
+    for (table, column) in [
+        ("rss_articles", "fetched_at"),
+        ("rss_articles", "published_at"),
+        ("rss_feeds", "last_fetched"),
+        ("rss_feeds", "added_at"),
+    ] {
+        changed += tx.execute(
+            &format!(
+                "UPDATE {table} SET {column} = {column} * 1000 \
+                 WHERE {column} > 0 AND {column} < ?1"
+            ),
+            params![RSS_SECONDS_THRESHOLD],
+        )?;
+    }
+    tx.commit()?;
+    Ok(changed)
+}
+
+pub fn sqlite_cleanup_old_rss_articles_inner(
+    conn: &Connection,
+    retention_days: u32,
+    keep_unread: bool,
+    now_ms: i64,
+) -> rusqlite::Result<u32> {
     if retention_days == 0 {
         return Ok(0);
     }
-    with_connection(&app, |conn| {
-        let cutoff_secs = retention_days as i64 * 86_400;
-        // Prune content for read, non-saved articles beyond retention window
-        conn.execute(
-            r#"
-            DELETE FROM rss_article_content
-            WHERE article_id IN (
-                SELECT id FROM rss_articles
-                WHERE is_saved = 0
-                  AND is_favorite = 0
-                  AND is_read = 1
-                  AND (unixepoch() - fetched_at) > ?1
-                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
-            )
-            "#,
-            params![cutoff_secs],
-        )?;
-        // Delete metadata rows for read, non-saved, non-favorite articles beyond retention
-        let deleted = conn.execute(
-            r#"
-            DELETE FROM rss_articles
-            WHERE is_saved = 0
-              AND is_favorite = 0
-              AND is_read = 1
-              AND (unixepoch() - fetched_at) > ?1
-              AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
-            "#,
-            params![cutoff_secs],
-        )?;
-        // If keep_unread=false, also drop unread non-saved articles beyond retention
-        let deleted_unread = if !keep_unread {
-            conn.execute(
-                r#"
-                DELETE FROM rss_articles
-                WHERE is_saved = 0
-                  AND is_favorite = 0
-                  AND is_read = 0
-                  AND (unixepoch() - fetched_at) > ?1
-                  AND id NOT IN (SELECT REPLACE(book_id, 'rss:', '') FROM book_annotations)
-                "#,
-                params![cutoff_secs],
-            )?
-        } else {
-            0
-        };
-        Ok((deleted + deleted_unread) as u32)
-    })
+    // `fetched_at` is milliseconds; compare against a cutoff computed here so
+    // the `fetched_at` index can serve the range.
+    let cutoff_ms = now_ms.saturating_sub(i64::from(retention_days) * 86_400_000);
+    const EXPIRED: &str = r#"
+        SELECT id FROM rss_articles
+        WHERE fetched_at < ?1
+          AND is_saved = 0
+          AND is_favorite = 0
+          AND (is_read = 1 OR ?2 = 0)
+          AND id NOT IN (
+              SELECT substr(book_id, 5) FROM book_annotations WHERE book_id LIKE 'rss:%'
+          )
+    "#;
+    let keep_unread = i64::from(keep_unread);
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        &format!("DELETE FROM rss_article_content WHERE article_id IN ({EXPIRED})"),
+        params![cutoff_ms, keep_unread],
+    )?;
+    let deleted = tx.execute(
+        &format!("DELETE FROM rss_articles WHERE id IN ({EXPIRED})"),
+        params![cutoff_ms, keep_unread],
+    )?;
+    tx.commit()?;
+    Ok(deleted as u32)
 }
 
 pub fn sqlite_record_reading_session_inner(
@@ -2897,34 +3377,50 @@ pub fn sqlite_get_reading_sessions(
     })
 }
 
-/// Bring `books_fts` in line with the library (the `zustand:theorem-library`
-/// blob): index missing books, refresh renamed ones, drop deleted ones. Only
-/// differing rows are written. Returns the number of rows changed.
+/// KV key where the frontend records the hash of the book list it last
+/// indexed (`FTS_HASH_KV_KEY` in `libraryStore.ts`). Cleared whenever the
+/// index is repaired here, so the frontend re-indexes instead of trusting it.
+const FTS_HASH_KV_KEY: &str = "fts:booksHash";
+
+/// Bring `books_fts` in line with the library: index missing books, refresh
+/// renamed ones, drop deleted ones. Only differing rows are written. Returns
+/// the number of rows changed.
+///
+/// The source of truth is `book_metadata` (what `sqlite_load_all_books`
+/// returns), never the `zustand:theorem-library` KV blob: on Tauri that blob
+/// has persisted `state.books` as an empty array since library store v8, and
+/// reconciling against it wiped the whole index at every startup.
 pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<usize> {
-    let Some(lib_json) = connection
-        .query_row(
-            "SELECT value FROM kv_store WHERE key = 'zustand:theorem-library'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-    else {
-        return Ok(0);
+    let rows: Vec<(String, String)> = {
+        let mut stmt = connection.prepare("SELECT book_id, metadata_json FROM book_metadata")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
     };
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&lib_json) else {
+    // An empty library is never a reason to clear the index: the delete paths
+    // remove their own rows, and an empty source more likely means a library
+    // that has not been migrated yet.
+    if rows.is_empty() {
         return Ok(0);
-    };
-    let Some(books) = parsed["state"]["books"].as_array() else {
-        return Ok(0);
-    };
-    let wanted: HashMap<&str, (&str, &str)> = books
-        .iter()
-        .filter_map(|b| {
-            let id = b["id"].as_str().filter(|s| !s.is_empty())?;
-            let title = b["title"].as_str().unwrap_or("");
-            Some((id, (title, b["author"].as_str().unwrap_or(""))))
-        })
-        .collect();
+    }
+
+    // Books whose metadata cannot be parsed keep whatever row they have.
+    let mut unparsable: HashSet<String> = HashSet::new();
+    let mut wanted: HashMap<String, (String, String)> = HashMap::with_capacity(rows.len());
+    for (id, json) in rows {
+        if id.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(&json) {
+            Ok(value) => {
+                let title = value["title"].as_str().unwrap_or("").to_string();
+                let author = value["author"].as_str().unwrap_or("").to_string();
+                wanted.insert(id, (title, author));
+            }
+            Err(_) => {
+                unparsable.insert(id);
+            }
+        }
+    }
 
     let mut existing: HashMap<String, (String, String)> = HashMap::new();
     {
@@ -2947,13 +3443,13 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
     let tx = connection.unchecked_transaction()?;
     let mut changed = 0;
     for id in existing.keys() {
-        if !wanted.contains_key(id.as_str()) {
+        if !wanted.contains_key(id) && !unparsable.contains(id) {
             tx.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
             changed += 1;
         }
     }
     for (id, (title, author)) in &wanted {
-        let current = existing.get(*id);
+        let current = existing.get(id);
         if current.is_some_and(|(t, a)| t == title && a == author) {
             continue;
         }
@@ -2965,6 +3461,12 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
             params![id, title, author],
         )?;
         changed += 1;
+    }
+    if changed > 0 {
+        tx.execute(
+            "DELETE FROM kv_store WHERE key = ?1",
+            params![FTS_HASH_KV_KEY],
+        )?;
     }
     tx.commit()?;
     Ok(changed)
@@ -3012,7 +3514,7 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                             INSERT OR IGNORE INTO rss_feeds (
                                 id, title, url, site_url, description, icon_url,
                                 unread_count, error_message, added_at, updated_at
-                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch(), unixepoch())
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, unixepoch() * 1000, unixepoch())
                             "#,
                             params![
                                 id,
@@ -3060,7 +3562,7 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                                 id, feed_id, title, author, url, summary,
                                 content_source, image_url, is_read, is_favorite,
                                 progress, fetched_at, updated_at
-                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch(), unixepoch())
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, unixepoch() * 1000, unixepoch())
                             "#,
                             params![
                                 id,
@@ -3588,6 +4090,7 @@ mod tests {
             "#,
         )
         .unwrap();
+        conn.execute_batch(SYNC_CONFLICTS_SCHEMA).unwrap();
         conn
     }
 
@@ -4020,6 +4523,258 @@ mod tests {
         assert!(result[0].contains("ann2"));
     }
 
+    fn annotation_texts(conn: &Connection, book_id: &str) -> Vec<String> {
+        let mut texts: Vec<String> = sqlite_get_book_annotations_inner(conn, book_id)
+            .unwrap()
+            .iter()
+            .map(|json| {
+                serde_json::from_str::<serde_json::Value>(json).unwrap()["text"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        texts.sort();
+        texts
+    }
+
+    /// A duplicate id in the list made the second INSERT fail after the
+    /// DELETE had already run, leaving the book with no highlights at all.
+    #[test]
+    fn save_book_annotations_with_duplicate_ids_keeps_the_last() {
+        let conn = setup_db();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[r#"{"id":"keep","text":"existing"}"#.to_string()],
+        )
+        .unwrap();
+        let anns = vec![
+            r#"{"id":"dup","text":"first"}"#.to_string(),
+            r#"{"id":"other","text":"other"}"#.to_string(),
+            r#"{"id":"dup","text":"second"}"#.to_string(),
+        ];
+        sqlite_save_book_annotations_inner(&conn, "book1", &anns).unwrap();
+        assert_eq!(annotation_texts(&conn, "book1"), ["other", "second"]);
+    }
+
+    /// An id already stored under another book is taken over by this save
+    /// instead of failing it.
+    #[test]
+    fn save_book_annotations_takes_over_an_id_from_another_book() {
+        let conn = setup_db();
+        sqlite_upsert_annotation_inner(&conn, "x", "book2", r#"{"id":"x","text":"old"}"#).unwrap();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[r#"{"id":"x","text":"moved"}"#.to_string()],
+        )
+        .unwrap();
+        assert_eq!(annotation_texts(&conn, "book1"), ["moved"]);
+        assert!(annotation_texts(&conn, "book2").is_empty());
+    }
+
+    /// Any failing insert rolls the whole save back: the previous highlights stay.
+    #[test]
+    fn save_book_annotations_failure_keeps_previous_highlights() {
+        let conn = setup_db();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[
+                r#"{"id":"a","text":"one"}"#.to_string(),
+                r#"{"id":"b","text":"two"}"#.to_string(),
+            ],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_insert BEFORE INSERT ON book_annotations
+             WHEN NEW.annotation_json LIKE '%boom%'
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let result = sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[
+                r#"{"id":"c","text":"three"}"#.to_string(),
+                r#"{"id":"d","text":"boom"}"#.to_string(),
+            ],
+        );
+        assert!(result.is_err());
+        assert_eq!(annotation_texts(&conn, "book1"), ["one", "two"]);
+    }
+
+    fn seed_book(conn: &Connection, id: &str, title: &str) {
+        sqlite_register_materialized_book_inner(conn, id).unwrap();
+        sqlite_save_book_metadata_inner(conn, id, &format!(r#"{{"id":"{id}","title":"{title}"}}"#))
+            .unwrap();
+        sqlite_save_cover_image_inner(conn, id, "data:image/png;base64,AAAA").unwrap();
+        sqlite_upsert_annotation_inner(conn, &format!("{id}-ann"), id, r#"{"text":"t"}"#).unwrap();
+    }
+
+    fn rows_for_book(conn: &Connection, id: &str) -> Vec<(&'static str, i64)> {
+        [
+            ("books", "SELECT COUNT(*) FROM books WHERE id = ?1"),
+            ("covers", "SELECT COUNT(*) FROM covers WHERE book_id = ?1"),
+            (
+                "materialized_books",
+                "SELECT COUNT(*) FROM materialized_books WHERE book_id = ?1",
+            ),
+            (
+                "book_metadata",
+                "SELECT COUNT(*) FROM book_metadata WHERE book_id = ?1",
+            ),
+            (
+                "book_annotations",
+                "SELECT COUNT(*) FROM book_annotations WHERE book_id = ?1",
+            ),
+            ("books_fts", "SELECT COUNT(*) FROM books_fts WHERE id = ?1"),
+        ]
+        .into_iter()
+        .map(|(table, sql)| {
+            (
+                table,
+                conn.query_row(sql, params![id], |r| r.get(0)).unwrap(),
+            )
+        })
+        .filter(|(_, n)| *n > 0)
+        .collect()
+    }
+
+    /// Foreign keys are off on pooled connections, so ON DELETE CASCADE never
+    /// ran: deleting a book left its cover, metadata and highlights behind.
+    #[test]
+    fn delete_book_removes_every_related_row() {
+        let conn = setup_db();
+        seed_book(&conn, "gone", "Gone");
+        seed_book(&conn, "kept", "Kept");
+        sqlite_upsert_annotation_inner(&conn, "rss-ann", "rss:gone", "{}").unwrap();
+
+        sqlite_delete_book_inner(&conn, "gone").unwrap();
+
+        assert_eq!(rows_for_book(&conn, "gone"), []);
+        assert_eq!(rows_for_book(&conn, "kept").len(), 6);
+        assert_eq!(
+            sqlite_get_book_annotations_inner(&conn, "rss:gone")
+                .unwrap()
+                .len(),
+            1
+        );
+        // Deleting a book that is not there is fine.
+        sqlite_delete_book_inner(&conn, "missing").unwrap();
+    }
+
+    #[test]
+    fn delete_book_is_atomic() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_books_delete BEFORE DELETE ON books
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(sqlite_delete_book_inner(&conn, "b1").is_err());
+        assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+    }
+
+    fn book_tombstone(id: &str) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::from([(
+            "deletion_tombstones".to_string(),
+            format!(
+                r#"[{{"entityId":"{id}","entityType":"book","deletedAt":"2026-10-01T00:00:00Z"}}]"#
+            ),
+        )])
+    }
+
+    #[test]
+    fn sync_book_tombstone_removes_every_related_row_and_cache_file() {
+        let conn = setup_db();
+        let dir = tempfile::tempdir().unwrap();
+        seed_book(&conn, "gone", "Gone");
+        seed_book(&conn, "kept", "Kept");
+        let cache = materialized_book_path_in_dir(dir.path(), "gone");
+        fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        fs::write(&cache, b"epub").unwrap();
+
+        let result =
+            sqlite_merge_sync_entries_with_dir(&conn, book_tombstone("gone"), Some(dir.path()))
+                .unwrap();
+
+        assert_eq!(result.deleted_books, ["gone"]);
+        assert_eq!(rows_for_book(&conn, "gone"), []);
+        assert_eq!(rows_for_book(&conn, "kept").len(), 6);
+        assert!(!cache.exists());
+    }
+
+    /// Tombstone deletes ignored their errors (`let _ =`), so a failure left
+    /// the book half-deleted while the merge reported success.
+    #[test]
+    fn sync_tombstone_failure_rolls_back_the_merge() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_meta_delete BEFORE DELETE ON book_metadata
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let mut entries = book_tombstone("b1");
+        entries.insert("vocab:v1".into(), r#"{"id":"v1","term":"word"}"#.into());
+
+        assert!(sqlite_merge_sync_entries_with_dir(&conn, entries, None).is_err());
+        assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+        let kv_tombstones: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM kv_store WHERE key = 'deletion_tombstones'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kv_tombstones, 0, "nothing of the failed merge is kept");
+    }
+
+    #[test]
+    fn clear_all_storage_removes_library_tables() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        sqlite_clear_all_storage_inner(&conn).unwrap();
+        assert_eq!(rows_for_book(&conn, "b1"), []);
+    }
+
+    #[test]
+    fn delete_rss_feed_is_atomic() {
+        let conn = setup_db();
+        sqlite_save_rss_article_inner(&conn, &rss_article("a1", Some(1), true), Some("x"), None)
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_feed_delete BEFORE DELETE ON rss_feeds
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;
+             INSERT INTO rss_feeds (id, title, url, added_at) VALUES ('f1', 'F', 'u', 1);",
+        )
+        .unwrap();
+        assert!(sqlite_delete_rss_feed_inner(&conn, "f1").is_err());
+        assert_eq!(rss_ids(&conn), ["a1"]);
+        assert!(sqlite_get_rss_article_content_inner(&conn, "a1")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn clear_all_storage_is_atomic() {
+        let conn = setup_db();
+        sqlite_set_kv_inner(&conn, "k1", "v1").unwrap();
+        sqlite_save_cover_image_inner(&conn, "book1", "data:,").unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_kv_delete BEFORE DELETE ON kv_store
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(sqlite_clear_all_storage_inner(&conn).is_err());
+        assert!(sqlite_get_cover_image_inner(&conn, "book1")
+            .unwrap()
+            .is_some());
+    }
+
     #[test]
     fn test_book_annotations_upsert_delete_get_all() {
         let conn = setup_db();
@@ -4339,6 +5094,579 @@ mod tests {
         assert!(sqlite_get_rss_feeds_inner(&conn).unwrap().is_empty());
     }
 
+    fn kv_value(conn: &Connection, key: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT value FROM kv_store WHERE key = ?1",
+            params![key],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    #[test]
+    fn an_older_synced_note_does_not_replace_a_newer_local_edit() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "anno:b1:a1".to_string(),
+            r#"{"id":"a1","bookId":"b1","note":"new","updatedAt":2000}"#.to_string(),
+        );
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "anno:b1:a1".to_string(),
+            r#"{"id":"a1","bookId":"b1","note":"old","updatedAt":1000}"#.to_string(),
+        );
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert!(res.updated_annotations.is_empty());
+        let anns = sqlite_get_book_annotations_inner(&conn, "b1").unwrap();
+        assert!(anns[0].contains("\"new\""), "{anns:?}");
+
+        // A newer one does, in the bulk form too.
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "annotations".to_string(),
+            r#"[{"id":"a1","bookId":"b1","note":"newest","updatedAt":"2030-01-01T00:00:00Z"}]"#
+                .to_string(),
+        );
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert_eq!(res.updated_annotations, vec!["a1".to_string()]);
+        let anns = sqlite_get_book_annotations_inner(&conn, "b1").unwrap();
+        assert!(anns[0].contains("newest"), "{anns:?}");
+    }
+
+    #[test]
+    fn an_older_synced_word_does_not_replace_a_newer_one() {
+        let conn = setup_db();
+        let term = |meaning: &str, created: i64, updated: i64| {
+            format!(
+                r#"{{"id":"v1","term":"ephemeral","language":"en","meanings":["{meaning}"],"createdAt":{created},"updatedAt":{updated}}}"#
+            )
+        };
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("vocab:v1".to_string(), term("new", 500, 2000));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("vocab:v1".to_string(), term("old", 100, 1000));
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert!(res.updated_vocabulary.is_empty());
+        let (meanings, created): (String, i64) = conn
+            .query_row(
+                "SELECT meanings_json, created_at FROM vocabulary WHERE id = 'v1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(meanings.contains("new"));
+        assert_eq!(created, 500);
+
+        // Newer wins, and the earliest creation date is kept.
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("vocab:v1".to_string(), term("newest", 900, 3000));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let (meanings, created): (String, i64) = conn
+            .query_row(
+                "SELECT meanings_json, created_at FROM vocabulary WHERE id = 'v1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(meanings.contains("newest"));
+        assert_eq!(created, 500);
+    }
+
+    #[test]
+    fn synced_articles_keep_read_favorite_and_furthest_progress() {
+        let conn = setup_db();
+        let article = |read: bool, fav: bool, progress: f64| {
+            format!(
+                r#"{{"id":"art1","feedId":"f1","title":"T","url":"https://e.x/1","isRead":{read},"isFavorite":{fav},"progress":{progress}}}"#
+            )
+        };
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("rss_article:art1".to_string(), article(true, true, 0.8));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert("rss_article:art1".to_string(), article(false, false, 0.2));
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let (read, fav, progress): (bool, bool, f64) = conn
+            .query_row(
+                "SELECT is_read, is_favorite, progress FROM rss_articles WHERE id = 'art1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert!(read && fav);
+        assert_eq!(progress, 0.8);
+    }
+
+    #[test]
+    fn a_merge_that_fails_halfway_changes_nothing() {
+        let conn = setup_db();
+        // The eleventh new kv_store row fails, so ten are written first.
+        conn.execute_batch(
+            "CREATE TRIGGER fail_eleventh BEFORE INSERT ON kv_store
+             WHEN (SELECT COUNT(*) FROM kv_store) >= 10
+             BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+        )
+        .unwrap();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "books".to_string(),
+            r#"[{"id":"b1","title":"Dune"}]"#.to_string(),
+        );
+        for i in 0..30 {
+            entries.insert(format!("collection:c{i}"), r#"{"ok":true}"#.to_string());
+        }
+        assert!(sqlite_merge_sync_entries_inner(&conn, entries).is_err());
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM kv_store", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        assert!(sqlite_get_book_metadata_inner(&conn, "b1")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_peer_cannot_plant_file_paths_in_a_synced_book() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "book:b1".to_string(),
+            r#"{"id":"b1","title":"Dune","filePath":"/home/me/.ssh/id_ed25519","storagePath":"../theorem.db","file_path":"x","syncedWithoutFile":false,"coverPath":"file:///etc/passwd"}"#.to_string(),
+        );
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b1")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        for field in ["filePath", "storagePath", "file_path", "coverPath"] {
+            assert!(
+                meta.get(field).is_none(),
+                "{field} came from the peer: {meta}"
+            );
+        }
+        assert_eq!(meta["title"], "Dune");
+        // A new book from a peer has no local file yet.
+        assert_eq!(meta["syncedWithoutFile"], true);
+
+        // An existing local path survives a peer's attempt to replace it, and
+        // an inline cover image is still accepted.
+        conn.execute(
+            "UPDATE book_metadata SET metadata_json = ?1 WHERE book_id = 'b1'",
+            params![r#"{"id":"b1","title":"Dune","filePath":"/books/dune.epub"}"#],
+        )
+        .unwrap();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "book:b1".to_string(),
+            r#"{"id":"b1","title":"Dune Messiah","filePath":"/etc/shadow","coverPath":"data:image/webp;base64,AAAA"}"#.to_string(),
+        );
+        sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(
+            &sqlite_get_book_metadata_inner(&conn, "b1")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(meta["filePath"], "/books/dune.epub");
+        assert_eq!(meta["title"], "Dune Messiah");
+        assert_eq!(meta["coverPath"], "data:image/webp;base64,AAAA");
+    }
+
+    fn stored_book(conn: &Connection, id: &str) -> serde_json::Value {
+        serde_json::from_str(&sqlite_get_book_metadata_inner(conn, id).unwrap().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_newer_edit_and_the_newer_read_win_in_the_database() {
+        let conn = setup_db();
+        let merge = |json: &str| {
+            let mut entries = std::collections::HashMap::new();
+            entries.insert("book:b1".to_string(), json.to_string());
+            sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        };
+        merge(
+            r#"{"id":"b1","title":"Dune","isFavorite":false,"tags":[],"metadataUpdatedAt":"2026-05-02T00:00:00Z","progress":0.1,"lastReadAt":"2026-05-03T00:00:00Z"}"#,
+        );
+        // An older copy: favourite and tag it had, and further progress read earlier.
+        merge(
+            r#"{"id":"b1","title":"Dune (old)","isFavorite":true,"tags":["sf"],"metadataUpdatedAt":"2026-05-01T00:00:00Z","progress":0.9,"lastReadAt":"2026-05-01T00:00:00Z"}"#,
+        );
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Dune");
+        assert_eq!(book["isFavorite"], false);
+        assert_eq!(book["tags"], serde_json::json!([]));
+        assert_eq!(book["progress"], 0.1);
+
+        // A copy without stamps (an older app) does not override stamped edits.
+        merge(r#"{"id":"b1","title":"Legacy","isFavorite":true,"progress":0.5}"#);
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Dune");
+        assert_eq!(book["isFavorite"], false);
+        assert_eq!(book["progress"], 0.1);
+
+        // A newer edit and a newer read win, removals included.
+        merge(
+            r#"{"id":"b1","title":"Dune Messiah","isFavorite":false,"tags":["classic"],"metadataUpdatedAt":"2026-06-01T00:00:00Z","progress":0.4,"lastReadAt":"2026-06-01T00:00:00Z"}"#,
+        );
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Dune Messiah");
+        assert_eq!(book["tags"], serde_json::json!(["classic"]));
+        assert_eq!(book["progress"], 0.4);
+    }
+
+    fn merge_one(conn: &Connection, key: &str, json: &str) -> SyncMergeResult {
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(key.to_string(), json.to_string());
+        sqlite_merge_sync_entries_inner(conn, entries).unwrap()
+    }
+
+    #[test]
+    fn edits_made_one_after_the_other_are_not_conflicts() {
+        let local = serde_json::json!({"title":"Dune","metadataUpdatedAt":"2026-05-01T00:00:00Z"});
+        // The other device saw this device's edit, then edited on top of it.
+        let after = serde_json::json!({"title":"Dune Messiah","metadataUpdatedAt":"2026-05-02T00:00:00Z","metadataBaseAt":"2026-05-01T00:00:00Z"});
+        assert_eq!(
+            concurrent_edit(
+                &local,
+                &after,
+                "metadataUpdatedAt",
+                "metadataBaseAt",
+                BOOK_EDITABLE_FIELDS
+            ),
+            None
+        );
+        // Reversed: this device's newer edit was made on top of the incoming one.
+        assert_eq!(
+            concurrent_edit(
+                &after,
+                &local,
+                "metadataUpdatedAt",
+                "metadataBaseAt",
+                BOOK_EDITABLE_FIELDS
+            ),
+            None
+        );
+        // Same stamp, unstamped copies, or the same change on both: no conflict.
+        assert_eq!(
+            concurrent_edit(
+                &local,
+                &local,
+                "metadataUpdatedAt",
+                "metadataBaseAt",
+                BOOK_EDITABLE_FIELDS
+            ),
+            None
+        );
+        let unstamped = serde_json::json!({"title":"Other"});
+        assert_eq!(
+            concurrent_edit(
+                &local,
+                &unstamped,
+                "metadataUpdatedAt",
+                "metadataBaseAt",
+                BOOK_EDITABLE_FIELDS
+            ),
+            None
+        );
+        let same_change =
+            serde_json::json!({"title":"Dune","metadataUpdatedAt":"2026-05-03T00:00:00Z"});
+        assert_eq!(
+            concurrent_edit(
+                &local,
+                &same_change,
+                "metadataUpdatedAt",
+                "metadataBaseAt",
+                BOOK_EDITABLE_FIELDS
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn edits_made_without_seeing_each_other_are_a_conflict_on_the_differing_fields() {
+        let local = serde_json::json!({
+            "title":"Dune","isFavorite":true,"tags":["sf"],
+            "metadataUpdatedAt":"2026-05-02T00:00:00Z","metadataBaseAt":"2026-04-01T00:00:00Z"
+        });
+        let incoming = serde_json::json!({
+            "title":"Dune","isFavorite":false,"tags":["sf","classic"],"rating":4,
+            "metadataUpdatedAt":"2026-05-03T00:00:00Z","metadataBaseAt":"2026-04-01T00:00:00Z"
+        });
+        let found = concurrent_edit(
+            &local,
+            &incoming,
+            "metadataUpdatedAt",
+            "metadataBaseAt",
+            BOOK_EDITABLE_FIELDS,
+        )
+        .expect("a conflict");
+        assert!(!found.local_kept);
+        assert_eq!(
+            serde_json::Value::Object(found.kept),
+            serde_json::json!({"isFavorite":false,"tags":["sf","classic"],"rating":4})
+        );
+        assert_eq!(
+            serde_json::Value::Object(found.discarded),
+            serde_json::json!({"isFavorite":true,"tags":["sf"],"rating":null})
+        );
+        // The first edit ever made on either side has no base: still concurrent.
+        let first = serde_json::json!({"title":"A","metadataUpdatedAt":"2026-05-01T00:00:00Z"});
+        let other_first =
+            serde_json::json!({"title":"B","metadataUpdatedAt":"2026-05-02T00:00:00Z"});
+        let found = concurrent_edit(
+            &first,
+            &other_first,
+            "metadataUpdatedAt",
+            "metadataBaseAt",
+            BOOK_EDITABLE_FIELDS,
+        )
+        .expect("a conflict");
+        assert_eq!(found.kept["title"], "B");
+        assert_eq!(found.discarded["title"], "A");
+    }
+
+    #[test]
+    fn a_conflict_is_recorded_once_listed_and_dismissed() {
+        let conn = setup_db();
+        merge_one(
+            &conn,
+            "book:b1",
+            r#"{"id":"b1","title":"Dune","tags":["sf"],"metadataUpdatedAt":"2026-05-02T00:00:00Z"}"#,
+        );
+        let concurrent = r#"{"id":"b1","title":"Dune","tags":["classic"],"metadataUpdatedAt":"2026-05-03T00:00:00Z"}"#;
+        assert_eq!(merge_one(&conn, "book:b1", concurrent).conflicts, 1);
+        // The full read repeats entries: the same conflict is not added twice.
+        conn.execute(
+            "UPDATE book_metadata SET metadata_json = json_set(metadata_json, '$.tags', json('[\"sf\"]'), '$.metadataUpdatedAt', '2026-05-02T00:00:00Z') WHERE book_id = 'b1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(merge_one(&conn, "book:b1", concurrent).conflicts, 0);
+
+        let listed = sqlite_list_sync_conflicts_inner(&conn).unwrap();
+        assert_eq!(listed.len(), 1);
+        let c = &listed[0];
+        assert_eq!(
+            (c.entity_type.as_str(), c.entity_id.as_str()),
+            ("book", "b1")
+        );
+        assert_eq!(c.label, "Dune");
+        assert_eq!(c.winner, "remote");
+        assert_eq!(c.kept, serde_json::json!({"tags":["classic"]}));
+        assert_eq!(c.discarded, serde_json::json!({"tags":["sf"]}));
+        // The merge still kept the newer edit.
+        assert_eq!(
+            stored_book(&conn, "b1")["tags"],
+            serde_json::json!(["classic"])
+        );
+
+        assert_eq!(
+            sqlite_dismiss_sync_conflicts_inner(&conn, std::slice::from_ref(&c.id)).unwrap(),
+            1
+        );
+        assert!(sqlite_list_sync_conflicts_inner(&conn).unwrap().is_empty());
+        // Seen again after dismissal: stays dismissed.
+        conn.execute(
+            "UPDATE book_metadata SET metadata_json = json_set(metadata_json, '$.tags', json('[\"sf\"]'), '$.metadataUpdatedAt', '2026-05-02T00:00:00Z') WHERE book_id = 'b1'",
+            [],
+        )
+        .unwrap();
+        merge_one(&conn, "book:b1", concurrent);
+        assert!(sqlite_list_sync_conflicts_inner(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_kept_local_edit_is_listed_as_the_other_devices_loss() {
+        let conn = setup_db();
+        merge_one(
+            &conn,
+            "book:b1",
+            r#"{"id":"b1","title":"Mine","metadataUpdatedAt":"2026-05-09T00:00:00Z"}"#,
+        );
+        let older = merge_one(
+            &conn,
+            "book:b1",
+            r#"{"id":"b1","title":"Theirs","metadataUpdatedAt":"2026-05-08T00:00:00Z"}"#,
+        );
+        assert_eq!(older.conflicts, 1);
+        assert_eq!(stored_book(&conn, "b1")["title"], "Mine");
+        let c = &sqlite_list_sync_conflicts_inner(&conn).unwrap()[0];
+        assert_eq!(c.winner, "local");
+        assert_eq!(c.kept["title"], "Mine");
+        assert_eq!(c.discarded["title"], "Theirs");
+    }
+
+    #[test]
+    fn concurrent_note_edits_on_an_annotation_are_a_conflict() {
+        let conn = setup_db();
+        merge_one(
+            &conn,
+            "anno:b1:a1",
+            r#"{"id":"a1","bookId":"b1","selectedText":"Fear is the mind-killer","noteContent":"mine","color":"yellow","updatedAt":"2026-05-02T00:00:00Z","baseUpdatedAt":"2026-05-01T00:00:00Z"}"#,
+        );
+        let result = merge_one(
+            &conn,
+            "anno:b1:a1",
+            r#"{"id":"a1","bookId":"b1","selectedText":"Fear is the mind-killer","noteContent":"theirs","color":"yellow","updatedAt":"2026-05-03T00:00:00Z","baseUpdatedAt":"2026-05-01T00:00:00Z"}"#,
+        );
+        assert_eq!(result.conflicts, 1);
+        let c = &sqlite_list_sync_conflicts_inner(&conn).unwrap()[0];
+        assert_eq!(c.entity_type, "annotation");
+        assert_eq!(c.label, "Fear is the mind-killer");
+        assert_eq!(c.kept, serde_json::json!({"noteContent":"theirs"}));
+        assert_eq!(c.discarded, serde_json::json!({"noteContent":"mine"}));
+        // Then an edit made after seeing that one: no new conflict.
+        let after = merge_one(
+            &conn,
+            "anno:b1:a1",
+            r#"{"id":"a1","bookId":"b1","noteContent":"agreed","updatedAt":"2026-05-04T00:00:00Z","baseUpdatedAt":"2026-05-03T00:00:00Z"}"#,
+        );
+        assert_eq!(after.conflicts, 0);
+    }
+
+    #[test]
+    fn an_annotation_entry_without_its_id_is_not_stored() {
+        let conn = setup_db();
+        let result = merge_one(
+            &conn,
+            "anno:b1:undefined",
+            r#"{"bookId":"b1","type":"highlight","location":"x","selectedText":"no id"}"#,
+        );
+        assert!(result.updated_annotations.is_empty());
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM book_annotations", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[test]
+    fn old_conflicts_leave_the_list() {
+        let conn = setup_db();
+        let old = chrono::Utc::now().timestamp_millis() - SYNC_CONFLICT_TTL_MS - 1;
+        conn.execute(
+            "INSERT INTO sync_conflicts(id, entity_type, entity_id, label, winner, kept_json, discarded_json, kept_at, discarded_at, detected_at) VALUES('x','book','b','t','local','{}','{}',1,0,?1)",
+            params![old],
+        )
+        .unwrap();
+        assert!(sqlite_list_sync_conflicts_inner(&conn).unwrap().is_empty());
+        let left: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_conflicts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn an_unchanged_synced_book_is_not_rewritten() {
+        let conn = setup_db();
+        let entry = || {
+            let mut entries = std::collections::HashMap::new();
+            entries.insert(
+                "book:b1".to_string(),
+                r#"{"id":"b1","title":"Dune"}"#.to_string(),
+            );
+            entries
+        };
+        let first = sqlite_merge_sync_entries_inner(&conn, entry()).unwrap();
+        assert_eq!(first.updated_books, vec!["b1".to_string()]);
+        conn.execute(
+            "UPDATE book_metadata SET updated_at = 1 WHERE book_id = 'b1'",
+            [],
+        )
+        .unwrap();
+        let again = sqlite_merge_sync_entries_inner(&conn, entry()).unwrap();
+        assert!(again.updated_books.is_empty());
+        assert_eq!(again.books_count, 0);
+        let stamp: i64 = conn
+            .query_row(
+                "SELECT updated_at FROM book_metadata WHERE book_id = 'b1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stamp, 1, "the row was rewritten");
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn book_ids_that_name_paths_are_not_merged() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "book:../../evil".to_string(),
+            r#"{"title":"x"}"#.to_string(),
+        );
+        entries.insert(
+            "books".to_string(),
+            r#"[{"id":"/etc/passwd","title":"y"},{"id":"ok-1","title":"z"}]"#.to_string(),
+        );
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert_eq!(res.updated_books, vec!["ok-1".to_string()]);
+        assert!(sqlite_get_book_metadata_inner(&conn, "../../evil")
+            .unwrap()
+            .is_none());
+        assert!(sqlite_get_book_metadata_inner(&conn, "/etc/passwd")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_peer_can_write_only_synced_keys() {
+        let conn = setup_db();
+        let mut entries = std::collections::HashMap::new();
+        for key in [
+            "settings",
+            "reading_stats",
+            "collections",
+            "rss_feeds",
+            "collection:c1",
+            "cover:b1",
+        ] {
+            entries.insert(key.to_string(), r#"{"ok":true}"#.to_string());
+        }
+        for key in [
+            "zustand:theorem-library",
+            "persist:theorem-settings",
+            "theorem-opds",
+            "anything-else",
+        ] {
+            entries.insert(key.to_string(), r#"{"planted":true}"#.to_string());
+        }
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        for key in [
+            "settings",
+            "reading_stats",
+            "collections",
+            "rss_feeds",
+            "collection:c1",
+            "cover:b1",
+        ] {
+            assert!(kv_value(&conn, key).is_some(), "{key} should sync");
+        }
+        for key in [
+            "zustand:theorem-library",
+            "persist:theorem-settings",
+            "theorem-opds",
+            "anything-else",
+        ] {
+            assert!(
+                kv_value(&conn, key).is_none(),
+                "{key} must not be written by a peer"
+            );
+            assert!(!res.domains_updated.contains(&key.to_string()));
+        }
+    }
+
     #[test]
     fn test_sqlite_merge_sync_entries() {
         let conn = setup_db();
@@ -4506,18 +5834,65 @@ mod tests {
             .is_empty());
     }
 
+    /// Since library store v8 the Tauri build persists `state.books` as an
+    /// empty array; the books live in `book_metadata`. Reconciling against the
+    /// KV list wiped the whole search index at every startup.
     #[test]
-    fn reconcile_books_fts_adds_renames_and_prunes() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);
-             CREATE VIRTUAL TABLE books_fts USING fts5(id UNINDEXED, title, author);",
+    fn reconcile_books_fts_keeps_index_when_kv_library_is_empty() {
+        let conn = setup_db();
+        sqlite_set_kv_inner(
+            &conn,
+            "zustand:theorem-library",
+            r#"{"state":{"books":[],"collections":[],"annotations":[]},"version":8}"#,
         )
         .unwrap();
-        let set_library = |books: &str| {
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "a",
+            r#"{"id":"a","title":"Dune","author":"Herbert"}"#,
+        )
+        .unwrap();
+        sqlite_save_book_metadata_inner(
+            &conn,
+            "b",
+            r#"{"id":"b","title":"Emma","author":"Austen"}"#,
+        )
+        .unwrap();
+        sqlite_set_kv_inner(&conn, "fts:booksHash", "123").unwrap();
+
+        reconcile_books_fts(&conn).unwrap();
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Austen", 10)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // A book missing from the index is restored, and the frontend's
+        // "already indexed" hash is invalidated so it re-indexes too.
+        conn.execute("DELETE FROM books_fts WHERE id = 'b'", [])
+            .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 1);
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Emma", 10).unwrap().len(),
+            1
+        );
+        assert_eq!(sqlite_get_kv_inner(&conn, "fts:booksHash").unwrap(), None);
+    }
+
+    #[test]
+    fn reconcile_books_fts_adds_renames_and_prunes() {
+        // The library lives in `book_metadata`. Written raw (not via
+        // `sqlite_save_book_metadata_inner`) so the index starts out of date.
+        let conn = setup_db();
+        let set_meta = |id: &str, json: &str| {
             conn.execute(
-                "INSERT OR REPLACE INTO kv_store (key, value) VALUES ('zustand:theorem-library', ?1)",
-                params![format!(r#"{{"state":{{"books":{books}}}}}"#)],
+                "INSERT OR REPLACE INTO book_metadata (book_id, metadata_json) VALUES (?1, ?2)",
+                params![id, json],
             )
             .unwrap();
         };
@@ -4534,9 +5909,18 @@ mod tests {
         // No library yet: nothing to do.
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
 
-        set_library(
-            r#"[{"id":"a","title":"Dune","author":"Herbert"},{"id":"b","title":"Emma","author":"Austen"},{"id":"","title":"x"}]"#,
-        );
+        // Nor when there is no library at all, even with stray index rows.
+        conn.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES ('stray', 'Kept', '')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
+        conn.execute("DELETE FROM books_fts", []).unwrap();
+
+        set_meta("a", r#"{"id":"a","title":"Dune","author":"Herbert"}"#);
+        set_meta("b", r#"{"id":"b","title":"Emma","author":"Austen"}"#);
+        set_meta("", r#"{"id":"","title":"x"}"#);
         conn.execute(
             "INSERT INTO books_fts(id, title, author) VALUES ('gone', 'Deleted Book', '')",
             [],
@@ -4552,18 +5936,198 @@ mod tests {
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
 
         // Rename one, delete the other.
-        set_library(r#"[{"id":"a","title":"Dune Messiah","author":"Herbert"}]"#);
+        set_meta(
+            "a",
+            r#"{"id":"a","title":"Dune Messiah","author":"Herbert"}"#,
+        );
+        conn.execute("DELETE FROM book_metadata WHERE book_id = 'b'", [])
+            .unwrap();
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 2);
         assert_eq!(rows(), [("a".into(), "Dune Messiah".into())]);
 
-        // Corrupt blob is ignored, index untouched.
-        conn.execute(
-            "UPDATE kv_store SET value = '{not json' WHERE key = 'zustand:theorem-library'",
-            [],
-        )
-        .unwrap();
+        // Corrupt metadata is ignored: its index row is neither changed nor pruned.
+        set_meta("a", "{not json");
         assert_eq!(reconcile_books_fts(&conn).unwrap(), 0);
         assert_eq!(rows().len(), 1);
+    }
+
+    fn rss_article(id: &str, fetched_at: Option<i64>, read: bool) -> RssArticleDto {
+        RssArticleDto {
+            id: id.into(),
+            feed_id: "f1".into(),
+            title: id.into(),
+            author: None,
+            url: format!("https://example.com/{id}").into(),
+            summary: None,
+            content_source: None,
+            image_url: None,
+            published_at: None,
+            fetched_at,
+            is_read: read,
+            is_favorite: false,
+            is_saved: false,
+            progress: None,
+        }
+    }
+
+    fn rss_ids(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT id FROM rss_articles ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    /// `fetched_at` is stored in milliseconds (the frontend writes
+    /// `Date.getTime()`); retention compared it with `unixepoch()` seconds,
+    /// so nothing was ever old enough to delete.
+    #[test]
+    fn rss_retention_deletes_old_articles_stored_in_milliseconds() {
+        let conn = setup_db();
+        const DAY_MS: i64 = 86_400_000;
+        let now_ms: i64 = 1_790_000_000_000; // 2026-09
+        let save = |id: &str, age_days: i64, read: bool| {
+            sqlite_save_rss_article_inner(
+                &conn,
+                &rss_article(id, Some(now_ms - age_days * DAY_MS), read),
+                Some("<p>body</p>"),
+                None,
+            )
+            .unwrap();
+        };
+        save("old-read", 40, true);
+        save("new-read", 2, true);
+        save("old-unread", 40, false);
+        save("edge-read", 30, true); // exactly at the cutoff: kept
+        save("old-saved", 40, true);
+        sqlite_mark_article_saved_inner(&conn, "old-saved", true).unwrap();
+        save("old-fav", 40, true);
+        sqlite_mark_article_favorite_inner(&conn, "old-fav", true).unwrap();
+        save("old-annotated", 40, true);
+        sqlite_upsert_annotation_inner(&conn, "n1", "rss:old-annotated", "{}").unwrap();
+
+        // Retention 0 means "keep forever".
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 0, true, now_ms).unwrap(),
+            0
+        );
+
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 30, true, now_ms).unwrap(),
+            1
+        );
+        assert_eq!(
+            rss_ids(&conn),
+            [
+                "edge-read",
+                "new-read",
+                "old-annotated",
+                "old-fav",
+                "old-saved",
+                "old-unread"
+            ]
+        );
+        assert!(sqlite_get_rss_article_content_inner(&conn, "old-read")
+            .unwrap()
+            .is_none());
+
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 30, false, now_ms).unwrap(),
+            1
+        );
+        assert!(!rss_ids(&conn).contains(&"old-unread".to_string()));
+        assert!(sqlite_get_rss_article_content_inner(&conn, "old-unread")
+            .unwrap()
+            .is_none());
+    }
+
+    /// Rows that fell back to `unixepoch()` (seconds) when no fetch time was
+    /// given must be stored in milliseconds like every other row, and rows
+    /// already written in seconds are converted on startup.
+    #[test]
+    fn rss_fetched_at_fallback_and_repair_use_milliseconds() {
+        let conn = setup_db();
+        let before_ms = chrono::Utc::now().timestamp_millis();
+        sqlite_save_rss_article_inner(&conn, &rss_article("no-time", None, true), None, None)
+            .unwrap();
+        let stored: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'no-time'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(stored >= before_ms - 1_000, "stored {stored} is not ms");
+
+        // A freshly fetched article without a time is not pruned at once.
+        assert_eq!(
+            sqlite_cleanup_old_rss_articles_inner(&conn, 15, true, before_ms + 1_000).unwrap(),
+            0
+        );
+
+        // Legacy seconds rows are repaired; ms rows are left alone.
+        sqlite_save_rss_article_inner(
+            &conn,
+            &rss_article("legacy", Some(1_780_000_000), true),
+            None,
+            None,
+        )
+        .unwrap();
+        sqlite_save_rss_feed_inner(
+            &conn,
+            &RssFeedDto {
+                id: "f1".into(),
+                title: "Feed".into(),
+                url: "https://example.com/feed".into(),
+                site_url: None,
+                description: None,
+                icon_url: None,
+                last_fetched: Some(1_780_000_000),
+                added_at: Some(1_770_000_000),
+                error_message: None,
+                unread_count: 0,
+            },
+        )
+        .unwrap();
+        normalize_rss_timestamp_units(&conn).unwrap();
+        let legacy: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy, 1_780_000_000_000);
+        let (last_fetched, added_at): (i64, i64) = conn
+            .query_row(
+                "SELECT last_fetched, added_at FROM rss_feeds WHERE id = 'f1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (last_fetched, added_at),
+            (1_780_000_000_000, 1_770_000_000_000)
+        );
+        let again: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'no-time'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(again, stored, "ms rows must not be scaled again");
+        normalize_rss_timestamp_units(&conn).unwrap();
+        let legacy_again: i64 = conn
+            .query_row(
+                "SELECT fetched_at FROM rss_articles WHERE id = 'legacy'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_again, 1_780_000_000_000, "repair is idempotent");
     }
 
     #[test]

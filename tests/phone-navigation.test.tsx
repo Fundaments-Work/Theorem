@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { BottomNav, isNavItemActive } from "../src/shell/layout/BottomNav";
+import { Sidebar } from "../src/shell/layout/Sidebar";
+import { navigationShortcuts, PRIMARY_DESTINATIONS } from "../src/shell/layout/nav-items";
 import { WorkbenchTabs } from "../src/features/library/components/WorkbenchTabs";
 import { useUIStore } from "../src/core/store";
 import "./test-utils/render-hook";
@@ -23,9 +25,9 @@ afterEach(() => {
 const labels = () => Array.from(container.querySelectorAll("nav button")).map((b) => b.textContent?.trim());
 
 describe("phone bottom navigation", () => {
-    it("offers exactly Library, Shelves, Discover, Workbench, Feeds", () => {
+    it("offers exactly Library, Shelves, Discover, Feeds, Workbench: your books, new reading, your notes", () => {
         act(() => root.render(<BottomNav />));
-        expect(labels()).toEqual(["Library", "Shelves", "Discover", "Workbench", "Feeds"]);
+        expect(labels()).toEqual(["Library", "Shelves", "Discover", "Feeds", "Workbench"]);
     });
 
     it("every destination a phone user needs is reachable: Discover directly, Bookmarks via Workbench", () => {
@@ -60,13 +62,14 @@ describe("Workbench tabs (the shared row that keeps Bookmarks reachable)", () =>
         expect(tabs.filter((t) => t.getAttribute("aria-selected") === "true").map((t) => t.textContent)).toEqual(["Bookmarks"]);
     });
 
-    it("keeps every tab nameable for assistive tech even when a phone shows only the active label", () => {
+    it("names every tab for assistive tech and shows every label on a phone too", () => {
         act(() => root.render(<WorkbenchTabs active="notes" onSelect={() => {}} />));
         const tabs = Array.from(container.querySelectorAll<HTMLElement>("[role=tab]"));
         expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["All", "Highlights", "Notes", "Words", "Bookmarks"]);
-        // Inactive tabs hide their text below `sm` (icon only); the active one never does.
-        const hiddenBelowSm = tabs.filter((t) => t.querySelector("span")?.className.includes("hidden"));
-        expect(hiddenBelowSm.map((t) => t.getAttribute("aria-label"))).toEqual(["All", "Highlights", "Words", "Bookmarks"]);
+        // An icon-only tab had to be guessed; on a phone each tab stacks its icon over its name.
+        const hiddenLabels = tabs.filter((t) => /(^|\s)hidden(\s|$)/.test(t.querySelector("span")?.className ?? ""));
+        expect(hiddenLabels).toHaveLength(0);
+        expect(container.querySelector("[role=tablist]")!.className).toContain("grid-cols-5");
     });
 
     it("reports the chosen tab", () => {
@@ -104,5 +107,51 @@ describe("desktop sidebar rail", () => {
             const current = Array.from(container.querySelectorAll("[aria-current=page]")).map((b) => b.getAttribute("aria-label"));
             expect(current).toEqual(["Workbench"]);
         }
+    });
+});
+
+describe("one navigation order everywhere", () => {
+    const order = ["Library", "Shelves", "Discover", "Feeds", "Workbench"];
+
+    it("the desktop rail shows the same five destinations in the same order as the phone bar", () => {
+        act(() => root.render(<Sidebar />));
+        const rail = Array.from(container.querySelectorAll('nav[aria-label="Main navigation"] button')).map((b) => b.getAttribute("aria-label"));
+        expect(rail).toEqual(order);
+        act(() => root.render(<BottomNav />));
+        expect(labels()).toEqual(order);
+    });
+
+    it("keeps the utilities apart: Statistics then Settings at the foot of the rail, not among the destinations", () => {
+        act(() => root.render(<Sidebar />));
+        const all = Array.from(container.querySelectorAll("aside button")).map((b) => b.getAttribute("aria-label"));
+        expect(all.slice(-2)).toEqual(["Statistics", "Settings"]);
+        expect(all.slice(0, 5)).toEqual(order);
+    });
+
+    it("lights the right rail item on sibling pages (Bookmarks is part of Workbench)", () => {
+        useUIStore.setState({ currentRoute: "bookmarks" });
+        act(() => root.render(<Sidebar />));
+        const current = Array.from(container.querySelectorAll("aside [aria-current=page]")).map((b) => b.getAttribute("aria-label"));
+        expect(current).toEqual(["Workbench"]);
+    });
+
+    it("numbers Ctrl+1–5 like the screen, then Statistics, Bookmarks and Settings", () => {
+        const shortcuts = navigationShortcuts();
+        expect(shortcuts.map((s) => [s.keys, s.route])).toEqual([
+            ["Ctrl+1", "library"],
+            ["Ctrl+2", "shelves"],
+            ["Ctrl+3", "opds"],
+            ["Ctrl+4", "feeds"],
+            ["Ctrl+5", "annotations"],
+            ["Ctrl+6", "statistics"],
+            ["Ctrl+7", "bookmarks"],
+            ["Ctrl+,", "settings"],
+        ]);
+        expect(shortcuts.slice(0, 5).map((s) => s.label)).toEqual(order.map((l) => `Go to ${l}`));
+        expect(new Set(shortcuts.map((s) => s.keys)).size).toBe(shortcuts.length);
+    });
+
+    it("uses one plain name per page (no Snapshots on one device and Feeds on another)", () => {
+        expect(PRIMARY_DESTINATIONS.map((d) => d.label)).toEqual(order);
     });
 });

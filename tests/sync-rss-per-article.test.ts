@@ -40,6 +40,8 @@ vi.mock("@tauri-apps/api/core", () => ({
     invoke: async (cmd: string, args: { key: string; value: string }) => {
         if (cmd === "docs_set_entry") writes.push([args.key, args.value]);
         if (cmd === "docs_get_all_entries") return docEntries;
+        // A sync round reads only changed entries (the first read is full).
+        if (cmd === "docs_get_changed_entries") return { entries: docEntries, token: 1 };
         if (cmd === "sqlite_get_kv") return "true"; // already provisioned
         return null;
     },

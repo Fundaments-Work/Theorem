@@ -2,7 +2,7 @@
 
 Choose an export folder, pick a note style, and let Theorem keep one Markdown file per book with your highlights and notes, plus a vocabulary file.
 
-Markdown export writes plain text files, so any notes app can read them. It is built for Obsidian and Logseq vaults, but any folder works. Export runs in the desktop apps. The Android app cannot choose an export folder.
+Markdown export writes plain text files, so any notes app can read them. It is built for Obsidian and Logseq vaults, but any folder works. Export runs in the desktop apps only; the section does not appear on Android or in the browser.
 
 ## Set up the export
 
@@ -70,4 +70,4 @@ Templates use placeholders such as `{{ title }}`, filters such as `{{ author | w
 
 ## Highlights from your phone
 
-Android has no export folder setting. If you use [device sync](device-sync.md), highlights made on the phone sync to your computer, and the desktop app includes them in its exports. After a sync, click Export now on the computer if you want the files updated immediately.
+Android has no Markdown export. If you use [device sync](device-sync.md), highlights made on the phone sync to your computer, and the desktop app includes them in its exports. After a sync, click Export now on the computer if you want the files updated immediately.
