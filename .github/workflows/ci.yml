@@ -160,6 +160,11 @@ jobs:
       - name: Check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-features
 
+      # Unit and integration tests of the app and every workspace crate.
+      # `#[ignore]`d tests hit live catalogs and stay out of CI.
+      - name: Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace --lib --tests
+
   rust-android-check:
     # Desktop CI does not compile the `cfg(target_os = "android")` code; the
     # jni 0.22 bump once broke Android while every desktop check passed.
