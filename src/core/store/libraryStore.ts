@@ -748,6 +748,11 @@ export const useLibraryStore = create<LibraryStore>()(
                     return -1;
                 };
 
+                // Only books kept in the library are written to SQLite and the
+                // search index; a discarded duplicate must not come back as a row.
+                const addedIndices = new Set<number>();
+                const mergedIndices = new Set<number>();
+
                 for (const incomingBook of incomingBooks) {
                     const duplicateIndex = findDuplicate(incomingBook);
 
@@ -757,6 +762,7 @@ export const useLibraryStore = create<LibraryStore>()(
                             booksChanged = true;
                         }
                         nextBooks.push(incomingBook);
+                        addedIndices.add(nextBooks.length - 1);
                         const idx = nextBooks.length - 1;
                         const hash = normalizeContentHash(incomingBook.contentHash);
                         if (hash) contentHashToIndex.set(hash, idx);
@@ -779,6 +785,7 @@ export const useLibraryStore = create<LibraryStore>()(
                             booksChanged = true;
                         }
                         nextBooks[duplicateIndex] = mergedBook;
+                        mergedIndices.add(duplicateIndex);
 
                         const updatedCache = syncRecentBooksCacheWithBook(
                             nextRecentBooksCache,
@@ -802,13 +809,17 @@ export const useLibraryStore = create<LibraryStore>()(
                 );
                 scheduleMutationSync();
                 if (isTauri()) {
-                    for (const book of incomingBooks) {
-                        persistBookToSqlite(book);
+                    // Final versions only: a book added earlier in this batch
+                    // may have been merged with a later copy.
+                    for (const index of new Set([...addedIndices, ...mergedIndices])) {
+                        persistBookToSqlite(nextBooks[index]);
                     }
-                }
-                if (isTauri() && incomingBooks.length > 0) {
-                    const ftsEntries: Array<[string, string, string]> = incomingBooks.map(b => [b.id, b.title, b.author]);
-                    sqliteIndexBooksFtsBatch(ftsEntries).catch(e => console.error("[catch]", e));
+                    if (addedIndices.size > 0) {
+                        const ftsEntries: Array<[string, string, string]> = [...addedIndices]
+                            .map((index) => nextBooks[index])
+                            .map(b => [b.id, b.title, b.author]);
+                        sqliteIndexBooksFtsBatch(ftsEntries).catch(e => console.error("[catch]", e));
+                    }
                 }
             },
 
