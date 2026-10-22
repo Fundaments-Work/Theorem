@@ -24,7 +24,7 @@ The design follows KDE Connect and Syncthing (identity = public key, explicit ap
 | Memory exhaustion by a pairing message | Messages are capped at 64 KiB (checked before allocating) and time out. |
 | A peer asks for a file that is not a book | A request names a book ID (`[A-Za-z0-9._-]`, no `..`, ≤128 chars), never a path. Only files in `book-cache/`, or outside the app's data folder with a book extension, are served, after resolving symlinks. The database, the sync key and settings are never sent. |
 | A paired device plants data | Incoming books lose device-local fields (`filePath`, `storagePath`, `syncedWithoutFile`; a cover only as an inline `data:image/`); book IDs that are not plain IDs are skipped; only the synced keys (`settings`, `reading_stats`, `collections`, `rss_feeds`, `collection:*`, `cover:*`) reach `kv_store`; downloads go to `book-cache/{id}.book`, a path Rust derives itself, capped at 4 GiB. |
-| A device is lost or retired | Unpairing removes it from the allowlist at once (it can no longer connect, and we no longer send to it) and deletes the doc shared with it. Each pairing has its own doc, so a removed device never had the docs shared with other devices. |
+| A device is lost or retired | Unpairing removes it from the allowlist and revokes any pairing-time permission, then restarts the sync engine, which closes connections already open to it (the gate only checks new ones). The doc shared with it is recorded in `sync-docs-to-drop.json` and deleted as the engine starts, before anything opens it. Each pairing has its own doc, so a removed device never had the docs shared with other devices. The removed device's next round or download says "The other device has removed this device". |
 | The sync key leaks to other local users | `iroh-key` is written `0600` (existing keys are tightened at start), and a key that fails to read is never silently replaced (that would unpair every device). |
 
 Tests: `sync_access.rs` (IDs, paths, symlinks, secrets, allowlist, and two endpoints over loopback proving the gate on the wire), `iroh_sync.rs` `pairing_tests` (the full pairing exchange with the user's answer scripted: accept, decline, wrong/expired secrets, spoofed identity, oversized frames), `database.rs` (planted paths, bad IDs, kv keys).
@@ -35,8 +35,9 @@ Tests: `sync_access.rs` (IDs, paths, symlinks, secrets, allowlist, and two endpo
 Device A (shows QR)                      Device B (scans)
   generate_pairing_qr()
     opens a pairing session (secret S)
+    waits ≤3 s for the relay
     QR v2: nodeId, deviceId, name,
-           LAN addrs, relay URL, S
+           dialable addrs, relay URL, S
                        ── scan / paste ──►  submit_pairing_code()
                                               rejects QR v1 ("update Theorem")
                                               lets A connect back for 2 min
@@ -66,7 +67,7 @@ Writes local state into the docs: `book:{id}` (without file paths), `cover:{id}`
 ### 3. A sync round (`runDeviceSync`)
 
 1. Provision.
-2. `docs_sync_now(peer)` queues the peer for reconciliation.
+2. `docs_sync_now(peer)` first probes the peer over the book protocol (`probe_peer`, a request that is never a book ID): an answer means reachable and still paired, close code 403 means it removed this device, silence means offline. Only then is the peer queued for reconciliation. The probe exists because iroh-docs checks the connection teardown before the sync result, so a refused sync and a completed one both end with "Failed to close connection"; after the probe, a teardown-only error counts as synced.
 3. Wait for **that peer's** `docs-sync-finished` (filtered by its node ID). `synced: false`, or nothing within 30 s, means the peer was not reached: the round returns `success: false` ("Peer offline") and the data stays dirty for the next round. `lastSyncAt` is recorded only for a finished exchange.
 4. Hydrate: `docs_get_changed_entries` returns only keys whose content (the hashes of every device's copy) changed since the last read the app acknowledged. Content, not timestamps, so a device with a wrong clock is never skipped. The read is acknowledged (`docs_ack_entries`) only after the merge was persisted; otherwise it comes again. The first read after start, and one every 30 minutes, is full.
 5. Merge (below).
@@ -99,7 +100,7 @@ A deletion creates a tombstone that syncs and stops the item being re-inserted, 
 
 ### 6. Live updates
 
-Remote doc entries arrive as `docs-entry-batch` events (Rust batches them, ~300 ms or 64 entries, newest value per key). An entry is dropped as our own echo only if it equals the value this device last wrote for that key. `book:`, `anno:` and `collection:` entries are merged in 200 ms batches; others after 500 ms; tombstones when idle.
+Remote doc entries arrive as `docs-entry-batch` events (Rust batches them, ~300 ms or 64 entries, newest value per key). An entry is dropped as our own echo only if it equals the value this device last wrote for that key. `book:`, `anno:` and `collection:` entries are merged in 200 ms batches; others after 500 ms; tombstones when idle. Live books, annotations and deletions are written to SQLite as they are merged, not only to the store, so a restart before the next round loses nothing.
 
 ### 7. Auto sync
 
@@ -126,3 +127,19 @@ Books travel over `theorem-file/v1`, on demand, not with metadata.
 `iroh_start`, `iroh_stop`, `generate_pairing_qr`, `close_pairing_qr`, `submit_pairing_code`, `respond_pairing_request`, `get_device_identity`, `set_device_fingerprint`, `get_paired_devices`, `unpair_device`, `docs_create_sync_doc`, `docs_import_sync_doc`, `docs_set_entry`, `docs_get_all_entries`, `docs_get_changed_entries`, `docs_ack_entries`, `docs_purge_entities`, `docs_sync_now`, `clear_sync_databases` (`sync_commands.rs`), plus `download_book_file` (`file_transfer.rs`).
 
 Events: `pairing-progress`, `pairing-confirm-request`, `pairing-confirm-closed`, `pairing-completed`, `docs-entry-batch`, `docs-pending-content-ready`, `docs-sync-finished` `{ peer, synced, received, sent }`, `docs-peer-online` / `docs-peer-offline` `{ peer }`, `doc-reimported`, `sync-doc-missing`, `download-progress`.
+
+## Measured
+
+Desktop (Linux, debug build) with the Android 15 emulator behind its NAT, 2026-10-22:
+
+| What | Result |
+|---|---|
+| Pairing, from Accept to paired on both sides | 0.2–0.4 s |
+| Wrong secret / old code / used code / closed QR / 5 wrong guesses | refused before the user is asked |
+| Sync round, nothing changed | 50–110 ms (changed-only reads) |
+| Sync round with changes | 130–250 ms |
+| Change made while the phone was off, after a cold start of the app | 14.7 s (≈6 s app start + 5 s startup delay) |
+| Book download, 27 KB / 40 MB | 29 ms / 4.5 s (8.9 MB/s), checksums equal |
+| Round with the peer offline | "Peer offline" after 30 s, data kept dirty |
+| Round after the other device unpaired this one | "removed this device" in 0.4 s |
+| Unpaired stranger fetching `../theorem.db`, `../iroh-key`, the docs protocol | refused at the handshake, never reaches a handler |
