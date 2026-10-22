@@ -25,6 +25,7 @@ import {
     sqliteSetKv,
 } from "../lib/sqlite-storage";
 import { isTauri } from "../lib/env";
+import { withMetadataStamp } from "../lib/book-edit-stamp";
 
 function persistBookToSqlite(book: Book): void {
     if (!isTauri()) return;
@@ -84,7 +85,8 @@ function updateBookById(
     }
 
     const currentBook = books[index];
-    const nextBook = updater(currentBook);
+    // A user edit to the book's details is stamped, so sync can tell it is newer.
+    const nextBook = withMetadataStamp(currentBook, updater(currentBook));
     if (nextBook === currentBook) {
         return { books, updatedBook: currentBook };
     }
@@ -1196,7 +1198,7 @@ export const useLibraryStore = create<LibraryStore>()(
                         if (!idSet.has(book.id)) return book;
                         if (book.completedAt && book.manualCompletionState === "read") return book;
                         changed = true;
-                        return {
+                        return withMetadataStamp(book, {
                             ...book,
                             progress: 1.0,
                             completedAt: book.completedAt || now,
@@ -1204,7 +1206,7 @@ export const useLibraryStore = create<LibraryStore>()(
                                 ? { progressBeforeFinish: Math.max(0, Math.min(1, book.progress || 0)) }
                                 : {}),
                             manualCompletionState: "read" as const,
-                        };
+                        }, now);
                     });
                     if (!changed) return state;
                     const touched = books.filter((b) => idSet.has(b.id));
@@ -1233,13 +1235,13 @@ export const useLibraryStore = create<LibraryStore>()(
                         if (!idSet.has(book.id)) return book;
                         if (!book.completedAt && book.manualCompletionState === "unread") return book;
                         changed = true;
-                        return {
+                        return withMetadataStamp(book, {
                             ...book,
                             completedAt: undefined,
                             manualCompletionState: "unread" as const,
                             progress: Math.max(0, Math.min(1, book.progressBeforeFinish ?? 0)),
                             progressBeforeFinish: undefined,
-                        };
+                        });
                     });
                     if (!changed) return state;
                     const touched = books.filter((b) => idSet.has(b.id));

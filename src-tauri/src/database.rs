@@ -1907,6 +1907,65 @@ fn sanitize_incoming_book(incoming: &serde_json::Value) -> serde_json::Value {
     book
 }
 
+/// The book details a user edits (mirrors `BOOK_EDITABLE_FIELDS` in
+/// book-edit-stamp.ts): the side with the newer `metadataUpdatedAt` wins them.
+const BOOK_EDITABLE_FIELDS: &[&str] = &[
+    "title",
+    "author",
+    "description",
+    "publisher",
+    "language",
+    "isbn",
+    "publishedDate",
+    "category",
+    "isFavorite",
+    "tags",
+    "rating",
+    "completedAt",
+    "manualCompletionState",
+    "progressBeforeFinish",
+    "series",
+    "seriesIndex",
+    "metadataUpdatedAt",
+];
+
+/// Where the reader is: the side with the newer `lastReadAt` wins them.
+const BOOK_READING_FIELDS: &[&str] = &[
+    "progress",
+    "currentLocation",
+    "lastReadAt",
+    "lastClickFraction",
+    "pageProgress",
+    "pdfViewState",
+];
+
+/// Removes from `incoming` the groups of fields where `existing` is newer, so
+/// an older peer copy cannot undo a newer local edit or reading position.
+fn drop_older_fields(existing: &serde_json::Value, incoming: &mut serde_json::Value) {
+    let newer_here = |stamp: &str| match (
+        parse_sync_date(existing.get(stamp)),
+        parse_sync_date(incoming.get(stamp)),
+    ) {
+        (Some(local), Some(remote)) => local > remote,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    let drop_edits = newer_here("metadataUpdatedAt");
+    let drop_reading = newer_here("lastReadAt");
+    if let Some(obj) = incoming.as_object_mut() {
+        if drop_edits {
+            for field in BOOK_EDITABLE_FIELDS {
+                obj.remove(*field);
+            }
+        }
+        if drop_reading {
+            for field in BOOK_READING_FIELDS {
+                obj.remove(*field);
+            }
+        }
+    }
+}
+
 /// Keys a peer may store as-is in `kv_store`. Anything else (persisted app
 /// state, preferences that are not synced) is never written from sync.
 fn is_syncable_kv_key(key: &str) -> bool {
@@ -1923,7 +1982,11 @@ fn merge_book_metadata_json(
     cache_file_exists: bool,
     cache_path: Option<&str>,
 ) -> String {
-    let incoming = &sanitize_incoming_book(incoming);
+    let mut incoming = sanitize_incoming_book(incoming);
+    if let Some(existing) = existing_json.and_then(|ex| serde_json::from_str(ex).ok()) {
+        drop_older_fields(&existing, &mut incoming);
+    }
+    let incoming = &incoming;
     let mut merged = if let Some(ex) = existing_json {
         serde_json::from_str::<serde_json::Value>(ex).unwrap_or_else(|_| incoming.clone())
     } else {
@@ -4565,6 +4628,48 @@ mod tests {
         assert_eq!(meta["filePath"], "/books/dune.epub");
         assert_eq!(meta["title"], "Dune Messiah");
         assert_eq!(meta["coverPath"], "data:image/webp;base64,AAAA");
+    }
+
+    fn stored_book(conn: &Connection, id: &str) -> serde_json::Value {
+        serde_json::from_str(&sqlite_get_book_metadata_inner(conn, id).unwrap().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_newer_edit_and_the_newer_read_win_in_the_database() {
+        let conn = setup_db();
+        let merge = |json: &str| {
+            let mut entries = std::collections::HashMap::new();
+            entries.insert("book:b1".to_string(), json.to_string());
+            sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        };
+        merge(
+            r#"{"id":"b1","title":"Dune","isFavorite":false,"tags":[],"metadataUpdatedAt":"2026-05-02T00:00:00Z","progress":0.1,"lastReadAt":"2026-05-03T00:00:00Z"}"#,
+        );
+        // An older copy: favourite and tag it had, and further progress read earlier.
+        merge(
+            r#"{"id":"b1","title":"Dune (old)","isFavorite":true,"tags":["sf"],"metadataUpdatedAt":"2026-05-01T00:00:00Z","progress":0.9,"lastReadAt":"2026-05-01T00:00:00Z"}"#,
+        );
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Dune");
+        assert_eq!(book["isFavorite"], false);
+        assert_eq!(book["tags"], serde_json::json!([]));
+        assert_eq!(book["progress"], 0.1);
+
+        // A copy without stamps (an older app) does not override stamped edits.
+        merge(r#"{"id":"b1","title":"Legacy","isFavorite":true,"progress":0.5}"#);
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Dune");
+        assert_eq!(book["isFavorite"], false);
+        assert_eq!(book["progress"], 0.1);
+
+        // A newer edit and a newer read win, removals included.
+        merge(
+            r#"{"id":"b1","title":"Dune Messiah","isFavorite":false,"tags":["classic"],"metadataUpdatedAt":"2026-06-01T00:00:00Z","progress":0.4,"lastReadAt":"2026-06-01T00:00:00Z"}"#,
+        );
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Dune Messiah");
+        assert_eq!(book["tags"], serde_json::json!(["classic"]));
+        assert_eq!(book["progress"], 0.4);
     }
 
     #[test]

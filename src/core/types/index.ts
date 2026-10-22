@@ -108,6 +108,13 @@ export interface Book {
 
     /** Position or sequence volume within the series (e.g. 1, 2, 2.5) */
     seriesIndex?: number;
+
+    /**
+     * When the user last changed the book's details (title, favourite, tags,
+     * rating, finished, series...). Sync keeps the newer edit whole, so
+     * removing a tag or a favourite also reaches the other devices.
+     */
+    metadataUpdatedAt?: string;
 }
 
 export interface AudioChapter {

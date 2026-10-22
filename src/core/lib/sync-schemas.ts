@@ -57,6 +57,7 @@ export const BookSchema = z.object({
     coverBlobHash: z.string().optional(),
     series: z.string().optional(),
     seriesIndex: z.number().optional(),
+    metadataUpdatedAt: z.string().optional(),
 }).passthrough();
 
 export const BooksArraySchema = z.array(BookSchema);

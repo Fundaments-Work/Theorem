@@ -1,4 +1,5 @@
 import { normalizeShelfHierarchy } from "./shelf-hierarchy";
+import { BOOK_EDITABLE_FIELDS } from "./book-edit-stamp";
 
 import type {
     Book,
@@ -175,6 +176,26 @@ export function mergeBooks(
             manualCompletionState: match.manualCompletionState ?? inc.manualCompletionState,
             progressBeforeFinish: match.progressBeforeFinish ?? inc.progressBeforeFinish,
         };
+
+        // Once either side has stamped an edit, the details are last-writer-
+        // wins as a unit: removing a favourite, a tag or a rating, or marking
+        // a book unread, reaches the other devices instead of being merged
+        // back. Without stamps (older app versions) the union rules above stay.
+        const remoteEditAt = toEpoch(inc.metadataUpdatedAt);
+        const localEditAt = toEpoch(match.metadataUpdatedAt);
+        if (remoteEditAt > 0 || localEditAt > 0) {
+            const winner = remoteEditAt > localEditAt ? inc : match;
+            const target = merged as unknown as Record<string, unknown>;
+            for (const field of BOOK_EDITABLE_FIELDS) {
+                target[field] = winner[field];
+            }
+            merged.progressBeforeFinish = winner.progressBeforeFinish;
+            merged.title = merged.title || match.title || inc.title;
+            merged.author = merged.author || match.author || inc.author;
+            merged.tags = merged.tags ?? [];
+            merged.isFavorite = Boolean(merged.isFavorite);
+            merged.metadataUpdatedAt = winner.metadataUpdatedAt;
+        }
 
         byId.set(match.id, merged);
         if (merged.blobHash) byBlobHash.set(merged.blobHash, merged);
