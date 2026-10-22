@@ -549,10 +549,16 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
         val safeName = fileName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
         val outFile = File(importDir, "${java.util.UUID.randomUUID()}-$safeName")
 
-        inputStream.use { input ->
-          FileOutputStream(outFile).use { output ->
-            input.copyTo(output)
+        try {
+          inputStream.use { input ->
+            FileOutputStream(outFile).use { output ->
+              input.copyTo(output)
+            }
           }
+        } catch (error: Exception) {
+          // A half-written copy (provider error, disk full) is never used.
+          outFile.delete()
+          throw error
         }
 
         val response = JSObject()
