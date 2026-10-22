@@ -341,6 +341,21 @@ pub async fn sqlite_merge_sync_entries(
 }
 
 #[tauri::command]
+pub async fn sqlite_list_sync_conflicts(
+    app: AppHandle,
+) -> Result<Vec<crate::database::SyncConflictRecord>, String> {
+    offload(move || crate::database::sqlite_list_sync_conflicts(app)).await
+}
+
+#[tauri::command]
+pub async fn sqlite_dismiss_sync_conflicts(
+    app: AppHandle,
+    ids: Vec<String>,
+) -> Result<usize, String> {
+    offload(move || crate::database::sqlite_dismiss_sync_conflicts(app, ids)).await
+}
+
+#[tauri::command]
 pub async fn sqlite_shrink_memory(app: AppHandle) -> Result<(), String> {
     offload(move || crate::database::sqlite_shrink_memory(app)).await
 }

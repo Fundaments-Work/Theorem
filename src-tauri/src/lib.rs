@@ -1893,6 +1893,8 @@ pub fn run() {
             offload_commands::sqlite_upsert_annotation,
             offload_commands::sqlite_delete_annotation,
             offload_commands::sqlite_merge_sync_entries,
+            offload_commands::sqlite_list_sync_conflicts,
+            offload_commands::sqlite_dismiss_sync_conflicts,
             offload_commands::sqlite_shrink_memory,
             offload_commands::sqlite_query_books_window,
             offload_commands::sqlite_get_rss_feeds,
