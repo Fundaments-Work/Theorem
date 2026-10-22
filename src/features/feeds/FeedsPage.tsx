@@ -67,7 +67,7 @@ function useTouchVisibleActions(): boolean {
     return touchVisibleActions;
 }
 
-function FeedListItem({
+export function FeedListItem({
     feed,
     isSelected,
     onSelect,
@@ -87,7 +87,17 @@ function FeedListItem({
     
     return (
         <div
+            role="button"
+            tabIndex={0}
+            aria-pressed={isSelected}
             onClick={onSelect}
+            onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect();
+                }
+            }}
             className={cn(
                 "group relative flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors",
                 isSelected
@@ -145,9 +155,10 @@ function FeedListItem({
                     disabled={isRefreshing}
                     className={cn(
                         "p-1.5 transition-colors flex-shrink-0",
+                        // Hidden actions take no room, so the feed name is not cut short.
                         showTouchActions || isRefreshing
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                            ? "flex"
+                            : "hidden group-hover:flex group-focus-within:flex",
                         "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] hover:bg-[var(--color-surface-muted)]"
                     )}
                     title={`Refresh ${feed.title}`}
@@ -165,8 +176,8 @@ function FeedListItem({
                 className={cn(
                     "p-1.5 transition-colors flex-shrink-0",
                     showTouchActions
-                        ? "opacity-100"
-                        : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                        ? "flex"
+                        : "hidden group-hover:flex group-focus-within:flex",
                     "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] hover:bg-[var(--color-error)]/10"
                 )}
                 title="Remove feed"

@@ -110,9 +110,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reading settings show their effect live** — The settings panel no longer greys out the page, so a new font, size or theme can be judged while choosing it. Clicking the page still closes the panel.
 - **Every Settings tab visible on phones** — The tabs were a sideways-scrolling row of wide buttons that hid four of six; they now wrap into a grid. About names the maker correctly ("Fundaments") and drops the developer-only stack line.
 - **Room above the first line on desktop** — The reader toolbar sits over the top of the page, and the first line of text nearly touched it; the page now leaves a proper margin above and below the text.
+- **Feed names fit, and feeds open from the keyboard** — A feed's refresh and remove buttons kept their space while hidden, cutting names to "The Pub…"; they now take no room until the row is hovered or focused. Each feed in the sidebar is a real button, reachable with Tab and opened with Enter or Space.
 
 ### Fixed
 
+- **Browser build: feed unread counts after a reload** — The browser build keeps only recent articles, but saved each feed's unread count from before that cut, so a feed with years of items showed 100 unread above a handful of articles. Counts are now taken from the saved articles.
 - **Removing a favourite, a tag or a rating now syncs** — Book details were merged as a union, so undoing something on one device was merged back from the other, and an older copy could undo a rename. Edits are now timestamped and the newer one wins, removals included.
 - **Deleted books came back after 90 days** — Deleting an item left its sync entries behind, and once the deletion record expired every device restored the item from them. Deleting now removes them.
 - **Sync rounds report what really happened** — An unreachable device showed "Already in sync" and was treated as synced; "last synced" changed even when nothing was exchanged; the status could stay on "syncing"; unpairing a device could make the next book download fail with "peer not available".
