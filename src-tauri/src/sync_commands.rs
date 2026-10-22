@@ -361,10 +361,17 @@ pub async fn submit_pairing_code(
     }
 
     // The host may connect back for sync before it is saved as paired here.
-    sync_state
-        .transport_state
-        .allowlist
-        .allow_pending(peer_pk, crate::sync_access::PENDING_PEER_TTL);
+    // The permission ends with this call, whatever the outcome: once paired,
+    // the paired list allows it (and unpairing then revokes it at once).
+    let allowlist = sync_state.transport_state.allowlist.clone();
+    allowlist.allow_pending(peer_pk, crate::sync_access::PENDING_PEER_TTL);
+    struct ForgetPending(Arc<crate::sync_access::PeerAllowlist>, iroh::PublicKey);
+    impl Drop for ForgetPending {
+        fn drop(&mut self) {
+            self.0.forget_pending(&self.1);
+        }
+    }
+    let _forget_pending = ForgetPending(allowlist, peer_pk);
 
     let conn = tokio::time::timeout(
         PAIRING_CONNECT_TIMEOUT,
@@ -628,6 +635,9 @@ pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(
         sync_state.transport_state.persist_paired(&devices)?;
         removed
     };
+    if let Ok(node) = removed.iroh_node_id.parse::<iroh::PublicKey>() {
+        sync_state.transport_state.allowlist.forget_pending(&node);
+    }
     if !removed.sync_doc_id.is_empty() {
         let dir = &sync_state.transport_state.app_data_dir;
         let mut to_drop = theorem_sync_core::sync_persistence::load_docs_to_drop(dir);

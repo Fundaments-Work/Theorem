@@ -64,6 +64,14 @@ impl PeerAllowlist {
         pending.insert(peer, now + ttl);
     }
 
+    /// Ends the short-lived permission given by `allow_pending`.
+    pub fn forget_pending(&self, peer: &PublicKey) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(peer);
+    }
+
     pub fn is_allowed(&self, peer: &PublicKey) -> bool {
         if self
             .paired
@@ -500,6 +508,22 @@ mod tests {
         assert!(!gate.admits(b"pair/10", &stranger));
         assert!(gate.admits(b"/iroh-sync/1", &friend));
         assert!(gate.admits(b"theorem-file/v1", &friend));
+    }
+
+    #[test]
+    fn unpairing_also_ends_a_pending_permission() {
+        let host = key(9);
+        let list = PeerAllowlist::default();
+        let mut devices = HashMap::new();
+        devices.insert("h".to_string(), device("h", &host));
+        list.allow_pending(host, Duration::from_secs(120));
+        list.set_paired(&devices);
+        devices.clear();
+        list.set_paired(&devices);
+        // Still within the pending window: allowed until it is forgotten.
+        assert!(list.is_allowed(&host));
+        list.forget_pending(&host);
+        assert!(!list.is_allowed(&host));
     }
 
     #[test]
