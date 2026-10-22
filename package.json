@@ -39,11 +39,11 @@
     "scripts": {
         "dev": "vite",
         "dev:host": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') vite --host 0.0.0.0",
-        "dev:tauri": "tauri dev",
-        "dev:tauri:no-gpu": "WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri dev",
-        "dev:tauri:connect": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') tauri dev --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
-        "dev:android": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android dev --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
-        "dev:android:connect": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android dev --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
+        "dev:tauri": "tauri dev --features devtools",
+        "dev:tauri:no-gpu": "WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri dev --features devtools",
+        "dev:tauri:connect": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') tauri dev --features devtools --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
+        "dev:android": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android dev --features devtools --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
+        "dev:android:connect": "TAURI_DEV_HOST=$(ip route get 1 | awk '{print $7; exit}') JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android dev --features devtools --config '{\"build\":{\"beforeDevCommand\":\"\"}}'",
         "build": "pnpm run typecheck && vite build && node scripts/verify-pdfjs-assets.mjs && node scripts/check-startup-bundle.mjs",
         "build:wasm": "cargo build --manifest-path src-tauri/Cargo.toml -p theorem-core --target wasm32-unknown-unknown --release",
         "foliate:check": "bash scripts/sync-foliate-js.sh --check",
@@ -58,7 +58,7 @@
         "preview": "vite preview",
         "tauri": "tauri",
         "clean:tauri": "cargo clean --manifest-path src-tauri/Cargo.toml",
-        "build:android": "JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android build --debug"
+        "build:android": "JAVA_HOME=/opt/android-studio/jbr ANDROID_HOME=$HOME/Android/Sdk pnpm tauri android build --debug --features devtools"
     },
     "dependencies": {
         "@radix-ui/react-context-menu": "^2.4.1",
