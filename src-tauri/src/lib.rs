@@ -16,6 +16,7 @@ pub mod cli;
 pub mod cli_tui;
 pub mod cover_protocol;
 mod database;
+mod db_backup;
 mod device_name;
 mod diagnostics;
 pub mod epub_entries;
@@ -1712,9 +1713,9 @@ pub fn run() {
                 std::env::consts::ARCH
             );
             log::info!("[startup] Running database schema migrations...");
-            if let Err(e) = database::run_schema_migrations(app.handle()) {
-                log::error!("[database] Schema migration failed: {e}");
-            }
+            // Integrity check + rolling snapshot (when due), then migrations;
+            // a damaged database is reported to the frontend, not hidden.
+            db_backup::run_startup_guard(app.handle());
 
             log::info!("[startup] Initializing device sync");
             match sync_commands::init_sync(app_data_dir, app.handle().clone()) {
@@ -1987,6 +1988,13 @@ pub fn run() {
             image_ops::extract_cover_palette,
             stemmer::lemmatize_word,
             article_epub::create_article_epub_native,
+            db_backup::db_health_status,
+            db_backup::db_health_dismiss,
+            db_backup::db_list_snapshots,
+            db_backup::db_backup_create,
+            db_backup::db_backup_inspect,
+            db_backup::db_backup_restore,
+            db_backup::db_restore_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

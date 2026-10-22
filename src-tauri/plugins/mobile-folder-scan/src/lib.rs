@@ -169,6 +169,37 @@ pub fn save_file<R: Runtime>(
 }
 
 #[cfg(target_os = "android")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveFileFromPathPayload<'a> {
+    source_path: &'a str,
+    filename: &'a str,
+}
+
+/// Stream a local file into Downloads/Theorem through MediaStore without
+/// loading it into memory (large backups). Returns the content URI.
+#[cfg(target_os = "android")]
+pub fn save_file_from_path<R: Runtime>(
+    app: &AppHandle<R>,
+    source_path: &str,
+    filename: &str,
+) -> Result<String, String> {
+    let state = get_scan_state(app)?;
+    let response = state
+        .handle
+        .run_mobile_plugin::<SaveFileResponse>(
+            "saveFileFromPath",
+            SaveFileFromPathPayload {
+                source_path,
+                filename,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+
+    Ok(response.uri)
+}
+
+#[cfg(target_os = "android")]
 #[derive(Deserialize)]
 struct GetAndroidIdResponse {
     #[serde(rename = "androidId")]

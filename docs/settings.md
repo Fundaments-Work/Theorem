@@ -40,8 +40,8 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 
 ### Data & Storage (id: `storage`)
 - Storage statistics (Books, Highlights & Notes, RSS Articles, Offline Dictionaries)
+- Backup & Restore (`BackupSection.tsx`): Create Backup File (`.theorem-backup`, optional dictionaries), Restore from Backup (inspect, confirm, replace, reload), and the automatic database copies with Restore buttons. See [persistence.md](persistence.md#backups-snapshots-and-startup-safety)
 - Clear all data (with warning dialog)
-- Export sync bundle (portable JSON backup)
 
 ### Shortcuts
 - Reference list of all keyboard shortcuts (read-only)
@@ -109,6 +109,20 @@ The Data & Storage tab provides insight into what's using disk space. The UI sho
 | Offline Dictionaries | `dictionaries/` directory | Directory size |
 
 The underlying `sqlite_get_storage_stats()` also returns `covers` and `blob_store` sizes, but these are not shown in the tab.
+
+## Backup & Restore
+
+`src/features/settings/BackupSection.tsx`, backed by `src/core/lib/db-backup.ts` and the Rust module `db_backup.rs`. Only in the desktop and Android apps; the browser build shows a note instead.
+
+- **Create Backup File** flushes pending store writes, then calls `db_backup_create`. Desktop passes the path from a save dialog (`theorem-YYYY-MM-DD.theorem-backup`); Android passes none and the file is streamed into Downloads/Theorem (`saveFileFromPath` in the folder-scan plugin). The on/off switch beside it adds the `dictionaries/` folder. Progress arrives as `db-backup-progress` events.
+- **Restore from Backup** picks a file (Android content URIs are copied to a local file first), calls `db_backup_inspect` and shows the manifest in a confirmation dialog. Confirming flushes writes to the current database, suspends persistence (`suspendPersistence`), calls `db_backup_restore`, clears the `theorem-unload:` snapshots and reloads the webview. A failure resumes persistence and shows the error.
+- **Automatic copies** lists `db_list_snapshots`; Restore goes through the same confirmation and `db_restore_snapshot`.
+
+The old "Create Backup File" wrote a JSON sync bundle with every book and dictionary base64-encoded in memory, ran out of memory on large libraries, and could not be restored. It is gone (`sync-bundle.ts` removed).
+
+## Recovery screen
+
+`src/shell/DatabaseRecovery.tsx`. `main.tsx` calls `db_health_status` (`src/core/lib/db-health.ts`) before rendering; when the startup guard reported `corrupt` or `migration_failed` it suspends persistence and renders this screen instead of the app. It offers each automatic copy, a backup file, and Continue Anyway (`db_health_dismiss`, resume persistence, reload).
 
 The "Clear All Data" button:
 1. Shows a confirmation dialog ("This will delete all your books, annotations, settings...")

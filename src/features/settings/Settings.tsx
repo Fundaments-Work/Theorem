@@ -1,5 +1,3 @@
-import { localDateKey } from "../../core/lib/date-keys";
-
 import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PageHeader } from "../../ui";
@@ -9,13 +7,9 @@ import { requestNotificationPermission } from "../../core/lib/notifications";
 import { refreshScheduledReminders } from "../reader/hooks/useDailyGoalReminder";
 import { ReminderDeliveryNotice } from "./ReminderDeliveryNotice";
 import { getAllShortcuts, formatShortcutKeys } from "../../core/lib/keyboard-shortcuts";
-import {
-    showOpenDirectoryDialog,
-    showSaveFileDialog,
-} from "../../core/lib/dialogs";
+import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
 import { ConfirmDialog, AlertDialog } from "../../ui";
 import { syncVaultMarkdownSnapshot, triggerVaultAutoSync } from "../../core/lib/vault-sync";
-import { exportUnifiedSyncBundle, estimateSyncBundleSizeBytes } from "../../core/lib/sync-bundle";
 import type { VaultExportPreset, VaultHighlightGrouping } from "../../core/types";
 
 import {
@@ -31,6 +25,7 @@ const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => (
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
 import { KnapTemplateEditor } from "./KnapTemplateEditor";
 import { ExportLogsButton } from "./ExportLogsButton";
+import { BackupSection } from "./BackupSection";
 import { MomoIcon } from "../../ui/MomoIcon";
 import { BUY_ME_MOMO_URL } from "../../core/lib/support-prompt";
 import { openExternalUrl } from "../../core/lib/open-external-url";
@@ -190,7 +185,7 @@ function ButtonSelect<T extends string>({
     );
 }
 
-const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onClearData: () => void; onExportData: () => void }) {
+const StorageTab = memo(function StorageTab({ onClearData }: { onClearData: () => void }) {
     const books = useLibraryStore((s) => s.books);
     const annotations = useLibraryStore((s) => s.annotations);
     const installedDictionaries = useVocabularyStore((s) => s.installedDictionaries);
@@ -281,8 +276,16 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
             </Section>
 
             <Section
+                title="Backup & Restore"
+                description="Keep a copy of your library, or bring one back"
+                icon={<Download className="w-5 h-5" />}
+            >
+                <BackupSection />
+            </Section>
+
+            <Section
                 title="Data Management"
-                description="Clear app data or create a backup file"
+                description="Clear app data"
                 icon={<Trash2 className="w-5 h-5" />}
             >
                 <div className="space-y-3">
@@ -305,24 +308,6 @@ const StorageTab = memo(function StorageTab({ onClearData, onExportData }: { onC
                         <ChevronRight className="w-4 h-4" />
                     </button>
 
-                    <button
-                        onClick={onExportData}
-                        className={cn(
-                            "w-full flex items-center gap-3 p-4",
-                            "border border-[var(--color-border)]",
-                            "text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                            "transition-colors text-left"
-                        )}
-                    >
-                        <Download className="w-5 h-5" />
-                        <div className="flex-1">
-                            <p className="text-sm">Create Backup File</p>
-                            <p className="text-xs text-[color:var(--color-text-muted)]">
-                                Save a full backup bundle with books, highlights, vocabulary, RSS, and dictionaries
-                            </p>
-                        </div>
-                        <ChevronRight className="w-4 h-4" />
-                    </button>
                 </div>
             </Section>
         </div>
@@ -677,57 +662,6 @@ export const SettingsPage = memo(function SettingsPage() {
         }
 
         setVaultSyncStatus("idle", result.message);
-    };
-
-    const handleExportData = async () => {
-        try {
-            const { bundle, warnings } = await exportUnifiedSyncBundle();
-            const bundleSize = estimateSyncBundleSizeBytes(bundle);
-            const payload = JSON.stringify(bundle, null, 2);
-            const defaultFileName = `theorem-sync-${localDateKey()}.json`;
-
-            const saveViaTauri = async () => {
-                const outputPath = await showSaveFileDialog({
-                    title: "Save Theorem Backup",
-                    defaultPath: defaultFileName,
-                    filters: [{ name: "JSON", extensions: ["json"] }],
-                });
-
-                if (!outputPath) return false;
-
-                const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-                await writeTextFile(outputPath, payload);
-                return true;
-            };
-
-            let saved = false;
-            if (isTauriDesktop()) {
-                try {
-                    saved = await saveViaTauri();
-                } catch {
-                    
-                }
-            }
-
-            if (!saved) {
-                const blob = new Blob([payload], { type: "application/json" });
-                const objectUrl = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = objectUrl;
-                link.download = defaultFileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(objectUrl);
-            }
-
-            const warningSuffix = warnings.length > 0
-                ? ` Warnings: ${warnings.length} missing binary item(s).`
-                : "";
-            setAlertInfo({ title: "Backup Saved", message: `Backup saved (${formatFileSize(bundleSize)}).${warningSuffix}` });
-        } catch (error) {
-            setAlertInfo({ title: "Backup Error", message: error instanceof Error ? error.message : "Failed to save backup." });
-        }
     };
 
     const tabButtons = [
@@ -1357,7 +1291,7 @@ export const SettingsPage = memo(function SettingsPage() {
                 </div>}
 
             {(activeTab === "storage" || visitedTabs.has("storage")) && <div className={activeTab === "storage" ? "" : "hidden"}>
-                <StorageTab onClearData={handleClearData} onExportData={handleExportData} />
+                <StorageTab onClearData={handleClearData} />
             </div>}
 
             {showShortcuts && (activeTab === "shortcuts" || visitedTabs.has("shortcuts")) && <div className={activeTab === "shortcuts" ? "space-y-8" : "hidden"}>

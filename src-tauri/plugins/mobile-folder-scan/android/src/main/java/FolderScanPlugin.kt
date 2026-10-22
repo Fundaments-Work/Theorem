@@ -50,6 +50,12 @@ class SaveImageArgs {
 }
 
 @InvokeArg
+class SaveFileFromPathArgs {
+  lateinit var sourcePath: String
+  lateinit var filename: String
+}
+
+@InvokeArg
 class MaterializeContentUriArgs {
   lateinit var uri: String
   lateinit var fileName: String
@@ -307,6 +313,60 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
           invoke.reject("Failed to create MediaStore entry")
         }
       } catch (error: Exception) {
+        invoke.reject(error.message ?: "Failed to save file")
+      }
+    }
+  }
+
+  /** Copy a local file into Downloads/Theorem as a stream (backups can be GBs). */
+  @Command
+  fun saveFileFromPath(invoke: Invoke) {
+    scanExecutor.execute {
+      var uri: Uri? = null
+      try {
+        val args = invoke.parseArgs(SaveFileFromPathArgs::class.java)
+        val source = File(args.sourcePath)
+        if (args.filename.isEmpty() || !source.isFile) {
+          invoke.reject("Filename and an existing source file are required.")
+          return@execute
+        }
+
+        val contentValues = ContentValues().apply {
+          put(MediaStore.Downloads.DISPLAY_NAME, args.filename)
+          put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Downloads.RELATIVE_PATH, "Download/Theorem")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+          }
+        }
+
+        val target = activity.contentResolver.insert(
+          MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+          contentValues
+        )
+        if (target == null) {
+          invoke.reject("Failed to create MediaStore entry")
+          return@execute
+        }
+        uri = target
+
+        val output = activity.contentResolver.openOutputStream(target)
+          ?: throw IllegalStateException("Cannot open the Downloads entry for writing")
+        output.use { os ->
+          source.inputStream().use { input -> input.copyTo(os, 1 shl 16) }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          contentValues.clear()
+          contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+          activity.contentResolver.update(target, contentValues, null, null)
+        }
+
+        val response = JSObject()
+        response.put("uri", target.toString())
+        invoke.resolve(response)
+      } catch (error: Exception) {
+        uri?.let { runCatching { activity.contentResolver.delete(it, null, null) } }
         invoke.reject(error.message ?: "Failed to save file")
       }
     }

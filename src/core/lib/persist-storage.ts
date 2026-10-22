@@ -12,6 +12,40 @@ const UNLOAD_SNAPSHOT_PREFIX = 'theorem-unload:';
 const PERSIST_WRITE_DEBOUNCE_MS = 350;
 
 const inMemoryPersistCache = new Map<string, string | null>();
+// Set while the database is being replaced (restore) or is damaged: nothing
+// held in memory may be written over the incoming or broken database.
+let persistenceSuspended = false;
+
+/**
+ * Stop every store write from reaching durable storage until
+ * `resumePersistence()`. Pending writes are dropped, not flushed.
+ */
+export function suspendPersistence(): void {
+    persistenceSuspended = true;
+}
+
+export function resumePersistence(): void {
+    persistenceSuspended = false;
+}
+
+export function isPersistenceSuspended(): boolean {
+    return persistenceSuspended;
+}
+
+/** Drop the unload snapshots kept in localStorage (they would be replayed into SQLite on the next start). */
+export function clearUnloadSnapshots(): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const keys: string[] = [];
+        for (let index = 0; index < localStorage.length; index += 1) {
+            const key = localStorage.key(index);
+            if (key?.startsWith(UNLOAD_SNAPSHOT_PREFIX)) keys.push(key);
+        }
+        for (const key of keys) localStorage.removeItem(key);
+    } catch {
+        // Storage disabled: nothing to clear.
+    }
+}
 const pendingPersistWrites = new Map<string, string>();
 const pendingPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let flushHandlersInstalled = false;
@@ -53,6 +87,7 @@ function asUnloadSnapshotKey(name: string): string {
 
 /** Last-chance synchronous save when SQLite is unreachable (unload, failed IPC). */
 function writeFallbackItem(name: string, value: string): void {
+    if (persistenceSuspended) return;
     try {
         setLocalItem(isTauri() ? asUnloadSnapshotKey(name) : name, value);
     } catch {
@@ -101,6 +136,7 @@ async function flushPersistWrite(name: string): Promise<void> {
     }
 
     clearPendingPersistWrite(name);
+    if (persistenceSuspended) return;
 
     if (!isTauri()) {
         setLocalItem(name, pendingValue);
@@ -127,6 +163,7 @@ async function flushAllPersistWrites(): Promise<void> {
 }
 
 function schedulePersistWrite(name: string, value: string): void {
+    if (persistenceSuspended) return;
     pendingPersistWrites.set(name, value);
 
     const existingTimer = pendingPersistTimers.get(name);
@@ -231,6 +268,7 @@ export const theoremPersistStorage: StateStorage = {    async getItem(name) {
         installFlushHandlers();
         clearPendingPersistWrite(name);
         inMemoryPersistCache.delete(name);
+        if (persistenceSuspended) return;
 
         if (!isTauri()) {
             removeLocalItem(name);
@@ -287,6 +325,7 @@ async function flushDeferredWrite(name: string): Promise<void> {
         clearTimeout(timer);
         pendingDeferredTimers.delete(name);
     }
+    if (persistenceSuspended) return;
     try {
         const json = JSON.stringify(pending);
         await theoremPersistStorage.setItem(name, json);
@@ -340,6 +379,7 @@ export async function flushAllPersistence(): Promise<void> {
 }
 
 function scheduleDeferredWrite(name: string, value: DeferredPersistValue): void {
+    if (persistenceSuspended) return;
     const existing = pendingDeferredWrites.get(name);
     if (existing && existing.state === value.state && existing.version === value.version) {
         return;

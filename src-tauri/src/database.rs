@@ -637,6 +637,11 @@ impl r2d2::CustomizeConnection<Connection, rusqlite::Error> for SqlitePerConnect
     }
 }
 
+/// Whether the shared pool has opened the database file (see `db_backup`).
+pub(crate) fn db_pool_initialized() -> bool {
+    DB_POOL.get().is_some()
+}
+
 pub fn with_connection<T, F>(app: &AppHandle, operation: F) -> Result<T, String>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
