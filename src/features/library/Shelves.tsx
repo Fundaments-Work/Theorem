@@ -1192,7 +1192,7 @@ export function ShelvesPage() {
                                 </p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] gap-6">
                                 {filteredShelves.map((shelf) => (
                                     <div key={shelf.id}>
                                     {shelf.parentId && <p className="text-sm text-[color:var(--color-text-muted)] mb-2">{collections.find(c => c.id === shelf.parentId)?.name} / {shelf.name}</p>}

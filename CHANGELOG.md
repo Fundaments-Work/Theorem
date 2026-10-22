@@ -112,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Room above the first line on desktop** — The reader toolbar sits over the top of the page, and the first line of text nearly touched it; the page now leaves a proper margin above and below the text.
 - **Feed names fit, and feeds open from the keyboard** — A feed's refresh and remove buttons kept their space while hidden, cutting names to "The Pub…"; they now take no room until the row is hovered or focused. Each feed in the sidebar is a real button, reachable with Tab and opened with Enter or Space.
 - **Workbench speaks its tabs' language** — Its subtitle read "4 annotations • 6 terms"; it now says "3 highlights, 1 note from 1 book · 6 words", matching the Highlights, Notes and Words tabs.
+- **Shelf cards keep a readable size on wide screens** — The shelf overview picked its column count from the window width while its content stops widening, so a 1920px window made six narrow cards and cut names to "Adven…". Columns now follow the content width, at least 14rem each.
 
 ### Fixed
 
