@@ -54,6 +54,15 @@ function issueToFailure(issue: ScanIssue): FolderImportFailure {
     return { source: issue.path, message: issue.reason };
 }
 
+/** Readable names for the end-of-import list: a content URI says nothing to a person. */
+function sourceNamer(sources: Map<string, ScannedBookFile>) {
+    return (source: string): string => {
+        if (!/^content:\/\//i.test(source)) return source;
+        const file = sources.get(pathKey(source));
+        return file ? `${file.rootName}/${file.relativePath}` : source;
+    };
+}
+
 /**
  * Scan `root` and import the books in it.
  *
@@ -103,6 +112,7 @@ export async function importFolder(
 
     const sources = new Map<string, ScannedBookFile>();
     const toImport: string[] = [];
+    const displayName = sourceNamer(sources);
     for (const file of scan.files) {
         const key = pathKey(file.path);
         if (sources.has(key)) continue;
@@ -165,17 +175,22 @@ export async function importFolder(
         await importBooks(
             toImport,
             (book) => {
-                result.imported += 1;
                 const added = attachSourceFolder(book, sources.get(pathKey(book.filePath)), root, preserve);
-                if (added.contentHash && !byHash.has(added.contentHash.toLowerCase())) {
-                    byHash.set(added.contentHash.toLowerCase(), added);
+                const hash = added.contentHash?.toLowerCase();
+                if (hash && byHash.has(hash)) {
+                    // Recognised only after copying (Android): the store merges it
+                    // into the book it duplicates and removes the copy's files.
+                    options.onDuplicate?.(book.filePath, hash);
+                } else {
+                    result.imported += 1;
+                    if (hash) byHash.set(hash, added);
                 }
                 pending.push(added);
                 if (pending.length >= FLUSH_MAX_BOOKS) flush();
                 else if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_INTERVAL_MS);
             },
             (source, error) => {
-                failures.push({ source, message: error instanceof Error ? error.message : String(error) });
+                failures.push({ source: displayName(source), message: error instanceof Error ? error.message : String(error) });
             },
             options,
         );

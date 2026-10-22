@@ -190,6 +190,37 @@ describe("importFolder", () => {
         expect(importBooks).not.toHaveBeenCalled();
     });
 
+    it("counts a copy recognised only after it was imported (Android) as already in the library", async () => {
+        // The Android importer cannot check hashes before copying; the store then merges the copy.
+        const library = [book("orig", { filePath: "/Books/old/a.epub", fileSize: 50, contentHash: "h-a" })];
+        const files = [file("moved/a.epub", 51), file("b.epub", 60), file("b copy.epub", 60)];
+        const hashes: Record<string, string> = { "/Books/moved/a.epub": "H-A", "/Books/b.epub": "h-b", "/Books/b copy.epub": "h-b" };
+        const importBooks = vi.fn(async (paths: string[], onBook?: (b: Book) => void) => {
+            for (const path of paths) onBook?.(book(`new:${path}`, { filePath: path, contentHash: hashes[path] }));
+            return [];
+        });
+        const { deps } = harness(library, scanOf(files), importBooks);
+        const result = await importFolder("/Books", true, deps);
+        expect(result).toMatchObject({ found: 3, imported: 1, alreadyInLibrary: 2 });
+        // The store still receives the copies, so it can merge them and remove their files.
+        const added = (deps.addBooks as ReturnType<typeof vi.fn>).mock.calls.flatMap(([batch]) => batch as Book[]);
+        expect(added.map((b) => b.filePath).sort()).toEqual(["/Books/b copy.epub", "/Books/b.epub", "/Books/moved/a.epub"]);
+        expect(describeFolderImport(result)).toBeNull();
+    });
+
+    it("names Android files by their folder and name instead of a content URI", async () => {
+        const uri = "content://com.android.externalstorage.documents/tree/primary%3ADownload%2FBooks/document/primary%3ADownload%2FBooks%2FJunk%2Fempty.epub";
+        const scanned = { path: uri, relativePath: "Junk/empty.epub", rootName: "Books", size: 0 };
+        const { deps } = harness([], scanOf([scanned], {
+            issues: [{ path: "Books/Locked", reason: "This folder could not be read" }],
+        }), fakeImporter({ fail: { [uri]: "The file is empty" } }));
+        const result = await importFolder("content://com.android.externalstorage.documents/tree/primary%3ADownload%2FBooks", false, deps);
+        expect(result.failures).toEqual([
+            { source: "Books/Locked", message: "This folder could not be read" },
+            { source: "Books/Junk/empty.epub", message: "The file is empty" },
+        ]);
+    });
+
     it("throttles progress", async () => {
         const files = Array.from({ length: 300 }, (_, i) => file(`${i}.epub`, i + 1));
         const { deps } = harness([], scanOf(files));
