@@ -315,6 +315,10 @@ pub fn html_to_text(html: &str) -> String {
                     w.text(&format!(" [{}] ", decode_entities(alt.trim())));
                 }
             }
+            // A block's opening tag sets the space before it; its closing
+            // tag only ends the line, so `</p><div>` is a new line and
+            // `</p><p>` a new paragraph.
+            _ if tag.closing => w.request(break_for(name).min(Break::Line)),
             _ => w.request(break_for(name)),
         }
     }
@@ -481,6 +485,11 @@ fn decode_reference(name: &str) -> Option<String> {
         } else {
             num.parse::<u32>().ok()?
         };
+        if code > 0x10FFFF {
+            // Not a code point at all: leave the reference as written.
+            return None;
+        }
+        // NUL and surrogates become the replacement character.
         let c = char::from_u32(code).filter(|c| *c != '\0').unwrap_or('\u{FFFD}');
         return Some(c.to_string());
     }
