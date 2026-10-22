@@ -1826,10 +1826,38 @@ async function autoSyncRound(force = false): Promise<void> {
         
         _dataDirty = !anyPeerSynced;
     } catch {
-        
+
     } finally {
         _isAutoSyncing = false;
+        _lastAutoSyncRoundAt = Date.now();
     }
+}
+
+/** Returning to the app runs a round when the last one is older than this. */
+export const RESUME_SYNC_STALE_MS = 30_000;
+let _lastAutoSyncRoundAt = 0;
+let _lastResumeSyncAt = 0;
+
+/**
+ * The app came back to the foreground (page visible again, or Tauri's
+ * `resumed` on phones): run a round when auto sync is on and the last round
+ * (or resume request) is older than RESUME_SYNC_STALE_MS. Both signals
+ * usually arrive together; the second is dropped here. Returns whether a
+ * round was started.
+ */
+export function syncAfterResume(now = Date.now()): boolean {
+    if (!isTauri() || _isAutoSyncing) return false;
+    const { settings } = useSettingsStore.getState();
+    if (!settings.deviceSync?.autoSyncEnabled) return false;
+    if (now - Math.max(_lastAutoSyncRoundAt, _lastResumeSyncAt) < RESUME_SYNC_STALE_MS) return false;
+    _lastResumeSyncAt = now;
+    void autoSyncRound(true);
+    return true;
+}
+
+export function __setLastAutoSyncRoundAtForTests(at: number): void {
+    _lastAutoSyncRoundAt = at;
+    _lastResumeSyncAt = 0;
 }
 
 /**
@@ -1895,18 +1923,24 @@ export async function startAutoSync(): Promise<() => void> {
         }
     });
 
-    let lastVisibilitySync = 0;
-    const VISIBILITY_COOLDOWN_MS = 30_000;
     const onVisibilityChange = () => {
-        if (document.visibilityState === "visible") {
-            const now = Date.now();
-            if (now - lastVisibilitySync < VISIBILITY_COOLDOWN_MS) return;
-            lastVisibilitySync = now;
-            void autoSyncRound(true);
-        }
+        if (document.visibilityState === "visible") syncAfterResume();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     cleanups.push(() => document.removeEventListener("visibilitychange", onVisibilityChange));
+
+    // Phones: the activity resumed (the page does not always report a pause
+    // as a visibility change). `syncAfterResume` drops the duplicate.
+    if (isTauri()) {
+        try {
+            const { listen } = await import("@tauri-apps/api/event");
+            cleanups.push(await listen("tauri://resumed", () => {
+                syncAfterResume();
+            }));
+        } catch (e) {
+            console.error("[sync] Resume listener could not be set up:", e);
+        }
+    }
 
     if (isTauri()) {
         try {
