@@ -61,13 +61,29 @@ Shows four rows:
 - **RSS Articles.** How many articles are cached and how much space they use.
 - **Offline Dictionaries.** How many are installed and their size.
 
-### Create a backup file
+### Back up your library
 
 1. Open Settings, Data & Storage.
-2. Under Data Management, click Create Backup File.
-3. Choose where to save it. The default name is `theorem-sync-` followed by today's date, with a `.json` ending.
+2. Under Backup & Restore, choose whether to include offline dictionaries (they can be large), then click Create Backup File.
+3. On a computer, choose where to save it. The default name is `theorem-` followed by today's date, with a `.theorem-backup` ending. On Android the file goes to Downloads/Theorem.
 
-The backup is one JSON file. It holds your book list and details, shelves, highlights, notes and bookmarks, settings, reading statistics, vocabulary and RSS feeds. It does not contain the book files themselves or your dictionaries, and Theorem has no button to restore from it. To move your books to a new device, use [device sync](device-sync.md) or import the original files again. For a readable copy of your notes, use [Markdown export](vault-sync.md).
+The backup is one file. It holds your books (the files on this device), covers, shelves, highlights, notes and bookmarks, vocabulary, RSS feeds and saved articles, reading statistics, settings, audiobooks Theorem generated and, if you asked, your dictionaries. Books that arrived by sync but were never downloaded to this device are left out, and the message after saving says how many. Audiobooks you attached from your own folders are not copied.
+
+The backup does not contain this device's sync identity: no device ID, no paired devices and no sync keys. It also leaves out passwords for catalogs you signed in to. Restoring it on another device does not make that device a copy of this one.
+
+### Restore from a backup
+
+1. Open Settings, Data & Storage.
+2. Under Backup & Restore, click Restore from Backup and pick a `.theorem-backup` file.
+3. Theorem checks the file and shows when it was made and how many books and notes it holds. Click Replace Library to continue.
+
+Restoring replaces the library on this device; Theorem then reloads. The device keeps its own pairing and catalog sign-ins. The library you had before is kept in Theorem's data folder as `theorem.db.pre-restore` until the next restore. A backup made by a newer version of Theorem cannot be restored until you update.
+
+### Automatic copies
+
+Once a day, and before each update changes the library, Theorem checks its database for damage and keeps a copy of it. The two newest copies are listed under Backup & Restore, each with a Restore button. They hold the library database (book details, covers, notes, vocabulary, feeds, settings), not the book files, which stay where they are.
+
+If Theorem finds its database damaged when it starts, or an update cannot convert it, it shows a recovery screen instead of an empty library. From there you can put back one of the automatic copies, restore a backup file, or continue anyway.
 
 ### Clear All Data
 

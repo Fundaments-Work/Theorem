@@ -12,7 +12,6 @@ export * from './utils';
 export * from './search/fuzzy';
 export * from './search/domain';
 export * from './vault-sync';
-export * from './sync-bundle';
 export * from './device-sync';
 export * from './sync-orchestrator';
 export * from './sync-import';
