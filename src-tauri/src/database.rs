@@ -1994,12 +1994,14 @@ fn merge_book_metadata_json(
 }
 
 /// Stores one synced book's metadata (and its search entry) under `book_id`.
+/// Returns false, writing nothing, when the result equals what is stored:
+/// most books in a sync round have not changed.
 fn merge_synced_book(
     connection: &Connection,
     book_id: &str,
     book_val: &serde_json::Value,
     app_data_dir: Option<&Path>,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<bool> {
     let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let author = book_val.get("author").and_then(|v| v.as_str());
 
@@ -2027,6 +2029,9 @@ fn merge_synced_book(
         cache_file_exists,
         cache_path.as_deref(),
     );
+    if existing_meta.as_deref() == Some(final_json.as_str()) {
+        return Ok(false);
+    }
 
     connection.execute(
         "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch()) ON CONFLICT(book_id) DO UPDATE SET metadata_json = excluded.metadata_json, updated_at = unixepoch()",
@@ -2038,7 +2043,7 @@ fn merge_synced_book(
         "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
         params![book_id, title, author],
     );
-    Ok(())
+    Ok(true)
 }
 
 #[allow(dead_code)]
@@ -2148,8 +2153,10 @@ pub fn sqlite_merge_sync_entries_with_dir(
             {
                 continue;
             }
-            if let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) {
-                merge_synced_book(connection, book_id, &book_val, app_data_dir)?;
+            let Ok(book_val) = serde_json::from_str::<serde_json::Value>(value) else {
+                continue;
+            };
+            if merge_synced_book(connection, book_id, &book_val, app_data_dir)? {
                 books_count += 1;
                 updated_books.push(book_id.to_string());
                 record_domain("books");
@@ -2163,9 +2170,10 @@ pub fn sqlite_merge_sync_entries_with_dir(
                         {
                             continue;
                         }
-                        merge_synced_book(connection, book_id, b, app_data_dir)?;
-                        books_count += 1;
-                        updated_books.push(book_id.to_string());
+                        if merge_synced_book(connection, book_id, b, app_data_dir)? {
+                            books_count += 1;
+                            updated_books.push(book_id.to_string());
+                        }
                     }
                 }
                 if !books_vec.is_empty() {
@@ -4557,6 +4565,41 @@ mod tests {
         assert_eq!(meta["filePath"], "/books/dune.epub");
         assert_eq!(meta["title"], "Dune Messiah");
         assert_eq!(meta["coverPath"], "data:image/webp;base64,AAAA");
+    }
+
+    #[test]
+    fn an_unchanged_synced_book_is_not_rewritten() {
+        let conn = setup_db();
+        let entry = || {
+            let mut entries = std::collections::HashMap::new();
+            entries.insert(
+                "book:b1".to_string(),
+                r#"{"id":"b1","title":"Dune"}"#.to_string(),
+            );
+            entries
+        };
+        let first = sqlite_merge_sync_entries_inner(&conn, entry()).unwrap();
+        assert_eq!(first.updated_books, vec!["b1".to_string()]);
+        conn.execute(
+            "UPDATE book_metadata SET updated_at = 1 WHERE book_id = 'b1'",
+            [],
+        )
+        .unwrap();
+        let again = sqlite_merge_sync_entries_inner(&conn, entry()).unwrap();
+        assert!(again.updated_books.is_empty());
+        assert_eq!(again.books_count, 0);
+        let stamp: i64 = conn
+            .query_row(
+                "SELECT updated_at FROM book_metadata WHERE book_id = 'b1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stamp, 1, "the row was rewritten");
+        assert_eq!(
+            sqlite_search_books_inner(&conn, "Dune", 10).unwrap().len(),
+            1
+        );
     }
 
     #[test]

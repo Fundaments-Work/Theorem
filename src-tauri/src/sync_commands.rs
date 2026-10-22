@@ -830,10 +830,87 @@ pub async fn docs_set_entry(
 pub async fn docs_get_all_entries(
     app: tauri::AppHandle,
 ) -> Result<std::collections::HashMap<String, String>, String> {
+    Ok(read_doc_entries(&app, None).await?.0)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedDocEntries {
+    pub entries: std::collections::HashMap<String, String>,
+    /// Pass to `docs_ack_entries` once `entries` are applied.
+    pub token: u64,
+}
+
+/// The doc contents the app has applied, per key (the content hashes of
+/// every device's copy), and the read waiting to be acknowledged.
+#[derive(Default)]
+struct Delivery {
+    applied: std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
+    pending: Option<(
+        u64,
+        std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
+    )>,
+    next_token: u64,
+}
+
+static DELIVERY: std::sync::Mutex<Option<Delivery>> = std::sync::Mutex::new(None);
+
+/// Like `docs_get_all_entries`, but only keys whose content changed since
+/// the last read the app acknowledged. Comparing content, not timestamps,
+/// means a device with a wrong clock is never skipped; an unacknowledged
+/// read (the merge failed) is simply sent again.
+#[tauri::command]
+pub async fn docs_get_changed_entries(app: tauri::AppHandle) -> Result<ChangedDocEntries, String> {
+    let applied = DELIVERY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(Default::default)
+        .applied
+        .clone();
+    let (entries, seen) = read_doc_entries(&app, Some(&applied)).await?;
+    let mut guard = DELIVERY.lock().unwrap_or_else(|e| e.into_inner());
+    let delivery = guard.get_or_insert_with(Default::default);
+    delivery.next_token += 1;
+    let token = delivery.next_token;
+    delivery.pending = Some((token, seen));
+    Ok(ChangedDocEntries { entries, token })
+}
+
+/// The entries of read `token` are applied: later reads skip them.
+#[tauri::command]
+pub async fn docs_ack_entries(token: u64) -> Result<(), String> {
+    let mut guard = DELIVERY.lock().unwrap_or_else(|e| e.into_inner());
+    let delivery = guard.get_or_insert_with(Default::default);
+    match delivery.pending.take() {
+        Some((pending_token, seen)) if pending_token == token => {
+            delivery.applied = seen;
+            Ok(())
+        }
+        other => {
+            delivery.pending = other;
+            Err("stale sync read".to_string())
+        }
+    }
+}
+
+/// Reads the paired docs. With `applied`, returns only keys whose copies
+/// differ from it; always also returns what is now there, for the next diff.
+/// A copy whose content has not arrived yet is left out of both, so it is
+/// read again next time.
+async fn read_doc_entries(
+    app: &tauri::AppHandle,
+    applied: Option<&std::collections::HashMap<String, Vec<iroh_blobs::Hash>>>,
+) -> Result<
+    (
+        std::collections::HashMap<String, String>,
+        std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
+    ),
+    String,
+> {
     use futures::pin_mut;
     use futures::StreamExt;
-    let api = get_docs_api(&app).await?;
-    let sync_state = get_sync_state(&app)?;
+    let api = get_docs_api(app).await?;
+    let sync_state = get_sync_state(app)?;
     let blobs = {
         let guard = sync_state.transport_state.docs_api.lock().await;
         guard
@@ -854,9 +931,8 @@ pub async fn docs_get_all_entries(
             .map_err(|e| format!("parse doc id: {e}"))?
     };
 
-    let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
-        std::collections::HashMap::new();
-
+    // First the entry headers (cheap), then content only for keys that changed.
+    let mut headers: Vec<(String, u64, iroh_blobs::Hash)> = Vec::new();
     for doc_id in doc_ids {
         if let Ok(Some(doc)) = api.open(doc_id).await {
             if let Ok(stream) = doc
@@ -864,46 +940,87 @@ pub async fn docs_get_all_entries(
                 .await
             {
                 pin_mut!(stream);
-                let mut doc_entries_seen = 0u64;
-                let mut doc_entries_read = 0u64;
-                'entries: while let Some(entry_res) = stream.next().await {
-                    doc_entries_seen += 1;
+                while let Some(entry_res) = stream.next().await {
                     if let Ok(entry) = entry_res {
-                        let key = String::from_utf8_lossy(entry.key()).to_string();
-                        let hash = entry.content_hash();
-                        let value = 'retry: {
-                            // Blobs usually arrive with docs_sync_now; a short
-                            // wait covers near-term arrivals, and anything still
-                            // missing is picked up via the live ContentReady path
-                            // or the next round.
-                            for _ in 0..2 {
-                                if let Ok(content) = blobs.blobs().get_bytes(hash).await {
-                                    if let Ok(v) = String::from_utf8(content.to_vec()) {
-                                        doc_entries_read += 1;
-                                        break 'retry v;
-                                    }
-                                }
-                                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-                            }
-                            eprintln!(
-                                "[iroh-sync] docs_get_all_entries: blob not available for key={key}"
-                            );
-                            continue 'entries;
-                        };
-                        per_key
-                            .entry(key)
-                            .or_default()
-                            .push((entry.timestamp(), value));
+                        headers.push((
+                            String::from_utf8_lossy(entry.key()).to_string(),
+                            entry.timestamp(),
+                            entry.content_hash(),
+                        ));
                     }
                 }
-                eprintln!(
-                    "[iroh-sync] docs_get_all_entries: {doc_entries_read}/{doc_entries_seen} entries read from doc {doc_id}"
-                );
             }
         }
     }
+    let current = hashes_by_key(&headers);
+    let changed: std::collections::HashSet<&String> = current
+        .iter()
+        .filter(|(key, hashes)| applied.is_none_or(|a| a.get(*key) != Some(*hashes)))
+        .map(|(key, _)| key)
+        .collect();
 
-    Ok(combine_doc_values(per_key))
+    let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
+        std::collections::HashMap::new();
+    let mut incomplete: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (key, at, hash) in &headers {
+        if !changed.contains(key) {
+            continue;
+        }
+        let mut value = None;
+        // Blobs usually arrive with docs_sync_now; a short wait covers
+        // near-term arrivals, and anything still missing is picked up via the
+        // live ContentReady path or the next round.
+        for _ in 0..2 {
+            if let Ok(content) = blobs.blobs().get_bytes(*hash).await {
+                value = String::from_utf8(content.to_vec()).ok();
+                if value.is_some() {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        }
+        match value {
+            Some(v) => per_key.entry(key.clone()).or_default().push((*at, v)),
+            None => {
+                incomplete.insert(key.clone());
+            }
+        }
+    }
+    eprintln!(
+        "[iroh-sync] read {} changed doc keys of {} ({} waiting for content)",
+        changed.len(),
+        current.len(),
+        incomplete.len()
+    );
+
+    let mut seen = current;
+    for key in &incomplete {
+        // Keep what was applied before, so the key counts as changed again.
+        match applied.and_then(|a| a.get(key)) {
+            Some(previous) => {
+                seen.insert(key.clone(), previous.clone());
+            }
+            None => {
+                seen.remove(key);
+            }
+        }
+    }
+    Ok((combine_doc_values(per_key), seen))
+}
+
+/// Every device's copy of each key, as content hashes in a stable order.
+fn hashes_by_key(
+    headers: &[(String, u64, iroh_blobs::Hash)],
+) -> std::collections::HashMap<String, Vec<iroh_blobs::Hash>> {
+    let mut by_key: std::collections::HashMap<String, Vec<iroh_blobs::Hash>> =
+        std::collections::HashMap::new();
+    for (key, _, hash) in headers {
+        by_key.entry(key.clone()).or_default().push(*hash);
+    }
+    for hashes in by_key.values_mut() {
+        hashes.sort();
+    }
+    by_key
 }
 
 /// Keys that hold one record each: with several paired devices, the copy
@@ -1120,6 +1237,8 @@ pub async fn docs_sync_now(app: tauri::AppHandle, peer_device_id: String) -> Res
 #[tauri::command]
 pub async fn clear_sync_databases(app: tauri::AppHandle) -> Result<(), String> {
     iroh_stop(app.clone()).await?;
+    // The docs are gone: the next read is a full one.
+    *DELIVERY.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
     let data_dir = app
         .path()
@@ -1194,6 +1313,18 @@ mod tests {
         let merged: serde_json::Value = serde_json::from_str(&out["settings"]).unwrap();
         assert_eq!(merged["theme"], "dark");
         assert_eq!(merged["fontSize"], 18);
+    }
+
+    #[test]
+    fn copies_are_compared_by_content_in_any_order() {
+        let (a, b) = (iroh_blobs::Hash::new(b"a"), iroh_blobs::Hash::new(b"b"));
+        let one = hashes_by_key(&[("k".into(), 1, a), ("k".into(), 2, b), ("j".into(), 1, a)]);
+        let other = hashes_by_key(&[("k".into(), 9, b), ("k".into(), 3, a), ("j".into(), 7, a)]);
+        // Same content, other timestamps and order: nothing changed.
+        assert_eq!(one, other);
+        let changed = hashes_by_key(&[("k".into(), 1, a), ("j".into(), 1, b)]);
+        assert_ne!(one.get("j"), changed.get("j"));
+        assert_ne!(one.get("k"), changed.get("k"));
     }
 
     #[test]
