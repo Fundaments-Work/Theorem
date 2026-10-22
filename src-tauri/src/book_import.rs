@@ -1,3 +1,4 @@
+use std::path::Path;
 use tauri::AppHandle;
 
 #[derive(serde::Serialize)]
@@ -78,7 +79,44 @@ pub fn import_book_path(
 ) -> Result<ImportedBinary, String> {
     uuid::Uuid::parse_str(&id).map_err(|_| "Invalid book ID".to_string())?;
     let destination = crate::database::materialized_book_path(&app, &id)?.with_extension("import");
-    let size =
-        std::fs::copy(path, &destination).map_err(|e| format!("Failed to copy book: {e}"))?;
+    let copied = std::fs::copy(&path, &destination);
+    // Android hands over a temporary copy of a content:// document; once it
+    // is copied (or failed) it is no longer needed and would only use space.
+    if cfg!(target_os = "android") && is_materialized_temp(Path::new(&path)) {
+        let _ = std::fs::remove_file(&path);
+    }
+    let size = match copied {
+        Ok(size) => size,
+        Err(e) => {
+            let _ = std::fs::remove_file(&destination);
+            return Err(format!("Failed to copy book: {e}"));
+        }
+    };
     finish_book_import(app, id, format, size)
+}
+
+/// A file `materializeContentUri` wrote into the app's `theorem_import` folder.
+fn is_materialized_temp(path: &Path) -> bool {
+    path.parent()
+        .and_then(|dir| dir.file_name())
+        .is_some_and(|name| name == MATERIALIZED_IMPORT_DIR)
+}
+
+const MATERIALIZED_IMPORT_DIR: &str = "theorem_import";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_materialized_copies_count_as_temporary() {
+        assert!(is_materialized_temp(Path::new(
+            "/data/user/0/app/files/theorem_import/1f-book.epub"
+        )));
+        assert!(!is_materialized_temp(Path::new(
+            "/storage/emulated/0/Books/book.epub"
+        )));
+        assert!(!is_materialized_temp(Path::new("/home/me/theorem_import")));
+        assert!(!is_materialized_temp(Path::new("book.epub")));
+    }
 }

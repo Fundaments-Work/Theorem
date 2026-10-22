@@ -1525,6 +1525,47 @@ mod tests {
         assert!(cache_files(cache.path()).is_empty());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_files_are_reported_and_nothing_is_stored() {
+        use std::os::unix::fs::PermissionsExt;
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let pdf = put(
+            src.path(),
+            "locked.pdf",
+            &std::fs::read(fixture("pdf/page-labels.pdf")).unwrap(),
+        );
+        let epub = put(
+            src.path(),
+            "locked.epub",
+            &std::fs::read(fixture("epub/multi-chapter.epub")).unwrap(),
+        );
+        for path in [&pdf, &epub] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let readable_anyway = std::fs::read(&pdf).is_ok();
+        let (summary, items) = run(
+            &[pdf.clone(), epub.clone()],
+            cache.path(),
+            &[],
+            &AtomicBool::new(false),
+        );
+        for path in [&pdf, &epub] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        if readable_anyway {
+            return; // running as root
+        }
+        assert_eq!(summary.failed, 2);
+        assert_eq!(reason_for(&items, &pdf), "Permission denied");
+        assert!(
+            reason_for(&items, &epub).contains("Permission denied"),
+            "{items:?}"
+        );
+        assert!(cache_files(cache.path()).is_empty());
+    }
+
     #[test]
     fn stale_partial_copies_are_swept_and_fresh_ones_kept() {
         let cache = tempfile::tempdir().unwrap();
