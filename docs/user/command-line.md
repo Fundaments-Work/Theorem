@@ -94,14 +94,14 @@ $ theorem search lighthouse 654e1eea-1ef6-4e3c-9ad1-4f1b5911c253 --json
 ]
 ```
 
-Read a chapter. `chapter` counts from 1, so `sectionIndex` 1 above is chapter 2:
+Read a chapter. `chapter` counts from 1, so `sectionIndex` 1 above is chapter 2. The text has a blank line between headings and paragraphs, and leaves out style sheets and scripts:
 
 ```
 $ theorem read 654e1eea-1ef6-4e3c-9ad1-4f1b5911c253 --chapter 2 --json
 {
   "bookId": "654e1eea-1ef6-4e3c-9ad1-4f1b5911c253",
   "chapter": 2,
-  "text": "   Chapter Two  Morning came, and the keeper wrote down the lighthouse log.   "
+  "text": "Chapter Two\n\nMorning came, and the keeper wrote down the lighthouse log."
 }
 ```
 

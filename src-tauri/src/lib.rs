@@ -15,6 +15,8 @@ pub mod app_lock;
 #[cfg(not(target_os = "android"))]
 pub mod cli;
 #[cfg(not(target_os = "android"))]
+mod cli_text;
+#[cfg(not(target_os = "android"))]
 pub mod cli_tui;
 pub mod cover_protocol;
 mod database;

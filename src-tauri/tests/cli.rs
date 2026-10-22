@@ -664,3 +664,31 @@ fn writes_are_refused_while_the_app_runs() {
     let kv = library_kv(&sb).unwrap();
     assert_eq!(kv["state"]["collections"].as_array().unwrap().len(), 3);
 }
+
+// ── A9: chapters read as text ────────────────────────────────────────────────
+
+#[test]
+fn read_prints_clean_paragraphs() {
+    let sb = Sandbox::new();
+    let book = sb.path().join("styled.epub");
+    make_epub(
+        &book,
+        "Styled",
+        "B",
+        &[(
+            "Opening",
+            "<style>p { margin: 0 }</style><script>var x = 1;</script><p>Caf&eacute; &amp; tea&#8212;at&nbsp;noon.</p><p>Second line.</p>",
+        )],
+    );
+    let added = sb.run(&["--json", "library", "add", "styled.epub"]);
+    assert_ok(&added);
+    let id = json(&added)["added"][0]["id"].as_str().unwrap().to_string();
+    let read = sb.run(&["read", &id]);
+    assert_ok(&read);
+    let text = stdout(&read);
+    assert_eq!(
+        text,
+        "Opening\n\nCafé & tea—at\u{a0}noon.\n\nSecond line.\n",
+        "{text:?}"
+    );
+}

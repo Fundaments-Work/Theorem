@@ -3261,7 +3261,7 @@ fn run_read_cfi(output: &Output, ctx: &Ctx, book_id: &str, cfi: &str) -> i32 {
         let text = crate::epubcfi::resolve_text(&tree, &location)?;
         if text.is_empty() {
             // Fall back to the whole chapter so the anchor context is visible.
-            Ok(crate::book_search::html_to_plain_text(&html))
+            Ok(crate::cli_text::html_to_text(&html))
         } else {
             Ok(text)
         }
@@ -3338,7 +3338,7 @@ pub(crate) fn read_epub_chapter(path: &PathBuf, chapter: usize) -> Result<String
     let html = crate::epub_parser::read_zip_entry_inner(&mut archive, &section_path)
         .ok_or_else(|| format!("Missing chapter file: {section_path}"))?;
 
-    Ok(crate::book_search::html_to_plain_text(&html))
+    Ok(crate::cli_text::html_to_text(&html))
 }
 
 /// Count EPUB spine chapters without loading their content.
