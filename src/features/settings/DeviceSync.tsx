@@ -561,7 +561,7 @@ export function DeviceSyncSection() {
         return (
             <Section
                 title="Device Sync"
-                description="Real app-data sync between your devices over LAN"
+                description="Sync your library, progress and highlights directly between your devices, on any network"
                 icon={<Smartphone className="w-5 h-5" />}
             >
                 <div className="p-6 bg-[var(--color-surface-muted)] text-center">

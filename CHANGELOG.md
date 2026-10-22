@@ -91,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sync button that looks like sync** — The titlebar's sync button had a sort-like arrow icon. It now shows a refresh icon that turns while syncing, and with no paired device it opens Settings → Devices instead of doing nothing.
 - **Library sort and filter in plain words** — "ASC/DESC" became "A to Z" or "Newest first" depending on what is sorted, statuses read "Not started / Reading / Finished", "Unshelved" became "Not on a shelf", and the duplicate "Recent" button is gone. The phone sheet and the desktop popover are now one component, so they no longer drift (the desktop one said "Read" where the phone said "Reading"), and the phone sheet no longer cuts off its last section.
+- **Onboarding that holds still** — Every step now has the same height, so Back and Next stay under the pointer, and sync is described as it works: directly between devices on any network, not "over LAN" (Settings → Devices said the same).
 
 ### Fixed
 
