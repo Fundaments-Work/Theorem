@@ -21,6 +21,19 @@ pub struct AudioPlayerStatus {
     pub finished: bool,
 }
 
+/// Player-time position that keeps playback at the same point in the audio
+/// after the speed changes from `old_speed` to `new_speed`. Player time is audio
+/// time divided by speed, so the audio point is `position * old_speed`.
+pub fn position_after_speed_change(position: f64, old_speed: f32, new_speed: f32) -> f64 {
+    if !position.is_finite() || position <= 0.0 {
+        return 0.0;
+    }
+    if old_speed <= 0.0 || new_speed <= 0.0 || old_speed == new_speed {
+        return position;
+    }
+    position * old_speed as f64 / new_speed as f64
+}
+
 /// Time-stretch mono audio samples using WSOLA (Waveform Similarity Overlap-Add)
 /// to preserve pitch perfectly while changing playback speed/duration.
 pub fn wsola_stretch_mono(input: &[f32], speed: f32, sample_rate: u32) -> Vec<f32> {
@@ -462,16 +475,21 @@ mod imp {
     pub fn set_speed(speed: f32) -> Result<(), String> {
         with_player(|p| {
             let clamped = speed.clamp(0.25, 4.0);
+            let old_speed = p.speed;
+            // Read the position while the durations still describe the old speed:
+            // reading it after rescaling mixed the two and jumped mid-chunk.
+            let playing = !p.paths.is_empty() && !p.player.empty();
+            let position = if playing { p.absolute_position() } else { 0.0 };
             p.speed = clamped;
             for (i, path) in p.paths.iter().enumerate() {
                 if i < p.durations.len() {
                     p.durations[i] = wav_duration(path, clamped);
                 }
             }
-            if !p.paths.is_empty() && !p.player.empty() {
-                let current_pos = p.absolute_position();
-                // Rebuild the queue at the new speed from where playback is now.
-                let _ = seek_locked(p, current_pos);
+            if playing {
+                // Rebuild the queue at the new speed from the same point in the audio.
+                let target = super::position_after_speed_change(position, old_speed, clamped);
+                let _ = seek_locked(p, target);
             }
             Ok(())
         })?
@@ -689,6 +707,41 @@ mod tests {
         assert_eq!(locate_chunk(&[], 1.0), None);
         // A zero-length chunk is skipped rather than selected.
         assert_eq!(locate_chunk(&[0.0, 2.0], 0.5), Some((1, 0.5)));
+    }
+
+    /// A speed change mid-chunk must keep playing from the same point in the audio.
+    /// Durations are per-chunk player time (audio length / speed).
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn speed_change_keeps_the_place_in_the_audio() {
+        use super::imp::locate_chunk;
+        let raw = [2.0, 3.0, 1.0]; // seconds of audio per chunk at 1x
+        let at = |speed: f64| raw.iter().map(|d| d / speed).collect::<Vec<f64>>();
+
+        // 0.5 s into the second chunk at 1x; switching to 2x lands 0.25 s (player time)
+        // into the same chunk, i.e. the same 0.5 s of audio, not the third chunk.
+        let target = position_after_speed_change(2.5, 1.0, 2.0);
+        assert!((target - 1.25).abs() < 1e-9, "{target}");
+        let (idx, offset) = locate_chunk(&at(2.0), target).unwrap();
+        assert_eq!(idx, 1);
+        assert!(
+            (offset * 2.0 - 0.5).abs() < 1e-9,
+            "audio offset {}",
+            offset * 2.0
+        );
+
+        // And back down: 1.5x → 0.75x, 1 s of player time into the first chunk = 1.5 s of audio.
+        let target = position_after_speed_change(1.0, 1.5, 0.75);
+        let (idx, offset) = locate_chunk(&at(0.75), target).unwrap();
+        assert_eq!(idx, 0);
+        assert!((offset * 0.75 - 1.5).abs() < 1e-9);
+
+        // Unchanged speed is a no-op; nonsense inputs stay at a valid position.
+        assert_eq!(position_after_speed_change(3.0, 1.25, 1.25), 3.0);
+        assert_eq!(position_after_speed_change(f64::NAN, 1.0, 2.0), 0.0);
+        assert_eq!(position_after_speed_change(-1.0, 1.0, 2.0), 0.0);
+        assert_eq!(position_after_speed_change(2.0, 0.0, 2.0), 2.0);
+        assert_eq!(position_after_speed_change(2.0, 1.0, 0.0), 2.0);
     }
 
     #[test]

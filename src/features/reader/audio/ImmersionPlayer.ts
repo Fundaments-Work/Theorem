@@ -136,6 +136,10 @@ export async function getNeuralStatus(): Promise<NeuralStatus> {
     }
 }
 
+/** Neural audio is always synthesized at normal speed; the native player applies the
+ *  listener's speed (instant changes, and one cache entry per sentence for every speed). */
+const NEURAL_SYNTH_SPEED = 1;
+
 // Fallback duration estimate for desktop OS voices, which report no completion.
 const BASE_CHARS_PER_SEC = (158 * 5.1) / 60;
 
@@ -145,7 +149,11 @@ class ImmersionPlayer {
 
     // ── Neural session (desktop Supertonic, native Rust playback) ───────────
     private nativeSession = false;
+    /** Seconds of synthesized audio queued for the page, at normal speed. */
     private durationSec = 0;
+    /** Speed the native player time-stretches the page to. Synthesis always runs at
+     *  1x: applying the speed in both places compounded it (1.5x played at 2.25x). */
+    private nativeSpeed = 1;
     private lastPosSec = 0;
     private streamDone = false;
     private progressTimer: ReturnType<typeof setInterval> | null = null;
@@ -230,6 +238,7 @@ class ImmersionPlayer {
         const voice = resolveNeuralVoice(opts.voice);
         const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
         const lang = opts.lang || "en";
+        this.nativeSpeed = speed;
         this.setState('loading');
         try {
             // Streaming: synthesize only the first sentence chunk, start
@@ -246,8 +255,12 @@ class ImmersionPlayer {
             this.nearEndEmitted = false;
 
             const first = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
-                "tts_synthesize", { text: chunks[0], voice, speed, lang },
+                "tts_synthesize", { text: chunks[0], voice, speed: NEURAL_SYNTH_SPEED, lang },
             );
+            if (sid !== this.session || this._state !== 'loading') return;
+            // The native player keeps its speed between pages (and starts at 1x after a
+            // restart), so every page sets it explicitly before playing.
+            await invoke("tts_audio_set_speed", { speed });
             if (sid !== this.session || this._state !== 'loading') return;
             // Native playback (rodio/cpal in Rust) — bypasses webview audio,
             // which could stay silently suspended outside a gesture stack.
@@ -276,7 +289,7 @@ class ImmersionPlayer {
             this.setState('playing');
 
             if (chunks.length > 1) {
-                void this.streamChunks(sid, chunks.slice(1), voice, speed, lang);
+                void this.streamChunks(sid, chunks.slice(1), voice, lang);
             }
         } catch (err: unknown) {
             this._onError(err instanceof Error ? err.message : String(err));
@@ -291,14 +304,13 @@ class ImmersionPlayer {
         sid: number,
         chunks: string[],
         voice: NeuralVoice,
-        speed: number,
         lang: string,
     ) {
         for (const chunk of chunks) {
             if (sid !== this.session || !this.nativeSession) return;
             try {
                 const result = await invoke<{ path: string; duration_sec: number; cached: boolean }>(
-                    "tts_synthesize", { text: chunk, voice, speed, lang },
+                    "tts_synthesize", { text: chunk, voice, speed: NEURAL_SYNTH_SPEED, lang },
                 );
                 if (sid !== this.session || !this.nativeSession) return;
                 await invoke("tts_audio_append", { path: result.path });
@@ -331,7 +343,7 @@ class ImmersionPlayer {
                 if (sid !== this.session || !this.nativeSession) return;
 
                 this.lastPosSec = status.position;
-                this.callbacks.onProgress?.(status.position, this.durationSec);
+                this.callbacks.onProgress?.(status.position, this.listeningDuration());
 
                 if (
                     status.chunk_index !== this.lastChunkIndex &&
@@ -376,15 +388,20 @@ class ImmersionPlayer {
         }
     }
 
-    /** Real seek over the native player (seconds from the start of the page). */
+    /** Queued audio as heard at the current speed (the player's own time scale). */
+    private listeningDuration(): number {
+        return this.durationSec / (this.nativeSpeed > 0 ? this.nativeSpeed : 1);
+    }
+
+    /** Real seek over the native player (seconds from the start of the page, at the current speed). */
     async seek(seconds: number) {
         if (!this.nativeSession) return;
-        const target = Math.max(0, Math.min(seconds, this.durationSec - 0.05));
+        const target = Math.max(0, Math.min(seconds, this.listeningDuration() - 0.05));
         try {
             await invoke("tts_audio_seek", { seconds: target });
             this.lastPosSec = target;
             if (this._state === 'paused') {
-                this.callbacks.onProgress?.(target, this.durationSec);
+                this.callbacks.onProgress?.(target, this.listeningDuration());
             }
         } catch { /* seek unsupported for the current source */ }
     }
@@ -586,10 +603,12 @@ class ImmersionPlayer {
         this.scheduleEngineUnload();
     }
 
-    /** Dynamically change playback speed of the active native stream via WSOLA time-stretching. */
+    /** Change the speed of the playing neural page (the native player time-stretches it;
+     *  nothing is re-synthesized). Platform voices pick the new speed up on the next page. */
     async setSpeed(speed: number) {
-        if (!isTauri()) return;
+        if (!isTauri() || !(speed > 0)) return;
         if (this.nativeSession) {
+            this.nativeSpeed = speed;
             await invoke("tts_audio_set_speed", { speed }).catch((e) => console.error("[catch]", e));
         }
     }
@@ -601,12 +620,11 @@ class ImmersionPlayer {
         if (!neural.available) return;
         const normalized = normalizeTextForAudio(text.trim());
         const voice = resolveNeuralVoice(opts.voice);
-        const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
         const lang = opts.lang || "en";
         try {
             const chunks = await invoke<string[]>("tts_text_chunks", { text: normalized, lang });
             if (chunks.length > 0) {
-                await invoke("tts_prefetch", { text: chunks[0], voice, speed, lang });
+                await invoke("tts_prefetch", { text: chunks[0], voice, speed: NEURAL_SYNTH_SPEED, lang });
             }
         } catch { /* prefetch is best-effort */ }
     }

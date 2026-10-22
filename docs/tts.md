@@ -63,7 +63,10 @@ releases and verified against a SHA-256 manifest compiled into the app.
   SHA-256(text + voice + speed) with a 1GB LRU cap — replays are instant and
   `tts_prefetch` warms the next chunk while the current one plays.
 - **Voices**: F1–F5 / M1–M5 (per-voice style files, 292KB each). Selected
-  from the reader playback bar; speed chips (0.75–1.5×) re-synthesize.
+  from the reader playback bar. Speed chips (0.75–1.5×) only change the
+  native player's pitch-preserving time-stretch (WSOLA): the reader always
+  synthesizes at 1× and sets the player's speed before each page, so a speed
+  change is instant, needs no new synthesis, and is applied exactly once.
 
 Settings → General → Neural Voice shows install status, downloads all
 missing assets with per-file progress, and removes the install (including
