@@ -35,7 +35,7 @@ pub mod stardict;
 pub mod stemmer;
 pub mod supertonic;
 mod sync_commands;
-pub mod text_normalizer;
+pub use theorem_core::text_normalizer;
 #[cfg(not(target_os = "android"))]
 mod tts_desktop;
 #[cfg(target_os = "linux")]
