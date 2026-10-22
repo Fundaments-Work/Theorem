@@ -87,7 +87,9 @@ pub fn downsample_cover_to_data_url(bytes: &[u8]) -> Option<String> {
     let max_h = 540;
 
     let resized = if width > max_w || height > max_h {
-        img.resize(max_w, max_h, image::imageops::FilterType::Triangle)
+        // A box filter: half the CPU of a triangle resize, and the same look at
+        // thumbnail size. Covers are most of the cost of a large import.
+        img.thumbnail(max_w, max_h)
     } else {
         img
     };
