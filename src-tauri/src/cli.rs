@@ -677,10 +677,17 @@ where
     T: Send + 'static,
     F: Future<Output = T>,
 {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("failed to build async runtime");
+    {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            // Nothing can run without it; say why and stop, never panic.
+            eprintln!("error: cannot start the async runtime: {e}");
+            std::process::exit(1);
+        }
+    };
     // Enter the context BEFORE building the future: tokio time primitives
     // panic if constructed outside a runtime.
     let _guard = runtime.enter();

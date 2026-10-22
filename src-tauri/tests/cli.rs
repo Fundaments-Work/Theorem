@@ -712,3 +712,48 @@ fn help_works_and_bad_command_lines_are_usage_errors() {
         assert_eq!(out.status.code(), Some(2), "{line:?}: {}", stderr(&out));
     }
 }
+
+// ── A5: corrupt or legacy stores are errors, not panics ─────────────────────
+
+#[test]
+fn corrupt_library_store_is_an_error_not_a_panic() {
+    for bad in [
+        "not json",
+        "[]",
+        r#"{"state": 5}"#,
+        r#"{"state": {"collections": {"a": 1}, "deletionTombstones": "x"}}"#,
+        r#"{"state": {"collections": [7, {"id": "s", "name": "S", "bookIds": "nope"}]}}"#,
+    ] {
+        let sb = Sandbox::new();
+        seed_app_library(&sb);
+        sb.db()
+            .execute(
+                "UPDATE kv_store SET value = ?1 WHERE key = 'zustand:theorem-library'",
+                [bad],
+            )
+            .unwrap();
+        for line in [
+            &["shelf", "list"][..],
+            &["shelf", "create", "New"],
+            &["shelf", "add", "S", APP_BOOK],
+            &["shelf", "remove", "S", APP_BOOK],
+            &["shelf", "delete", "S"],
+            &["highlights", "delete", APP_ANNOTATION],
+            &["library", "remove", APP_BOOK],
+            &["export"],
+            &["--json", "export"],
+            &["library", "list"],
+            &["stats"],
+            &["feeds", "list"],
+        ] {
+            let out = sb.run(line);
+            assert_no_panic(&out);
+            assert!(
+                matches!(out.status.code(), Some(0..=3)),
+                "{bad} {line:?}: {:?} {}",
+                out.status.code(),
+                stderr(&out)
+            );
+        }
+    }
+}
