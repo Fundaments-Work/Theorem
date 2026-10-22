@@ -62,13 +62,14 @@ describe("Workbench tabs (the shared row that keeps Bookmarks reachable)", () =>
         expect(tabs.filter((t) => t.getAttribute("aria-selected") === "true").map((t) => t.textContent)).toEqual(["Bookmarks"]);
     });
 
-    it("keeps every tab nameable for assistive tech even when a phone shows only the active label", () => {
+    it("names every tab for assistive tech and shows every label on a phone too", () => {
         act(() => root.render(<WorkbenchTabs active="notes" onSelect={() => {}} />));
         const tabs = Array.from(container.querySelectorAll<HTMLElement>("[role=tab]"));
         expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["All", "Highlights", "Notes", "Words", "Bookmarks"]);
-        // Inactive tabs hide their text below `sm` (icon only); the active one never does.
-        const hiddenBelowSm = tabs.filter((t) => t.querySelector("span")?.className.includes("hidden"));
-        expect(hiddenBelowSm.map((t) => t.getAttribute("aria-label"))).toEqual(["All", "Highlights", "Words", "Bookmarks"]);
+        // An icon-only tab had to be guessed; on a phone each tab stacks its icon over its name.
+        const hiddenLabels = tabs.filter((t) => /(^|\s)hidden(\s|$)/.test(t.querySelector("span")?.className ?? ""));
+        expect(hiddenLabels).toHaveLength(0);
+        expect(container.querySelector("[role=tablist]")!.className).toContain("grid-cols-5");
     });
 
     it("reports the chosen tab", () => {
