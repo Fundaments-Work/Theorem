@@ -77,7 +77,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pairing needs the QR code and your approval** — The QR code carries a one-time secret that works once, for 10 minutes, and stops working when the dialog closes or after five wrong attempts. The device showing it then asks "Pair this device?", and both screens show the same 6-digit code to compare, so a photographed QR code cannot pair a stranger's device unnoticed. Pairing codes from older versions are refused with a request to update.
 - **Book transfers send only books** — A request names a book, never a path; only book files are sent, links are resolved first, and downloads always land in Theorem's own book cache.
 - **Synced data cannot plant paths or settings** — File paths in synced books are ignored, odd book IDs are skipped, and only the settings that sync can be written by another device.
-- **Unpairing takes effect at once** — The device can no longer connect, even over a connection that was already open, and the data shared with it is removed from this device. The removed device is told "The other device has removed this device" instead of seeing its syncs succeed.
+- **Unpairing takes effect at once, on both devices** — The device can no longer connect, even over a connection that was already open, and the data shared with it is removed from this device. The other device is told and removes this one from its list too; if it was off, it does so (and says "… removed this device") the next time it tries to sync.
+
+### Sync
+
+- **Sync conflicts you can see and undo** — When the same book's details or a note were changed on two devices before they synced, the newer change used to win silently. Settings → Device Sync now lists such conflicts with both versions, and "Use the replaced version" brings the other one back. Changes made one after the other are never reported.
+- **Devices have real names** — Instead of both being "Theorem Device", a device is named after the computer, or the phone's maker and model, and can be renamed in Device Sync; the other device picks up the new name on its next sync.
+- **An offline device is noticed in seconds** — A sync with a device that is off now reports it after about 6 seconds instead of 30, and Device Sync shows it as offline within about 15 seconds.
+- **Deleted items stay deleted, even for a device away for months** — Deletions are now kept in the sync data permanently, so a device that comes back after more than 90 days drops what was deleted meanwhile instead of restoring it.
+- **Each change syncs on its own** — Notes, shelves, words, feeds, articles and deletions are now sent one item at a time instead of as whole lists every round. Devices still on an older version keep getting the lists until they update.
 
 ### Fixed
 
