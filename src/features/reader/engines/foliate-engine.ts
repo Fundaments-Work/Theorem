@@ -804,6 +804,10 @@ export class FoliateEngine {
             `${currentSettings?.fontSize ? Math.max(480, currentSettings.fontSize * 40) : 720}px`,
         );
         renderer.setAttribute('max-block-size', '800px');
+        // The page band above and below the text. On desktop the reader toolbar
+        // (45px) sits over the top of the page, so the paginator's default 48px
+        // left the first line almost touching it.
+        renderer.setAttribute('margin', isMobileViewport ? '48px' : '72px');
         if (currentSettings?.enableAnimations) {
             renderer.setAttribute('animated', '');
         } else {

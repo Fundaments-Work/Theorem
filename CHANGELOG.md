@@ -102,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **"Last read" sort is complete** — Books never opened are ordered by when they were added instead of arbitrarily, and an unreadable date no longer scrambles the order. The old "Recent" button, which only re-selected the default sort and so seemed to do nothing, is gone.
 - **Reading settings show their effect live** — The settings panel no longer greys out the page, so a new font, size or theme can be judged while choosing it. Clicking the page still closes the panel.
 - **Every Settings tab visible on phones** — The tabs were a sideways-scrolling row of wide buttons that hid four of six; they now wrap into a grid. About names the maker correctly ("Fundaments") and drops the developer-only stack line.
+- **Room above the first line on desktop** — The reader toolbar sits over the top of the page, and the first line of text nearly touched it; the page now leaves a proper margin above and below the text.
 
 ### Fixed
 
