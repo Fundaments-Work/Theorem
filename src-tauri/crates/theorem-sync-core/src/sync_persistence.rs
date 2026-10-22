@@ -41,6 +41,29 @@ pub fn save_paired_devices(
     Ok(())
 }
 
+const DOCS_TO_DROP: &str = "sync-docs-to-drop.json";
+
+/// Docs of unpaired devices, deleted the next time the sync engine starts
+/// (a doc cannot be deleted while it is open).
+pub fn load_docs_to_drop(app_data_dir: &Path) -> Vec<String> {
+    std::fs::read_to_string(app_data_dir.join(DOCS_TO_DROP))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_docs_to_drop(app_data_dir: &Path, doc_ids: &[String]) -> Result<(), String> {
+    let path = app_data_dir.join(DOCS_TO_DROP);
+    if doc_ids.is_empty() {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("remove: {e}")),
+            _ => Ok(()),
+        };
+    }
+    let json = serde_json::to_string(doc_ids).map_err(|e| format!("serialize: {e}"))?;
+    std::fs::write(path, json).map_err(|e| format!("write: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +115,22 @@ mod tests {
         // The next save writes a new file and leaves the damaged copy alone.
         save_paired_devices(&dir, &HashMap::new()).unwrap();
         assert!(dir.join("sync-paired-devices.json.corrupt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn docs_to_drop_round_trip_and_clear() {
+        let dir = temp_dir("drop");
+        assert!(load_docs_to_drop(&dir).is_empty());
+        save_docs_to_drop(&dir, &["a".to_string(), "b".to_string()]).unwrap();
+        assert_eq!(
+            load_docs_to_drop(&dir),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        save_docs_to_drop(&dir, &[]).unwrap();
+        assert!(load_docs_to_drop(&dir).is_empty());
+        assert!(!dir.join("sync-docs-to-drop.json").exists());
+        save_docs_to_drop(&dir, &[]).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

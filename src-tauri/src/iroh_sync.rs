@@ -440,7 +440,10 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
 
                         let msg = err.to_string();
                         if msg.contains("actor failed") || msg.contains("actor closed") {
-                            break;
+                            // This doc's engine was shut down (unpairing, sync
+                            // turned off, a restart). A new engine subscribes its
+                            // own docs; retrying here only spins for minutes.
+                            return;
                         }
                     }
                     _ => {}
@@ -684,6 +687,27 @@ pub fn start_accept_loop(
 
         let api = docs_handler.api().clone();
         let api_for_subscribe = api.clone();
+
+        // Delete the docs of devices unpaired since the last start, before
+        // anything opens them (an open doc cannot be deleted).
+        let to_drop = sync_persistence::load_docs_to_drop(&data_dir);
+        if !to_drop.is_empty() {
+            let mut kept = Vec::new();
+            for id in to_drop {
+                let Ok(ns) = id.parse::<iroh_docs::NamespaceId>() else {
+                    continue;
+                };
+                if let Err(e) = api.drop_doc(ns).await {
+                    let msg = e.to_string();
+                    // Already gone is done; anything else is retried next start.
+                    if !msg.contains("not found") && !msg.contains("NotFound") {
+                        eprintln!("[iroh-sync] Could not delete an unpaired device's doc: {msg}");
+                        kept.push(id);
+                    }
+                }
+            }
+            let _ = sync_persistence::save_docs_to_drop(&data_dir, &kept);
+        }
         let author = match api.author_default().await {
             Ok(a) => a,
             Err(_) => match api.author_create().await {

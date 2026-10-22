@@ -613,10 +613,10 @@ pub async fn get_paired_devices(app: tauri::AppHandle) -> Result<Vec<PairedDevic
     Ok(devices.values().map(PairedDeviceInfo::from).collect())
 }
 
-/// Forgets a device. It is refused from now on, and the doc shared with it is
-/// deleted here, so this device neither syncs it nor keeps its data. (The
-/// other device still has its copy; each pairing has its own doc, so it
-/// never had access to the docs shared with other devices.)
+/// Forgets a device. It is refused from now on, connections already open to
+/// it are closed (the sync engine restarts), and the doc shared with it is
+/// deleted from this device as the engine starts. Each pairing has its own
+/// doc, so the removed device never had the docs shared with other devices.
 #[tauri::command]
 pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(), String> {
     let sync_state = get_sync_state(&app)?;
@@ -628,16 +628,20 @@ pub async fn unpair_device(app: tauri::AppHandle, device_id: String) -> Result<(
         sync_state.transport_state.persist_paired(&devices)?;
         removed
     };
-    if let Ok(doc_id) = removed.sync_doc_id.parse::<iroh_docs::NamespaceId>() {
-        // Released paired_devices above: the docs_api lock comes first.
-        let snapshot = sync_state.transport_state.docs_api.lock().await.clone();
-        if let Some(snapshot) = snapshot {
-            if let Ok(Some(doc)) = snapshot.api.open(doc_id).await {
-                let _ = doc.leave().await;
-            }
-            if let Err(e) = snapshot.api.drop_doc(doc_id).await {
-                eprintln!("[iroh-sync] Could not delete the doc of an unpaired device: {e}");
-            }
+    if !removed.sync_doc_id.is_empty() {
+        let dir = &sync_state.transport_state.app_data_dir;
+        let mut to_drop = theorem_sync_core::sync_persistence::load_docs_to_drop(dir);
+        if !to_drop.contains(&removed.sync_doc_id) {
+            to_drop.push(removed.sync_doc_id.clone());
+        }
+        theorem_sync_core::sync_persistence::save_docs_to_drop(dir, &to_drop)?;
+    }
+    // The gate only checks new connections: restart to close the open ones.
+    let was_running = sync_state.accept_cancel.lock().await.is_some();
+    if was_running {
+        iroh_stop(app.clone()).await?;
+        if let Err(e) = iroh_start(app).await {
+            eprintln!("[iroh-sync] Sync restart after unpairing: {e}");
         }
     }
     Ok(())
