@@ -2,7 +2,7 @@
 
 Review every highlight, note, saved word and bookmark across your whole library, search them, edit notes, and jump back to the place in the book.
 
-![The Workbench page listing color-coded highlights from a book, with All, Highlights, Notes and Words tabs](../screenshots/workbench.png)
+![The Workbench page listing color-coded highlights and a note from a book, with All, Highlights, Notes, Words and Bookmarks tabs](../screenshots/workbench.png)
 
 ## Open the Workbench
 

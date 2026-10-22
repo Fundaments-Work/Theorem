@@ -2,6 +2,8 @@
 
 Browse and search free public-domain books, add your school, university or library catalog, or your own Calibre or Komga server, and add any title to your Theorem library with one tap.
 
+![The Discover page with a search box, the newest restored editions shown with covers and descriptions, and a row of more new editions](../screenshots/discover.png)
+
 Discover works on desktop and on Android phones and tablets. It needs an internet connection, or a connection to your own network for a home server, to load catalogs and to download books.
 
 ## Open Discover

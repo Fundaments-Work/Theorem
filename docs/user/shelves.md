@@ -2,7 +2,7 @@
 
 Group books into shelves and sub-shelves, build smart shelves that fill themselves from rules, and organize your books into numbered series in Theorem.
 
-![The Shelves page showing three shelves, each with a collage of book covers and a book count](../screenshots/shelves.png)
+![The Shelves page showing four shelves, each with a collage of book covers and a book count](../screenshots/shelves.png)
 
 ## Create a shelf
 
