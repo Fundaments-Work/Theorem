@@ -1962,7 +1962,32 @@ pub fn sqlite_merge_sync_entries_inner(
     sqlite_merge_sync_entries_with_dir(connection, entries, None)
 }
 
+/// Merge a batch of sync entries in one transaction: if any write fails the
+/// whole batch rolls back (it is retried on the next sync) instead of
+/// leaving, say, a book half-deleted. Cached files of books deleted by a
+/// tombstone are removed after the commit.
 pub fn sqlite_merge_sync_entries_with_dir(
+    connection: &Connection,
+    entries: std::collections::HashMap<String, String>,
+    app_data_dir: Option<&Path>,
+) -> rusqlite::Result<SyncMergeResult> {
+    let tx = connection.unchecked_transaction()?;
+    let result = merge_sync_entries_rows(&tx, entries, app_data_dir)?;
+    tx.commit()?;
+
+    if let Some(dir) = app_data_dir {
+        if !result.deleted_books.is_empty() {
+            // Close cached EPUB archives first: Windows cannot delete an open file.
+            crate::epub_entries::clear_cache();
+            for id in &result.deleted_books {
+                let _ = fs::remove_file(materialized_book_path_in_dir(dir, id));
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn merge_sync_entries_rows(
     connection: &Connection,
     entries: std::collections::HashMap<String, String>,
     app_data_dir: Option<&Path>,
@@ -2002,35 +2027,27 @@ pub fn sqlite_merge_sync_entries_with_dir(
                 match entity_type {
                     "book" => {
                         tombstoned_books.insert(id.to_string());
-                        let _ = connection.execute("DELETE FROM books WHERE id = ?1", params![id]);
-                        let _ = connection
-                            .execute("DELETE FROM book_metadata WHERE book_id = ?1", params![id]);
-                        let _ =
-                            connection.execute("DELETE FROM books_fts WHERE id = ?1", params![id]);
-                        let _ = connection.execute(
-                            "DELETE FROM book_annotations WHERE book_id = ?1",
-                            params![id],
-                        );
+                        // Errors propagate so the merge transaction rolls back.
+                        delete_book_rows(connection, id)?;
                         deleted_books.push(id.to_string());
                     }
                     "annotation" => {
                         tombstoned_annotations.insert(id.to_string());
-                        let _ = connection
-                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id]);
+                        connection
+                            .execute("DELETE FROM book_annotations WHERE id = ?1", params![id])?;
                         deleted_annotations.push(id.to_string());
                     }
                     "vocabulary" => {
-                        let _ =
-                            connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id]);
+                        connection.execute("DELETE FROM vocabulary WHERE id = ?1", params![id])?;
                         deleted_vocabulary.push(id.to_string());
                     }
                     "rss_article" => {
-                        let _ = connection.execute(
+                        connection.execute(
                             "DELETE FROM rss_article_content WHERE article_id = ?1",
                             params![id],
-                        );
-                        let _ = connection
-                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id]);
+                        )?;
+                        connection
+                            .execute("DELETE FROM rss_articles WHERE id = ?1", params![id])?;
                         deleted_rss_articles.push(id.to_string());
                     }
                     _ => {}
@@ -4258,6 +4275,61 @@ mod tests {
         .unwrap();
         assert!(sqlite_delete_book_inner(&conn, "b1").is_err());
         assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+    }
+
+    fn book_tombstone(id: &str) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::from([(
+            "deletion_tombstones".to_string(),
+            format!(
+                r#"[{{"entityId":"{id}","entityType":"book","deletedAt":"2026-10-01T00:00:00Z"}}]"#
+            ),
+        )])
+    }
+
+    #[test]
+    fn sync_book_tombstone_removes_every_related_row_and_cache_file() {
+        let conn = setup_db();
+        let dir = tempfile::tempdir().unwrap();
+        seed_book(&conn, "gone", "Gone");
+        seed_book(&conn, "kept", "Kept");
+        let cache = materialized_book_path_in_dir(dir.path(), "gone");
+        fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        fs::write(&cache, b"epub").unwrap();
+
+        let result =
+            sqlite_merge_sync_entries_with_dir(&conn, book_tombstone("gone"), Some(dir.path()))
+                .unwrap();
+
+        assert_eq!(result.deleted_books, ["gone"]);
+        assert_eq!(rows_for_book(&conn, "gone"), []);
+        assert_eq!(rows_for_book(&conn, "kept").len(), 6);
+        assert!(!cache.exists());
+    }
+
+    /// Tombstone deletes ignored their errors (`let _ =`), so a failure left
+    /// the book half-deleted while the merge reported success.
+    #[test]
+    fn sync_tombstone_failure_rolls_back_the_merge() {
+        let conn = setup_db();
+        seed_book(&conn, "b1", "Book");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_meta_delete BEFORE DELETE ON book_metadata
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let mut entries = book_tombstone("b1");
+        entries.insert("vocab:v1".into(), r#"{"id":"v1","term":"word"}"#.into());
+
+        assert!(sqlite_merge_sync_entries_with_dir(&conn, entries, None).is_err());
+        assert_eq!(rows_for_book(&conn, "b1").len(), 6);
+        let kv_tombstones: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM kv_store WHERE key = 'deletion_tombstones'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kv_tombstones, 0, "nothing of the failed merge is kept");
     }
 
     #[test]
