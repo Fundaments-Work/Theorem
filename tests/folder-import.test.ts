@@ -158,6 +158,26 @@ describe("importFolder", () => {
         expect(deps.updateBooks).not.toHaveBeenCalled();
     });
 
+    it("skips a second copy already recorded in a book's folders without reading it again", async () => {
+        const library = [book("orig", { filePath: "/Books/a.epub", fileSize: 50, contentHash: "h",
+            sourceFolders: [{ root: "/Books", name: "Books", relativePath: "a.epub" },
+                { root: "/Books", name: "Books", relativePath: "copies/a.epub" }] })];
+        const files = [file("a.epub", 50), file("copies/a.epub", 50), file("other/a.epub", 50), file("copies/b.epub", 70)];
+        const { deps, importBooks } = harness(library, scanOf(files), fakeImporter({ dupes: { "/Books/other/a.epub": "h" } }));
+        const result = await importFolder("/Books", true, deps);
+        expect(importBooks.mock.calls[0][0]).toEqual(["/Books/other/a.epub", "/Books/copies/b.epub"]);
+        expect(result).toMatchObject({ found: 4, imported: 1, alreadyInLibrary: 3 });
+    });
+
+    it("reads a recorded copy again when its size changed or it is in another folder", async () => {
+        const library = [book("orig", { filePath: "/Books/a.epub", fileSize: 50,
+            sourceFolders: [{ root: "/Other", name: "Other", relativePath: "copies/a.epub" },
+                { root: "/Books", name: "Books", relativePath: "copies/c.epub" }] })];
+        const { deps, importBooks } = harness(library, scanOf([file("copies/a.epub", 50), file("copies/c.epub", 49)]));
+        await importFolder("/Books", true, deps);
+        expect(importBooks.mock.calls[0][0]).toEqual(["/Books/copies/a.epub", "/Books/copies/c.epub"]);
+    });
+
     it("imports names that cannot be preserved without their folder instead of failing the whole folder", async () => {
         const odd = { path: "/Books/back\\slash.epub", relativePath: "back\\slash.epub", rootName: "Books", size: 5 };
         const { deps, books } = harness([], scanOf([odd, file("ok/fine.epub", 6)]));

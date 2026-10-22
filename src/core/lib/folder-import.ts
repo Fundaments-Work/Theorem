@@ -94,9 +94,14 @@ export async function importFolder(
     const library = deps.getBooks();
     const byPath = new Map<string, Book>();
     const byHash = new Map<string, Book>();
+    // Copies of a book recorded under this folder (a second copy keeps no path of its own).
+    const byFolderPath = new Map<string, Book>();
     for (const book of library) {
         if (book.filePath) byPath.set(pathKey(book.filePath), book);
         if (book.contentHash) byHash.set(book.contentHash.toLowerCase(), book);
+        for (const folder of book.sourceFolders ?? []) {
+            if (folder.root === root) byFolderPath.set(folder.relativePath, book);
+        }
     }
 
     // Folder locations to add to books that are already in the library.
@@ -117,7 +122,9 @@ export async function importFolder(
         const key = pathKey(file.path);
         if (sources.has(key)) continue;
         sources.set(key, file);
-        const existing = byPath.get(key);
+        const recorded = byFolderPath.get(file.relativePath);
+        const existing = byPath.get(key)
+            ?? (recorded && file.size !== undefined && recorded.fileSize === file.size ? recorded : undefined);
         const unchanged = existing && (file.size === undefined || existing.fileSize === file.size);
         if (unchanged) {
             result.alreadyInLibrary += 1;
