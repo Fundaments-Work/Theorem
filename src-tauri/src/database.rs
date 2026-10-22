@@ -512,10 +512,11 @@ fn init_db_pool(db_path: &Path) -> Result<&DbPool, String> {
 const DB_SCHEMA_PERSISTENT_PRAGMAS: &str = r#"
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
-    -- Per-connection: this only affects the one-off migration connection.
-    -- Pooled connections run with foreign keys OFF, so the ON DELETE CASCADE
-    -- clauses below never fire in normal use; deletes clear related rows
-    -- explicitly (see `delete_book_rows`).
+    -- Foreign keys are ON on every connection, pooled ones included: the
+    -- bundled SQLite is compiled with SQLITE_DEFAULT_FOREIGN_KEYS=1. So a
+    -- row that references a book needs the `books` row first (metadata saves
+    -- insert it), and deleting a `books` row cascades. Deletes still clear
+    -- related rows explicitly (see `delete_book_rows`).
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS books (
@@ -803,12 +804,14 @@ pub fn sqlite_delete_book_inner(connection: &Connection, id: &str) -> rusqlite::
 /// Delete every row that belongs to book `id`. Runs no transaction of its
 /// own: callers wrap it in one (the sync merge runs it inside its own).
 ///
-/// Foreign keys are deliberately OFF on pooled connections, so the
-/// `ON DELETE CASCADE` clauses in the schema never fire and each table is
-/// cleared here explicitly. They stay off because synced books legitimately
-/// carry `book_metadata` (and annotations) without a `books` row until their
-/// file arrives; enforcing the foreign keys would reject those rows. Any new
-/// table keyed by book id must be added here.
+/// Foreign keys are ON (the bundled SQLite defaults them on), so the
+/// `ON DELETE CASCADE` clauses would clear most of this when the `books` row
+/// goes; each table is still cleared here explicitly, children first, so the
+/// result does not depend on the schema's cascades. `books_fts` has no
+/// foreign key at all. A synced book without its file still has a `books`
+/// row (an empty one, inserted with its metadata), which is what lets its
+/// metadata and annotations satisfy the foreign keys. Any new table keyed by
+/// book id must be added here.
 pub(crate) fn delete_book_rows(connection: &Connection, id: &str) -> rusqlite::Result<()> {
     for sql in [
         "DELETE FROM covers WHERE book_id = ?1",
@@ -868,6 +871,23 @@ pub fn get_materialized_book_path_in(
     Ok(None)
 }
 
+/// Make sure book `id` has a `books` row. Foreign keys are on, so covers,
+/// metadata and annotations need one; a synced book without its file, and an
+/// RSS article's highlights (book id `rss:<article id>`), get an empty row,
+/// as metadata saves and the sync merge already do.
+fn ensure_book_row(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+        params![id],
+    )?;
+    Ok(())
+}
+
+/// Ids of `books` rows that anchor an RSS article's highlights, not books.
+fn is_article_anchor(id: &str) -> bool {
+    id.starts_with("rss:")
+}
+
 /// Store a cover given as a data URL. Covers are kept as raw bytes + MIME
 /// type (a third smaller than base64, served without decoding); the command
 /// API and sync still speak data URLs. An unparsable URL is kept verbatim.
@@ -880,6 +900,7 @@ pub fn sqlite_save_cover_image_inner(
         Some((mime, bytes)) => ("", Some(mime), Some(bytes)),
         None => (data_url, None, None),
     };
+    ensure_book_row(connection, book_id)?;
     connection.execute(
         r#"
         INSERT INTO covers (book_id, data_url, data, mime, updated_at)
@@ -1027,7 +1048,7 @@ pub fn get_storage_stats_in(store: &DataStore) -> Result<SqliteStorageStats, Str
 
     store.with_connection(|connection| {
         let (total_books, legacy_binaries_size): (u64, u64) = connection.query_row(
-            "SELECT COUNT(*) AS total_books, COALESCE(SUM(length(data)), 0) AS legacy_binaries_size FROM books",
+            "SELECT COUNT(*) AS total_books, COALESCE(SUM(length(data)), 0) AS legacy_binaries_size FROM books WHERE id NOT LIKE 'rss:%'",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
@@ -1085,7 +1106,9 @@ pub fn cleanup_orphaned_storage_in(
         };
 
         for id in existing_rows {
-            if !existing_ids.contains(&id) {
+            // Deleting a `books` row cascades to its highlights: an RSS
+            // article's anchor row is never an orphan.
+            if !existing_ids.contains(&id) && !is_article_anchor(&id) {
                 remove_materialized_cache_file_in(store.dir(), &id);
                 let affected =
                     connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
@@ -1660,6 +1683,10 @@ pub fn sqlite_save_book_annotations_inner(
     // Replace the book's annotations atomically: a failing insert must not
     // leave the book with its old highlights deleted and the new ones missing.
     let tx = connection.unchecked_transaction()?;
+    // An empty save clears a removed book's highlights: no row for it then.
+    if !annotations_json.is_empty() {
+        ensure_book_row(&tx, book_id)?;
+    }
     tx.execute(
         "DELETE FROM book_annotations WHERE book_id = ?1",
         params![book_id],
@@ -1731,6 +1758,7 @@ pub fn sqlite_upsert_annotation_inner(
     book_id: &str,
     annotation_json: &str,
 ) -> rusqlite::Result<()> {
+    ensure_book_row(connection, book_id)?;
     connection.execute(
         "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch()) \
          ON CONFLICT(id) DO UPDATE SET annotation_json = excluded.annotation_json, updated_at = unixepoch()",
@@ -3235,7 +3263,7 @@ pub fn sqlite_delete_rss_article_inner(
     connection: &Connection,
     article_id: &str,
 ) -> rusqlite::Result<()> {
-    // Foreign keys are off (see `delete_book_rows`): content goes explicitly.
+    // Content goes explicitly, children first, as `delete_book_rows` does.
     let tx = connection.unchecked_transaction()?;
     tx.execute(
         "DELETE FROM rss_article_content WHERE article_id = ?1",
@@ -4025,6 +4053,76 @@ pub fn run_v159_database_migrations(connection: &Connection) -> rusqlite::Result
 mod tests {
     use super::*;
 
+    /// Production connections enforce foreign keys: the bundled SQLite is
+    /// built with SQLITE_DEFAULT_FOREIGN_KEYS=1 and nothing turns them off.
+    /// `setup_db` below matches this.
+    #[test]
+    fn pooled_connections_enforce_foreign_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        run_schema_migrations_in(dir.path()).unwrap();
+        let store = DataStore::open(dir.path()).unwrap();
+        let on: i64 = store
+            .with_connection(|c| c.query_row("PRAGMA foreign_keys", [], |r| r.get(0)))
+            .unwrap();
+        assert_eq!(on, 1);
+        let orphan = store.with_connection(|c| {
+            c.execute(
+                "INSERT INTO book_annotations(id, book_id, annotation_json) VALUES('a', 'missing', '{}')",
+                [],
+            )
+        });
+        assert!(
+            orphan.is_err(),
+            "an annotation of a missing book must be rejected"
+        );
+        // A metadata save creates the `books` row the annotation needs.
+        store
+            .with_connection(|c| {
+                sqlite_save_book_metadata_inner(c, "b1", r#"{"id":"b1","title":"T"}"#)?;
+                sqlite_upsert_annotation_inner(c, "a1", "b1", r#"{"id":"a1"}"#)
+            })
+            .unwrap();
+    }
+
+    /// Highlights made in an RSS article (book id `rss:<article id>`) have no
+    /// book. With foreign keys on they used to be rejected; they are stored,
+    /// and storage cleanup does not delete them as an orphaned book (deleting
+    /// the `books` row would cascade to them).
+    #[test]
+    fn article_highlights_are_stored_and_survive_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        run_schema_migrations_in(dir.path()).unwrap();
+        let store = DataStore::open(dir.path()).unwrap();
+        store
+            .with_connection(|c| {
+                sqlite_upsert_annotation_inner(c, "h1", "rss:art1", r#"{"id":"h1"}"#)?;
+                sqlite_save_book_annotations_inner(c, "rss:art2", &[r#"{"id":"h2"}"#.to_string()])?;
+                sqlite_save_book_metadata_inner(c, "b1", r#"{"id":"b1","title":"Kept"}"#)?;
+                sqlite_register_materialized_book_inner(c, "orphan")
+            })
+            .unwrap();
+        let result = cleanup_orphaned_storage_in(&store, vec!["b1".to_string()]).unwrap();
+        assert_eq!(result.removed_books, 1, "only the orphaned book goes");
+        let highlights = store
+            .with_connection(sqlite_get_all_annotations_inner)
+            .unwrap();
+        assert_eq!(highlights.len(), 2);
+        let stats = get_storage_stats_in(&store).unwrap();
+        assert_eq!(stats.total_books, 1, "article anchors are not books");
+        // Clearing a removed book's highlights does not recreate its row.
+        store
+            .with_connection(|c| sqlite_save_book_annotations_inner(c, "gone", &[]))
+            .unwrap();
+        let gone: i64 = store
+            .with_connection(|c| {
+                c.query_row("SELECT COUNT(*) FROM books WHERE id = 'gone'", [], |r| {
+                    r.get(0)
+                })
+            })
+            .unwrap();
+        assert_eq!(gone, 0);
+    }
+
     #[test]
     fn local_date_key_uses_the_local_offset_not_utc() {
         use chrono::{FixedOffset, TimeZone};
@@ -4044,7 +4142,8 @@ mod tests {
             r#"
             PRAGMA journal_mode = MEMORY;
             PRAGMA synchronous = OFF;
-            PRAGMA foreign_keys = OFF;
+            -- As in production: the bundled SQLite defaults foreign keys on.
+            PRAGMA foreign_keys = ON;
 
             CREATE TABLE IF NOT EXISTS books (
                 id TEXT PRIMARY KEY,
@@ -4461,6 +4560,10 @@ mod tests {
     #[test]
     fn test_migrate_cover_data_urls_keeps_versions() {
         let conn = setup_db();
+        // Covers always belong to a `books` row (foreign keys are on).
+        for id in ["old", "svg", "bad"] {
+            ensure_book_row(&conn, id).unwrap();
+        }
         conn.execute_batch(
             "INSERT INTO covers (book_id, data_url, data, updated_at) VALUES
                 ('old', 'data:image/webp;base64,UklGRg==', NULL, 42),
@@ -4720,8 +4823,8 @@ mod tests {
         .collect()
     }
 
-    /// Foreign keys are off on pooled connections, so ON DELETE CASCADE never
-    /// ran: deleting a book left its cover, metadata and highlights behind.
+    /// Deleting a book clears every table explicitly; it must not rely on
+    /// ON DELETE CASCADE (an RSS article's highlights are kept).
     #[test]
     fn delete_book_removes_every_related_row() {
         let conn = setup_db();
@@ -4822,14 +4925,15 @@ mod tests {
     #[test]
     fn delete_rss_feed_is_atomic() {
         let conn = setup_db();
-        sqlite_save_rss_article_inner(&conn, &rss_article("a1", Some(1), true), Some("x"), None)
-            .unwrap();
+        // The feed first: its articles reference it (foreign keys are on).
         conn.execute_batch(
             "CREATE TRIGGER fail_feed_delete BEFORE DELETE ON rss_feeds
              BEGIN SELECT RAISE(ABORT, 'boom'); END;
              INSERT INTO rss_feeds (id, title, url, added_at) VALUES ('f1', 'F', 'u', 1);",
         )
         .unwrap();
+        sqlite_save_rss_article_inner(&conn, &rss_article("a1", Some(1), true), Some("x"), None)
+            .unwrap();
         assert!(sqlite_delete_rss_feed_inner(&conn, "f1").is_err());
         assert_eq!(rss_ids(&conn), ["a1"]);
         assert!(sqlite_get_rss_article_content_inner(&conn, "a1")
@@ -5259,6 +5363,7 @@ mod tests {
     #[test]
     fn synced_articles_keep_read_favorite_and_furthest_progress() {
         let conn = setup_db();
+        seed_feed(&conn, "f1");
         let article = |read: bool, fav: bool, progress: f64| {
             format!(
                 r#"{{"id":"art1","feedId":"f1","title":"T","url":"https://e.x/1","isRead":{read},"isFavorite":{fav},"progress":{progress}}}"#
@@ -5748,6 +5853,7 @@ mod tests {
     #[test]
     fn test_sqlite_merge_sync_entries() {
         let conn = setup_db();
+        seed_feed(&conn, "f1");
         let mut entries = std::collections::HashMap::new();
 
         entries.insert(
@@ -5968,6 +6074,8 @@ mod tests {
         // `sqlite_save_book_metadata_inner`) so the index starts out of date.
         let conn = setup_db();
         let set_meta = |id: &str, json: &str| {
+            // A metadata row always has its `books` row (foreign keys are on).
+            ensure_book_row(&conn, id).unwrap();
             conn.execute(
                 "INSERT OR REPLACE INTO book_metadata (book_id, metadata_json) VALUES (?1, ?2)",
                 params![id, json],
@@ -6029,6 +6137,27 @@ mod tests {
         assert_eq!(rows().len(), 1);
     }
 
+    /// The feed the `rss_article` fixtures belong to. The app saves a feed
+    /// before its articles, and foreign keys are on, so articles need it.
+    fn seed_feed(conn: &Connection, id: &str) {
+        sqlite_save_rss_feed_inner(
+            conn,
+            &RssFeedDto {
+                id: id.into(),
+                title: "Feed".into(),
+                url: format!("https://example.com/{id}.xml").into(),
+                site_url: None,
+                description: None,
+                icon_url: None,
+                last_fetched: None,
+                added_at: Some(1),
+                error_message: None,
+                unread_count: 0,
+            },
+        )
+        .unwrap();
+    }
+
     fn rss_article(id: &str, fetched_at: Option<i64>, read: bool) -> RssArticleDto {
         RssArticleDto {
             id: id.into(),
@@ -6064,6 +6193,7 @@ mod tests {
     #[test]
     fn rss_retention_deletes_old_articles_stored_in_milliseconds() {
         let conn = setup_db();
+        seed_feed(&conn, "f1");
         const DAY_MS: i64 = 86_400_000;
         let now_ms: i64 = 1_790_000_000_000; // 2026-09
         let save = |id: &str, age_days: i64, read: bool| {
@@ -6127,6 +6257,23 @@ mod tests {
     #[test]
     fn rss_fetched_at_fallback_and_repair_use_milliseconds() {
         let conn = setup_db();
+        // The feed first: its articles reference it (foreign keys are on).
+        sqlite_save_rss_feed_inner(
+            &conn,
+            &RssFeedDto {
+                id: "f1".into(),
+                title: "Feed".into(),
+                url: "https://example.com/feed".into(),
+                site_url: None,
+                description: None,
+                icon_url: None,
+                last_fetched: Some(1_780_000_000),
+                added_at: Some(1_770_000_000),
+                error_message: None,
+                unread_count: 0,
+            },
+        )
+        .unwrap();
         let before_ms = chrono::Utc::now().timestamp_millis();
         sqlite_save_rss_article_inner(&conn, &rss_article("no-time", None, true), None, None)
             .unwrap();
@@ -6151,22 +6298,6 @@ mod tests {
             &rss_article("legacy", Some(1_780_000_000), true),
             None,
             None,
-        )
-        .unwrap();
-        sqlite_save_rss_feed_inner(
-            &conn,
-            &RssFeedDto {
-                id: "f1".into(),
-                title: "Feed".into(),
-                url: "https://example.com/feed".into(),
-                site_url: None,
-                description: None,
-                icon_url: None,
-                last_fetched: Some(1_780_000_000),
-                added_at: Some(1_770_000_000),
-                error_message: None,
-                unread_count: 0,
-            },
         )
         .unwrap();
         normalize_rss_timestamp_units(&conn).unwrap();

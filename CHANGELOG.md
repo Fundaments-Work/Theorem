@@ -120,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Highlights in feed articles are saved** — The database enforces that a highlight belongs to a stored book, and an article is not one, so highlights and notes made in an RSS article were refused when saved and gone after a restart. They are now stored, and Storage cleanup no longer treats them as leftovers of a deleted book.
 - **Browser build: feed unread counts after a reload** — The browser build keeps only recent articles, but saved each feed's unread count from before that cut, so a feed with years of items showed 100 unread above a handful of articles. Counts are now taken from the saved articles.
 - **Removing a favourite, a tag or a rating now syncs** — Book details were merged as a union, so undoing something on one device was merged back from the other, and an older copy could undo a rename. Edits are now timestamped and the newer one wins, removals included.
 - **Deleted books came back after 90 days** — Deleting an item left its sync entries behind, and once the deletion record expired every device restored the item from them. Deleting now removes them.
