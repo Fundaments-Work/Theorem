@@ -168,6 +168,8 @@ export function DeviceSyncSection() {
     const [unpairDeviceId, setUnpairDeviceId] = useState<string | null>(null);
     const [pairingRequest, setPairingRequest] = useState<PairingRequest | null>(null);
     const [codeToCompare, setCodeToCompare] = useState<string | null>(null);
+    // Sync-mesh presence by iroh node id (docs-peer-online / -offline).
+    const [peerOnline, setPeerOnline] = useState<Record<string, boolean>>({});
     const syncAbortRef = useRef(false);
 
     const syncStatus = useUIStore((state) => state.deviceSyncStatus);
@@ -277,6 +279,12 @@ export function DeviceSyncSection() {
                     setPairingRequest((current) =>
                         current?.requestId === event.payload.requestId ? null : current,
                     );
+                }),
+                listen<{ peer: string }>("docs-peer-online", (event) => {
+                    setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: true }));
+                }),
+                listen<{ peer: string }>("docs-peer-offline", (event) => {
+                    setPeerOnline((prev) => ({ ...prev, [event.payload.peer]: false }));
                 }),
                 listen<{ device_id: string; device_name: string }>("pairing-completed", (event) => {
                     setDeviceSyncStatus("synced", "Device paired!");
@@ -763,9 +771,24 @@ export function DeviceSyncSection() {
                                     <div className="flex items-center gap-3">
                                         <Smartphone className="w-5 h-5 text-[color:var(--color-text-muted)] shrink-0" />
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-sm text-[color:var(--color-text-primary)] truncate">
-                                                {device.deviceName ||
-                                                    device.deviceId}
+                                            <p className="flex items-center gap-2 text-sm text-[color:var(--color-text-primary)]">
+                                                <span className="truncate">
+                                                    {device.deviceName ||
+                                                        device.deviceId}
+                                                </span>
+                                                {peerOnline[device.irohNodeId] !== undefined && (
+                                                    <span
+                                                        data-peer-presence
+                                                        className={cn(
+                                                            "shrink-0 text-[10px]",
+                                                            peerOnline[device.irohNodeId]
+                                                                ? "text-[color:var(--color-success)]"
+                                                                : "text-[color:var(--color-text-muted)]",
+                                                        )}
+                                                    >
+                                                        {peerOnline[device.irohNodeId] ? "Online" : "Offline"}
+                                                    </span>
+                                                )}
                                             </p>
                                             <p className="text-[11px] text-[color:var(--color-text-muted)]">
                                                 {device.lastSyncAt
