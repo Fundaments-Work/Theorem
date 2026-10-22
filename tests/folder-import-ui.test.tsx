@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FolderImportModal } from "../src/features/library/components/modals/FolderImportModal";
 import { SourceFolderBrowser } from "../src/features/library/components/SourceFolderBrowser";
+import { FolderImportStatus } from "../src/features/library/components/FolderImportStatus";
 
 vi.mock("../src/ui", () => ({
     Modal: ({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) => isOpen ? <div role="dialog">{children}</div> : null,
@@ -53,5 +54,22 @@ describe("folder navigation", () => {
         const select = host.querySelector("select")!;
         act(() => { select.value = ""; select.dispatchEvent(new Event("change", { bubbles: true })); });
         expect(onSelect).toHaveBeenLastCalledWith(null);
+    });
+});
+describe("folder import progress", () => {
+    it("shows each phase and stops on request", () => {
+        const onStop = vi.fn();
+        act(() => root.render(<FolderImportStatus progress={{ phase: "scanning", completed: 0, total: 0 }} stopping={false} onStop={onStop} />));
+        expect(host.textContent).toContain("Looking for books…");
+        act(() => root.render(<FolderImportStatus progress={{ phase: "importing", completed: 1234, total: 2000 }} stopping={false} onStop={onStop} />));
+        expect(host.querySelector('[role="status"]')?.textContent).toContain(`Importing ${(1234).toLocaleString()} of ${(2000).toLocaleString()}`);
+        expect(host.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("1234");
+        act(() => host.querySelector<HTMLButtonElement>('[aria-label="Stop importing"]')!.click());
+        expect(onStop).toHaveBeenCalledOnce();
+        act(() => root.render(<FolderImportStatus progress={{ phase: "importing", completed: 0, total: 0 }} stopping={false} onStop={onStop} />));
+        expect(host.textContent).toContain("Everything is already in your library");
+        act(() => root.render(<FolderImportStatus progress={{ phase: "importing", completed: 5, total: 9 }} stopping onStop={onStop} />));
+        expect(host.textContent).toContain("Stopping…");
+        expect(host.querySelector<HTMLButtonElement>('[aria-label="Stop importing"]')!.disabled).toBe(true);
     });
 });
