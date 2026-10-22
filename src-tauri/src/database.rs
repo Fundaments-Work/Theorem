@@ -987,12 +987,13 @@ pub fn sqlite_cleanup_orphaned_storage(
 }
 
 pub fn sqlite_clear_all_storage_inner(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute("DELETE FROM covers", [])?;
-    connection.execute("DELETE FROM materialized_books", [])?;
-    connection.execute("DELETE FROM books", [])?;
-    connection.execute("DELETE FROM blob_store", [])?;
-    connection.execute("DELETE FROM kv_store", [])?;
-    Ok(())
+    let tx = connection.unchecked_transaction()?;
+    tx.execute("DELETE FROM covers", [])?;
+    tx.execute("DELETE FROM materialized_books", [])?;
+    tx.execute("DELETE FROM books", [])?;
+    tx.execute("DELETE FROM blob_store", [])?;
+    tx.execute("DELETE FROM kv_store", [])?;
+    tx.commit()
 }
 
 pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), String> {
@@ -1524,7 +1525,10 @@ pub fn sqlite_save_book_annotations_inner(
     book_id: &str,
     annotations_json: &[String],
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    // Replace the book's annotations atomically: a failing insert must not
+    // leave the book with its old highlights deleted and the new ones missing.
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM book_annotations WHERE book_id = ?1",
         params![book_id],
     )?;
@@ -1537,12 +1541,18 @@ pub fn sqlite_save_book_annotations_inner(
                     .map(String::from)
             })
             .unwrap_or_else(|| format!("auto:{}:{}", book_id, i));
-        connection.execute(
-            "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch())",
+        // Ids are unique across books. A repeated id (in this list, or one
+        // still stored under another book) is an update: the last one wins.
+        tx.execute(
+            "INSERT INTO book_annotations(id, book_id, annotation_json, updated_at) VALUES(?1, ?2, ?3, unixepoch())
+             ON CONFLICT(id) DO UPDATE SET
+                book_id = excluded.book_id,
+                annotation_json = excluded.annotation_json,
+                updated_at = excluded.updated_at",
             params![id, book_id, ann_json],
         )?;
     }
-    Ok(())
+    tx.commit()
 }
 
 pub fn sqlite_save_book_annotations(
@@ -2446,16 +2456,17 @@ pub fn sqlite_delete_rss_feed_inner(
     connection: &Connection,
     feed_id: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
+    let tx = connection.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM rss_article_content WHERE article_id IN (SELECT id FROM rss_articles WHERE feed_id = ?1)",
         params![feed_id],
     )?;
-    connection.execute(
+    tx.execute(
         "DELETE FROM rss_articles WHERE feed_id = ?1",
         params![feed_id],
     )?;
-    connection.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
-    Ok(())
+    tx.execute("DELETE FROM rss_feeds WHERE id = ?1", params![feed_id])?;
+    tx.commit()
 }
 
 pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), String> {
@@ -4061,6 +4072,122 @@ mod tests {
         let result = sqlite_get_book_annotations_inner(&conn, "book1").unwrap();
         assert_eq!(result.len(), 1);
         assert!(result[0].contains("ann2"));
+    }
+
+    fn annotation_texts(conn: &Connection, book_id: &str) -> Vec<String> {
+        let mut texts: Vec<String> = sqlite_get_book_annotations_inner(conn, book_id)
+            .unwrap()
+            .iter()
+            .map(|json| {
+                serde_json::from_str::<serde_json::Value>(json).unwrap()["text"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        texts.sort();
+        texts
+    }
+
+    /// A duplicate id in the list made the second INSERT fail after the
+    /// DELETE had already run, leaving the book with no highlights at all.
+    #[test]
+    fn save_book_annotations_with_duplicate_ids_keeps_the_last() {
+        let conn = setup_db();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[r#"{"id":"keep","text":"existing"}"#.to_string()],
+        )
+        .unwrap();
+        let anns = vec![
+            r#"{"id":"dup","text":"first"}"#.to_string(),
+            r#"{"id":"other","text":"other"}"#.to_string(),
+            r#"{"id":"dup","text":"second"}"#.to_string(),
+        ];
+        sqlite_save_book_annotations_inner(&conn, "book1", &anns).unwrap();
+        assert_eq!(annotation_texts(&conn, "book1"), ["other", "second"]);
+    }
+
+    /// An id already stored under another book is taken over by this save
+    /// instead of failing it.
+    #[test]
+    fn save_book_annotations_takes_over_an_id_from_another_book() {
+        let conn = setup_db();
+        sqlite_upsert_annotation_inner(&conn, "x", "book2", r#"{"id":"x","text":"old"}"#).unwrap();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[r#"{"id":"x","text":"moved"}"#.to_string()],
+        )
+        .unwrap();
+        assert_eq!(annotation_texts(&conn, "book1"), ["moved"]);
+        assert!(annotation_texts(&conn, "book2").is_empty());
+    }
+
+    /// Any failing insert rolls the whole save back: the previous highlights stay.
+    #[test]
+    fn save_book_annotations_failure_keeps_previous_highlights() {
+        let conn = setup_db();
+        sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[
+                r#"{"id":"a","text":"one"}"#.to_string(),
+                r#"{"id":"b","text":"two"}"#.to_string(),
+            ],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_insert BEFORE INSERT ON book_annotations
+             WHEN NEW.annotation_json LIKE '%boom%'
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        let result = sqlite_save_book_annotations_inner(
+            &conn,
+            "book1",
+            &[
+                r#"{"id":"c","text":"three"}"#.to_string(),
+                r#"{"id":"d","text":"boom"}"#.to_string(),
+            ],
+        );
+        assert!(result.is_err());
+        assert_eq!(annotation_texts(&conn, "book1"), ["one", "two"]);
+    }
+
+    #[test]
+    fn delete_rss_feed_is_atomic() {
+        let conn = setup_db();
+        sqlite_save_rss_article_inner(&conn, &rss_article("a1", Some(1), true), Some("x"), None)
+            .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_feed_delete BEFORE DELETE ON rss_feeds
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;
+             INSERT INTO rss_feeds (id, title, url, added_at) VALUES ('f1', 'F', 'u', 1);",
+        )
+        .unwrap();
+        assert!(sqlite_delete_rss_feed_inner(&conn, "f1").is_err());
+        assert_eq!(rss_ids(&conn), ["a1"]);
+        assert!(sqlite_get_rss_article_content_inner(&conn, "a1")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn clear_all_storage_is_atomic() {
+        let conn = setup_db();
+        sqlite_set_kv_inner(&conn, "k1", "v1").unwrap();
+        sqlite_save_cover_image_inner(&conn, "book1", "data:,").unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER fail_kv_delete BEFORE DELETE ON kv_store
+             BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(sqlite_clear_all_storage_inner(&conn).is_err());
+        assert!(sqlite_get_cover_image_inner(&conn, "book1")
+            .unwrap()
+            .is_some());
     }
 
     #[test]
