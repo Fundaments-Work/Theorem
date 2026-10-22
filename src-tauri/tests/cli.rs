@@ -1018,3 +1018,24 @@ fn stats_show_minutes_as_the_app_counts_them() {
     assert!(text.contains("longest streak: 4 days"), "{text}");
     assert!(text.contains("daily goal: 30 min a day"), "{text}");
 }
+
+// ── quick wins: search syntax, prefixes, limits ─────────────────────────────
+
+#[test]
+fn library_search_takes_any_text_and_matches_word_starts() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+    let prefix = sb.run(&["--json", "search", "Fie"]);
+    assert_ok(&prefix);
+    assert_eq!(json(&prefix)[0]["book_id"], APP_BOOK);
+    let two_words = sb.run(&["--json", "search", "ada guide"]);
+    assert_eq!(json(&two_words)[0]["book_id"], APP_BOOK);
+    // FTS5 syntax characters used to fail with "fts5: syntax error".
+    for text in ["\"", "field-guide", "(", "AND", "a:b", "*"] {
+        let out = sb.run(&["--json", "search", text]);
+        assert_no_panic(&out);
+        assert_ok(&out);
+    }
+    let limited = sb.run(&["--json", "search", "--limit", "0", "Field"]);
+    assert_eq!(json(&limited), serde_json::json!([]));
+}

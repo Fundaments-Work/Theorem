@@ -149,6 +149,9 @@ enum Command {
         query: String,
         /// Restrict to a book id (in-book streaming search)
         book_id: Option<String>,
+        /// Print at most this many results
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
     },
     /// Stream an EPUB chapter as plain text
     Read {
@@ -544,7 +547,11 @@ fn run(command: Command, output: &Output) -> i32 {
             };
             let ctx = &ctx;
             match other {
-                Command::Search { query, book_id } => run_search(output, ctx, &query, book_id),
+                Command::Search {
+                    query,
+                    book_id,
+                    limit,
+                } => run_search(output, ctx, &query, book_id, limit),
                 Command::Read {
                     book_id,
                     chapter,
@@ -806,17 +813,43 @@ fn mdx_lookup_all_installed(ctx: &Ctx, term: &str) -> Vec<crate::mdict::MdxEntry
 
 // ── search ───────────────────────────────────────────────────────────────────
 
-fn run_search(output: &Output, ctx: &Ctx, query: &str, book_id: Option<String>) -> i32 {
+fn run_search(
+    output: &Output,
+    ctx: &Ctx,
+    query: &str,
+    book_id: Option<String>,
+    limit: usize,
+) -> i32 {
     match book_id {
-        None => library_search(output, ctx, query),
-        Some(book_id) => in_book_search(output, ctx, &book_id, query),
+        None => library_search(output, ctx, query, limit),
+        Some(book_id) => in_book_search(output, ctx, &book_id, query, limit),
     }
 }
 
-fn library_search(output: &Output, ctx: &Ctx, query: &str) -> i32 {
+/// An FTS5 query from what the user typed: every word must appear in the
+/// title or author, as a word or the start of one. Each word is quoted, so
+/// characters FTS5 treats as syntax (`"`, `*`, `-`, `:`, `(`, `AND` …) are
+/// searched for as text instead of failing with a syntax error.
+fn fts_query(input: &str) -> Option<String> {
+    let terms: Vec<String> = input
+        .split_whitespace()
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect();
+    if terms.is_empty() {
+        return None;
+    }
+    Some(format!("{{title author}} : ({})", terms.join(" ")))
+}
+
+fn library_search(output: &Output, ctx: &Ctx, query: &str, limit: usize) -> i32 {
+    let Some(fts) = fts_query(query) else {
+        eprintln!("error: the search is empty");
+        return EXIT_USAGE;
+    };
+    let limit = u32::try_from(limit).unwrap_or(u32::MAX);
     match ctx
         .store
-        .with_connection(|conn| crate::database::sqlite_search_books_inner(conn, query, 50))
+        .with_connection(|conn| crate::database::sqlite_search_books_inner(conn, &fts, limit))
     {
         Ok(rows) => {
             if output.json {
@@ -836,7 +869,7 @@ fn library_search(output: &Output, ctx: &Ctx, query: &str) -> i32 {
     }
 }
 
-fn in_book_search(output: &Output, ctx: &Ctx, book_id: &str, query: &str) -> i32 {
+fn in_book_search(output: &Output, ctx: &Ctx, book_id: &str, query: &str, limit: usize) -> i32 {
     let path = match resolve_book_path(ctx, book_id) {
         Ok(Some(path)) => path,
         Ok(None) => {
@@ -846,7 +879,8 @@ fn in_book_search(output: &Output, ctx: &Ctx, book_id: &str, query: &str) -> i32
     };
 
     match crate::book_search::search_epub_spine(&path, query, false, false) {
-        Ok(matches) => {
+        Ok(mut matches) => {
+            matches.truncate(limit);
             if output.json {
                 output.print_json(&matches)
             } else {
@@ -3465,6 +3499,19 @@ mod tests {
         assert!(!launches_gui(&args(&["--verbose"])));
         assert!(!launches_gui(&args(&["/no/such/book.epub"])));
         assert!(!launches_gui(&args(&[&book, "--json"])));
+    }
+
+    #[test]
+    fn search_input_is_quoted_for_fts() {
+        assert_eq!(fts_query("  "), None);
+        assert_eq!(
+            fts_query("dune mess"),
+            Some(r#"{title author} : ("dune"* "mess"*)"#.to_string())
+        );
+        assert_eq!(
+            fts_query(r#"a"b -c AND"#),
+            Some(r#"{title author} : ("a""b"* "-c"* "AND"*)"#.to_string())
+        );
     }
 
     #[test]

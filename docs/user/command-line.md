@@ -12,7 +12,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 
 | Command | What it does |
 | :--- | :--- |
-| `theorem search <query> [book_id]` | Without a book id: finds books by title or author. With a book id: searches the text of that book |
+| `theorem search <query> [book_id] [--limit N]` | Without a book id: finds books whose title or author contains every word of the query (a word also matches the start of a longer one, so `dun` finds Dune). With a book id: searches the text of that book. `--limit` caps the results (default 50) |
 | `theorem read <book_id> [--chapter N] [--cfi <cfi>]` | Prints one chapter as plain text. `--chapter` is 1-based and defaults to 1. `--cfi` prints the text at an EPUB location |
 | `theorem dict <term> [--online]` | Looks the term up in your installed StarDict and MDict dictionaries. `--online` also asks the online dictionary service |
 | `theorem extract <url>` | Fetches a web page and prints the article text |
