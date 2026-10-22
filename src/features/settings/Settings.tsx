@@ -749,14 +749,16 @@ export const SettingsPage = memo(function SettingsPage() {
             />
 
             <div className="mb-8 space-y-3">
-                <div className="sm:hidden -mx-1 px-1">
-                    <div className="flex gap-2 overflow-x-auto pb-1">
+                {/* Phones: every tab visible at once (a sideways-scrolling row hid most of them). */}
+                <div className="sm:hidden">
+                    <div className="grid grid-cols-3 gap-1">
                         {tabButtons.map((tab) => (
                             <button
                                 key={tab.id}
+                                aria-pressed={activeTab === tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={cn(
-                                    "flex min-w-[10rem] items-center justify-center border border-[var(--color-border)] px-3 py-2.5 font-sans text-[11px] transition-colors",
+                                    "flex min-w-0 items-center justify-center border border-[var(--color-border)] px-2 py-2.5 font-sans text-[11px] transition-colors",
                                     activeTab === tab.id
                                         ? "ui-selected"
                                         : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)]"
@@ -772,6 +774,7 @@ export const SettingsPage = memo(function SettingsPage() {
                     {tabButtons.map((tab) => (
                         <button
                             key={tab.id}
+                            aria-pressed={activeTab === tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={cn(
                                 "flex items-center border border-[var(--color-border)] px-4 py-2 font-sans text-[11px] transition-colors",
@@ -1409,13 +1412,9 @@ export const SettingsPage = memo(function SettingsPage() {
                                     <span className="text-[12px] text-[color:var(--color-text-secondary)]">License</span>
                                     <span className="text-[12px] text-[color:var(--color-text-primary)]">MIT</span>
                                 </div>
-                                <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
-                                    <span className="text-[12px] text-[color:var(--color-text-secondary)]">Author</span>
-                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">Fundamentals</span>
-                                </div>
                                 <div className="flex items-center justify-between py-1.5">
-                                    <span className="text-[12px] text-[color:var(--color-text-secondary)]">Stack</span>
-                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">React 19 + Tauri 2 + Rust</span>
+                                    <span className="text-[12px] text-[color:var(--color-text-secondary)]">Made by</span>
+                                    <span className="text-[12px] text-[color:var(--color-text-primary)]">Fundaments</span>
                                 </div>
                             </div>
                         </div>
