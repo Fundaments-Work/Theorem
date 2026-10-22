@@ -1224,10 +1224,12 @@ fn apply_linux_webkit_workarounds() {
     }
 }
 
-/// Speak `text` with the platform voice. `lang` (the book's language) and
-/// `utterance_id` (echoed in the utterance events so stale ones can be told
-/// apart) are used on Android; the result may carry a `languageWarning` when
-/// the engine has no voice for `lang`.
+/// Speak `text` with the platform voice. `utterance_id` is echoed in the
+/// utterance events so stale ones can be told apart. `lang` (the book's
+/// language) is used on Android and Linux; on Android the result may carry a
+/// `languageWarning` when the engine has no voice for `lang`. Desktop OS
+/// voices answer `completionEvents: true`: `tts-utterance-done` (or
+/// `tts-utterance-error`) follows when the narration process exits.
 #[tauri::command]
 #[allow(unused_variables, unreachable_code)]
 fn tts_speak(
@@ -1249,13 +1251,15 @@ fn tts_speak(
             utterance_id,
         },
     );
+    #[cfg(not(target_os = "android"))]
+    let on_end = tts_desktop::emit_utterance_end(app, utterance_id);
     #[cfg(target_os = "linux")]
-    return tts_linux::linux_tts_speak(&text, speed).map(|()| serde_json::Value::Null);
+    tts_linux::linux_tts_speak(&text, speed, lang.as_deref(), on_end)?;
     #[cfg(target_os = "macos")]
     {
         let mut cmd = std::process::Command::new("say");
         cmd.args(tts_desktop::mac_say_args(&text, &voice, speed));
-        tts_desktop::spawn_tracked(cmd, None).map_err(|e| format!("say: {e}"))?;
+        tts_desktop::spawn_tracked(cmd, None, on_end).map_err(|e| format!("say: {e}"))?;
     }
     #[cfg(target_os = "windows")]
     {
@@ -1271,9 +1275,9 @@ fn tts_speak(
             tts_desktop::windows_rate(speed).to_string(),
         )
         .env("THEOREM_TTS_VOICE", &voice);
-        tts_desktop::spawn_tracked(cmd, Some(text)).map_err(|e| format!("TTS: {e}"))?;
+        tts_desktop::spawn_tracked(cmd, Some(text), on_end).map_err(|e| format!("TTS: {e}"))?;
     }
-    Ok(serde_json::Value::Null)
+    Ok(serde_json::json!({ "completionEvents": true }))
 }
 
 #[tauri::command]

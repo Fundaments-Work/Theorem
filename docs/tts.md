@@ -28,9 +28,18 @@ narration process is tracked, so Stop kills only Theorem's own `say` /
 
 Backend wiring: `tts_speak` / `tts_stop` in `src-tauri/src/lib.rs` dispatch to
 the platform implementation (`src-tauri/src/tts_linux.rs` on Linux, the
-`tauri-plugin-android-tts-audio` plugin on Android). Desktop OS voices report
-no completion signal, so completion falls back to a duration estimate; Android
-reports real completion.
+`tauri-plugin-android-tts-audio` plugin on Android). Every platform reports
+the real end of speech. On desktop the narration process lives exactly as long
+as the speech (`say` and the PowerShell script return when done; Linux runs
+`spd-say -w`, which waits for speech-dispatcher, and passes the book's language
+with `-l` when it is a valid language tag), so when the tracked process exits
+by itself a watcher emits `tts-utterance-done` (exit status 0) or
+`tts-utterance-error`, carrying the `utteranceId`, the same events Android
+sends. A stopped or replaced process reports nothing; on Linux, Stop drops our
+`spd-say -w` before `spd-say --cancel`. `tts_speak` answers
+`completionEvents: true` on desktop; the reader then ends the page on the
+event and keeps its duration estimate only for the sentence highlight and as
+a late fallback (twice the estimate plus 5 s) in case no event arrives.
 
 **Android engine selection**: the plugin supports `tts_get_engines` /
 `tts_set_engine` (re-initializes `TextToSpeech` with the chosen engine
@@ -122,9 +131,9 @@ TTS.
   starts (`tts_text_chunks`), the rest are queued as they finish
   (`tts_audio_append`), and the engine is pre-warmed in the background when
   the reader opens (`tts_engine_preload`).
-- **Platform**: `tts_speak` as before; Android completion arrives via the
-  `tts-utterance-done` event and pause resumes from the last real word
-  boundary.
+- **Platform**: `tts_speak` as before; completion arrives via the
+  `tts-utterance-done` event on every platform, and on Android pause resumes
+  from the last real word boundary.
 - **UI**: the reader bottom navbar swaps to the immersion row (state,
   play/pause/stop, voice & speed popover when neural is installed, and a
   neural-install shortcut when it is not). Toggling immersion mode on a book
