@@ -16,14 +16,13 @@ before(async () => {
 });
 after(() => box.dispose());
 
-// KNOWN BUG (1.6.0), reproduced by this spec in roughly 1 run of 3: reopening a
-// book sometimes lands on page 1 and the saved position is lost. In
-// src/features/reader/Reader.tsx `handleLocationChange`, while resuming, the
-// first relocation whose CFI does not start with the saved CFI calls
-// `updateProgress(bookId, 0, '')`, so an early relocation (before the jump to
-// the saved spot) wipes the position. Marked `todo` so the suite reports it
-// without failing; remove `todo` once fixed. The assertions are unchanged.
-const KNOWN_RESUME_BUG = "reader resume can reset the saved position (Reader.tsx handleLocationChange)";
+// KNOWN BUG (1.6.0): reopening a book can land one page before the saved
+// spot (page 2 instead of 3 in about half the runs). The saved CFI is the start
+// of the visible page, and jumping back to it can show the previous page at
+// the page boundary. (The worse variant, where the saved position was erased
+// and the book reopened on page 1, is fixed.) Marked `todo` so the suite
+// reports it without failing; remove `todo` once fixed. Assertions unchanged.
+const KNOWN_RESUME_BUG = "reader resume can land one page early (CFI at a page boundary)";
 
 test("a new book opens on page 1 and pages turn forward and back", async () => {
     const start = await openBook(app, title);

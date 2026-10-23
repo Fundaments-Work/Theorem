@@ -1231,20 +1231,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                 return; 
             }
 
-            if (target && loc.cfi && !loc.cfi.startsWith(target)) {
-                if (currentBookId) {
-                    updateProgress(currentBookId, 0, '', undefined);
-                }
-                suppressProgressRef.current = false;
-                resumeTargetRef.current = null;
-                hasAppliedInitialLocationRef.current = true;
-                if (resumeTimeoutRef.current) {
-                    clearTimeout(resumeTimeoutRef.current);
-                    resumeTimeoutRef.current = null;
-                }
-                return; 
-            }
-
+            // A location that does not start with the target is not a failed
+            // resume: the paginator reports the start of the visible page (an
+            // earlier CFI than a mid-page target) and the first render can land
+            // on the section start before the jump. Erasing the saved progress
+            // here lost the reading position in about one reopen in three, so
+            // a mismatch only waits; the timeout below ends the suppression and
+            // the saved position is kept.
             if (!resumeTimeoutRef.current) {
                 debug('[Reader] Starting suppression timeout (1000ms)');
                 resumeTimeoutRef.current = setTimeout(() => {

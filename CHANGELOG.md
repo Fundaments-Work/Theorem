@@ -135,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reopening a book no longer forgets your place** — While the reader restored your position, a page-change event that did not exactly match the saved spot reset the book to page 1 and erased the saved position (seen in about one reopen in three by the new end-to-end tests). A mismatch now only waits for the restore to finish.
 - **Highlights load in one step, and unreadable ones are reported** — At startup every stored highlight and note was sent to the app as a separate JSON string and parsed one by one, and a damaged one vanished without a trace. They now arrive parsed and checked in one payload (with 50,000 annotations: webview work about 105 → 72 ms, payload 19.7 → 18.2 MB), and a damaged one is logged with its id (never its text).
 - **Android source folders show their name** — The Source folders list showed an Android folder as its raw `content://` address. It now shows the folder's name, and where it is only when two folders share a name.
 - **Browser build keeps libraries over 5 MB** — The browser build saved its library, feeds and settings in localStorage, whose ~5 MB limit a dozen books already exceed; saving then stopped without a word and the books were gone after a reload. Stores now live in IndexedDB (existing data moves over on first start), and a save that still fails shows a notice instead of failing silently.
