@@ -141,7 +141,7 @@ Each store defines:
 - `migrate` — Version migration functions (e.g., `0to1`, `1to2`)
 - `onRehydrateStorage` — Post-rehydration behavior
 
-The persist adapter wraps Tauri's SQLite KV store for desktop, and `localStorage` for the web fallback.
+The persist adapter (`src/core/lib/persist-storage.ts`) wraps Tauri's SQLite KV store on desktop and mobile. The browser build stores in IndexedDB (database `theorem-persist`, store `kv`, via `idb-keyval`): localStorage's ~5 MB quota cannot hold a real library. A value still in localStorage from older builds is moved to IndexedDB on first read, and localStorage is only used for the last-chance unload snapshot (`theorem-unload:<name>`) and in browsers without IndexedDB. A write that fails is logged and reported through `onPersistWriteFailure`, which the app shows as a toast.
 
 ## Data Flow: What Goes Where
 

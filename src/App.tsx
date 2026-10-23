@@ -16,14 +16,14 @@ import { registerShortcuts, useKeyboardShortcuts, SELECT_ALL_EVENT } from "./cor
 import { initLogger } from "./core/lib/debug";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
-import { flushAllPersistence } from "./core/lib/persist-storage";
+import { flushAllPersistence, onPersistWriteFailure } from "./core/lib/persist-storage";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { subscribeUntilCleanup } from "./core/lib/async-subscription";
 import { bootstrapAutoSync } from "./core/lib/sync-bootstrap";
 import { restoreReaderSession, startReaderSessionTracking } from "./core/lib/reader-session";
 import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 
 // Closed at startup and built on Radix: load on first use, not with the app shell.
 const KeyboardShortcutsHelp = lazy(() =>
@@ -103,6 +103,20 @@ function App() {
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
 
     useDailyGoalReminder();
+
+    // A store that cannot be saved (storage full, private mode) must not fail
+    // silently: the user would lose their library on the next reload.
+    useEffect(
+        () =>
+            onPersistWriteFailure(() => {
+                toast.error("Theorem could not save your changes", {
+                    id: "persist-write-failure",
+                    description: "Browser storage is full or unavailable. Recent changes may be lost when you reload.",
+                    duration: 10000,
+                });
+            }),
+        [],
+    );
 
     const [storesHydrated, setStoresHydrated] = useState(() =>
         useSettingsStore.persist.hasHydrated(),

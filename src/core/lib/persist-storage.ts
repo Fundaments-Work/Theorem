@@ -1,4 +1,5 @@
 import type { StateStorage } from 'zustand/middleware';
+import { createStore, del as idbDel, get as idbGet, set as idbSet, type UseStore } from 'idb-keyval';
 import { isTauri } from './env';
 import { sqliteDeleteKv, sqliteGetKv, sqliteSetKv } from './sqlite-storage';
 
@@ -60,6 +61,63 @@ function asSqlitePersistKey(name: string): string {
     return `${SQLITE_PERSIST_KEY_PREFIX}${name}`;
 }
 
+// ─── Web build: IndexedDB ───────────────────────────────────────────────
+// The browser build keeps its stores in IndexedDB. localStorage (the old
+// home) has a ~5 MB quota that a dozen books' metadata and covers exceed,
+// and the write then failed without a trace. Values still found in
+// localStorage are moved over on first read.
+const WEB_PERSIST_DB = 'theorem-persist';
+const WEB_PERSIST_STORE = 'kv';
+let webStore: UseStore | null = null;
+
+function hasIndexedDb(): boolean {
+    return typeof indexedDB !== 'undefined' && indexedDB !== null;
+}
+
+function webPersistStore(): UseStore {
+    if (!webStore) webStore = createStore(WEB_PERSIST_DB, WEB_PERSIST_STORE);
+    return webStore;
+}
+
+/** Whether the web build stores in IndexedDB (false on Tauri and in browsers without it). */
+function usesIndexedDb(): boolean {
+    return !isTauri() && hasIndexedDb();
+}
+
+type PersistWriteFailureListener = (name: string, error: unknown) => void;
+const persistWriteFailureListeners = new Set<PersistWriteFailureListener>();
+// Keys whose last write failed: a burst of failing writes is reported once,
+// and again only after a write of that key has succeeded in between.
+const failingPersistKeys = new Set<string>();
+
+/**
+ * Be told when a store could not be saved (storage full, private mode, broken
+ * database). The app turns this into a toast; the error is logged regardless.
+ */
+export function onPersistWriteFailure(listener: PersistWriteFailureListener): () => void {
+    persistWriteFailureListeners.add(listener);
+    return () => {
+        persistWriteFailureListeners.delete(listener);
+    };
+}
+
+function reportPersistWriteFailure(name: string, error: unknown): void {
+    if (failingPersistKeys.has(name)) return;
+    failingPersistKeys.add(name);
+    console.error(`[persist] could not save "${name}"`, error);
+    for (const listener of [...persistWriteFailureListeners]) {
+        try {
+            listener(name, error);
+        } catch {
+            // A broken listener must not hide the failure from the others.
+        }
+    }
+}
+
+function markPersistWriteOk(name: string): void {
+    failingPersistKeys.delete(name);
+}
+
 function getLocalItem(name: string): string | null {
     if (typeof localStorage === 'undefined') {
         return null;
@@ -86,12 +144,14 @@ function asUnloadSnapshotKey(name: string): string {
 }
 
 /** Last-chance synchronous save when SQLite is unreachable (unload, failed IPC). */
-function writeFallbackItem(name: string, value: string): void {
-    if (persistenceSuspended) return;
+function writeFallbackItem(name: string, value: string): boolean {
+    if (persistenceSuspended) return true;
     try {
-        setLocalItem(isTauri() ? asUnloadSnapshotKey(name) : name, value);
+        setLocalItem(isTauri() || hasIndexedDb() ? asUnloadSnapshotKey(name) : name, value);
+        return true;
     } catch {
         // Quota exceeded or storage disabled: nothing left to try.
+        return false;
     }
 }
 
@@ -139,7 +199,26 @@ async function flushPersistWrite(name: string): Promise<void> {
     if (persistenceSuspended) return;
 
     if (!isTauri()) {
-        setLocalItem(name, pendingValue);
+        if (!hasIndexedDb()) {
+            try {
+                setLocalItem(name, pendingValue);
+                markPersistWriteOk(name);
+            } catch (error) {
+                reportPersistWriteFailure(name, error);
+            }
+            return;
+        }
+        try {
+            await idbSet(name, pendingValue, webPersistStore());
+            markPersistWriteOk(name);
+            removeLocalItem(name);
+            removeLocalItem(asUnloadSnapshotKey(name));
+        } catch (error) {
+            // Keep a copy in localStorage if it fits; the user hears either way,
+            // because a value that only fits there is one step from being lost.
+            writeFallbackItem(name, pendingValue);
+            reportPersistWriteFailure(name, error);
+        }
         return;
     }
 
@@ -202,7 +281,50 @@ function installFlushHandlers(): void {
     flushHandlersInstalled = true;
 }
 
-export const theoremPersistStorage: StateStorage = {    async getItem(name) {
+async function readWebItem(name: string): Promise<string | null> {
+    const store = webPersistStore();
+    const snapshotKey = asUnloadSnapshotKey(name);
+    const snapshotValue = getLocalItem(snapshotKey);
+    if (snapshotValue != null) {
+        setPersistCacheEntry(name, snapshotValue);
+        try {
+            await idbSet(name, snapshotValue, store);
+            removeLocalItem(snapshotKey);
+            removeLocalItem(name);
+        } catch {
+            // Keep the snapshot; the next successful write supersedes it.
+        }
+        return snapshotValue;
+    }
+
+    try {
+        const stored = await idbGet<string>(name, store);
+        if (stored != null) {
+            setPersistCacheEntry(name, stored);
+            return stored;
+        }
+    } catch {
+        const fallbackValue = getLocalItem(name);
+        setPersistCacheEntry(name, fallbackValue);
+        return fallbackValue;
+    }
+
+    // One-time move from the pre-IndexedDB localStorage copy.
+    const legacyValue = getLocalItem(name);
+    setPersistCacheEntry(name, legacyValue);
+    if (legacyValue != null) {
+        try {
+            await idbSet(name, legacyValue, store);
+            removeLocalItem(name);
+        } catch {
+            // Leave it in localStorage; the next read tries again.
+        }
+    }
+    return legacyValue;
+}
+
+export const theoremPersistStorage: StateStorage = {
+    async getItem(name) {
         installFlushHandlers();
 
         const pendingValue = pendingPersistWrites.get(name);
@@ -212,6 +334,10 @@ export const theoremPersistStorage: StateStorage = {    async getItem(name) {
 
         if (inMemoryPersistCache.has(name)) {
             return inMemoryPersistCache.get(name) ?? null;
+        }
+
+        if (usesIndexedDb()) {
+            return readWebItem(name);
         }
 
         if (!isTauri()) {
@@ -269,6 +395,17 @@ export const theoremPersistStorage: StateStorage = {    async getItem(name) {
         clearPendingPersistWrite(name);
         inMemoryPersistCache.delete(name);
         if (persistenceSuspended) return;
+
+        if (usesIndexedDb()) {
+            try {
+                await idbDel(name, webPersistStore());
+            } catch {
+                // Nothing stored or database unavailable.
+            }
+            removeLocalItem(name);
+            removeLocalItem(asUnloadSnapshotKey(name));
+            return;
+        }
 
         if (!isTauri()) {
             removeLocalItem(name);
