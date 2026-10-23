@@ -111,25 +111,28 @@ export class Sandbox {
     }
 
     /**
-     * Close the app the way a user does: back to the library, then the window's
-     * Close button (the app flushes pending writes before the window goes; on
-     * Linux it then sits in the tray), then end the WebDriver session, which
-     * ends the process. `{ hard: true }` skips the close button (a crash).
+     * Quit like the tray's "Quit" (e2e builds watch for a `quit` file): every
+     * window flushes its pending writes, then the process exits. `{ hard: true }`
+     * just ends the process, like a crash or a kill.
      */
     async quit({ hard = false } = {}) {
-        if (this.app) {
-            if (!hard) {
+        if (!this.app) return;
+        if (!hard) {
+            writeFileSync(join(this.dialogs, "quit"), "");
+            // The app exits within its 3 s flush budget; then the session is dead.
+            const deadline = Date.now() + 8000;
+            while (Date.now() < deadline) {
                 try {
-                    await this.app.closeWindow();
+                    await this.app.session.title();
                 } catch {
-                    // A dead or stuck app: fall through to ending the session.
+                    break;
                 }
+                await sleep(200);
             }
-            await this.app.session.delete();
-            this.app = null;
-            // Let the process flush SQLite/WAL and exit.
-            await sleep(500);
         }
+        await this.app.session.delete();
+        this.app = null;
+        await sleep(300);
     }
 
     /** Remove the app's data (as if freshly installed). The app must be closed. */
@@ -156,19 +159,6 @@ export class App {
     constructor(session, sandbox) {
         this.session = session;
         this.sandbox = sandbox;
-    }
-
-    async closeWindow() {
-        const quick = { timeout: 3000 };
-        if (await this.exists({ role: "button", name: "Back to Library" })) {
-            await this.revealReaderChrome();
-            await this.click({ role: "button", name: "Back to Library" }, quick);
-        }
-        if (!(await this.exists({ role: "heading", name: "Library" })) && (await this.exists({ role: "button", name: "Library" }))) {
-            await this.click({ role: "button", name: "Library" }, quick);
-        }
-        await this.click({ role: "button", name: "Close" }, quick);
-        await sleep(800);
     }
 
     async waitForReady() {

@@ -13,7 +13,10 @@
 //!   JSON answer for the next call of that kind (oldest `<seq>` first);
 //! * with nothing queued, `open`/`save` answer "cancelled" (`null`) and
 //!   `message` presses the dialog's OK/Yes button;
-//! * every call is appended to `calls.jsonl` so a test can assert what was asked.
+//! * every call is appended to `calls.jsonl` so a test can assert what was asked;
+//! * a file named `quit` in the directory is the tray's "Quit": the app runs
+//!   its graceful quit (every window flushes its pending writes, then exit).
+//!   The tray itself is out of WebDriver's reach.
 //!
 //! Everything after the dialog (the app's commands, file I/O, the database)
 //! runs for real.
@@ -24,7 +27,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::Runtime;
+use tauri::{Manager, Wry};
 
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -112,8 +115,24 @@ fn message(
 }
 
 /// Registered in place of `tauri_plugin_dialog::init()` in e2e builds.
-pub fn dialog_plugin<R: Runtime>() -> TauriPlugin<R> {
+pub fn dialog_plugin() -> TauriPlugin<Wry> {
     Builder::new("dialog")
         .invoke_handler(tauri::generate_handler![open, save, message])
+        .setup(|app, _api| {
+            if let Some(dir) = queue_dir() {
+                let handle = app.app_handle().clone();
+                std::thread::spawn(move || {
+                    let flag = dir.join("quit");
+                    loop {
+                        if flag.exists() {
+                            let _ = fs::remove_file(&flag);
+                            crate::request_graceful_quit(&handle);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                });
+            }
+            Ok(())
+        })
         .build()
 }

@@ -265,7 +265,7 @@ fn dialog_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 }
 
 #[cfg(feature = "e2e")]
-fn dialog_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+fn dialog_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     e2e_hooks::dialog_plugin()
 }
 

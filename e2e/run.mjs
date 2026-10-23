@@ -88,7 +88,7 @@ writeFileSync(
 <busconfig><type>session</type><listen>${busAddress}</listen><auth>EXTERNAL</auth>
 <policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy></busconfig>`,
 );
-const dbus = spawn("dbus-daemon", [`--config-file=${busConfig}`, "--nofork"], { env, stdio: "ignore" });
+const dbus = spawn("dbus-daemon", [`--config-file=${busConfig}`, "--nofork"], { env, stdio: "ignore", detached: true });
 children.push(dbus);
 env.DBUS_SESSION_BUS_ADDRESS = busAddress;
 for (let i = 0; i < 50 && !existsSync(join(runtime, "bus")); i++) await sleep(50);
@@ -98,7 +98,7 @@ const display = process.env.THEOREM_E2E_DISPLAY || (which("mutter") ? "mutter" :
 if (display === "mutter") {
     const m = spawn("mutter", ["--headless", "--wayland", "--no-x11", "--wayland-display", "e2e-0", "--virtual-monitor", "1280x800"], {
         env,
-        stdio: "ignore",
+        stdio: "ignore", detached: true,
     });
     children.push(m);
     env.WAYLAND_DISPLAY = "e2e-0";
@@ -110,7 +110,7 @@ if (display === "mutter") {
     }
 } else if (display === "xvfb") {
     const num = 90 + Math.floor(Math.random() * 400);
-    const x = spawn("Xvfb", [`:${num}`, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], { env, stdio: "ignore" });
+    const x = spawn("Xvfb", [`:${num}`, "-screen", "0", "1280x800x24", "-nolisten", "tcp"], { env, stdio: "ignore", detached: true });
     children.push(x);
     env.DISPLAY = `:${num}`;
     env.GDK_BACKEND = "x11";
@@ -139,4 +139,5 @@ const res = spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--te
     cwd: REPO,
 });
 console.log(`e2e: finished in ${((Date.now() - started) / 1000).toFixed(1)} s`);
-process.exitCode = res.status ?? 1;
+// Detached helpers (bus, display) keep the event loop alive: exit explicitly.
+process.exit(res.status ?? 1);
