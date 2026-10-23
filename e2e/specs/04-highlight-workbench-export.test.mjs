@@ -54,7 +54,7 @@ test("Markdown export writes the highlight into the chosen folder", async () => 
     app.queueDialog("open", exportDir);
     await app.click({ role: "button", name: "Pick folder" });
     // The chosen folder is shown in the export-folder field.
-    await app.waitFor(async () => (await app.value({ role: "textbox", name: /MarkdownExport/ })) === exportDir, { what: "the chosen folder in the field" });
+    await app.waitFor(async () => (await app.value({ role: "textbox", name: "Export folder" })) === exportDir, { what: "the chosen folder in the field" });
     await app.click({ role: "button", name: /^Export (now|Markdown)/ });
 
     const file = await app.waitFor(() => {

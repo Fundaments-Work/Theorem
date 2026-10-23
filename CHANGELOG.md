@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Audited with axe-core on every screen** at 1280, 390 and 320px (see `docs/accessibility.md`): the final run reports no violations, no horizontal overflow and no target under 24px.
 - **Dialogs and reader panels are named; closed panels are inert** — `Modal` was labelled by an empty heading, and the reader's closed panels stayed tabbable and announced. Reader sliders, "more actions" buttons and the retention select now have names; Settings toggles report which choice is selected; annotation cards no longer nest controls inside a button.
+- **Shelf and pairing controls are named** — the Create Shelf and Add to Shelf dialogs were announced only as "Dialog" and now carry their titles (Create Shelf gained a visible title and a Close button); the Markdown export folder field, the new-shelf and shelf-search fields, and the send button for a pasted pairing code had no name beyond a placeholder or an icon.
 - **Contrast** — muted text on muted surfaces (3.9:1) and the reading themes' muted/secondary text (3.3:1) now reach 4.5:1; text is no longer dimmed with `opacity`.
 - **Phones** — the page title is always in the accessibility tree, the title bar is a `header` landmark, the reader has a main region, and sliders, swatches, breadcrumbs and toolbar buttons meet minimum target sizes.
 - **Library and Shelves toolbars use the phone row** — Add stretches across the row and the icon buttons are 44px, instead of a small desktop cluster pushed to the right.

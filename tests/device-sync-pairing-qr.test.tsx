@@ -80,3 +80,13 @@ describe("the pairing QR code's secret", () => {
         expect(closePairingQr).toHaveBeenCalled();
     });
 });
+
+describe("entering a pairing code by hand", () => {
+    it("the code field and its send button have accessible names", async () => {
+        await render();
+        const field = document.body.querySelector<HTMLInputElement>('input[placeholder^="Paste code"]');
+        expect(field?.getAttribute("aria-label")).toBe("Pairing code");
+        const send = field?.parentElement?.querySelector("button");
+        expect(send?.getAttribute("aria-label")).toBe("Pair with this code");
+    });
+});

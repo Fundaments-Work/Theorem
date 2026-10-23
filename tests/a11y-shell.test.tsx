@@ -74,6 +74,39 @@ describe("dialog names", () => {
     });
 });
 
+describe("shelf dialogs are named by their titles", () => {
+    afterEach(() => unmountAll());
+    const collections = [{ id: "s1", name: "Fiction", bookIds: [], createdAt: 0, updatedAt: 0 }] as never[];
+
+    it("Add to Shelf", async () => {
+        const { AddToShelfModal } = await import("../src/features/library/Library");
+        render(<AddToShelfModal isOpen onClose={() => {}} bookId="b1" collections={collections} onAddToShelf={() => {}} onCreateShelf={() => {}} />);
+        await flush();
+        expect(nameOf(dialog())).toBe("Add to Shelf");
+        // The new-shelf and search fields are named, not only described by a placeholder.
+        expect(dialog().querySelector('input[aria-label="New shelf name"]')).not.toBeNull();
+        expect(dialog().querySelector('input[aria-label="Search shelves"]')).not.toBeNull();
+    });
+
+    it("Shelves (book already on a shelf)", async () => {
+        const { AddToShelfModal } = await import("../src/features/library/Library");
+        render(<AddToShelfModal isOpen onClose={() => {}} bookId="b1" collections={collections} currentShelfIds={new Set(["s1"])} onAddToShelf={() => {}} onCreateShelf={() => {}} />);
+        await flush();
+        expect(nameOf(dialog())).toBe("Shelves");
+    });
+
+    it("Create Shelf and Edit Shelf", async () => {
+        const { ShelfModal } = await import("../src/features/library/components/modals/ShelfModal");
+        render(<ShelfModal isOpen onClose={() => {}} onSave={() => {}} />);
+        await flush();
+        expect(nameOf(dialog())).toBe("Create Shelf");
+        unmountAll();
+        render(<ShelfModal isOpen shelf={{ id: "s1", name: "Fiction" }} onClose={() => {}} onSave={() => {}} />);
+        await flush();
+        expect(nameOf(dialog())).toBe("Edit Shelf");
+    });
+});
+
 describe("page structure", () => {
     const src = (f: string) => readFileSync(resolve(f), "utf-8");
 
@@ -87,6 +120,12 @@ describe("page structure", () => {
     it("selects have accessible names", () => {
         expect(src("src/features/settings/Settings.tsx")).toContain('aria-label="Article retention period"');
         expect(src("src/features/settings/NeuralVoiceSection.tsx")).toContain('aria-label="Voice engine"');
+    });
+
+    it("the Markdown export folder field has a label, not just a placeholder", () => {
+        const settings = src("src/features/settings/Settings.tsx");
+        const field = settings.slice(settings.lastIndexOf("<input", settings.indexOf('placeholder="/Users/you/Documents/MarkdownExport"')), settings.indexOf('placeholder="/Users/you/Documents/MarkdownExport"'));
+        expect(field).toContain('aria-label="Export folder"');
     });
 
     it("long values in a setting's description wrap instead of widening the page", () => {

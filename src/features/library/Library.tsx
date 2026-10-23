@@ -1,7 +1,7 @@
 import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
-import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, memo } from "react";
+import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
 import { FILTER_CHIP_SELECTED } from "../../ui/filter-chips";
@@ -899,6 +899,7 @@ export function AddToShelfModal({
     onCreateShelf: (name: string) => void;
 }) {
     const [newShelfName, setNewShelfName] = useState("");
+    const titleId = useId();
 
     const handleCreateShelf = () => {
         if (newShelfName.trim()) {
@@ -957,10 +958,10 @@ export function AddToShelfModal({
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={true}>
+        <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={true} ariaLabelledby={titleId}>
             <ModalBody className="p-0">
                 <div className="p-4 sm:p-6">
-                    <h2 className="text-base sm:text-lg text-[color:var(--color-text-primary)] mb-3">
+                    <h2 id={titleId} className="text-base sm:text-lg text-[color:var(--color-text-primary)] mb-3">
                         {currentShelfIds && currentShelfIds.size > 0 ? "Shelves" : "Add to Shelf"}
                     </h2>
 
@@ -969,6 +970,7 @@ export function AddToShelfModal({
                             type="text"
                             value={shelfSearch}
                             onChange={(e) => setShelfSearch(e.target.value)}
+                            aria-label="Search shelves"
                             placeholder="Search shelves..."
                             className="w-full mb-2 px-2.5 py-1.5 bg-[var(--color-background)] border border-[var(--color-border)] text-sm text-[color:var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
                         />
@@ -996,6 +998,7 @@ export function AddToShelfModal({
                                 type="text"
                                 value={newShelfName}
                                 onChange={(e) => setNewShelfName(e.target.value)}
+                                aria-label="New shelf name"
                                 placeholder="Shelf name..."
                                 className={cn(
                                     "flex-1 px-2.5 py-1.5",
