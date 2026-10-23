@@ -825,11 +825,14 @@ fn corrupt_settings_and_rss_stores_are_errors_not_panics() {
     }
 }
 
+/// Path -> (content type, body), shared with the server thread.
+type Pages = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (String, Vec<u8>)>>>;
+
 /// Serve fixed documents over HTTP on localhost: path -> (content type, body).
 /// The body of a path can be swapped while the server runs.
 struct Server {
     port: u16,
-    pages: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, (String, Vec<u8>)>>>,
+    pages: Pages,
 }
 
 impl Server {
@@ -837,9 +840,7 @@ impl Server {
         use std::io::{BufRead, BufReader};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        let pages: std::sync::Arc<
-            std::sync::Mutex<std::collections::HashMap<String, (String, Vec<u8>)>>,
-        > = Default::default();
+        let pages: Pages = Default::default();
         let shared = pages.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {

@@ -685,13 +685,14 @@ mod tests {
         }
     }
 
+    /// Each request's path and Authorization header, in order.
+    type SeenRequests = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
     /// Serves `routes` (path-with-query -> reply). Records each request's Authorization header.
-    async fn serve(
-        routes: HashMap<&'static str, Reply>,
-    ) -> (String, Arc<Mutex<Vec<(String, Option<String>)>>>) {
+    async fn serve(routes: HashMap<&'static str, Reply>) -> (String, SeenRequests) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let seen: Arc<Mutex<Vec<(String, Option<String>)>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen: SeenRequests = Arc::new(Mutex::new(Vec::new()));
         let seen2 = seen.clone();
         let base = format!("http://{addr}");
         let routes: HashMap<String, Reply> = routes
