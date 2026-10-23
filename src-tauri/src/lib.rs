@@ -24,6 +24,8 @@ mod db_backup;
 mod db_maintenance;
 mod device_name;
 mod diagnostics;
+#[cfg(feature = "e2e")]
+mod e2e_hooks;
 pub mod epub_entries;
 mod epub_parser;
 mod epub_rewriter;
@@ -253,6 +255,18 @@ fn enqueue_open_paths(app: &tauri::AppHandle, paths: Vec<String>, emit_event: bo
     if emit_event {
         let _ = app.emit("theorem://open-files", paths);
     }
+}
+
+/// Native dialogs. The e2e build (`pnpm e2e`, `--features e2e`) swaps in a
+/// stand-in whose answers the WebDriver suite scripts; see `e2e_hooks.rs`.
+#[cfg(not(feature = "e2e"))]
+fn dialog_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri_plugin_dialog::init()
+}
+
+#[cfg(feature = "e2e")]
+fn dialog_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    e2e_hooks::dialog_plugin()
 }
 
 #[tauri::command]
@@ -1628,7 +1642,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(dialog_plugin())
         // Info and up in shipped builds (JNI/network trace output can overwhelm
         // Android during startup), to stdout/logcat and a rotating log file.
         .plugin(diagnostics::log_plugin())

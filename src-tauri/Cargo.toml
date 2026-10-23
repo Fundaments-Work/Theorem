@@ -145,6 +145,10 @@ libc = "0.2"
 # `--features devtools`, release builds leave it out.
 devtools = ["tauri/devtools"]
 
+# End-to-end test build (`pnpm e2e`): embeds the built UI and answers native
+# dialogs from a test-controlled queue (src/e2e_hooks.rs). Never shipped.
+e2e = ["tauri/custom-protocol"]
+
 # Optimize for release (reduces binary size significantly)
 [profile.release]
 opt-level = "z"         # Aggressive size optimization (smaller than "s")
