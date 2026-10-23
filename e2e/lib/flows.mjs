@@ -28,7 +28,7 @@ export async function importBooks(app, paths, { expectTitles = [] } = {}) {
 }
 
 export async function goTo(app, section) {
-    await app.click({ role: "button", name: section, within: undefined });
+    await app.click({ role: "button", name: section });
     await app.find({ role: "heading", name: section });
 }
 

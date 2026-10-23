@@ -196,6 +196,8 @@ export class App {
             await sleep(interval);
         }
         const outline = await this.outline().catch(() => "(no outline)");
+        const shot = await this.screenshot(`timeout-${this.sandbox.name}-${Date.now()}`).catch(() => null);
+        if (shot) lastError = Object.assign(lastError ?? new Error("condition stayed false"), { message: `${lastError?.message ?? "condition stayed false"}; screenshot: ${shot}` });
         throw new Error(`Timed out after ${timeout} ms waiting for ${what}${lastError ? ` (last error: ${lastError.message})` : ""}\n--- page outline ---\n${outline.slice(0, 6000)}`);
     }
 

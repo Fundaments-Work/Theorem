@@ -234,3 +234,78 @@ jobs:
 
       - name: Clippy (aarch64-linux-android)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --target aarch64-linux-android -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
+
+  e2e:
+    # End-to-end suite (docs/testing-e2e.md): the real app built with
+    # `--features e2e`, driven through tauri-driver + WebKitWebDriver under Xvfb.
+    # Non-blocking while it proves itself on hosted runners; make it blocking
+    # once it has been green for a while.
+    name: E2E (Linux, non-blocking)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    continue-on-error: true
+    env:
+      CARGO_NET_RETRY: 5
+      CARGO_HTTP_TIMEOUT: 120
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # pnpm must be on PATH before setup-node so its built-in pnpm store cache works.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install dependencies (Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev autoconf automake libtool webkit2gtk-driver xvfb dbus
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/tauri-driver
+            src-tauri/target
+          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-e2e-cargo-
+
+      - name: Install tauri-driver
+        run: command -v tauri-driver || cargo install tauri-driver --locked
+
+      - name: Build UI and e2e app
+        run: |
+          bash scripts/sync-foliate-js.sh
+          pnpm exec vite build
+          cargo build --manifest-path src-tauri/Cargo.toml --features e2e
+
+      - name: Run e2e suite
+        env:
+          THEOREM_E2E_DISPLAY: xvfb
+          THEOREM_E2E_ARTIFACTS: ${{ github.workspace }}/e2e/.artifacts
+        run: pnpm e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: e2e/.artifacts
+          if-no-files-found: ignore
