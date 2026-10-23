@@ -54,6 +54,8 @@
         "uninstall:linux": "bash ./scripts/uninstall-linux.sh",
         "test": "vitest run",
         "test:watch": "vitest",
+        "e2e": "node e2e/run.mjs",
+        "e2e:build": "node e2e/run.mjs --build",
         "test:coverage": "vitest run --coverage",
         "preview": "vite preview",
         "tauri": "tauri",
