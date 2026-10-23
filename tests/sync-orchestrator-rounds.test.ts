@@ -299,9 +299,9 @@ describe("merges are serialized and rebased on the live state (C6)", () => {
 
     it("a local edit made while a merge awaits survives it, and a second merge waits its turn", async () => {
         stores.useLibraryStore.setState({ books: [book("b1"), book("b2")] });
-        let releaseAnnotations!: (v: string[]) => void;
+        let releaseAnnotations!: (v: { annotations: unknown[]; corruptIds: string[] }) => void;
         ipc.sqlite_merge_sync_entries = () => report({ updatedBooks: ["b1"], updatedAnnotations: ["a1"] });
-        ipc.sqlite_get_all_annotations = () => new Promise<string[]>((res) => { releaseAnnotations = res; });
+        ipc.sqlite_load_all_annotations = () => new Promise((res) => { releaseAnnotations = res; });
         ipc.docs_get_changed_entries = () => ({ entries: {
             "book:b1": JSON.stringify({ ...book("b1"), title: "Remote title" }),
             "anno:b1:a1": JSON.stringify({ id: "a1", bookId: "b1", type: "highlight", location: "x", createdAt: "2026-01-01" }),
@@ -317,12 +317,12 @@ describe("merges are serialized and rebased on the live state (C6)", () => {
         // The user keeps reading b2 meanwhile.
         lib().updateBook("b2", { progress: 0.6 });
 
-        releaseAnnotations([JSON.stringify({ id: "a1", bookId: "b1", type: "highlight", location: "x", createdAt: "2026-01-01" })]);
+        releaseAnnotations({ annotations: [{ id: "a1", bookId: "b1", type: "highlight", location: "x", createdAt: "2026-01-01" }], corruptIds: [] });
         await first;
         expect(lib().getBook("b2")?.progress).toBe(0.6);
         expect(lib().getBook("b1")?.title).toBe("Remote title");
         expect(lib().annotations.map((a) => a.id)).toEqual(["a1"]);
-        ipc.sqlite_get_all_annotations = () => [];
+        ipc.sqlite_load_all_annotations = () => ({ annotations: [], corruptIds: [] });
         await second;
         expect(lib().getBook("b2")?.progress).toBe(0.6);
     });

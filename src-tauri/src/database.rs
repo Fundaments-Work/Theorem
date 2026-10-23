@@ -1923,6 +1923,7 @@ pub fn sqlite_get_book_annotations(app: AppHandle, book_id: String) -> Result<Ve
     })
 }
 
+#[cfg(test)]
 pub fn sqlite_get_all_annotations_inner(connection: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut stmt =
         connection.prepare("SELECT annotation_json FROM book_annotations ORDER BY updated_at")?;
@@ -1930,8 +1931,76 @@ pub fn sqlite_get_all_annotations_inner(connection: &Connection) -> rusqlite::Re
     rows.collect::<rusqlite::Result<Vec<_>>>()
 }
 
-pub fn sqlite_get_all_annotations(app: AppHandle) -> Result<Vec<String>, String> {
-    with_connection(&app, sqlite_get_all_annotations_inner)
+/// Every stored annotation in one IPC payload. `annotations` is a JSON array
+/// built from the stored rows without re-encoding them, so the webview parses
+/// it once with the rest of the response instead of `JSON.parse` per row.
+/// Rows that are not a JSON object with a non-empty string `id` are left out
+/// and their row ids listed in `corrupt_ids` (never their content).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationsLoad {
+    pub annotations: Box<serde_json::value::RawValue>,
+    pub corrupt_ids: Vec<String>,
+}
+
+/// Only what validation needs: syntax is checked in full while the rest of the
+/// object is skipped, without building a `Value` tree per row.
+#[derive(Deserialize)]
+struct AnnotationIdProbe<'a> {
+    #[serde(borrow)]
+    id: Option<std::borrow::Cow<'a, str>>,
+}
+
+fn is_valid_annotation_json(json: &str) -> bool {
+    matches!(
+        serde_json::from_str::<AnnotationIdProbe<'_>>(json),
+        Ok(AnnotationIdProbe { id: Some(id) }) if !id.is_empty()
+    )
+}
+
+pub fn sqlite_load_all_annotations_inner(
+    connection: &Connection,
+) -> rusqlite::Result<AnnotationsLoad> {
+    let mut stmt = connection
+        .prepare("SELECT id, annotation_json FROM book_annotations ORDER BY updated_at")?;
+    let mut rows = stmt.query([])?;
+    let mut array = String::from("[");
+    let mut corrupt_ids = Vec::new();
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        // A NULL or non-text value is corrupt too, not a reason to fail the load.
+        let json = match row.get_ref(1)? {
+            rusqlite::types::ValueRef::Text(bytes) => std::str::from_utf8(bytes).ok(),
+            _ => None,
+        };
+        match json {
+            Some(json) if is_valid_annotation_json(json) => {
+                if array.len() > 1 {
+                    array.push(',');
+                }
+                array.push_str(json.trim());
+            }
+            _ => corrupt_ids.push(id),
+        }
+    }
+    array.push(']');
+    if !corrupt_ids.is_empty() {
+        log::warn!(
+            "[database] skipped {} unreadable annotation row(s): {}",
+            corrupt_ids.len(),
+            corrupt_ids.join(", ")
+        );
+    }
+    let annotations = serde_json::value::RawValue::from_string(array)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    Ok(AnnotationsLoad {
+        annotations,
+        corrupt_ids,
+    })
+}
+
+pub fn sqlite_load_all_annotations(app: AppHandle) -> Result<AnnotationsLoad, String> {
+    with_connection(&app, sqlite_load_all_annotations_inner)
 }
 
 pub fn sqlite_upsert_annotation_inner(
@@ -5184,6 +5253,86 @@ mod tests {
         let remaining = sqlite_get_all_annotations_inner(&conn).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0], r#"{"id":"a2","text":"two"}"#);
+    }
+
+    #[test]
+    fn load_all_annotations_returns_one_array_and_reports_corrupt_rows() {
+        let conn = setup_db();
+        sqlite_upsert_annotation_inner(&conn, "a1", "b1", r#"{"id":"a1","text":"one \"q\""}"#)
+            .unwrap();
+        sqlite_upsert_annotation_inner(&conn, "bad", "b1", r#"{"id":"bad","text":"secret"#)
+            .unwrap();
+        sqlite_upsert_annotation_inner(&conn, "noid", "b1", r#"{"text":"x"}"#).unwrap();
+        sqlite_upsert_annotation_inner(&conn, "emptyid", "b1", r#"{"id":""}"#).unwrap();
+        sqlite_upsert_annotation_inner(&conn, "arr", "b1", r#"[1,2]"#).unwrap();
+        sqlite_upsert_annotation_inner(&conn, "a2", "b2", " {\"id\":\"a2\",\"n\":[1,{}]}\n")
+            .unwrap();
+        conn.execute(
+            "INSERT INTO book_annotations (id, book_id, annotation_json) VALUES ('blob', 'b1', x'00ff')",
+            [],
+        )
+        .unwrap();
+
+        let load = sqlite_load_all_annotations_inner(&conn).unwrap();
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(load.annotations.get()).unwrap();
+        let ids: Vec<&str> = parsed.iter().map(|a| a["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["a1", "a2"]);
+        assert_eq!(parsed[0]["text"], "one \"q\"");
+        let mut corrupt = load.corrupt_ids.clone();
+        corrupt.sort();
+        assert_eq!(corrupt, ["arr", "bad", "blob", "emptyid", "noid"]);
+
+        // The IPC payload embeds the rows as JSON, not as strings, and never
+        // carries a corrupt row's content.
+        let wire = serde_json::to_string(&load).unwrap();
+        assert!(wire.starts_with(r#"{"annotations":[{"id":"a1""#), "{wire}");
+        assert!(wire.contains(r#""corruptIds":["#));
+        assert!(!wire.contains("secret"));
+    }
+
+    #[test]
+    fn load_all_annotations_handles_an_empty_table() {
+        let conn = setup_db();
+        let load = sqlite_load_all_annotations_inner(&conn).unwrap();
+        assert_eq!(load.annotations.get(), "[]");
+        assert!(load.corrupt_ids.is_empty());
+    }
+
+    /// `cargo test --lib annotations_50k -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn annotations_50k_load_timing() {
+        let conn = setup_db();
+        conn.execute_batch("BEGIN").unwrap();
+        for i in 0..50_000 {
+            let json = format!(
+                r#"{{"id":"ann-{i}","bookId":"b{}","type":"highlight","cfi":"epubcfi(/6/4!/4/2/{i})","text":"{}","color":"yellow","createdAt":"2026-01-01T00:00:00Z"}}"#,
+                i % 200,
+                "lorem ipsum dolor sit amet ".repeat(8)
+            );
+            sqlite_upsert_annotation_inner(&conn, &format!("ann-{i}"), "b1", &json).unwrap();
+        }
+        conn.execute_batch("COMMIT").unwrap();
+        let start = std::time::Instant::now();
+        let old = sqlite_get_all_annotations_inner(&conn).unwrap();
+        let old_wire = serde_json::to_string(&old).unwrap();
+        let old_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let start = std::time::Instant::now();
+        let new = sqlite_load_all_annotations_inner(&conn).unwrap();
+        let new_wire = serde_json::to_string(&new).unwrap();
+        let new_ms = start.elapsed().as_secs_f64() * 1000.0;
+        // Set THEOREM_ANN_BENCH_DIR to keep both payloads for timing the
+        // webview side (one JSON.parse per row before, one per payload now).
+        if let Some(dir) = std::env::var_os("THEOREM_ANN_BENCH_DIR") {
+            let dir = std::path::PathBuf::from(dir);
+            std::fs::write(dir.join("theorem-ann-old.json"), &old_wire).unwrap();
+            std::fs::write(dir.join("theorem-ann-new.json"), &new_wire).unwrap();
+        }
+        println!(
+            "50k annotations: old Vec<String> {old_ms:.1} ms ({} bytes), new validated array {new_ms:.1} ms ({} bytes)",
+            old_wire.len(),
+            new_wire.len()
+        );
     }
 
     #[test]

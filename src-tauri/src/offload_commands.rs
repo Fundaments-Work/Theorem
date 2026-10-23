@@ -313,8 +313,10 @@ pub async fn sqlite_get_book_annotations(
 }
 
 #[tauri::command]
-pub async fn sqlite_get_all_annotations(app: AppHandle) -> Result<Vec<String>, String> {
-    offload(move || crate::database::sqlite_get_all_annotations(app)).await
+pub async fn sqlite_load_all_annotations(
+    app: AppHandle,
+) -> Result<crate::database::AnnotationsLoad, String> {
+    offload(move || crate::database::sqlite_load_all_annotations(app)).await
 }
 
 #[tauri::command]

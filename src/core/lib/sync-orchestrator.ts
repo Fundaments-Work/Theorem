@@ -25,11 +25,11 @@ import {
     mergeReadingStats,
 } from "./sync-import";
 import { isTauri } from "./env";
+import { loadStoredAnnotations } from "./annotation-load";
 import { parseSyncEntityEntry, reportMalformedSyncEntry } from "./sync-entries";
 import {
     sqliteDeleteAnnotation,
     sqliteDeleteVocabularyTerm,
-    sqliteGetAllAnnotations,
     sqliteGetVocabularyTerms,
     sqliteMergeSyncEntries,
     sqliteRegisterMaterializedBook,
@@ -613,28 +613,10 @@ async function mergeIncomingDataLocked(
         try {
             if (nativeReport) {
                 if (nativeReport.updatedAnnotations.length > 0 || nativeReport.deletedAnnotations.length > 0) {
-                    const annStrings = await sqliteGetAllAnnotations();
-                    if (annStrings) {
-                        const parsed = mergeAnnotations(
-                            [],
-                            annStrings.map((s) => {
-                                try {
-                                    const obj = JSON.parse(s);
-                                    return {
-                                        ...obj,
-                                        createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
-                                        updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
-                                    };
-                                } catch {
-                                    return null;
-                                }
-                            }).filter(Boolean) as Annotation[],
-                            allTombstones,
-                        );
-                        applyLibraryPatch({ annotations: parsed });
-                        currentLibState = { ...currentLibState, annotations: parsed };
-                        markUpdated("annotations");
-                    }
+                    const parsed = mergeAnnotations([], await loadStoredAnnotations(), allTombstones);
+                    applyLibraryPatch({ annotations: parsed });
+                    currentLibState = { ...currentLibState, annotations: parsed };
+                    markUpdated("annotations");
                 }
             } else {
                 const domainAnns = safeMap["annotations"]

@@ -258,9 +258,17 @@ export async function sqliteGetBookAnnotations(bookId: string): Promise<string[]
     return invoke('sqlite_get_book_annotations', { bookId }) as Promise<string[]>;
 }
 
-export async function sqliteGetAllAnnotations(): Promise<string[]> {
+/** Every stored annotation, already parsed (one payload, validated in Rust). */
+export interface StoredAnnotationsLoad {
+    /** Raw stored objects: each is a JSON object with a non-empty string `id`. */
+    annotations: Array<Record<string, unknown> & { id: string }>;
+    /** Row ids whose stored JSON could not be read (their content is never sent). */
+    corruptIds: string[];
+}
+
+export async function sqliteLoadAllAnnotations(): Promise<StoredAnnotationsLoad> {
     const invoke = await getInvoke();
-    return invoke('sqlite_get_all_annotations') as Promise<string[]>;
+    return invoke('sqlite_load_all_annotations') as Promise<StoredAnnotationsLoad>;
 }
 
 export async function sqliteUpsertAnnotation(id: string, bookId: string, annotationJson: string): Promise<void> {

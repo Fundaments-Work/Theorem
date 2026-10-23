@@ -1899,7 +1899,7 @@ pub fn run() {
             offload_commands::sqlite_update_book_progress,
             offload_commands::sqlite_save_book_annotations,
             offload_commands::sqlite_get_book_annotations,
-            offload_commands::sqlite_get_all_annotations,
+            offload_commands::sqlite_load_all_annotations,
             offload_commands::sqlite_upsert_annotation,
             offload_commands::sqlite_delete_annotation,
             offload_commands::sqlite_merge_sync_entries,

@@ -38,7 +38,10 @@ vi.mock("../src/core/lib/sqlite-storage", async (importOriginal) => {
             if (sqlite.failAnnotationWrites) throw new Error("database is locked");
             sqlite.annotations.set(id, json);
         },
-        sqliteGetAllAnnotations: async () => [...sqlite.annotations.values()],
+        sqliteLoadAllAnnotations: async () => ({
+            annotations: [...sqlite.annotations.values()].map((json) => JSON.parse(json)),
+            corruptIds: [],
+        }),
         sqliteDeleteBookMetadata: ok,
         sqliteUpdateBookProgress: ok,
         sqliteSaveBookAnnotations: ok,

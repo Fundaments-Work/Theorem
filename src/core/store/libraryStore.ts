@@ -15,7 +15,6 @@ import {
     sqliteLoadAllBooks,
     sqliteUpdateBookProgress,
     sqliteSaveBookAnnotations,
-    sqliteGetAllAnnotations,
     sqliteUpsertAnnotation,
     sqliteDeleteAnnotation,
     sqliteListCoverVersions,
@@ -25,6 +24,7 @@ import {
     sqliteSetKv,
 } from "../lib/sqlite-storage";
 import { isTauri } from "../lib/env";
+import { loadStoredAnnotations } from "../lib/annotation-load";
 import { withMetadataStamp } from "../lib/book-edit-stamp";
 import { writeAllReportingFailures } from "../lib/legacy-sqlite-move";
 
@@ -1797,22 +1797,7 @@ export const useLibraryStore = create<LibraryStore>()(
                     .filter((collection): collection is Collection => Boolean(collection)));
 
                 if (isTauri()) {
-                    void sqliteGetAllAnnotations().then(async (annStrings) => {
-                        const parsed: Annotation[] = [];
-                        for (const s of annStrings ?? []) {
-                            try {
-                                const obj = JSON.parse(s);
-                                if (obj && obj.id) {
-                                    parsed.push({
-                                        ...obj,
-                                        createdAt: obj.createdAt ? new Date(obj.createdAt) : new Date(),
-                                        updatedAt: obj.updatedAt ? new Date(obj.updatedAt) : undefined,
-                                    });
-                                }
-                            } catch {
-                                // Ignore parse errors
-                            }
-                        }
+                    void loadStoredAnnotations().then(async (parsed) => {
                         const legacyAnnotations = await moveMissingLegacyRecords<Annotation>(
                             "annotations",
                             new Set(parsed.map((annotation) => annotation.id)),

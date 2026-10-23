@@ -31,7 +31,7 @@ vi.mock("../src/core/lib/sqlite-storage", async (importOriginal) => {
         sqliteLoadAllBooks: (...args: any[]) => mocks.mockSqliteLoadAllBooks(...args),
         sqliteUpdateBookProgress: (...args: any[]) => mocks.mockSqliteUpdateBookProgress(...args),
         sqliteSaveBookAnnotations: vi.fn().mockResolvedValue(undefined),
-        sqliteGetAllAnnotations: vi.fn().mockResolvedValue([]),
+        sqliteLoadAllAnnotations: vi.fn().mockResolvedValue({ annotations: [], corruptIds: [] }),
         sqliteUpsertAnnotation: vi.fn().mockResolvedValue(undefined),
         sqliteDeleteAnnotation: vi.fn().mockResolvedValue(undefined),
         sqliteListCoverVersions: vi.fn().mockResolvedValue([]),

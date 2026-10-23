@@ -26,7 +26,7 @@ vi.mock("../src/core/lib/sqlite-storage", async (importOriginal) => ({
     sqliteSetKv: vi.fn().mockResolvedValue(undefined),
     sqliteLoadAllBooks: vi.fn().mockResolvedValue([]),
     sqliteListCoverVersions: vi.fn().mockResolvedValue([]),
-    sqliteGetAllAnnotations: vi.fn().mockResolvedValue([]),
+    sqliteLoadAllAnnotations: vi.fn().mockResolvedValue({ annotations: [], corruptIds: [] }),
 }));
 
 import { useLibraryStore } from "../src/core/store/libraryStore";
