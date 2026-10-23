@@ -1091,6 +1091,10 @@ pub struct DbHealth {
     /// Whether `quick_check` ran this start.
     pub checked: bool,
     pub snapshots: Vec<SnapshotInfo>,
+    /// The daily snapshot of a same-version start, left to the background
+    /// maintenance (`take_deferred_snapshot_at`) instead of delaying the window.
+    #[serde(skip)]
+    pub snapshot_deferred: bool,
 }
 
 impl DbHealth {
@@ -1100,6 +1104,7 @@ impl DbHealth {
             message: None,
             checked,
             snapshots: Vec::new(),
+            snapshot_deferred: false,
         }
     }
 }
@@ -1130,6 +1135,15 @@ fn looks_corrupt(message: &str) -> bool {
 }
 
 /// Check, snapshot, then migrate the database at `db_path`.
+///
+/// The check (`quick_check`) always runs before the window when it is due.
+/// The snapshot runs here only when the version changed: it is the rollback
+/// point for this start's migrations, so it must exist before they run. On a
+/// same-version daily check there is nothing for migrations to do, and the
+/// snapshot (0.7–3 s on a large library) is left to the background maintenance
+/// (`snapshot_deferred`, then `take_deferred_snapshot_at`). The check is only
+/// recorded once that snapshot exists, so a start that ends before it checks
+/// again next time.
 pub fn startup_guard_at(
     db_path: &Path,
     app_data_dir: &Path,
@@ -1155,7 +1169,11 @@ pub fn startup_guard_at(
                     quick_check(&conn)?;
                     Ok(conn)
                 });
+            let version_changed = record.last_check_version != version;
             match checked {
+                Ok(_) if !version_changed => {
+                    health.snapshot_deferred = true;
+                }
                 Ok(conn) => {
                     if let Err(e) = take_snapshot(&conn, app_data_dir, version, now_secs) {
                         log::warn!("[db_backup] Automatic snapshot failed: {e}");
@@ -1198,6 +1216,63 @@ pub fn startup_guard_at(
         health.snapshots = list_snapshots(app_data_dir);
     }
     health
+}
+
+/// The snapshot `startup_guard_at` deferred: taken from the background
+/// maintenance thread, after the window is up. Records the check once the
+/// snapshot exists.
+pub fn take_deferred_snapshot_at(
+    db_path: &Path,
+    app_data_dir: &Path,
+    version: &str,
+    now_secs: i64,
+) -> Result<PathBuf, String> {
+    // Its own connection, as the guard's: the online backup copies from it
+    // while the app's pool keeps working.
+    let conn = Connection::open(db_path).map_err(|e| format!("Cannot open database: {e}"))?;
+    let path = take_snapshot(&conn, app_data_dir, version, now_secs)?;
+    write_health_record(
+        app_data_dir,
+        &HealthRecord {
+            last_check_at: now_secs,
+            last_check_version: version.to_string(),
+        },
+    );
+    Ok(path)
+}
+
+/// Take the daily snapshot that the startup guard deferred, if it did and the
+/// database is still healthy. Called by `db_maintenance` on its thread.
+pub fn run_deferred_snapshot(app: &AppHandle) {
+    let due = HEALTH
+        .lock()
+        .ok()
+        .map(|mut slot| match slot.as_mut() {
+            Some(health) if health.snapshot_deferred && health.status == DbStatus::Ok => {
+                health.snapshot_deferred = false;
+                true
+            }
+            _ => false,
+        })
+        .unwrap_or(false);
+    if !due {
+        return;
+    }
+    let dir = match app_data_dir(app) {
+        Ok(dir) => dir,
+        Err(e) => {
+            log::warn!("[db_backup] {e}");
+            return;
+        }
+    };
+    let started = std::time::Instant::now();
+    match take_deferred_snapshot_at(&dir.join(DB_FILE_NAME), &dir, &app_version(app), now_secs()) {
+        Ok(_) => log::info!(
+            "[db_backup] Daily snapshot took {} ms (in the background)",
+            started.elapsed().as_millis()
+        ),
+        Err(e) => log::warn!("[db_backup] Automatic snapshot failed (retried next start): {e}"),
+    }
 }
 
 static HEALTH: Mutex<Option<DbHealth>> = Mutex::new(None);
@@ -1264,7 +1339,12 @@ pub fn run_startup_guard(app: &AppHandle) -> bool {
     );
     if health.checked {
         log::warn!(
-            "[db_backup] Integrity check and snapshot took {} ms",
+            "[db_backup] Integrity check{} took {} ms",
+            if health.snapshot_deferred {
+                " (snapshot deferred)"
+            } else {
+                " and snapshot"
+            },
             started.elapsed().as_millis()
         );
     }
@@ -1386,6 +1466,7 @@ fn finish_restore(app: &AppHandle) -> Option<String> {
                 message: Some(message.clone()),
                 checked: true,
                 snapshots: Vec::new(),
+                snapshot_deferred: false,
             });
             Some(message)
         }

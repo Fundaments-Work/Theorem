@@ -851,6 +851,112 @@ fn guard_checks_snapshots_then_migrates_a_healthy_database() {
 }
 
 #[test]
+fn same_version_daily_check_defers_the_snapshot_until_after_the_window() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = make_device(tmp.path(), 3, "aaa", "s");
+    // Day 1, first start of this version: snapshot before migrations.
+    let health = startup_guard_at(&db, tmp.path(), VERSION, 10_000, || Ok(()));
+    assert!(health.checked);
+    assert!(!health.snapshot_deferred);
+    assert_eq!(list_snapshots(tmp.path()).len(), 1);
+
+    // Day 2, same version: quick_check runs before the window, but nothing
+    // is copied there; migrations run without waiting for a snapshot.
+    let day2 = 10_000 + CHECK_INTERVAL_SECS;
+    let mut migrated = false;
+    let health = startup_guard_at(&db, tmp.path(), VERSION, day2, || {
+        migrated = true;
+        assert_eq!(
+            list_snapshots(tmp.path()).len(),
+            1,
+            "no snapshot before the window"
+        );
+        Ok(())
+    });
+    assert!(migrated);
+    assert_eq!(health.status, DbStatus::Ok);
+    assert!(
+        health.checked,
+        "the integrity check still runs before the window"
+    );
+    assert!(health.snapshot_deferred);
+    assert!(crate::db_maintenance::may_run_after(&health));
+
+    // The background maintenance then takes it and records the check.
+    take_deferred_snapshot_at(&db, tmp.path(), VERSION, day2 + 3).unwrap();
+    let snapshots = list_snapshots(tmp.path());
+    assert_eq!(snapshots.len(), 2);
+    quick_check_file(&snapshot_path(tmp.path(), &snapshots[0].name).unwrap()).unwrap();
+    let health = startup_guard_at(&db, tmp.path(), VERSION, day2 + 60, || Ok(()));
+    assert!(!health.checked, "checked once today");
+    assert!(!health.snapshot_deferred);
+}
+
+#[test]
+fn a_deferred_snapshot_that_never_ran_is_due_again_next_start() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = make_device(tmp.path(), 3, "aaa", "s");
+    startup_guard_at(&db, tmp.path(), VERSION, 10_000, || Ok(()));
+    let day2 = 10_000 + CHECK_INTERVAL_SECS;
+    let health = startup_guard_at(&db, tmp.path(), VERSION, day2, || Ok(()));
+    assert!(health.snapshot_deferred);
+    // The app quit before the maintenance thread got to it.
+    let health = startup_guard_at(&db, tmp.path(), VERSION, day2 + 30, || Ok(()));
+    assert!(health.checked);
+    assert!(health.snapshot_deferred);
+}
+
+#[test]
+fn version_change_keeps_the_snapshot_before_migrations() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = make_device(tmp.path(), 3, "aaa", "s");
+    startup_guard_at(&db, tmp.path(), VERSION, 10_000, || Ok(()));
+    // An upgrade an hour later, well inside the daily interval.
+    let mut migrated = false;
+    let health = startup_guard_at(&db, tmp.path(), "1.6.1", 13_600, || {
+        migrated = true;
+        let snapshots = list_snapshots(tmp.path());
+        assert_eq!(
+            snapshots.len(),
+            2,
+            "rollback point exists before migrations"
+        );
+        assert_eq!(snapshots[0].app_version, "1.6.1");
+        Ok(())
+    });
+    assert!(migrated);
+    assert!(health.checked);
+    assert!(!health.snapshot_deferred, "nothing left for the background");
+}
+
+#[test]
+fn a_corrupt_database_on_a_same_version_start_defers_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = make_device(tmp.path(), 40, "aaa", "s");
+    startup_guard_at(&db, tmp.path(), VERSION, 1_000, || Ok(()));
+    {
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+    }
+    corrupt_middle(&db);
+    let health = startup_guard_at(
+        &db,
+        tmp.path(),
+        VERSION,
+        1_000 + CHECK_INTERVAL_SECS,
+        || Ok(()),
+    );
+    assert_eq!(health.status, DbStatus::Corrupt);
+    assert!(!health.snapshot_deferred);
+    assert_eq!(
+        list_snapshots(tmp.path()).len(),
+        1,
+        "the good snapshot is kept"
+    );
+}
+
+#[test]
 fn guard_on_a_fresh_install_just_migrates() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("theorem.db");

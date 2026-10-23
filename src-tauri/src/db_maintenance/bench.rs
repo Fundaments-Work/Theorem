@@ -319,6 +319,19 @@ fn startup_timing_large_library() {
             timed("everyday start (check not due)", || {
                 setup_db_work(which, &db, &dir, now + 20)
             });
+            // The daily check of a same-version start: only `quick_check`
+            // before the window; the snapshot is left to the maintenance thread.
+            let daily = now + 30 + crate::db_backup::CHECK_INTERVAL_SECS;
+            prime(&dir);
+            let health = timed("daily check, same version", || {
+                setup_db_work(which, &db, &dir, daily)
+            });
+            if health.snapshot_deferred {
+                timed("  deferred snapshot (off the path)", || {
+                    crate::db_backup::take_deferred_snapshot_at(&db, &dir, "1.6.0-bench", daily + 3)
+                        .unwrap()
+                });
+            }
             std::fs::remove_dir_all(&dir).ok();
         }
     }

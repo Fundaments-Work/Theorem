@@ -244,6 +244,8 @@ pub fn spawn_startup_maintenance(app: &tauri::AppHandle) {
         .name("db-maintenance".into())
         .spawn(move || {
             std::thread::sleep(START_DELAY);
+            // First, so the daily rollback point predates this start's repairs.
+            crate::db_backup::run_deferred_snapshot(&app);
             let dir = match app.path().app_data_dir() {
                 Ok(dir) => dir,
                 Err(e) => {

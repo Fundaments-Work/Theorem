@@ -69,7 +69,7 @@ All connections go through `with_connection(app, |conn| operation(conn))` which 
 `lib.rs` setup calls `db_backup::run_startup_guard` instead of calling `run_schema_migrations` directly:
 
 1. If a check is due — the app version changed since the last check (the only time migrations have work to do), the last check is 24 h old, or the clock moved backwards — run `PRAGMA quick_check`.
-2. If it passes, copy the database with the backup API to `db-snapshots/theorem-<unix-seconds>-v<version>.db` (a single file in rollback-journal mode) and keep only the two newest. A damaged database never replaces a good snapshot.
+2. If it passes, copy the database with the backup API to `db-snapshots/theorem-<unix-seconds>-v<version>.db` (a single file in rollback-journal mode) and keep only the two newest. A damaged database never replaces a good snapshot. When the version changed, the copy is made here, before migrations: it is their rollback point. On a same-version daily check there is nothing to migrate, so the copy is left to the background maintenance (`snapshot_deferred` on the health, taken by `run_deferred_snapshot` as the maintenance thread's first step), and the check is recorded in `db-health.json` only once the copy exists; a start that ends sooner checks again next time.
 3. Run the startup migrations. A damaged database is not migrated, and the deferred maintenance below never runs on it.
 4. The outcome is kept as the database health: `ok`, `corrupt` or `migration_failed`, with the message and the snapshots on offer. `db-health.json` records when the last check passed and for which version.
 
@@ -101,6 +101,8 @@ Every step is logged and skipped on failure (it runs again next start); nothing 
 | First start after upgrading (check + snapshot due, everything to migrate) | 9,618 / 10,269 ms | 2,885 / 1,253 ms |
 | New version, nothing to migrate (check + snapshot due) | 4,331 / 932 ms | 4,013 / 1,314 ms |
 | Everyday start (no check due) | 386 / 127 ms | 4.4 / 1.1 ms |
+
+Since the daily snapshot moved off the path, a same-version daily check costs only `quick_check` before the window (same benchmark, rerun with the "daily check, same version" row; debug build): 4,053 → 3,150 ms cold and 1,078 → 321 ms warm, with the snapshot (834 / 861 ms) taken by the maintenance thread instead. On a version change the snapshot stays before migrations.
 
 The background pass took 9–10 s on the upgrade start (mostly the cover conversion) and the deferred `VACUUM` 3.6–4.0 s. What remains on the path when a check is due is the guard itself: `quick_check` (~160 ms here) and above all the snapshot (0.7 s warm, up to ~3 s cold for 406 MB).
 
