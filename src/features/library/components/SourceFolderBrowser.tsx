@@ -1,4 +1,4 @@
-import type { buildSourceFolderIndex, SourceFolderSelection } from "../../../core/lib/source-folders";
+import { sourceFolderRootOptions, type buildSourceFolderIndex, type SourceFolderSelection } from "../../../core/lib/source-folders";
 
 export function SourceFolderBrowser({ index, selected, onSelect }: {
     index: ReturnType<typeof buildSourceFolderIndex>;
@@ -18,7 +18,7 @@ export function SourceFolderBrowser({ index, selected, onSelect }: {
                 <select className="ui-input min-w-0 flex-1" value={selected?.root ?? ""}
                     onChange={(event) => onSelect(event.target.value ? { root: event.target.value, path: "" } : null)}>
                     <option value="">All library books</option>
-                    {[...index].map(([key, value]) => <option key={key} value={key}>{value.name} — {key}</option>)}
+                    {sourceFolderRootOptions(index).map(({ root: key, label }) => <option key={key} value={key}>{label}</option>)}
                 </select>
             </label>
             {root && selected && <>

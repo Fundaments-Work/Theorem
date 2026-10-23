@@ -95,3 +95,54 @@ export function buildSourceFolderIndex(books: Book[]) {
     }
     return roots;
 }
+
+const CONTENT_URI = /^content:\/\//i;
+
+/**
+ * The readable location inside an Android tree URI
+ * (`…/tree/primary%3ABooks%2FScan` → `Books/Scan`, `…/tree/1A2B-3C4D%3AScan`
+ * → `1A2B-3C4D: Scan`), or null when it cannot be decoded.
+ */
+function androidTreeLocation(uri: string): string | null {
+    const match = /\/tree\/([^/?#]+)/.exec(uri);
+    if (!match) return null;
+    let documentId: string;
+    try {
+        documentId = decodeURIComponent(match[1]);
+    } catch {
+        return null;
+    }
+    const colon = documentId.indexOf(":");
+    if (colon < 0) return documentId || null;
+    const volume = documentId.slice(0, colon);
+    const path = documentId.slice(colon + 1);
+    if (volume === "primary") return path || "Internal storage";
+    return path ? `${volume}: ${path}` : volume;
+}
+
+/**
+ * What the source-folder picker shows for a scanned root. An Android folder is
+ * keyed by its content URI, which means nothing to a person: it is shown by
+ * its name, with its readable location only when another root has the same
+ * name. A desktop folder keeps its path, which is readable.
+ */
+export function sourceFolderRootLabel(root: string, name: string, duplicateName: boolean): string {
+    if (CONTENT_URI.test(root)) {
+        const location = androidTreeLocation(root);
+        // Records without a name fell back to the root URI itself.
+        const readableName = name && !CONTENT_URI.test(name) ? name : "";
+        if (!readableName) return location ?? "Folder";
+        return duplicateName && location ? `${readableName} (${location})` : readableName;
+    }
+    return name && name !== root ? `${name} — ${root}` : root;
+}
+
+/** Picker entries for every root in the index, keyed by the stable root. */
+export function sourceFolderRootOptions(index: ReturnType<typeof buildSourceFolderIndex>): { root: string; label: string }[] {
+    const nameCounts = new Map<string, number>();
+    for (const { name } of index.values()) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+    return [...index].map(([root, { name }]) => ({
+        root,
+        label: sourceFolderRootLabel(root, name, (nameCounts.get(name) ?? 0) > 1),
+    }));
+}

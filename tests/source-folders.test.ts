@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Book } from "../src/core/types";
 import { useLibraryStore } from "../src/core/store";
-import { attachSourceFolder, buildSourceFolderIndex, normalizeSourceFolders, validRelativeBookPath } from "../src/core/lib/source-folders";
+import { attachSourceFolder, buildSourceFolderIndex, normalizeSourceFolders, sourceFolderRootLabel, sourceFolderRootOptions, validRelativeBookPath } from "../src/core/lib/source-folders";
 import { getFilteredAndSortedBooks } from "../src/features/library/filtering";
 
 function book(id: string, overrides: Partial<Book> = {}): Book {
@@ -89,4 +89,40 @@ describe("source folder browsing", () => {
         expect(getFilteredAndSortedBooks(options)).toHaveLength(5);
     });
     it("handles an empty library", () => expect(buildSourceFolderIndex([]).size).toBe(0));
+});
+
+describe("source folder labels", () => {
+    const uri = "content://com.android.externalstorage.documents/tree/primary%3ABooks%2FTheoremScan";
+
+    it("shows an Android folder by its name, never the raw content URI", () => {
+        const index = buildSourceFolderIndex([book("a", { sourceFolders: [{ root: uri, name: "TheoremScan", relativePath: "a.epub" }] })]);
+        const options = sourceFolderRootOptions(index);
+        expect(options).toEqual([{ root: uri, label: "TheoremScan" }]);
+        expect(options[0].label).not.toContain("content://");
+    });
+
+    it("tells two Android folders with the same name apart by their readable location", () => {
+        const other = "content://com.android.externalstorage.documents/tree/1A2B-3C4D%3ATheoremScan";
+        const index = buildSourceFolderIndex([
+            book("a", { sourceFolders: [{ root: uri, name: "TheoremScan", relativePath: "a.epub" }] }),
+            book("b", { sourceFolders: [{ root: other, name: "TheoremScan", relativePath: "b.epub" }] }),
+        ]);
+        const labels = sourceFolderRootOptions(index).map((option) => option.label);
+        expect(labels).toEqual(["TheoremScan (Books/TheoremScan)", "TheoremScan (1A2B-3C4D: TheoremScan)"]);
+        expect(labels.join()).not.toContain("content://");
+    });
+
+    it("keeps the URI as the key and falls back to the name for an undecodable URI", () => {
+        expect(sourceFolderRootLabel("content://x/tree/%E0%A4%A", "Books", false)).toBe("Books");
+        expect(sourceFolderRootLabel("content://x/tree/%E0%A4%A", "Books", true)).toBe("Books");
+        expect(sourceFolderRootLabel("content://x/no-tree", "", false)).toBe("Folder");
+        // A legacy record whose name fell back to the root URI.
+        expect(sourceFolderRootLabel(uri, uri, false)).toBe("Books/TheoremScan");
+        expect(sourceFolderRootLabel(uri, "", false)).toBe("Books/TheoremScan");
+    });
+
+    it("shows a desktop folder with its path", () => {
+        expect(sourceFolderRootLabel("/home/me/Books", "Books", false)).toBe("Books — /home/me/Books");
+        expect(sourceFolderRootLabel("C:/Books", "C:/Books", false)).toBe("C:/Books");
+    });
 });

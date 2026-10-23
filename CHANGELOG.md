@@ -135,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Android source folders show their name** — The Source folders list showed an Android folder as its raw `content://` address. It now shows the folder's name, and where it is only when two folders share a name.
 - **Browser build keeps libraries over 5 MB** — The browser build saved its library, feeds and settings in localStorage, whose ~5 MB limit a dozen books already exceed; saving then stopped without a word and the books were gone after a reload. Stores now live in IndexedDB (existing data moves over on first start), and a save that still fails shows a notice instead of failing silently.
 - **Highlights in feed articles are saved** — The database enforces that a highlight belongs to a stored book, and an article is not one, so highlights and notes made in an RSS article were refused when saved and gone after a restart. They are now stored, and Storage cleanup no longer treats them as leftovers of a deleted book.
 - **Browser build: feed unread counts after a reload** — The browser build keeps only recent articles, but saved each feed's unread count from before that cut, so a feed with years of items showed 100 unread above a handful of articles. Counts are now taken from the saved articles.

@@ -40,7 +40,7 @@ Both options search subfolders and leave your original files where they are. If 
 
 After a folder import with Preserve folder structure, a Source folders strip appears above the books.
 
-1. Click a folder to show its books. The view includes everything in its subfolders.
+1. Click a folder to show its books. The view includes everything in its subfolders. Folders are listed by name; on Android, two folders with the same name also show where they are (for example `TheoremScan (Books/TheoremScan)`).
 2. Click a subfolder, or use the breadcrumbs, to move up and down the tree.
 3. Click All library books to leave folder browsing.
 
