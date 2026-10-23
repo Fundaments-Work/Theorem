@@ -123,6 +123,11 @@ contain it.
   resuming, `handleLocationChange` in `src/features/reader/Reader.tsx` resets
   progress (`updateProgress(bookId, 0, '')`) when the first relocation is not at
   the saved CFI. Remove `todo` once that is fixed.
+- Opening a book seconds after importing it: the first click on the book
+  occasionally does nothing (seen in 2 of about 12 runs). `openBook` in
+  `e2e/lib/flows.mjs` clicks a second time and prints
+  `[e2e] first click on "…" did not open the reader`; worth a look in the
+  library grid (the card may be re-rendered while its metadata and cover land).
 
 ## CI
 

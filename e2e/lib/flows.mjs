@@ -40,8 +40,16 @@ export async function readerPage(app) {
 }
 
 export async function openBook(app, title) {
+    const reader = { role: "main", name: "Reader" };
     await app.click(bookButton(title));
-    await app.find({ role: "main", name: "Reader" }, { timeout: 20000 });
+    // Observed in 1.6.0: a click on a book seconds after it was imported is
+    // occasionally ignored (no reader, no error). Click once more, loudly, so
+    // the flow under test continues; see docs/testing-e2e.md "Known failures".
+    if (!(await app.find(reader, { timeout: 6000 }).catch(() => null))) {
+        console.warn(`[e2e] first click on "${title}" did not open the reader; clicking again`);
+        await app.click(bookButton(title));
+        await app.find(reader, { timeout: 20000 });
+    }
     return app.waitFor(() => readerPage(app), { timeout: 20000, what: "page counter" });
 }
 
