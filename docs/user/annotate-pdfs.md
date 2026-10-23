@@ -2,7 +2,7 @@
 
 Highlight text, draw with a pen and add notes on PDFs in Theorem; this page shows which tools work on which platform and what reaches your Markdown export.
 
-This page describes Theorem version 1.5.9, the newest release (published as a beta, or pre-release, on GitHub). PDFs open in their own reader with an annotation toolbar. You can highlight text, draw freehand, place text notes on a page, and erase marks. Everything is stored on your device.
+This page describes Theorem 1.6.0. PDFs open in their own reader with an annotation toolbar. You can highlight text, draw freehand, place text notes on a page, and erase marks. Everything is stored on your device.
 
 ## How do I highlight text in a PDF?
 
@@ -25,7 +25,7 @@ PDF highlights are kept per page and are not merged when they overlap, unlike hi
 2. Drag on the page to draw. Release to finish the stroke.
 3. Choose the tool again, or close the tools, to stop drawing.
 
-In version 1.5.9 the pen has a fixed width and draws in blue. The colour swatches shown in pen mode change the Highlight colour, not the pen colour. A stroke is saved as soon as you lift the pointer. Strokes that are too short to be a line are discarded.
+The pen has a fixed width and draws in blue until you pick another colour. In pen mode the colour swatches set the pen colour; the Highlight tool keeps its own colour. A stroke is saved as soon as you lift the pointer. Strokes that are too short to be a line are discarded.
 
 ## How do I add a note to a PDF?
 

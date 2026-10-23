@@ -24,8 +24,6 @@ CBR comics are handled inside Theorem. You do not need to install a separate RAR
 
 ## Import a folder
 
-> **New in Theorem 1.6.0, not released yet.** The Preserve folder structure option and the Source folders strip described here are in version 1.6.0. The latest release, 1.5.9, does not have them.
-
 Use folder import to bring in a whole collection, including its subfolders. The Scan button appears in the desktop and Android apps, not in the browser demo.
 
 1. On the Library page, click Scan.
@@ -89,8 +87,6 @@ When a shelf, Favorites or Unshelved filter is active, the page title changes an
 Click the view button next to Select to cycle through grid, list and compact layouts. Theorem remembers your choice.
 
 ## Select many books
-
-> **New in Theorem 1.6.0, not released yet.** The selection bar and the Select all behaviour described here are the redesigned version in 1.6.0. The latest release, 1.5.9, selects differently.
 
 1. Click Select in the toolbar. A selection bar appears.
 2. Click books to select them. Clicking a selected book clears it.

@@ -107,8 +107,6 @@ To mark up a PDF, see [Highlights and notes](highlights-and-notes.md#mark-up-a-p
 
 ## Read a comic
 
-> **New in Theorem 1.6.0, not released yet.** Scroll mode, the continuous vertical strip, is in version 1.6.0. In the latest release, 1.5.9, comics are read page by page.
-
 CBZ and CBR comics open in the same reader.
 
 1. Open the comic from the Library. Pages are shown one at a time by default.

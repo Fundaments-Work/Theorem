@@ -2,7 +2,7 @@
 
 Theorem opens DRM-free EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ and CBR files plus RSS feeds; this page shows what works in each format and on each platform.
 
-This page describes Theorem version 1.5.9, the newest release (published as a beta, or pre-release, on GitHub). It lists exactly which files Theorem imports, what you can do in each format, and where the desktop and Android apps differ.
+This page describes Theorem 1.6.0. It lists exactly which files Theorem imports, what you can do in each format, and where the desktop and Android apps differ.
 
 ## Which file types does Theorem open?
 
@@ -84,7 +84,7 @@ The formats are the same on Linux, macOS, Windows and Android. The differences a
 
 Only highlights and notes are written to your Markdown folder, one file per book. Bookmarks are not. The export runs in the desktop apps. See [Markdown export](vault-sync.md).
 
-Caution for PDFs: from the source of version 1.5.9, a pen stroke is stored as a note whose selected text is the placeholder "Freehand annotation" and which has no note text. The exporter writes every highlight and note, so a stroke is written as one quoted line with that text and no drawing. A PDF text note has its text stored as both the quoted text and the note, so it is written twice. Check your first export if you use the pen and text tools. Details are in [annotate PDFs](annotate-pdfs.md#what-is-exported-to-markdown).
+Caution for PDFs: a pen stroke is stored as a note whose selected text is the placeholder "Freehand annotation" and which has no note text. The exporter writes every highlight and note, so a stroke is written as one quoted line with that text and no drawing. A PDF text note has its text stored as both the quoted text and the note, so it is written twice. Check your first export if you use the pen and text tools. Details are in [annotate PDFs](annotate-pdfs.md#what-is-exported-to-markdown).
 
 ## Is there anything else I should know about importing?
 

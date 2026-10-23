@@ -71,7 +71,7 @@ PDFs have a tool palette in addition to text highlights.
    - **Pen** draws freehand lines.
    - **Text** adds a note on the page. The button tooltip reads Add note.
    - **Eraser** removes marks.
-3. Pick a color swatch. In the latest release, 1.5.9, the swatches change only the highlight color: pen strokes and text notes are always blue and the pen width is fixed. Version 1.6.0, not released yet, lets the highlight tool and the pen remember their own colors.
+3. Pick a color swatch. The highlight tool and the pen each remember their own color: in pen mode the swatches set the pen color, otherwise the highlight color. The pen width is fixed.
 4. Click the tools button again (Close annotation tools) to leave drawing mode.
 
 EPUB and other reflowable books support highlights and notes but not drawing.
