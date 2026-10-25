@@ -387,10 +387,16 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
             use futures::StreamExt;
             let mut pending: std::collections::HashMap<iroh_blobs::Hash, String> =
                 std::collections::HashMap::new();
+            let mut activity = SyncActivity::default();
 
             while let Some(event) = stream.next().await {
                 match event {
-                    Ok(LiveEvent::InsertRemote { entry, .. }) => {
+                    Ok(LiveEvent::InsertRemote {
+                        entry,
+                        from,
+                        content_status,
+                    }) => {
+                        activity.note(&app, from);
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
                         if hash == iroh_blobs::Hash::EMPTY {
@@ -408,13 +414,21 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         }
                         // Content already here: deliver it now. Otherwise wait for
                         // ContentReady (delivering on both would send it twice).
-                        match blobs.blobs().get_bytes(hash).await {
-                            Ok(content) => {
+                        // Most entries of an exchange arrive before their
+                        // content: those are not looked up.
+                        let content = match content_status {
+                            iroh_docs::ContentStatus::Complete => {
+                                blobs.blobs().get_bytes(hash).await.ok()
+                            }
+                            _ => None,
+                        };
+                        match content {
+                            Some(content) => {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
                                     batcher.push(key, value);
                                 }
                             }
-                            Err(_) => {
+                            None => {
                                 pending.insert(hash, key);
                             }
                         }
@@ -568,6 +582,32 @@ async fn newest_is_deletion(doc: &iroh_docs::api::Doc, key: &str) -> bool {
         .await,
         Ok(Some(entry)) if entry.content_hash() == iroh_blobs::Hash::EMPTY
     )
+}
+
+/// Tells the app, at most every 2 s per doc, that entries are arriving from
+/// a peer (`docs-sync-activity` `{ peer }`): a round keeps waiting for an
+/// exchange that is still bringing entries (a large library's first one
+/// takes minutes) instead of calling the peer offline after 30 s.
+#[derive(Default)]
+struct SyncActivity {
+    last: Option<(PublicKey, std::time::Instant)>,
+}
+
+impl SyncActivity {
+    const EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+
+    fn note<R: tauri::Runtime>(&mut self, app: &tauri::AppHandle<R>, peer: PublicKey) {
+        if let Some((last_peer, at)) = self.last {
+            if last_peer == peer && at.elapsed() < Self::EVERY {
+                return;
+            }
+        }
+        self.last = Some((peer, std::time::Instant::now()));
+        let _ = app.emit(
+            "docs-sync-activity",
+            serde_json::json!({ "peer": peer.to_string() }),
+        );
+    }
 }
 
 /// Whether a finished iroh-docs exchange actually synced, and its counts.

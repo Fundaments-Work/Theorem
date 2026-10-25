@@ -976,8 +976,15 @@ export async function ensureResponderSyncReady(): Promise<void> {
 
 let _lastSyncPeerId: string | undefined;
 
-/** How long a round waits for the peer's own `docs-sync-finished` before calling it unreachable. */
+/**
+ * How long a round waits for the peer's own `docs-sync-finished` before
+ * calling it unreachable, counted from the last entry that arrived from that
+ * peer (`docs-sync-activity`): a first exchange of a large library takes
+ * minutes, and is not an offline peer.
+ */
 const PEER_SYNC_WAIT_MS = 30_000;
+/** However busy the exchange, a round waits at most this long. */
+const PEER_SYNC_MAX_WAIT_MS = 20 * 60_000;
 /** Once the peer's sync finished, how long to wait for its content downloads to settle. */
 const CONTENT_SETTLE_GRACE_MS = 5_000;
 
@@ -1074,6 +1081,34 @@ async function runDeviceSyncRound(
 
         let contentReadyUnlisten: (() => void) | null = null;
         let syncFinishedUnlisten: (() => void) | null = null;
+        let activityUnlisten: (() => void) | null = null;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        let waitStartedAt = 0;
+        const waitForPeer = () => {
+            if (timeoutId) clearTimeout(timeoutId);
+            const left = waitStartedAt + PEER_SYNC_MAX_WAIT_MS - Date.now();
+            if (left <= 0) {
+                settle();
+                return;
+            }
+            timeoutId = setTimeout(() => void waitOver(), Math.min(PEER_SYNC_WAIT_MS, left));
+        };
+        // No sync-finished yet. The side sending a large library sees no
+        // entries arrive, so ask the peer: while it answers, the exchange is
+        // still going; when it does not, it is offline.
+        const waitOver = async () => {
+            if (settled) return;
+            let reachable = false;
+            try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                reachable = (await invoke<boolean>("sync_probe_device", { peerDeviceId })) === true;
+            } catch {
+                reachable = false;
+            }
+            if (settled) return;
+            if (reachable) waitForPeer();
+            else settle();
+        };
         // Set only by this peer's sync-finished event: the peer was reached.
         let _syncActivityDetected = false;
         let contentSignalled = false;
@@ -1092,6 +1127,11 @@ async function runDeviceSyncRound(
 
         try {
             const { listen: evListen } = await import("@tauri-apps/api/event");
+            activityUnlisten = await evListen<{ peer?: string }>("docs-sync-activity", (event) => {
+                // Entries are still arriving from this peer: keep waiting.
+                if (settled || !timeoutId || !peerNodeId || event.payload?.peer !== peerNodeId) return;
+                waitForPeer();
+            });
             contentReadyUnlisten = await evListen("docs-pending-content-ready", () => {
                 debug(`[sync] Received docs-pending-content-ready`);
                 if (_syncActivityDetected && !contentSignalled) {
@@ -1121,8 +1161,10 @@ async function runDeviceSyncRound(
 
         const stopWaiting = () => {
             if (graceTimer) clearTimeout(graceTimer);
+            if (timeoutId) clearTimeout(timeoutId);
             contentReadyUnlisten?.();
             syncFinishedUnlisten?.();
+            activityUnlisten?.();
         };
 
         const docsSyncError = await docsSyncNow(peerDeviceId);
@@ -1137,10 +1179,10 @@ async function runDeviceSyncRound(
             return { success: false, domainsUpdated: [], error: errorMsg };
         }
 
-        const timeoutId = setTimeout(settle, PEER_SYNC_WAIT_MS);
+        waitStartedAt = Date.now();
+        waitForPeer();
 
         await syncPromise;
-        clearTimeout(timeoutId);
         stopWaiting();
 
         const changedDomains = new Set<string>();
