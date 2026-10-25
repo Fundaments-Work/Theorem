@@ -107,18 +107,18 @@ pub fn sqlite_delete_vocabulary_term_inner(
     Ok(())
 }
 
-pub fn sqlite_get_vocabulary_terms(app: AppHandle) -> Result<Vec<SqliteVocabularyTerm>, String> {
+pub fn sqlite_get_vocabulary_terms(app: AppHandle) -> Result<Vec<SqliteVocabularyTerm>, AppError> {
     with_connection(&app, sqlite_get_vocabulary_terms_inner)
 }
 
 pub fn sqlite_save_vocabulary_term(
     app: AppHandle,
     term: SqliteVocabularyTerm,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| sqlite_save_vocabulary_term_inner(conn, &term))
 }
 
-pub fn sqlite_delete_vocabulary_term(app: AppHandle, term_id: String) -> Result<(), String> {
+pub fn sqlite_delete_vocabulary_term(app: AppHandle, term_id: String) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_delete_vocabulary_term_inner(conn, &term_id)
     })

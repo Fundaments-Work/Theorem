@@ -107,9 +107,9 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
         }),
     };
     let Some(entry) = entry else {
-        return output.error(&format!(
+        return output.error(AppError::not_found(format!(
             "entry '{entry_selector}' not found among the catalog's books"
-        ));
+        )));
     };
     let Some(acquisition) = entry.primary.and_then(|i| entry.acquisitions.get(i)) else {
         return output.error(&format!(

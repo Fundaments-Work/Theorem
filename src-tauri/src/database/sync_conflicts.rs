@@ -169,7 +169,7 @@ pub fn sqlite_list_sync_conflicts_inner(
     rows.collect()
 }
 
-pub fn sqlite_list_sync_conflicts(app: AppHandle) -> Result<Vec<SyncConflictRecord>, String> {
+pub fn sqlite_list_sync_conflicts(app: AppHandle) -> Result<Vec<SyncConflictRecord>, AppError> {
     with_connection(&app, sqlite_list_sync_conflicts_inner)
 }
 
@@ -192,7 +192,7 @@ pub fn sqlite_dismiss_sync_conflicts_inner(
     Ok(n)
 }
 
-pub fn sqlite_dismiss_sync_conflicts(app: AppHandle, ids: Vec<String>) -> Result<usize, String> {
+pub fn sqlite_dismiss_sync_conflicts(app: AppHandle, ids: Vec<String>) -> Result<usize, AppError> {
     with_connection(&app, |c| sqlite_dismiss_sync_conflicts_inner(c, &ids))
 }
 

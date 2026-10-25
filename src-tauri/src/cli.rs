@@ -22,6 +22,7 @@ use std::future::Future;
 use std::io::{IsTerminal, Seek, SeekFrom, Write as _};
 use std::path::PathBuf;
 
+use crate::error::{AppError, ErrorKind};
 use rusqlite::OptionalExtension;
 
 use clap::{Parser, Subcommand};
@@ -438,7 +439,7 @@ impl Ctx {
         self.store.dir()
     }
 
-    fn kv_get(&self, key: &str) -> Result<Option<String>, String> {
+    fn kv_get(&self, key: &str) -> Result<Option<String>, AppError> {
         self.store
             .with_connection(|conn| crate::database::sqlite_get_kv_inner(conn, key))
     }

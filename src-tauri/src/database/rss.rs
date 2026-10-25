@@ -66,7 +66,7 @@ pub fn sqlite_get_rss_feeds_inner(connection: &Connection) -> rusqlite::Result<V
     rows.collect()
 }
 
-pub fn sqlite_get_rss_feeds(app: AppHandle) -> Result<Vec<RssFeedDto>, String> {
+pub fn sqlite_get_rss_feeds(app: AppHandle) -> Result<Vec<RssFeedDto>, AppError> {
     with_connection(&app, sqlite_get_rss_feeds_inner)
 }
 
@@ -107,7 +107,7 @@ pub fn sqlite_save_rss_feed_inner(
     Ok(())
 }
 
-pub fn sqlite_save_rss_feed(app: AppHandle, feed: RssFeedDto) -> Result<(), String> {
+pub fn sqlite_save_rss_feed(app: AppHandle, feed: RssFeedDto) -> Result<(), AppError> {
     with_connection(&app, |conn| sqlite_save_rss_feed_inner(conn, &feed))
 }
 
@@ -128,7 +128,7 @@ pub fn sqlite_delete_rss_feed_inner(
     tx.commit()
 }
 
-pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), String> {
+pub fn sqlite_delete_rss_feed(app: AppHandle, feed_id: String) -> Result<(), AppError> {
     with_connection(&app, |conn| sqlite_delete_rss_feed_inner(conn, &feed_id))
 }
 
@@ -191,7 +191,7 @@ pub fn sqlite_get_rss_articles(
     feed_id: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<Vec<RssArticleDto>, String> {
+) -> Result<Vec<RssArticleDto>, AppError> {
     with_connection(&app, |conn| {
         sqlite_get_rss_articles_inner(conn, feed_id.as_deref(), limit, offset)
     })
@@ -217,7 +217,7 @@ pub fn sqlite_get_rss_article_inner(
 pub fn sqlite_get_rss_article(
     app: AppHandle,
     article_id: String,
-) -> Result<Option<RssArticleDto>, String> {
+) -> Result<Option<RssArticleDto>, AppError> {
     with_connection(&app, |conn| sqlite_get_rss_article_inner(conn, &article_id))
 }
 
@@ -241,7 +241,7 @@ pub fn sqlite_get_rss_article_content_inner(
 pub fn sqlite_get_rss_article_content(
     app: AppHandle,
     article_id: String,
-) -> Result<Option<RssArticleContentDto>, String> {
+) -> Result<Option<RssArticleContentDto>, AppError> {
     with_connection(&app, |conn| {
         sqlite_get_rss_article_content_inner(conn, &article_id)
     })
@@ -316,7 +316,7 @@ pub fn sqlite_save_rss_article(
     article: RssArticleDto,
     content: Option<String>,
     full_content: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_save_rss_article_inner(conn, &article, content.as_deref(), full_content.as_deref())
     })
@@ -338,7 +338,7 @@ pub fn sqlite_mark_article_read(
     app: AppHandle,
     article_id: String,
     is_read: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_mark_article_read_inner(conn, &article_id, is_read)
     })
@@ -360,7 +360,7 @@ pub fn sqlite_mark_article_favorite(
     app: AppHandle,
     article_id: String,
     is_favorite: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_mark_article_favorite_inner(conn, &article_id, is_favorite)
     })
@@ -383,7 +383,7 @@ pub fn sqlite_delete_rss_article_inner(
     tx.commit()
 }
 
-pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), String> {
+pub fn sqlite_delete_rss_article(app: AppHandle, article_id: String) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_delete_rss_article_inner(conn, &article_id)
     })
@@ -405,7 +405,7 @@ pub fn sqlite_mark_article_saved(
     app: AppHandle,
     article_id: String,
     is_saved: bool,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_mark_article_saved_inner(conn, &article_id, is_saved)
     })
@@ -419,7 +419,7 @@ pub fn sqlite_cleanup_old_rss_articles(
     app: AppHandle,
     retention_days: u32,
     keep_unread: bool,
-) -> Result<u32, String> {
+) -> Result<u32, AppError> {
     let now_ms = chrono::Utc::now().timestamp_millis();
     with_connection(&app, |conn| {
         sqlite_cleanup_old_rss_articles_inner(conn, retention_days, keep_unread, now_ms)

@@ -85,15 +85,15 @@ fn update_kv_envelope<T>(
     key: &str,
     store: &str,
     empty: fn() -> serde_json::Value,
-    f: impl FnOnce(&rusqlite::Connection, &mut serde_json::Value) -> Result<T, String>,
-) -> Result<T, String> {
+    f: impl FnOnce(&rusqlite::Connection, &mut serde_json::Value) -> Result<T, AppError>,
+) -> Result<T, AppError> {
     ctx.store.with_connection(|conn| {
         let tx =
             rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
         let mut envelope = match crate::database::sqlite_get_kv_inner(&tx, key)? {
             Some(text) => match serde_json::from_str::<serde_json::Value>(&text) {
                 Ok(value) => value,
-                Err(e) => return Ok(Err(format!("{store} is malformed: {e}"))),
+                Err(e) => return Ok(Err(format!("{store} is malformed: {e}").into())),
             },
             None => empty(),
         };
@@ -103,7 +103,7 @@ fn update_kv_envelope<T>(
         };
         let text = match serde_json::to_string(&envelope) {
             Ok(text) => text,
-            Err(e) => return Ok(Err(format!("Failed to serialize {store}: {e}"))),
+            Err(e) => return Ok(Err(format!("Failed to serialize {store}: {e}").into())),
         };
         crate::database::sqlite_set_kv_inner(&tx, key, &text)?;
         tx.commit()?;
@@ -113,8 +113,8 @@ fn update_kv_envelope<T>(
 
 pub(super) fn update_library_kv<T>(
     ctx: &Ctx,
-    f: impl FnOnce(&rusqlite::Connection, &mut serde_json::Value) -> Result<T, String>,
-) -> Result<T, String> {
+    f: impl FnOnce(&rusqlite::Connection, &mut serde_json::Value) -> Result<T, AppError>,
+) -> Result<T, AppError> {
     update_kv_envelope(
         ctx,
         LIBRARY_KV_KEY,
@@ -185,8 +185,8 @@ pub(super) fn load_book(ctx: &Ctx, book_id: &str) -> Result<Option<serde_json::V
     }
 }
 
-pub(super) fn book_not_found(book_id: &str) -> String {
-    format!("book '{book_id}' not found in library")
+pub(super) fn book_not_found(book_id: &str) -> AppError {
+    AppError::not_found(format!("book '{book_id}' not found in library"))
 }
 
 /// The details a user edits; sync treats them as one unit
@@ -233,8 +233,8 @@ fn stamp_metadata_edit(before: &serde_json::Value, after: &mut serde_json::Value
 pub(super) fn update_book<T>(
     ctx: &Ctx,
     book_id: &str,
-    f: impl FnOnce(&mut serde_json::Value) -> Result<T, String>,
-) -> Result<T, String> {
+    f: impl FnOnce(&mut serde_json::Value) -> Result<T, AppError>,
+) -> Result<T, AppError> {
     ctx.store.with_connection(|conn| {
         let tx =
             rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
@@ -245,7 +245,9 @@ pub(super) fn update_book<T>(
             .ok()
             .filter(|b| b.is_object())
         else {
-            return Ok(Err(format!("book '{book_id}' has a malformed record")));
+            return Ok(Err(
+                format!("book '{book_id}' has a malformed record").into()
+            ));
         };
         let mut after = before.clone();
         let value = match f(&mut after) {
@@ -255,7 +257,7 @@ pub(super) fn update_book<T>(
         stamp_metadata_edit(&before, &mut after);
         let json = match serde_json::to_string(&after) {
             Ok(json) => json,
-            Err(e) => return Ok(Err(e.to_string())),
+            Err(e) => return Ok(Err(e.to_string().into())),
         };
         crate::database::sqlite_save_book_metadata_inner(&tx, book_id, &json)?;
         tx.commit()?;

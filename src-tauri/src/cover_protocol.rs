@@ -115,7 +115,7 @@ pub fn list_cover_versions_inner(
 /// Which books have a stored cover, and its version — one call at startup
 /// instead of fetching every cover's bytes.
 pub fn sqlite_list_cover_versions(app: AppHandle) -> Result<Vec<CoverVersion>, String> {
-    with_connection(&app, list_cover_versions_inner)
+    Ok(with_connection(&app, list_cover_versions_inner)?)
 }
 
 #[cfg(test)]

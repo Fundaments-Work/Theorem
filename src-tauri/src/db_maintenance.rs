@@ -294,7 +294,9 @@ pub fn spawn_startup_maintenance(app: &tauri::AppHandle) {
                 return;
             }
             let started = Instant::now();
-            match crate::database::with_connection(&app, |c| Ok(vacuum_now(c))) {
+            match crate::database::with_connection(&app, |c| Ok(vacuum_now(c)))
+                .map_err(String::from)
+            {
                 Ok(Ok(())) => log::info!(
                     "[db-maintenance] VACUUM took {} ms",
                     started.elapsed().as_millis()

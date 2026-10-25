@@ -168,7 +168,9 @@ fn highlights_delete(output: &Output, ctx: &Ctx, annotation_id: &str) -> i32 {
             .map_err(|e| e.to_string())?
             .is_some();
         if !exists {
-            return Err(format!("annotation '{annotation_id}' not found"));
+            return Err(AppError::not_found(format!(
+                "annotation '{annotation_id}' not found"
+            )));
         }
         crate::database::sqlite_delete_annotation_inner(conn, annotation_id)
             .map_err(|e| e.to_string())?;

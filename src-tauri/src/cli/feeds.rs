@@ -37,10 +37,10 @@ fn parse_feed_date(raw: &str) -> Option<i64> {
         .map(|date| date.timestamp_millis())
 }
 
-/// Fetch and parse a feed. Network failures are `Err((EXIT_NETWORK, …))`,
-/// anything that is not a feed `Err((1, …))`.
-fn fetch_feed(url: &str) -> Result<crate::rss_parser::ParsedFeed, (i32, String)> {
-    let client = crate::shared_http_client().map_err(|e| (EXIT_NETWORK, e))?;
+/// Fetch and parse a feed. Network failures are `Network` errors (exit code
+/// 4), anything that is not a feed `InvalidInput` (exit code 1).
+fn fetch_feed(url: &str) -> Result<crate::rss_parser::ParsedFeed, AppError> {
+    let client = crate::shared_http_client().map_err(AppError::network)?;
     let response = client
         .get(url)
         .header(
@@ -48,20 +48,23 @@ fn fetch_feed(url: &str) -> Result<crate::rss_parser::ParsedFeed, (i32, String)>
             "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.5",
         )
         .send()
-        .map_err(|e| (EXIT_NETWORK, format!("cannot fetch {url}: {e}")))?;
+        .map_err(|e| AppError::network(format!("cannot fetch {url}: {e}")))?;
     if !response.status().is_success() {
-        return Err((
-            EXIT_NETWORK,
-            format!("HTTP {} for {url}", response.status()),
-        ));
+        return Err(AppError::network(format!(
+            "HTTP {} for {url}",
+            response.status()
+        )));
     }
     let bytes = response
         .bytes()
-        .map_err(|e| (EXIT_NETWORK, format!("cannot read {url}: {e}")))?;
+        .map_err(|e| AppError::network(format!("cannot read {url}: {e}")))?;
     if !crate::rss_parser::is_feed_document(&bytes) {
-        return Err((1, format!("{url} is not an RSS or Atom feed")));
+        return Err(AppError::invalid_input(format!(
+            "{url} is not an RSS or Atom feed"
+        )));
     }
-    crate::rss_parser::parse_feed_bytes(&bytes).map_err(|e| (1, format!("{url}: {e}")))
+    crate::rss_parser::parse_feed_bytes(&bytes)
+        .map_err(|e| AppError::invalid_input(format!("{url}: {e}")))
 }
 
 /// Save the articles whose address is not in `known` (normalized); returns
@@ -119,7 +122,7 @@ fn unread_count(conn: &rusqlite::Connection, feed_id: &str) -> rusqlite::Result<
     )
 }
 
-fn load_feeds(ctx: &Ctx) -> Result<Vec<crate::database::RssFeedDto>, String> {
+fn load_feeds(ctx: &Ctx) -> Result<Vec<crate::database::RssFeedDto>, AppError> {
     ctx.store
         .with_connection(crate::database::sqlite_get_rss_feeds_inner)
 }
@@ -175,10 +178,7 @@ fn feeds_add(output: &Output, ctx: &Ctx, url: &str) -> i32 {
     }
     let parsed = match fetch_feed(url) {
         Ok(parsed) => parsed,
-        Err((code, e)) => {
-            output.error(&e);
-            return code;
-        }
+        Err(e) => return output.error(e),
     };
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -243,7 +243,7 @@ fn feeds_remove(output: &Output, ctx: &Ctx, feed: &str) -> i32 {
         .find(|f| &*f.id == feed)
         .or_else(|| feeds.iter().find(|f| normalize_feed_url(&f.url) == wanted))
     else {
-        return output.error(&format!("feed '{feed}' not found"));
+        return output.error(AppError::not_found(format!("feed '{feed}' not found")));
     };
     let feed_id = found.id.to_string();
 
@@ -321,9 +321,9 @@ fn feeds_refresh(output: &Output, ctx: &Ctx) -> i32 {
                     updated.error_message = None;
                     (added, None)
                 }
-                Err((_, e)) => {
-                    updated.error_message = Some(e.as_str().into());
-                    (0, Some(e.clone()))
+                Err(e) => {
+                    updated.error_message = Some(e.message().into());
+                    (0, Some(e.message().to_string()))
                 }
             };
             updated.unread_count = unread_count(&tx, &feed.id)?;
@@ -333,8 +333,12 @@ fn feeds_refresh(output: &Output, ctx: &Ctx) -> i32 {
         });
         match saved {
             Ok((title, new_articles, error)) => {
-                if let Err((failure, _)) = &fetched {
-                    code = if code == 0 { *failure } else { code };
+                if let Err(failure) = &fetched {
+                    code = if code == 0 {
+                        exit_code_for(failure.kind())
+                    } else {
+                        code
+                    };
                 }
                 results.push(FeedRefresh {
                     id: feed.id.to_string(),

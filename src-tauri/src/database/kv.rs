@@ -12,7 +12,7 @@ pub fn sqlite_get_kv_inner(connection: &Connection, key: &str) -> rusqlite::Resu
         .optional()
 }
 
-pub fn sqlite_get_kv(app: AppHandle, key: String) -> Result<Option<String>, String> {
+pub fn sqlite_get_kv(app: AppHandle, key: String) -> Result<Option<String>, AppError> {
     with_connection(&app, |connection| sqlite_get_kv_inner(connection, &key))
 }
 
@@ -45,7 +45,7 @@ pub fn sqlite_batch_get_kv_inner(
 pub fn sqlite_batch_get_kv(
     app: AppHandle,
     keys: Vec<String>,
-) -> Result<Vec<(String, String)>, String> {
+) -> Result<Vec<(String, String)>, AppError> {
     with_connection(&app, |connection| {
         sqlite_batch_get_kv_inner(connection, &keys)
     })
@@ -69,7 +69,7 @@ pub fn sqlite_set_kv_inner(
     Ok(())
 }
 
-pub fn sqlite_set_kv(app: AppHandle, key: String, value: String) -> Result<(), String> {
+pub fn sqlite_set_kv(app: AppHandle, key: String, value: String) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_set_kv_inner(connection, &key, &value)
     })
@@ -80,7 +80,7 @@ pub fn sqlite_delete_kv_inner(connection: &Connection, key: &str) -> rusqlite::R
     Ok(())
 }
 
-pub fn sqlite_delete_kv(app: AppHandle, key: String) -> Result<(), String> {
+pub fn sqlite_delete_kv(app: AppHandle, key: String) -> Result<(), AppError> {
     with_connection(&app, |connection| sqlite_delete_kv_inner(connection, &key))
 }
 
@@ -147,7 +147,7 @@ pub fn sqlite_count_kv_by_prefix_inner(
     )
 }
 
-pub fn sqlite_count_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, String> {
+pub fn sqlite_count_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, AppError> {
     with_connection(&app, |connection| {
         sqlite_count_kv_by_prefix_inner(connection, &prefix)
     })
@@ -165,7 +165,7 @@ pub fn sqlite_delete_kv_by_prefix_inner(
     Ok(affected as u64)
 }
 
-pub fn sqlite_delete_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, String> {
+pub fn sqlite_delete_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, AppError> {
     with_connection(&app, |connection| {
         sqlite_delete_kv_by_prefix_inner(connection, &prefix)
     })
@@ -189,7 +189,7 @@ pub fn sqlite_set_blob_inner(
     Ok(())
 }
 
-pub fn sqlite_set_blob(app: AppHandle, key: String, data: Vec<u8>) -> Result<(), String> {
+pub fn sqlite_set_blob(app: AppHandle, key: String, data: Vec<u8>) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_set_blob_inner(connection, &key, &data)
     })
@@ -208,7 +208,7 @@ pub fn sqlite_get_blob_inner(
         .optional()
 }
 
-pub fn sqlite_get_blob(app: AppHandle, key: String) -> Result<Option<Vec<u8>>, String> {
+pub fn sqlite_get_blob(app: AppHandle, key: String) -> Result<Option<Vec<u8>>, AppError> {
     with_connection(&app, |connection| sqlite_get_blob_inner(connection, &key))
 }
 
@@ -217,7 +217,7 @@ pub fn sqlite_delete_blob_inner(connection: &Connection, key: &str) -> rusqlite:
     Ok(())
 }
 
-pub fn sqlite_delete_blob(app: AppHandle, key: String) -> Result<(), String> {
+pub fn sqlite_delete_blob(app: AppHandle, key: String) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_delete_blob_inner(connection, &key)
     })
@@ -235,7 +235,7 @@ pub fn sqlite_delete_blobs_by_prefix_inner(
     Ok(affected as u64)
 }
 
-pub fn sqlite_delete_blobs_by_prefix(app: AppHandle, prefix: String) -> Result<u64, String> {
+pub fn sqlite_delete_blobs_by_prefix(app: AppHandle, prefix: String) -> Result<u64, AppError> {
     with_connection(&app, |connection| {
         sqlite_delete_blobs_by_prefix_inner(connection, &prefix)
     })
@@ -266,7 +266,7 @@ pub fn sqlite_get_blob_stats_inner(
 pub fn sqlite_get_blob_stats(
     app: AppHandle,
     prefix: Option<String>,
-) -> Result<SqliteBlobStats, String> {
+) -> Result<SqliteBlobStats, AppError> {
     with_connection(&app, |connection| {
         sqlite_get_blob_stats_inner(connection, prefix)
     })

@@ -84,7 +84,10 @@ fn shelf_create(output: &Output, ctx: &Ctx, name: &str) -> i32 {
                 .map(|n| n.eq_ignore_ascii_case(name))
                 .unwrap_or(false)
         }) {
-            return Err(format!("shelf '{name}' already exists"));
+            return Err(AppError::new(
+                ErrorKind::Constraint,
+                format!("shelf '{name}' already exists"),
+            ));
         }
         collections.push(serde_json::json!({
             "id": id,
@@ -113,7 +116,7 @@ fn shelf_delete(output: &Output, ctx: &Ctx, shelf: &str) -> i32 {
         let state = envelope_state(envelope, LIBRARY_STORE)?;
         let collections = state_list(state, "collections", LIBRARY_STORE)?;
         let position = find_collection_position(collections, shelf)
-            .ok_or_else(|| format!("shelf '{shelf}' not found"))?;
+            .ok_or_else(|| AppError::not_found(format!("shelf '{shelf}' not found")))?;
         let removed = collections.remove(position);
         let removed_id = book_str(&removed, "id").unwrap_or("?").to_string();
         let removed_name = book_str(&removed, "name")
@@ -147,7 +150,7 @@ fn shelf_add(output: &Output, ctx: &Ctx, shelf: &str, book_id: &str, add: bool) 
         let state = envelope_state(envelope, LIBRARY_STORE)?;
         let collections = state_list(state, "collections", LIBRARY_STORE)?;
         let position = find_collection_position(collections, shelf)
-            .ok_or_else(|| format!("shelf '{shelf}' not found"))?;
+            .ok_or_else(|| AppError::not_found(format!("shelf '{shelf}' not found")))?;
         if add && !book_exists(conn, book_id)? {
             return Err(book_not_found(book_id));
         }

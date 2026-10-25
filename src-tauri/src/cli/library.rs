@@ -270,7 +270,11 @@ fn library_export(output: &Output, ctx: &Ctx, book_id: &str, out: Option<PathBuf
     let format = book_str(&book, "format").unwrap_or("epub").to_string();
     let source = match crate::database::get_materialized_book_path_in(&ctx.store, book_id) {
         Ok(Some(path)) => PathBuf::from(path),
-        Ok(None) => return output.error("book file not found on disk or in storage"),
+        Ok(None) => {
+            return output.error(AppError::not_found(
+                "book file not found on disk or in storage",
+            ))
+        }
         Err(e) => return output.error(&e),
     };
 

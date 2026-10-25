@@ -854,7 +854,7 @@ fn merge_sync_entries_rows(
 pub fn sqlite_merge_sync_entries(
     app: AppHandle,
     entries: std::collections::HashMap<String, String>,
-) -> Result<SyncMergeResult, String> {
+) -> Result<SyncMergeResult, AppError> {
     let app_data_dir = app.path().app_data_dir().ok();
     with_connection(&app, |connection| {
         sqlite_merge_sync_entries_with_dir(connection, entries, app_data_dir.as_deref())

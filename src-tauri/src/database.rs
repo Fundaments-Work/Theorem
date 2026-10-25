@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Manager};
 
+use crate::error::pool_error_kind;
+pub use crate::error::AppError;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 
@@ -105,19 +107,15 @@ impl DataStore {
         &self.dir
     }
 
-    pub fn with_connection<T, F>(&self, operation: F) -> Result<T, String>
+    pub fn with_connection<T, F>(&self, operation: F) -> Result<T, AppError>
     where
         F: FnOnce(&Connection) -> rusqlite::Result<T>,
     {
-        let connection = self
-            .pool
-            .get()
-            .map_err(|error| format!("Failed to acquire SQLite connection from pool: {error}"))?;
-        operation(&connection).map_err(|error| format!("SQLite operation failed: {error}"))
+        run_on_pool(&self.pool, operation)
     }
 
     /// `book-cache/{id}.book`, creating the cache folder when needed.
-    pub fn materialized_book_path(&self, book_id: &str) -> Result<PathBuf, String> {
+    pub fn materialized_book_path(&self, book_id: &str) -> Result<PathBuf, AppError> {
         materialized_book_path_creating(&self.dir, book_id)
     }
 }
@@ -127,16 +125,21 @@ const DB_POOL_MAX_SIZE: u32 = 2;
 #[cfg(not(target_os = "android"))]
 const DB_POOL_MAX_SIZE: u32 = 4;
 
-fn build_db_pool(db_path: &Path, max_size: u32) -> Result<DbPool, String> {
+fn build_db_pool(db_path: &Path, max_size: u32) -> Result<DbPool, AppError> {
     let manager = SqliteConnectionManager::file(db_path);
     Pool::builder()
         .max_size(max_size)
         .connection_customizer(Box::new(SqlitePerConnectionPragmas))
         .build(manager)
-        .map_err(|error| format!("Failed to create SQLite connection pool: {error}"))
+        .map_err(|error| {
+            AppError::new(
+                pool_error_kind(&error),
+                format!("Failed to create SQLite connection pool: {error}"),
+            )
+        })
 }
 
-fn init_db_pool(db_path: &Path) -> Result<&DbPool, String> {
+fn init_db_pool(db_path: &Path) -> Result<&DbPool, AppError> {
     if let Some(pool) = DB_POOL.get() {
         return Ok(pool);
     }
@@ -181,17 +184,29 @@ pub(crate) fn db_pool_initialized() -> bool {
     DB_POOL.get().is_some()
 }
 
-pub fn with_connection<T, F>(app: &AppHandle, operation: F) -> Result<T, String>
+pub fn with_connection<T, F>(app: &AppHandle, operation: F) -> Result<T, AppError>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
 {
     let db_path = database_path(app)?;
     let pool = init_db_pool(&db_path)?;
-    let connection = pool
-        .get()
-        .map_err(|error| format!("Failed to acquire SQLite connection from pool: {error}"))?;
+    run_on_pool(pool, operation)
+}
 
-    operation(&connection).map_err(|error| format!("SQLite operation failed: {error}"))
+/// Run `operation` on a pooled connection. Errors keep the messages they
+/// always had ("SQLite operation failed: …") and gain a kind: busy, corrupt,
+/// constraint, not found (see `crate::error`).
+fn run_on_pool<T, F>(pool: &DbPool, operation: F) -> Result<T, AppError>
+where
+    F: FnOnce(&Connection) -> rusqlite::Result<T>,
+{
+    let connection = pool.get().map_err(|error| {
+        AppError::new(
+            pool_error_kind(&error),
+            format!("Failed to acquire SQLite connection from pool: {error}"),
+        )
+    })?;
+    operation(&connection).map_err(|error| AppError::from_sqlite("SQLite operation failed", &error))
 }
 
 #[cfg(test)]
@@ -228,6 +243,49 @@ mod tests {
                 sqlite_upsert_annotation_inner(c, "a1", "b1", r#"{"id":"a1"}"#)
             })
             .unwrap();
+    }
+
+    /// `with_connection` keeps its "SQLite operation failed: …" text and
+    /// adds the kind.
+    #[test]
+    fn with_connection_errors_carry_a_kind() {
+        use crate::error::ErrorKind;
+        let (_dir, store) = migrated_store();
+        let duplicate = store
+            .with_connection(|c| {
+                sqlite_set_kv_inner(c, "k", "v")?;
+                c.execute(
+                    "INSERT INTO kv_store(key, value, updated_at) VALUES('k', 'v', 0)",
+                    [],
+                )
+            })
+            .unwrap_err();
+        assert_eq!(duplicate.kind(), ErrorKind::Constraint);
+        assert!(duplicate
+            .message()
+            .starts_with("SQLite operation failed: UNIQUE constraint failed"));
+        let missing = store
+            .with_connection(|c| c.query_row("SELECT 1 WHERE 0", [], |r| r.get::<_, i64>(0)))
+            .unwrap_err();
+        assert_eq!(missing.kind(), ErrorKind::NotFound);
+
+        // A damaged file fails while the pool prepares a connection (the
+        // per-connection pragmas read the header); the kind survives r2d2.
+        let garbage = tempfile::tempdir().unwrap();
+        let path = garbage.path().join(DB_FILE_NAME);
+        std::fs::write(&path, vec![0x5au8; 8192]).unwrap();
+        let pool = Pool::builder()
+            .min_idle(Some(0))
+            .connection_timeout(std::time::Duration::from_millis(300))
+            .connection_customizer(Box::new(SqlitePerConnectionPragmas))
+            .build_unchecked(SqliteConnectionManager::file(&path));
+        let error = run_on_pool(&pool, |c| {
+            c.query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Corrupt, "{error}");
     }
 
     /// `cargo test --release --lib db_query_bench -- --ignored --nocapture`

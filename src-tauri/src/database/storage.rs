@@ -27,11 +27,11 @@ pub struct SqliteBlobStats {
     pub total_size: u64,
 }
 
-pub fn sqlite_get_storage_stats(app: AppHandle) -> Result<SqliteStorageStats, String> {
+pub fn sqlite_get_storage_stats(app: AppHandle) -> Result<SqliteStorageStats, AppError> {
     get_storage_stats_in(&DataStore::for_app(&app)?)
 }
 
-pub fn get_storage_stats_in(store: &DataStore) -> Result<SqliteStorageStats, String> {
+pub fn get_storage_stats_in(store: &DataStore) -> Result<SqliteStorageStats, AppError> {
     let mut binaries_size = 0;
 
     if let Ok(entries) = std::fs::read_dir(store.dir().join(MATERIALIZED_BOOK_CACHE_DIR)) {
@@ -81,14 +81,14 @@ pub fn get_storage_stats_in(store: &DataStore) -> Result<SqliteStorageStats, Str
 pub fn sqlite_cleanup_orphaned_storage(
     app: AppHandle,
     existing_book_ids: Vec<String>,
-) -> Result<SqliteCleanupResult, String> {
+) -> Result<SqliteCleanupResult, AppError> {
     cleanup_orphaned_storage_in(&DataStore::for_app(&app)?, existing_book_ids)
 }
 
 pub fn cleanup_orphaned_storage_in(
     store: &DataStore,
     existing_book_ids: Vec<String>,
-) -> Result<SqliteCleanupResult, String> {
+) -> Result<SqliteCleanupResult, AppError> {
     store.with_connection(|connection| {
         let existing_ids: HashSet<String> = existing_book_ids.into_iter().collect();
 
@@ -147,7 +147,7 @@ pub fn sqlite_clear_all_storage_inner(connection: &Connection) -> rusqlite::Resu
     tx.commit()
 }
 
-pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), String> {
+pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), AppError> {
     let cache_dir = app
         .path()
         .app_data_dir()
@@ -163,7 +163,7 @@ pub fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), String> {
     })
 }
 
-pub fn sqlite_shrink_memory(app: AppHandle) -> Result<(), String> {
+pub fn sqlite_shrink_memory(app: AppHandle) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         connection.execute_batch("PRAGMA shrink_memory; PRAGMA wal_checkpoint(PASSIVE);")
     })
