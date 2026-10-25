@@ -33,10 +33,29 @@ const MAX_REDIRECTS: usize = 10;
 /// Whole-request deadline of the blocking client (requests may set a shorter one).
 const BLOCKING_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The TLS setup every client uses: rustls on the ring provider, verifying
+/// against the bundled Mozilla roots (webpki-roots), TLS 1.2 and 1.3, and
+/// HTTP/1.1 only (HTTP/2 is not compiled in). This is what reqwest 0.12 built
+/// itself; reqwest 0.13 would instead verify through the OS trust store
+/// (rustls-platform-verifier), which needs JNI set-up on Android, and would
+/// fail without a process-wide crypto provider (the CLI and tests have none).
+fn tls_config() -> Result<rustls::ClientConfig, String> {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+    let mut config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_protocol_versions(rustls::ALL_VERSIONS)
+        .map_err(|e| e.to_string())?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(config)
+}
+
 fn remember<C>(
     cell: &'static OnceLock<Result<C, String>>,
     kind: &str,
-    build: impl FnOnce() -> reqwest::Result<C>,
+    build: impl FnOnce() -> Result<C, String>,
 ) -> Result<&'static C, String> {
     cell.get_or_init(|| {
         build().map_err(|e| {
@@ -56,10 +75,12 @@ pub(crate) fn client() -> Result<&'static reqwest::Client, String> {
     static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
     remember(&CLIENT, "shared", || {
         reqwest::Client::builder()
+            .tls_backend_preconfigured(tls_config()?)
             .user_agent(THEOREM_USER_AGENT)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
             .build()
+            .map_err(|e| e.to_string())
     })
 }
 
@@ -70,11 +91,13 @@ pub(crate) fn download_client() -> Result<&'static reqwest::Client, String> {
     static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
     remember(&CLIENT, "download", || {
         reqwest::Client::builder()
+            .tls_backend_preconfigured(tls_config()?)
             .user_agent(BROWSER_USER_AGENT)
             .cookie_store(true)
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
             .build()
+            .map_err(|e| e.to_string())
     })
 }
 
@@ -85,12 +108,14 @@ pub(crate) fn blocking_client() -> Result<&'static reqwest::blocking::Client, St
     static CLIENT: OnceLock<Result<reqwest::blocking::Client, String>> = OnceLock::new();
     remember(&CLIENT, "blocking", || {
         reqwest::blocking::Client::builder()
+            .tls_backend_preconfigured(tls_config()?)
             .user_agent(BROWSER_USER_AGENT)
             .cookie_store(true)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(BLOCKING_TIMEOUT)
             .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
             .build()
+            .map_err(|e| e.to_string())
     })
 }
 
@@ -188,5 +213,23 @@ mod tests {
         assert!(error.is_timeout(), "{error}");
         assert!(started.elapsed() < Duration::from_secs(5));
         drop(listener);
+    }
+
+    /// The clients keep reqwest 0.12's TLS: the ring provider (no process-wide
+    /// provider needed, as in the CLI and these tests), the bundled roots, TLS
+    /// 1.2 allowed and HTTP/1.1 only.
+    #[test]
+    fn tls_config_is_ring_with_bundled_roots_and_http1() {
+        let config = tls_config().expect("TLS config builds without a default provider");
+        assert_eq!(config.alpn_protocols, vec![b"http/1.1".to_vec()]);
+        assert!(config.enable_sni);
+        assert!(config
+            .crypto_provider()
+            .cipher_suites
+            .iter()
+            .any(|s| s.version() == &rustls::version::TLS12));
+        assert!(client().is_ok());
+        assert!(download_client().is_ok());
+        assert!(blocking_client().is_ok());
     }
 }

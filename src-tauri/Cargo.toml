@@ -49,7 +49,12 @@ serde_json = { version = "1", features = ["raw_value"] }
 mp4ameta = "0.13"
 id3 = "1"
 
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "cookies", "stream"] }
+# 0.13 is the version tauri and iroh already use. Its own rustls setup would
+# verify through the OS trust store (rustls-platform-verifier, which Android
+# must initialise through JNI), so `http.rs` hands every client a rustls config
+# with the ring provider and the bundled webpki roots, as 0.12 built them.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "cookies", "stream"] }
+webpki-roots = "1"
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
@@ -80,8 +85,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 walkdir = "2"
 tempfile = "3"
 
-# Crypto provider for rustls (iroh's reqwest v0.13 uses rustls-no-provider;
-# this installs the ring-based default provider so TLS doesn't panic).
+# Crypto provider for rustls (reqwest 0.13 is built with rustls-no-provider
+# for iroh and tauri; lib.rs installs ring as the process default so their TLS
+# doesn't panic, and http.rs builds Theorem's own clients on ring explicitly).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 # EPUB pre-parser: streaming XML (replaces regex) + percent-encoded path fallback
