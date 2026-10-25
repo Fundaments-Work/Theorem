@@ -193,6 +193,8 @@ pub struct DocsApiSnapshot {
     pub api: iroh_docs::api::DocsApi,
     pub author: iroh_docs::AuthorId,
     pub blobs: iroh_blobs::api::Store,
+    /// This device's deletions in its docs (`sync_deletions`).
+    pub own_deletions: Arc<crate::sync_deletions::OwnDeletions>,
     /// Generation of the accept loop that produced this snapshot.
     pub generation: u64,
 }
@@ -383,6 +385,7 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                 }
             };
             subscribe_failures = 0;
+            let own = own_deletions(&app).await;
             let stream_started = std::time::Instant::now();
             use futures::StreamExt;
             let mut pending: std::collections::HashMap<iroh_blobs::Hash, String> =
@@ -399,6 +402,21 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         activity.note(&app, from);
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
+                        // An older copy of an entry this device deleted, which
+                        // replaced the deletion: put the deletion back.
+                        if let Some((own, at)) = own.as_ref().and_then(|o| {
+                            o.replaced_deletion(
+                                doc.id(),
+                                entry.author(),
+                                &key,
+                                entry.timestamp(),
+                                hash,
+                            )
+                            .map(|at| (o, at))
+                        }) {
+                            own.restore(&doc, &key, at).await;
+                            continue;
+                        }
                         if crate::sync_annotations::is_annotation_key(&key)
                             && hash == iroh_blobs::Hash::EMPTY
                         {
@@ -608,6 +626,16 @@ async fn deliver_annotations<R: tauri::Runtime>(
     for d in deleted {
         batcher.push_deleted(d);
     }
+}
+
+/// This device's deletions in its docs, once the docs engine runs.
+async fn own_deletions<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<Arc<crate::sync_deletions::OwnDeletions>> {
+    use tauri::Manager;
+    let sync_state = app.try_state::<crate::sync_commands::SyncState>()?;
+    let guard = sync_state.transport_state.docs_api.lock().await;
+    guard.as_ref().map(|s| s.own_deletions.clone())
 }
 
 /// Whether the newest entry for `key` in `doc` (by any device) is a deletion.
@@ -838,9 +866,13 @@ pub fn start_accept_loop(
             if attempt > 0 {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
-            match iroh_docs::protocol::Docs::persistent(docs_path.clone())
-                .spawn(router_endpoint.clone(), blobs_store.clone(), gossip.clone())
-                .await
+            match crate::sync_deletions::spawn_docs(
+                &docs_path,
+                router_endpoint.clone(),
+                blobs_store.clone(),
+                gossip.clone(),
+            )
+            .await
             {
                 Ok(d) => {
                     docs_spawn = Ok(d);
@@ -849,7 +881,7 @@ pub fn start_accept_loop(
                 Err(e) => docs_spawn = Err(Some(e)),
             }
         }
-        let docs_handler = match docs_spawn {
+        let (docs_handler, docs_sync) = match docs_spawn {
             Ok(d) => d,
             Err(e) => {
                 log::warn!("[iroh-sync] Failed to spawn iroh-docs: {e:?}");
@@ -901,10 +933,17 @@ pub fn start_accept_loop(
             .docs_generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             + 1;
+        let own_deletions = Arc::new(crate::sync_deletions::OwnDeletions::open(
+            &docs_path,
+            docs_sync,
+            author,
+            router_endpoint.id(),
+        ));
         *docs_api_state = Some(DocsApiSnapshot {
             api,
             author,
             blobs: blobs_for_cmds,
+            own_deletions,
             generation,
         });
         drop(docs_api_state);

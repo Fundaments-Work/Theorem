@@ -1409,13 +1409,12 @@ async fn read_doc_entries(
 ) -> Result<DocRead, String> {
     let api = get_docs_api(app).await?;
     let sync_state = get_sync_state(app)?;
-    let blobs = {
+    let (blobs, own) = {
         let guard = sync_state.transport_state.docs_api.lock().await;
-        guard
+        let snapshot = guard
             .as_ref()
-            .ok_or_else(|| "iroh-docs not initialized".to_string())?
-            .blobs
-            .clone()
+            .ok_or_else(|| "iroh-docs not initialized".to_string())?;
+        (snapshot.blobs.clone(), Some(snapshot.own_deletions.clone()))
     };
     // Copy the doc IDs and let go of the lock: reading the docs takes a while,
     // and pairing, writes and book transfers all need it meanwhile.
@@ -1440,7 +1439,7 @@ async fn read_doc_entries(
             docs.push(doc);
         }
     }
-    let read = read_docs(&docs, &blobs, applied).await;
+    let read = read_docs(&docs, &blobs, applied, own.as_deref()).await;
     if read.missing.is_empty() {
         return Ok(read);
     }
@@ -1458,7 +1457,7 @@ async fn read_doc_entries(
     if fetched == 0 {
         return Ok(read);
     }
-    Ok(read_docs(&docs, &blobs, applied).await)
+    Ok(read_docs(&docs, &blobs, applied, own.as_deref()).await)
 }
 
 /// How long a read spends fetching content that never arrived.
@@ -1514,12 +1513,13 @@ async fn read_docs(
     docs: &[iroh_docs::api::Doc],
     blobs: &iroh_blobs::api::Store,
     applied: Option<&std::collections::HashMap<String, Vec<iroh_blobs::Hash>>>,
+    own: Option<&crate::sync_deletions::OwnDeletions>,
 ) -> DocRead {
     use crate::sync_annotations as annos;
     // First the entry headers (cheap), then content only for keys that changed.
     let mut headers: Vec<EntryHeader> = Vec::new();
     for doc in docs {
-        headers.extend(read_headers(doc).await);
+        headers.extend(read_headers(doc, own).await);
     }
     let current = hashes_by_key(&headers);
     let item_headers: Vec<EntryHeader> = headers
@@ -1706,20 +1706,44 @@ pub(crate) async fn content_of(
 /// per key), deletions included. Not only the newest entry per key: the copy
 /// written last is not always the newest change (see [`combine_doc_values`]),
 /// and reading only it hid the newer one for good.
-async fn read_headers(doc: &iroh_docs::api::Doc) -> Vec<EntryHeader> {
+async fn read_headers(
+    doc: &iroh_docs::api::Doc,
+    own: Option<&crate::sync_deletions::OwnDeletions>,
+) -> Vec<EntryHeader> {
     use futures::StreamExt;
     let mut headers = Vec::new();
+    let mut replaced = Vec::new();
     if let Ok(stream) = doc
         .get_many(iroh_docs::store::Query::all().include_empty().build())
         .await
     {
         futures::pin_mut!(stream);
         while let Some(Ok(entry)) = stream.next().await {
-            headers.push((
-                String::from_utf8_lossy(entry.key()).to_string(),
-                entry.timestamp(),
-                entry.content_hash(),
-            ));
+            let key = String::from_utf8_lossy(entry.key()).to_string();
+            let deleted_at = own.and_then(|o| {
+                o.replaced_deletion(
+                    doc.id(),
+                    entry.author(),
+                    &key,
+                    entry.timestamp(),
+                    entry.content_hash(),
+                )
+            });
+            match deleted_at {
+                // An older copy of an entry this device deleted replaced the
+                // deletion (see `sync_deletions`): read as the deletion, and
+                // put back below.
+                Some(at) => {
+                    headers.push((key.clone(), at, iroh_blobs::Hash::EMPTY));
+                    replaced.push((key, at));
+                }
+                None => headers.push((key, entry.timestamp(), entry.content_hash())),
+            }
+        }
+    }
+    if let Some(own) = own {
+        for (key, at) in replaced {
+            own.restore(doc, &key, at).await;
         }
     }
     headers
@@ -1882,7 +1906,14 @@ pub async fn docs_purge_entities(
         let Ok(Some(doc)) = snapshot.api.open(doc_id).await else {
             continue;
         };
-        removed += purge_entities_in_doc(&doc, &snapshot.blobs, snapshot.author, &entities).await;
+        removed += purge_entities_in_doc(
+            &doc,
+            &snapshot.blobs,
+            snapshot.author,
+            &entities,
+            Some(&snapshot.own_deletions),
+        )
+        .await;
     }
     Ok(removed)
 }
@@ -1896,9 +1927,10 @@ async fn purge_entities_in_doc(
     blobs: &iroh_blobs::api::Store,
     author: iroh_docs::AuthorId,
     entities: &[DeletedEntity],
+    own: Option<&crate::sync_deletions::OwnDeletions>,
 ) -> usize {
     let own_keys = own_entry_keys(doc, author).await;
-    let removed = purge_single_entries(doc, author, entities, &own_keys).await;
+    let removed = purge_single_entries(doc, author, entities, &own_keys, own).await;
     let of_kind = |kind: &str| -> std::collections::HashSet<&str> {
         entities
             .iter()
@@ -1937,12 +1969,14 @@ async fn own_entry_keys(doc: &iroh_docs::api::Doc, author: iroh_docs::AuthorId) 
     own_keys
 }
 
-/// Removes this device's entries (`own_keys`) that hold a deleted entity.
+/// Removes this device's entries (`own_keys`) that hold a deleted entity,
+/// noting each deletion in `own` (see `sync_deletions`).
 async fn purge_single_entries(
     doc: &iroh_docs::api::Doc,
     author: iroh_docs::AuthorId,
     entities: &[DeletedEntity],
     own_keys: &[String],
+    own: Option<&crate::sync_deletions::OwnDeletions>,
 ) -> usize {
     let mut removed = 0usize;
     for key in keys_of_deleted(entities, own_keys) {
@@ -1955,7 +1989,12 @@ async fn purge_single_entries(
             continue;
         }
         match doc.del(author, key.clone().into_bytes()).await {
-            Ok(n) => removed += n,
+            Ok(n) => {
+                removed += n;
+                if let Some(own) = own {
+                    own.record(doc, &key).await;
+                }
+            }
             Err(e) => log::warn!("[iroh-sync] could not remove {key}: {e}"),
         }
     }
@@ -2632,7 +2671,7 @@ mod tests {
         }
 
         async fn deleted_now(doc: &iroh_docs::api::Doc) -> Vec<String> {
-            deleted_keys(&read_headers(doc).await).0
+            deleted_keys(&read_headers(doc, None).await).0
         }
 
         #[tokio::test]
@@ -2749,7 +2788,7 @@ mod tests {
         }
 
         async fn read(f: &Fixture) -> DocRead {
-            read_docs(std::slice::from_ref(&f.doc), &f.blobs, None).await
+            read_docs(std::slice::from_ref(&f.doc), &f.blobs, None, None).await
         }
 
         #[tokio::test]
@@ -2763,7 +2802,7 @@ mod tests {
             ];
             assert_eq!(written(&f, f.here, 3, &entries).await, 4);
             // Two groups and the book; no single entries for a device on 3.
-            let keys: Vec<String> = read_headers(&f.doc)
+            let keys: Vec<String> = read_headers(&f.doc, None)
                 .await
                 .into_iter()
                 .map(|(k, _, _)| k)
@@ -2898,6 +2937,7 @@ mod tests {
                     deleted_entity("annotation", "x"),
                     deleted_entity("book", "b2"),
                 ],
+                None,
             )
             .await;
             assert_eq!(n, 2);
@@ -2910,6 +2950,7 @@ mod tests {
                     deleted_entity("annotation", "x"),
                     deleted_entity("book", "b2"),
                 ],
+                None,
             )
             .await;
             assert_eq!(again, 0);
@@ -2920,7 +2961,7 @@ mod tests {
             assert!(r.entries.contains_key("anno:b1:y"));
             assert!(r.entries.contains_key("anno:b12:w"), "book b12 is not b1");
             // The groups are still there: no empty entries.
-            let empties = read_headers(&f.doc)
+            let empties = read_headers(&f.doc, None)
                 .await
                 .into_iter()
                 .filter(|(_, _, h)| *h == iroh_blobs::Hash::EMPTY)

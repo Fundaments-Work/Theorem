@@ -89,6 +89,8 @@ struct Device {
     docs: iroh_docs::protocol::Docs,
     blobs: iroh_blobs::api::Store,
     author: iroh_docs::AuthorId,
+    /// The deletions this device wrote, and what puts one back.
+    own: std::sync::Arc<crate::sync_deletions::OwnDeletions>,
     pairings: Vec<Pairing>,
     relay: Option<iroh::RelayMap>,
     /// The app's library: item key -> item.
@@ -108,6 +110,7 @@ async fn node(
     iroh::protocol::Router,
     iroh_docs::protocol::Docs,
     iroh_blobs::api::Store,
+    iroh_docs::actor::SyncHandle,
 ) {
     let builder = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal).secret_key(secret);
     let builder = match relay {
@@ -126,10 +129,14 @@ async fn node(
         .into();
     let gossip = iroh_gossip::net::Gossip::builder().spawn(ep.clone());
     std::fs::create_dir_all(dir.join("docs")).unwrap();
-    let docs = iroh_docs::protocol::Docs::persistent(dir.join("docs"))
-        .spawn(ep.clone(), blobs.clone(), gossip.clone())
-        .await
-        .unwrap();
+    let (docs, sync) = crate::sync_deletions::spawn_docs(
+        &dir.join("docs"),
+        ep.clone(),
+        blobs.clone(),
+        gossip.clone(),
+    )
+    .await
+    .unwrap();
     let router = iroh::protocol::Router::builder(ep)
         .accept(
             iroh_blobs::ALPN,
@@ -138,7 +145,22 @@ async fn node(
         .accept(iroh_gossip::ALPN, gossip)
         .accept(iroh_docs::ALPN, docs.clone())
         .spawn();
-    (router, docs, blobs)
+    (router, docs, blobs, sync)
+}
+
+/// This device's deletions, kept as the app keeps them (`iroh_sync`).
+fn own_deletions(
+    dir: &std::path::Path,
+    sync: iroh_docs::actor::SyncHandle,
+    author: iroh_docs::AuthorId,
+    router: &iroh::protocol::Router,
+) -> std::sync::Arc<crate::sync_deletions::OwnDeletions> {
+    std::sync::Arc::new(crate::sync_deletions::OwnDeletions::open(
+        &dir.join("docs"),
+        sync,
+        author,
+        router.endpoint().id(),
+    ))
 }
 
 impl Device {
@@ -146,8 +168,9 @@ impl Device {
         let dir = root.join(name);
         std::fs::create_dir_all(&dir).unwrap();
         let secret = iroh::SecretKey::generate();
-        let (router, docs, blobs) = node(&dir, secret.clone(), relay.clone()).await;
+        let (router, docs, blobs, sync) = node(&dir, secret.clone(), relay.clone()).await;
         let author = docs.api().author_default().await.unwrap();
+        let own = own_deletions(&dir, sync, author, &router);
         Device {
             name: name.into(),
             dir,
@@ -156,6 +179,7 @@ impl Device {
             docs,
             blobs,
             author,
+            own,
             pairings: Vec::new(),
             relay,
             items: BTreeMap::new(),
@@ -202,9 +226,9 @@ impl Device {
     async fn purge_in(&self, doc: &iroh_docs::api::Doc, entities: &[DeletedEntity]) {
         if self.old {
             let own = own_entry_keys(doc, self.author).await;
-            purge_single_entries(doc, self.author, entities, &own).await;
+            purge_single_entries(doc, self.author, entities, &own, None).await;
         } else {
-            purge_entities_in_doc(doc, &self.blobs, self.author, entities).await;
+            purge_entities_in_doc(doc, &self.blobs, self.author, entities, Some(&self.own)).await;
         }
     }
 
@@ -225,7 +249,9 @@ impl Device {
     /// The app starts again from its data folder: the docs are reopened, the
     /// first read after start is a full one.
     async fn restart(&mut self) {
-        let (router, docs, blobs) = node(&self.dir, self.secret.clone(), self.relay.clone()).await;
+        let (router, docs, blobs, sync) =
+            node(&self.dir, self.secret.clone(), self.relay.clone()).await;
+        self.own = own_deletions(&self.dir, sync, self.author, &router);
         let api = docs.api().clone();
         for p in &mut self.pairings {
             p.doc = api.open(p.doc.id()).await.unwrap().expect("doc kept");
@@ -354,17 +380,18 @@ impl Device {
     async fn hydrate(&mut self) -> DocRead {
         let docs = self.doc_list();
         let read_with = |docs: &'_ [iroh_docs::api::Doc]| {
-            let (docs, blobs, applied, old) = (
+            let (docs, blobs, applied, old, own) = (
                 docs.to_vec(),
                 self.blobs.clone(),
                 self.applied.clone(),
                 self.old,
+                self.own.clone(),
             );
             async move {
                 if old {
                     old_read_docs(&docs, &blobs, applied.as_ref()).await
                 } else {
-                    read_docs(&docs, &blobs, applied.as_ref()).await
+                    read_docs(&docs, &blobs, applied.as_ref(), Some(&own)).await
                 }
             }
         };
@@ -1135,7 +1162,7 @@ async fn old_read_docs(
 ) -> DocRead {
     let mut headers: Vec<EntryHeader> = Vec::new();
     for doc in docs {
-        headers.extend(read_headers(doc).await);
+        headers.extend(read_headers(doc, None).await);
     }
     let current = hashes_by_key(&headers);
     let changed: std::collections::HashSet<&String> = current
@@ -1220,7 +1247,7 @@ async fn annotation_entries_of(
 
 /// Every entry in `doc` (deletions included).
 async fn entries_in(doc: &iroh_docs::api::Doc) -> usize {
-    read_headers(doc).await.len()
+    read_headers(doc, None).await.len()
 }
 
 /// The same library on every device, and each of `keys` as expected there.
@@ -1597,5 +1624,119 @@ async fn moving_to_per_book_entries_loses_and_resurrects_nothing() {
             "{} with {peer}",
             d.name
         );
+    }
+}
+
+// ── A deletion against an older copy of the same entry ─────────────────────
+
+/// What `author` holds for `key` in `doc`: whether it is a deletion (an
+/// emptied entry), and its timestamp.
+async fn own_entry(
+    doc: &iroh_docs::api::Doc,
+    author: iroh_docs::AuthorId,
+    key: &str,
+) -> Option<(bool, u64)> {
+    let e = doc.get_exact(author, key.as_bytes(), true).await.unwrap()?;
+    Some((e.content_hash() == iroh_blobs::Hash::EMPTY, e.timestamp()))
+}
+
+/// iroh-docs 0.101 checks an arriving entry only against the *non-empty*
+/// entries its author holds at that key or above it, so an older copy of an
+/// entry its author has since emptied replaces the deletion
+/// (`sync_deletions`). A deletes a book while B is off with A's older entry
+/// for it (and C, behind B, with B's). When B comes back, whichever device
+/// starts the exchange, the book stays deleted everywhere, even once every
+/// deletion record has expired (months later, nothing else would hold it),
+/// and A's deletion is the one it made, with its own time. With
+/// `b_read_it`, B read the book before A deleted it, so B's copy is newer
+/// than A's own older one and differs from it.
+async fn deletion_against_an_older_copy(b_starts: bool, b_read_it: bool) {
+    let root = tempfile::tempdir().unwrap();
+    let (mut a, mut b, mut c) = three_devices(root.path()).await;
+    a.edit("book:1", "Dune").await;
+    a.edit("book:2", "Emma").await;
+    settle(&mut a, &mut b, &mut c).await;
+    if b_read_it {
+        b.edit("book:1", "Dune (read on B)").await;
+        round(&mut b, &mut a).await;
+        assert_eq!(has(&a, "book:1").as_deref(), Some("Dune (read on B)"));
+    }
+    assert!(has(&c, "book:1").is_some());
+    let held = own_entry(&b.doc_with("A"), a.author, "book:1").await;
+    assert_eq!(held.map(|(empty, _)| empty), Some(false));
+
+    // B and C are off; A deletes, and its record expires (months pass, A's
+    // app restarts meanwhile).
+    b.kill().await;
+    c.kill().await;
+    a.delete("book:1").await;
+    a.provision().await;
+    a.expire_tombstones().await;
+    a.kill().await;
+    a.restart().await;
+    let ab = a.doc_with("B");
+    let (empty, deleted_at) = own_entry(&ab, a.author, "book:1").await.unwrap();
+    assert!(empty);
+
+    b.restart().await;
+    c.restart().await;
+    let ex = if b_starts {
+        exchange(&b, &a, true).await
+    } else {
+        exchange(&a, &b, true).await
+    };
+    assert!(ex.synced, "{ex:?}");
+    // A's app reads what arrived; a full read, as the first after a start
+    // (and one every 30 minutes) is: a changed-only read compares content
+    // hashes, and the older copy has the hash A last read.
+    a.applied = None;
+    a.hydrate().await;
+    b.hydrate().await;
+    let case = format!("B starts: {b_starts}, B read it: {b_read_it}");
+    assert_eq!(has(&a, "book:1"), None, "book:1 came back on A ({case})");
+    // The deletion is back as it was: same time, nothing newer made up.
+    assert_eq!(
+        own_entry(&ab, a.author, "book:1").await,
+        Some((true, deleted_at)),
+        "A's deletion on A ({case})"
+    );
+    settle(&mut a, &mut b, &mut c).await;
+    for d in [&a, &b, &c] {
+        assert_eq!(
+            has(d, "book:1"),
+            None,
+            "book:1 came back on {} ({case})",
+            d.name
+        );
+        assert_eq!(
+            has(d, "book:2").as_deref(),
+            Some("Emma"),
+            "{} ({case})",
+            d.name
+        );
+    }
+    for (name, doc) in [("A", a.doc_with("B")), ("B", b.doc_with("A"))] {
+        assert_eq!(
+            own_entry(&doc, a.author, "book:1").await,
+            Some((true, deleted_at)),
+            "A's deletion on {name} ({case})"
+        );
+    }
+    for d in [&mut a, &mut b, &mut c] {
+        d.kill().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_copy_of_a_deleted_entry_never_brings_it_back() {
+    for b_starts in [true, false] {
+        deletion_against_an_older_copy(b_starts, false).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_copy_of_a_deleted_entry_never_brings_it_back_after_another_device_read_it() {
+    for b_starts in [true, false] {
+        deletion_against_an_older_copy(b_starts, true).await;
     }
 }

@@ -49,6 +49,7 @@ pub mod supertonic;
 mod sync_access;
 mod sync_annotations;
 mod sync_commands;
+mod sync_deletions;
 pub use theorem_core::text_normalizer;
 #[cfg(not(target_os = "android"))]
 mod tts_desktop;
