@@ -15,6 +15,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BINARY, REPO } from "./lib/app.mjs";
+import { stopGroupSync } from "./lib/procs.mjs";
 
 const argv = process.argv.slice(2);
 const build = argv.includes("--build");
@@ -34,14 +35,14 @@ function run(cmd, args, opts = {}) {
     }
 }
 
+// Stop the bus and the display and wait until they have exited (each runs in
+// a process group of its own): a compositor still shutting down when the next
+// run starts competes with it.
 function cleanup() {
     for (const c of children.reverse()) {
-        try {
-            c.kill("SIGTERM");
-        } catch {
-            // already gone
-        }
+        if (c.pid) stopGroupSync(c.pid);
     }
+    children.length = 0;
 }
 process.on("exit", cleanup);
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(130));
@@ -96,15 +97,17 @@ for (let i = 0; i < 50 && !existsSync(join(runtime, "bus")); i++) await sleep(50
 // 2. Private headless display.
 const display = process.env.THEOREM_E2E_DISPLAY || (which("mutter") ? "mutter" : which("Xvfb") ? "xvfb" : null);
 if (display === "mutter") {
-    const m = spawn("mutter", ["--headless", "--wayland", "--no-x11", "--wayland-display", "e2e-0", "--virtual-monitor", "1280x800"], {
+    // A display name of this run's own, never one a previous run may still hold.
+    const waylandDisplay = `e2e-${process.pid}`;
+    const m = spawn("mutter", ["--headless", "--wayland", "--no-x11", "--wayland-display", waylandDisplay, "--virtual-monitor", "1280x800"], {
         env,
         stdio: "ignore", detached: true,
     });
     children.push(m);
-    env.WAYLAND_DISPLAY = "e2e-0";
+    env.WAYLAND_DISPLAY = waylandDisplay;
     env.GDK_BACKEND = "wayland";
-    for (let i = 0; i < 100 && !existsSync(join(runtime, "e2e-0")); i++) await sleep(100);
-    if (!existsSync(join(runtime, "e2e-0"))) {
+    for (let i = 0; i < 100 && !existsSync(join(runtime, waylandDisplay)); i++) await sleep(100);
+    if (!existsSync(join(runtime, waylandDisplay))) {
         console.error("e2e: headless mutter did not start");
         process.exit(1);
     }

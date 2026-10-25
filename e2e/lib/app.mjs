@@ -8,6 +8,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { groupMembers, stopGroup, stopGroupSync, waitGroup } from "./procs.mjs";
 import { Session } from "./webdriver.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,13 @@ function freePort() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// tauri-driver runs in a process group of its own, with WebKitWebDriver and the
+// app under it, so a spec that crashes still takes all of them down with it.
+const liveGroups = new Set();
+process.on("exit", () => {
+    for (const pgid of liveGroups) stopGroupSync(pgid);
+});
 
 /**
  * A sandbox: one fake HOME (so the app's data dir is fresh) and one
@@ -81,11 +89,15 @@ export class Sandbox {
         const log = join(this.root, "tauri-driver.log");
         const args = ["--port", String(port), "--native-port", String(nativePort)];
         if (process.env.WEBKIT_WEBDRIVER) args.push("--native-driver", process.env.WEBKIT_WEBDRIVER);
-        this.driver = spawn(TAURI_DRIVER, args, { env: this.env, stdio: ["ignore", "pipe", "pipe"] });
+        this.driver = spawn(TAURI_DRIVER, args, { env: this.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+        this.driverGroup = this.driver.pid;
+        liveGroups.add(this.driverGroup);
         this.driverLog = [];
         this.driver.stdout.on("data", (d) => this.driverLog.push(String(d)));
         this.driver.stderr.on("data", (d) => this.driverLog.push(String(d)));
-        this.driver.on("exit", () => writeFileSync(log, this.driverLog.join("")));
+        this.driverClosed = new Promise((r) => this.driver.once("close", r)).then(() => {
+            if (existsSync(this.root)) writeFileSync(log, this.driverLog.join(""));
+        });
         for (let i = 0; i < 100; i++) {
             try {
                 const r = await fetch(`${this.base}/status`);
@@ -130,9 +142,28 @@ export class Sandbox {
                 await sleep(200);
             }
         }
-        await this.app.session.delete();
+        await this.app.session.delete().catch(() => {});
         this.app = null;
-        await sleep(300);
+        await this.waitAppGone();
+    }
+
+    /**
+     * Wait until the app process has exited. Launching again while it is still
+     * shutting down races it: the single-instance plugin finds the old app on
+     * the bus and the new one exits.
+     */
+    async waitAppGone() {
+        if (!this.driverGroup) return;
+        const isApp = (p) => p.cmd === BINARY;
+        if (await waitGroup(this.driverGroup, (m) => !m.some(isApp), 10000)) return;
+        for (const p of groupMembers(this.driverGroup).filter(isApp)) {
+            try {
+                process.kill(p.pid, "SIGKILL");
+            } catch {
+                // gone
+            }
+        }
+        await waitGroup(this.driverGroup, (m) => !m.some(isApp), 3000);
     }
 
     /** Remove the app's data (as if freshly installed). The app must be closed. */
@@ -146,10 +177,13 @@ export class Sandbox {
     async dispose({ keep = false } = {}) {
         await this.quit();
         if (this.driver) {
-            const exited = new Promise((r) => this.driver.once("exit", r));
-            this.driver.kill("SIGTERM");
-            await Promise.race([exited, sleep(3000)]);
+            // The driver, WebKitWebDriver, the app and its helpers: stop all of
+            // them and wait until they are gone, so the next spec starts clean.
+            await stopGroup(this.driverGroup);
+            liveGroups.delete(this.driverGroup);
+            await Promise.race([this.driverClosed, sleep(3000)]);
             this.driver = null;
+            this.driverGroup = null;
         }
         if (!keep && !process.env.THEOREM_E2E_KEEP) rmSync(this.root, { recursive: true, force: true });
     }
