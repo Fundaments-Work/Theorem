@@ -343,13 +343,13 @@ pub mod desktop {
 
     /// Standard-normal latent noise (reference uses np.random.randn).
     fn sample_noisy_latent(dim: usize, len: usize) -> Array3<f32> {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+        use rand::RngExt;
+        let mut rng = rand::rng();
         let mut latent = Array3::<f32>::zeros((1, dim, len.max(1)));
         for v in latent.iter_mut() {
             // Box–Muller over two uniforms.
-            let u1: f32 = rng.gen_range(0.0..1.0f32).max(f32::MIN_POSITIVE);
-            let u2: f32 = rng.gen_range(0.0..1.0f32);
+            let u1: f32 = rng.random_range(0.0..1.0f32).max(f32::MIN_POSITIVE);
+            let u2: f32 = rng.random_range(0.0..1.0f32);
             *v = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
         }
         latent

@@ -156,9 +156,11 @@ impl PairingSessions {
     /// Starts a new pairing window and returns its secret, hex-encoded.
     /// Any earlier secret stops working.
     pub fn open(&self) -> String {
-        use rand::RngCore;
+        use rand::TryRng;
         let mut secret = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut secret);
+        rand::rngs::SysRng
+            .try_fill_bytes(&mut secret)
+            .expect("OS random number generator failed");
         *self.current.lock().unwrap_or_else(|e| e.into_inner()) = Some(PairingSession {
             secret,
             expires: Instant::now() + PAIRING_TTL,
@@ -216,9 +218,11 @@ pub fn verification_code(host: &PublicKey, joiner: &PublicKey, secret: &str) -> 
 
 /// A random identifier for one pairing request.
 pub fn random_id() -> String {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut bytes = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS random number generator failed");
     hex_encode(&bytes)
 }
 

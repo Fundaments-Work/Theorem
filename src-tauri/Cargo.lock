@@ -7978,7 +7978,7 @@ dependencies = [
  "quick-xml 0.36.2",
  "r2d2",
  "r2d2_sqlite",
- "rand 0.8.8",
+ "rand 0.10.2",
  "rars",
  "ratatui",
  "rayon",

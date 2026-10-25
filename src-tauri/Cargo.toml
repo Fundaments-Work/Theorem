@@ -71,8 +71,9 @@ flate2 = "1.0"
 memmap2 = "0.9"
 rayon = "1.10"
 sha2 = "0.11"
-# OS randomness for sync pairing secrets (sync_access.rs).
-rand = "0.8"
+# OS randomness for sync pairing secrets (sync_access.rs) and TTS latent
+# noise. 0.10 matches iroh, so only one rand is compiled.
+rand = "0.10"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 base64 = "0.23"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
