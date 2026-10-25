@@ -565,6 +565,60 @@ async fn exchange(from: &Device, to: &Device, wait_for_content: bool) -> Exchang
     exchange_within(from, to, wait_for_content, Duration::from_secs(30)).await
 }
 
+/// Every entry of a doc (deletions included): author, key, timestamp, hash.
+async fn doc_state(
+    doc: &iroh_docs::api::Doc,
+) -> Vec<(iroh_docs::AuthorId, Vec<u8>, u64, iroh_blobs::Hash)> {
+    let stream = doc
+        .get_many(iroh_docs::store::Query::all().include_empty().build())
+        .await
+        .unwrap();
+    futures::pin_mut!(stream);
+    let mut out = Vec::new();
+    while let Some(Ok(e)) = stream.next().await {
+        out.push((
+            e.author(),
+            e.key().to_vec(),
+            e.timestamp(),
+            e.content_hash(),
+        ));
+    }
+    out
+}
+
+/// Whether `holder` has every entry of `entries`, or something that
+/// supersedes it in iroh-docs: an entry of the same author, at the same key
+/// or a key above it, as new or newer.
+fn holds(
+    holder: &[(iroh_docs::AuthorId, Vec<u8>, u64, iroh_blobs::Hash)],
+    entries: &[(iroh_docs::AuthorId, Vec<u8>, u64, iroh_blobs::Hash)],
+) -> bool {
+    let index: HashMap<(iroh_docs::AuthorId, &[u8]), u64> = holder
+        .iter()
+        .map(|(author, key, at, _)| ((*author, key.as_slice()), *at))
+        .collect();
+    entries.iter().all(|(author, key, at, _)| {
+        (1..=key.len()).any(|n| index.get(&(*author, &key[..n])).is_some_and(|t| t >= at))
+    })
+}
+
+/// [`exchange`] with its own time limit.
+///
+/// The exchange is over when each end holds what the other held when it
+/// began, not when `from` first hears "finished": when two devices meet
+/// (pairing, a start, a peer coming online), both docs engines may ask for
+/// an exchange at the same moment. iroh-docs lets the request of the device
+/// with the smaller node ID through and turns the other away, but it checks
+/// the connection's teardown before the sync's result, so the request
+/// turned away is reported as "Failed to close connection", which counts as
+/// synced (rightly: almost every completed exchange ends that way too), and
+/// the end that answered the other request may report nothing for it (the
+/// failed request resets its state for that peer). So `from` heard "done"
+/// while the exchange carrying the entries was still running, and the reads
+/// that followed missed them, or not, depending on which device had the
+/// smaller node ID (`a_passed_on_copy_never_hides_a_newer_edit` failed about
+/// half the time). In the app this costs nothing: what arrives after the
+/// round's read is delivered live (`docs-entry-batch`).
 async fn exchange_within(
     from: &Device,
     to: &Device,
@@ -572,7 +626,23 @@ async fn exchange_within(
     limit: Duration,
 ) -> Exchange {
     let doc = from.doc_with(&to.name);
-    let mut events = doc.subscribe().await.unwrap();
+    // The other end, while it still has the doc (it may have unpaired).
+    let to_doc = to
+        .pairings
+        .iter()
+        .find(|p| p.peer == from.name)
+        .map(|p| p.doc.clone());
+    let from_events = doc.subscribe().await.unwrap().map(|e| (true, e)).boxed();
+    let to_events = match &to_doc {
+        Some(d) => d.subscribe().await.unwrap().map(|e| (false, e)).boxed(),
+        None => futures::stream::pending().boxed(),
+    };
+    let mut events = futures::stream::select(from_events, to_events);
+    let from_before = doc_state(&doc).await;
+    let to_before = match &to_doc {
+        Some(d) => doc_state(d).await,
+        None => Vec::new(),
+    };
     let started = Instant::now();
     // Through a relay, all the other device's address is its relay URL.
     let addr = match &to.relay {
@@ -583,32 +653,102 @@ async fn exchange_within(
         None => to.router.endpoint().addr(),
     };
     doc.start_sync(vec![addr]).await.unwrap();
-    let peer = from.peer_id(&to.name);
+    let (to_id, from_id) = (from.peer_id(&to.name), from.id());
+    let mut heard = false;
     let mut synced = None;
     let mut result = String::new();
     let mut content_after = None;
+    // Content `from` still lacks, once the entries are there.
+    let mut missing: Option<Vec<iroh_blobs::Hash>> = None;
     let deadline = tokio::time::Instant::now() + limit;
-    while let Ok(Some(event)) = tokio::time::timeout_at(deadline, events.next()).await {
-        match event {
-            Ok(LiveEvent::SyncFinished(e)) if e.peer == peer => {
-                let (ok, _, _) = crate::iroh_sync::sync_outcome(
-                    e.result
-                        .as_ref()
-                        .map(|d| (d.entries_received, d.entries_sent))
-                        .map_err(String::as_str),
-                );
-                synced = Some((ok, started.elapsed()));
-                result = format!("{:?}", e.result);
-                if !wait_for_content || !ok {
-                    break;
+    // The state is looked at when an end reports an exchange or content,
+    // and otherwise after a pause that doubles (up to 2 s): an end may never
+    // report the exchange that carried the entries.
+    let mut pause = Duration::from_millis(25);
+    let mut next_look = tokio::time::Instant::now() + pause;
+    loop {
+        let event = tokio::select! {
+            e = events.next() => e,
+            _ = tokio::time::sleep_until(next_look.min(deadline)) => None,
+        };
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            break;
+        }
+        let mut look = now >= next_look;
+        match &event {
+            Some((is_from, Ok(LiveEvent::SyncFinished(e))))
+                if e.peer == if *is_from { to_id } else { from_id } =>
+            {
+                heard = true;
+                look = true;
+                if *is_from && matches!(e.origin, iroh_docs::engine::Origin::Connect(_)) {
+                    let (ok, _, _) = crate::iroh_sync::sync_outcome(
+                        e.result
+                            .as_ref()
+                            .map(|d| (d.entries_received, d.entries_sent))
+                            .map_err(String::as_str),
+                    );
+                    result = format!("{:?}", e.result);
+                    if !ok {
+                        // Refused or unreachable: the app's round fails here.
+                        synced = Some((false, started.elapsed()));
+                        break;
+                    }
+                    if to_doc.is_none() && synced.is_none() {
+                        // Nothing to hear from the other end: `from`'s word.
+                        synced = Some((true, started.elapsed()));
+                        if !wait_for_content {
+                            break;
+                        }
+                    }
                 }
             }
-            Ok(LiveEvent::PendingContentReady) if synced.is_some() => {
-                content_after = Some(started.elapsed());
-                break;
-            }
+            Some((true, Ok(LiveEvent::PendingContentReady))) => look = true,
             _ => {}
         }
+        if !look || !heard {
+            if now >= next_look {
+                next_look = now + pause;
+            }
+            continue;
+        }
+        if now >= next_look {
+            pause = (pause * 2).min(Duration::from_secs(2));
+        }
+        next_look = now + pause;
+        if synced.is_none() {
+            let to_doc = to_doc.as_ref().unwrap();
+            let (from_now, to_now) = (doc_state(&doc).await, doc_state(to_doc).await);
+            if !(holds(&to_now, &from_before) && holds(&from_now, &to_before)) {
+                continue;
+            }
+            synced = Some((true, started.elapsed()));
+            if !wait_for_content {
+                break;
+            }
+        }
+        // The entries are there; now their content, on `from`.
+        let wanted = match missing.take() {
+            Some(hashes) => hashes,
+            None => doc_state(&doc)
+                .await
+                .into_iter()
+                .map(|(_, _, _, hash)| hash)
+                .filter(|hash| *hash != iroh_blobs::Hash::EMPTY)
+                .collect(),
+        };
+        let mut still = Vec::new();
+        for hash in wanted {
+            if !from.blobs.blobs().has(hash).await.unwrap_or(false) {
+                still.push(hash);
+            }
+        }
+        if still.is_empty() {
+            content_after = Some(started.elapsed());
+            break;
+        }
+        missing = Some(still);
     }
     let (synced, took) = synced.unwrap_or((false, started.elapsed()));
     Exchange {
