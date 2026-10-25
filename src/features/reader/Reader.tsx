@@ -316,6 +316,8 @@ const BookReaderPage = memo(function BookReaderPage() {
     const suppressProgressRef = useRef(false);
     const resumeTargetRef = useRef<string | null>(null);
     const resumeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** The delayed jump to the saved fraction (books without a saved CFI). */
+    const fractionJumpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pdfProgressSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastPersistedPdfStateRef = useRef<{
         bookId: string;
@@ -1008,6 +1010,9 @@ const BookReaderPage = memo(function BookReaderPage() {
             if (resumeTimeoutRef.current) {
                 clearTimeout(resumeTimeoutRef.current);
             }
+            if (fractionJumpTimeoutRef.current) {
+                clearTimeout(fractionJumpTimeoutRef.current);
+            }
             if (pdfProgressSaveTimeoutRef.current) {
                 clearTimeout(pdfProgressSaveTimeoutRef.current);
             }
@@ -1212,6 +1217,14 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const handleLocationChange = useCallback((loc: DocLocation) => {
         setLocation(loc);
+
+        // The reader turned the page before the delayed jump to the saved
+        // fraction ran: the jump would take them back (a new book went back to
+        // page 1 after the first page turn).
+        if (loc.byUser && fractionJumpTimeoutRef.current) {
+            clearTimeout(fractionJumpTimeoutRef.current);
+            fractionJumpTimeoutRef.current = null;
+        }
 
         if (suppressProgressRef.current) {
             const target = resumeTargetRef.current;
@@ -2160,7 +2173,9 @@ const BookReaderPage = memo(function BookReaderPage() {
             debug('[Reader] No CFI, using fraction fallback:', initialFraction);
             hasAppliedInitialLocationRef.current = true;
             
-            setTimeout(() => {
+            if (fractionJumpTimeoutRef.current) clearTimeout(fractionJumpTimeoutRef.current);
+            fractionJumpTimeoutRef.current = setTimeout(() => {
+                fractionJumpTimeoutRef.current = null;
                 readerRef.current?.goToFraction(initialFraction);
             }, 100);
         }
