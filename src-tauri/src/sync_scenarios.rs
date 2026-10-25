@@ -37,14 +37,19 @@ struct Item {
 }
 
 fn encode(item: &Item) -> String {
-    serde_json::json!({ "v": item.value, "at": item.at }).to_string()
+    let stamp = chrono::DateTime::from_timestamp_millis(item.at as i64)
+        .unwrap()
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    serde_json::json!({ "v": item.value, "updatedAt": stamp }).to_string()
 }
 
 fn decode(raw: &str) -> Option<Item> {
     let v: serde_json::Value = serde_json::from_str(raw).ok()?;
     Some(Item {
         value: v["v"].as_str()?.to_string(),
-        at: v["at"].as_u64()?,
+        at: chrono::DateTime::parse_from_rfc3339(v["updatedAt"].as_str()?)
+            .ok()?
+            .timestamp_millis() as u64,
     })
 }
 
@@ -104,7 +109,8 @@ async fn node(
         Some(map) => builder
             .relay_mode(iroh::RelayMode::Custom(map))
             .ca_tls_config(iroh_relay::tls::CaTlsConfig::insecure_skip_verify())
-            .clear_ip_transports(),
+            .clear_ip_transports()
+            .transport_config(crate::iroh_sync::transport_config()),
         None => builder,
     };
     let ep = builder.bind().await.unwrap();
@@ -309,6 +315,13 @@ impl Device {
             MISSING_CONTENT_BUDGET,
         )
         .await;
+        if std::env::var("SCENARIO_DEBUG").is_ok() && !read.missing.is_empty() {
+            eprintln!(
+                "{}: {} without content, {fetched} fetched",
+                self.name,
+                read.missing.len()
+            );
+        }
         if fetched > 0 {
             read = read_docs(&docs, &self.blobs, self.applied.as_ref()).await;
         }
@@ -438,6 +451,9 @@ async fn pair(a: &mut Device, b: &mut Device) {
 #[derive(Debug)]
 struct Exchange {
     synced: bool,
+    /// What iroh-docs reported (shown when an assertion fails).
+    #[allow(dead_code)]
+    result: String,
     took: Duration,
     /// Until every entry's content had arrived on the side that asked.
     content_after: Option<Duration>,
@@ -447,16 +463,32 @@ struct Exchange {
 /// exchange to finish (30 s at most, as the app). With `wait_for_content`,
 /// also until the content of what arrived is there.
 async fn exchange(from: &Device, to: &Device, wait_for_content: bool) -> Exchange {
+    exchange_within(from, to, wait_for_content, Duration::from_secs(30)).await
+}
+
+async fn exchange_within(
+    from: &Device,
+    to: &Device,
+    wait_for_content: bool,
+    limit: Duration,
+) -> Exchange {
     let doc = from.doc_with(&to.name);
     let mut events = doc.subscribe().await.unwrap();
     let started = Instant::now();
-    doc.start_sync(vec![to.router.endpoint().addr()])
-        .await
-        .unwrap();
+    // Through a relay, all the other device's address is its relay URL.
+    let addr = match &to.relay {
+        Some(map) => {
+            let url = map.urls::<Vec<_>>().into_iter().next().unwrap();
+            iroh::EndpointAddr::new(to.id()).with_relay_url(url)
+        }
+        None => to.router.endpoint().addr(),
+    };
+    doc.start_sync(vec![addr]).await.unwrap();
     let peer = from.peer_id(&to.name);
     let mut synced = None;
+    let mut result = String::new();
     let mut content_after = None;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + limit;
     while let Ok(Some(event)) = tokio::time::timeout_at(deadline, events.next()).await {
         match event {
             Ok(LiveEvent::SyncFinished(e)) if e.peer == peer => {
@@ -467,6 +499,7 @@ async fn exchange(from: &Device, to: &Device, wait_for_content: bool) -> Exchang
                         .map_err(String::as_str),
                 );
                 synced = Some((ok, started.elapsed()));
+                result = format!("{:?}", e.result);
                 if !wait_for_content || !ok {
                     break;
                 }
@@ -481,6 +514,7 @@ async fn exchange(from: &Device, to: &Device, wait_for_content: bool) -> Exchang
     let (synced, took) = synced.unwrap_or((false, started.elapsed()));
     Exchange {
         synced,
+        result,
         took,
         content_after,
     }
@@ -780,7 +814,12 @@ async fn a_large_library() {
     .await;
     eprintln!("  A: data folder {}", mib(dir_size(&a.dir)));
 
-    let ex = timed("A -> B: first exchange", exchange(&a, &b, true)).await;
+    // The app waits 30 s for the exchange; how long does it really take?
+    let ex = timed(
+        "A -> B: first exchange",
+        exchange_within(&a, &b, true, Duration::from_secs(1200)),
+    )
+    .await;
     assert!(ex.synced, "{ex:?}");
     eprintln!(
         "  exchange finished after {:.2} s, all content after {:?}",
@@ -890,4 +929,81 @@ async fn an_exchange_cut_off_midway_completes_on_the_next_round() {
     }
     assert_eq!(b.items.len(), total);
     assert_eq!(b.snapshot(), a.snapshot());
+}
+
+/// Devices that cannot reach each other directly (no direct addresses at
+/// all) sync through a relay; the exchange stays well within the app's
+/// timeouts (6 s probe, 30 s for the exchange).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn devices_sync_through_a_relay_alone() {
+    let (relay_map, _url, _relay) = iroh::test_utils::run_relay_server().await.unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let mut a = Device::new("A", root.path(), Some(relay_map.clone())).await;
+    let mut b = Device::new("B", root.path(), Some(relay_map)).await;
+    pair(&mut a, &mut b).await;
+    fill_library(&mut a, 20, 5);
+    b.edit("book:mine", "from B").await;
+
+    let started = Instant::now();
+    let ex = round(&mut a, &mut b).await;
+    eprintln!("first exchange through the relay: {ex:?}");
+    assert!(ex.took < Duration::from_secs(6), "{ex:?}");
+    // What arrives after the exchange reaches the app live (modelled by
+    // reading again).
+    converge(&mut a, &mut b).await;
+    eprintln!("both devices equal after {:?}", started.elapsed());
+
+    a.edit("book:b1", "edited on A").await;
+    let started = Instant::now();
+    let ex = round(&mut b, &mut a).await;
+    eprintln!("next exchange through the relay: {ex:?}");
+    assert!(ex.took < Duration::from_secs(6), "{ex:?}");
+    converge(&mut a, &mut b).await;
+    eprintln!("edit on the other device after {:?}", started.elapsed());
+    assert_eq!(has(&b, "book:b1").as_deref(), Some("edited on A"));
+}
+
+/// Reads on both devices until they hold the same library (5 s at most).
+async fn converge(a: &mut Device, b: &mut Device) {
+    for _ in 0..50 {
+        if a.snapshot() == b.snapshot() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        a.hydrate().await;
+        b.hydrate().await;
+    }
+    let (sa, sb) = (a.snapshot(), b.snapshot());
+    let differ: Vec<&String> = sa
+        .keys()
+        .chain(sb.keys())
+        .filter(|k| sa.get(*k) != sb.get(*k))
+        .collect();
+    panic!("not converged: {differ:?}");
+}
+
+/// B passes on a book it received from A; A edits it before B's next
+/// provisioning, which writes B's copy later than A's edit. A's edit must
+/// still reach B, and C behind it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_passed_on_copy_never_hides_a_newer_edit() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut a, mut b, mut c) = three_devices(root.path()).await;
+    a.edit("book:1", "Dune").await;
+    round(&mut a, &mut b).await;
+    assert_eq!(has(&b, "book:1").as_deref(), Some("Dune"));
+
+    a.edit("book:1", "Dune (edited on A)").await;
+    // B's round: it provisions first (its copy of "Dune", written now).
+    round(&mut b, &mut a).await;
+    round(&mut b, &mut c).await;
+    round(&mut b, &mut c).await;
+    for d in [&a, &b, &c] {
+        assert_eq!(
+            has(d, "book:1").as_deref(),
+            Some("Dune (edited on A)"),
+            "{}",
+            d.name
+        );
+    }
 }

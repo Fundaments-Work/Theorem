@@ -1539,16 +1539,15 @@ async fn content_of(blobs: &iroh_blobs::api::Store, hash: iroh_blobs::Hash) -> O
     String::from_utf8(content.to_vec()).ok()
 }
 
-/// The newest entry of every key in `doc`, deletions included.
+/// Every device's newest entry of every key in `doc` (each author keeps one
+/// per key), deletions included. Not only the newest entry per key: the copy
+/// written last is not always the newest change (see [`combine_doc_values`]),
+/// and reading only it hid the newer one for good.
 async fn read_headers(doc: &iroh_docs::api::Doc) -> Vec<EntryHeader> {
     use futures::StreamExt;
     let mut headers = Vec::new();
     if let Ok(stream) = doc
-        .get_many(
-            iroh_docs::store::Query::single_latest_per_key()
-                .include_empty()
-                .build(),
-        )
+        .get_many(iroh_docs::store::Query::all().include_empty().build())
         .await
     {
         futures::pin_mut!(stream);
@@ -1780,10 +1779,40 @@ fn is_per_entity_key(key: &str) -> bool {
     .any(|prefix| key.starts_with(prefix))
 }
 
+/// When a record last changed, by the stamps the app keeps in it (ms since
+/// the epoch; ISO dates or numbers): the newest of them.
+fn record_stamp(value: &str) -> Option<i64> {
+    const STAMPS: [&str; 6] = [
+        "metadataUpdatedAt",
+        "updatedAt",
+        "lastReadAt",
+        "deletedAt",
+        "addedAt",
+        "createdAt",
+    ];
+    let record: serde_json::Value = serde_json::from_str(value).ok()?;
+    STAMPS
+        .iter()
+        .filter_map(|field| match record.get(*field)? {
+            serde_json::Value::Number(n) => n.as_i64(),
+            serde_json::Value::String(s) => chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|d| d.timestamp_millis()),
+            _ => None,
+        })
+        .max()
+}
+
 /// One value per key from the copies in each paired device's doc (each with
-/// the time it was written). Records: the newest copy. Objects (settings,
-/// stats): merged field by field, newer copies winning. Lists: concatenated
-/// oldest first, for the app's merge to deduplicate. Anything else: newest.
+/// the time it was written). Records: the copy with the newest change (by
+/// the record's own stamps; by when it was written when they tie or are
+/// missing). The time of writing alone misleads: a device that passes on an
+/// item it received writes its copy when it provisions, which can be after
+/// another device's newer edit it has not read yet; that stale copy then hid
+/// the edit from it, and from every device behind it, for good. Objects
+/// (settings, stats): merged field by field, newer copies winning. Lists:
+/// concatenated oldest first, for the app's merge to deduplicate. Anything
+/// else: newest.
 fn combine_doc_values(
     per_key: std::collections::HashMap<String, Vec<(u64, String)>>,
 ) -> std::collections::HashMap<String, String> {
@@ -1791,8 +1820,18 @@ fn combine_doc_values(
     for (key, mut values) in per_key {
         values.sort_by_key(|(at, _)| *at);
         let newest = || values.last().map(|(_, v)| v.clone()).unwrap_or_default();
-        if values.len() == 1 || is_per_entity_key(&key) {
+        if values.len() == 1 {
             results.insert(key, newest());
+            continue;
+        }
+        if is_per_entity_key(&key) {
+            let latest = values
+                .iter()
+                .map(|(at, v)| ((record_stamp(v).unwrap_or(i64::MIN), *at), v))
+                .max_by_key(|(order, _)| *order)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+            results.insert(key, latest);
             continue;
         }
         let parsed: Vec<serde_json::Value> = values
@@ -2035,6 +2074,59 @@ mod tests {
             let ordered: Vec<_> = order.iter().map(|&i| copies[i]).collect();
             assert_eq!(combine(&ordered)["anno:b:a"], r#"{"note":"newest"}"#);
         }
+    }
+
+    #[test]
+    fn the_copy_with_the_newest_change_wins_not_the_one_written_last() {
+        // B wrote its stale copy into the doc after A's edit (B had not read
+        // it yet): the copy written last is not the newest change.
+        let edited = r#"{"title":"Dune (edited)","metadataUpdatedAt":"2026-10-25T10:00:05.000Z"}"#;
+        let stale = r#"{"title":"Dune","metadataUpdatedAt":"2026-10-25T09:00:00.000Z"}"#;
+        let out = combine(&[("book:1", 10, edited), ("book:1", 20, stale)]);
+        assert_eq!(out["book:1"], edited);
+        // Annotations: updatedAt; epoch numbers as well as ISO dates.
+        let out = combine(&[
+            (
+                "anno:b:a",
+                10,
+                r#"{"note":"new","updatedAt":1700000005000}"#,
+            ),
+            (
+                "anno:b:a",
+                20,
+                r#"{"note":"old","updatedAt":1700000000000}"#,
+            ),
+        ]);
+        assert_eq!(
+            out["anno:b:a"],
+            r#"{"note":"new","updatedAt":1700000005000}"#
+        );
+        // A book read later on one device and edited earlier on another: the
+        // later change (reading) wins the copy; the app merges the rest.
+        let read = r#"{"title":"Dune","metadataUpdatedAt":"2026-10-25T09:00:00.000Z","lastReadAt":"2026-10-25T11:00:00.000Z"}"#;
+        let out = combine(&[("book:1", 30, edited), ("book:1", 20, read)]);
+        assert_eq!(out["book:1"], read);
+        // Copies without stamps (or with equal ones): the one written last.
+        let out = combine(&[("vocab:v", 10, r#"{"t":1}"#), ("vocab:v", 20, r#"{"t":2}"#)]);
+        assert_eq!(out["vocab:v"], r#"{"t":2}"#);
+        let out = combine(&[
+            ("anno:b:a", 20, r#"{"n":2,"updatedAt":5}"#),
+            ("anno:b:a", 10, r#"{"n":1,"updatedAt":5}"#),
+        ]);
+        assert_eq!(out["anno:b:a"], r#"{"n":2,"updatedAt":5}"#);
+        // A stamped copy beats an unstamped or unreadable one.
+        let out = combine(&[
+            (
+                "collection:c",
+                10,
+                r#"{"updatedAt":"2026-01-01T00:00:00Z"}"#,
+            ),
+            ("collection:c", 20, "{}"),
+        ]);
+        assert_eq!(
+            out["collection:c"],
+            r#"{"updatedAt":"2026-01-01T00:00:00Z"}"#
+        );
     }
 
     #[test]
