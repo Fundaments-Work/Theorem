@@ -143,7 +143,7 @@ fn highlights_add(
     });
     match added {
         Ok(true) => {}
-        Ok(false) => return output.error(&book_not_found(book_id)),
+        Ok(false) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     }
 

@@ -171,7 +171,7 @@ fn feeds_add(output: &Output, ctx: &Ctx, url: &str) -> i32 {
         Ok(feeds) => {
             let wanted = normalize_feed_url(url);
             if feeds.iter().any(|f| normalize_feed_url(&f.url) == wanted) {
-                return output.error(&format!("feed already subscribed: {url}"));
+                return output.error(format!("feed already subscribed: {url}"));
             }
         }
         Err(e) => return output.error(&e),

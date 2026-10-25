@@ -104,7 +104,7 @@ pub(super) fn run_stats(output: &Output, ctx: &Ctx) -> i32 {
     {
         None => None,
         Some(Ok(envelope)) => envelope.get("state").and_then(|s| s.get("stats")).cloned(),
-        Some(Err(e)) => return output.error(&format!("Settings store is malformed: {e}")),
+        Some(Err(e)) => return output.error(format!("Settings store is malformed: {e}")),
     };
     // Nothing read yet is not an error: the app starts from zero too.
     let stats = match stats {
@@ -195,7 +195,7 @@ pub(super) fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBu
 
     let text = match serde_json::to_string_pretty(&snapshot) {
         Ok(text) => text,
-        Err(e) => return output.error(&e.to_string()),
+        Err(e) => return output.error(e.to_string()),
     };
     match out {
         Some(path) => {
@@ -205,7 +205,7 @@ pub(super) fn run_export_snapshot(output: &Output, ctx: &Ctx, out: Option<PathBu
                 }
             }
             if let Err(e) = std::fs::write(&path, &text) {
-                return output.error(&format!("Failed to write {}: {e}", path.display()));
+                return output.error(format!("Failed to write {}: {e}", path.display()));
             }
             if output.json {
                 output.print_json(&serde_json::json!({

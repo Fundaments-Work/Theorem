@@ -100,7 +100,7 @@ fn library_list(output: &Output, ctx: &Ctx, format: &str) -> i32 {
 fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
     let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&book_not_found(book_id)),
+        Ok(None) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
 
@@ -177,7 +177,7 @@ fn library_info(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
 fn library_remove(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
     let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&book_not_found(book_id)),
+        Ok(None) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
     let title = book_title(&book);
@@ -263,7 +263,7 @@ fn library_favorite(output: &Output, ctx: &Ctx, book_id: &str, state: Option<&st
 fn library_export(output: &Output, ctx: &Ctx, book_id: &str, out: Option<PathBuf>) -> i32 {
     let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&book_not_found(book_id)),
+        Ok(None) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
 
@@ -302,13 +302,13 @@ fn library_export(output: &Output, ctx: &Ctx, book_id: &str, out: Option<PathBuf
     if let Some(parent) = target.parent() {
         if !parent.as_os_str().is_empty() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return output.error(&format!("Cannot create {}: {e}", parent.display()));
+                return output.error(format!("Cannot create {}: {e}", parent.display()));
             }
         }
     }
     let bytes = match std::fs::copy(&source, &target) {
         Ok(bytes) => bytes,
-        Err(e) => return output.error(&format!("Failed to write {}: {e}", target.display())),
+        Err(e) => return output.error(format!("Failed to write {}: {e}", target.display())),
     };
 
     if output.json {
@@ -342,7 +342,7 @@ fn library_edit_meta(
 
     let book = match load_book(ctx, book_id) {
         Ok(Some(book)) => book,
-        Ok(None) => return output.error(&book_not_found(book_id)),
+        Ok(None) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
     let is_epub = book_str(&book, "format")
