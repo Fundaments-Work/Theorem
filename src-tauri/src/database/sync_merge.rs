@@ -56,6 +56,11 @@ fn upsert_synced_annotation(
             |row| row.get(0),
         )
         .optional()?;
+    if existing.as_deref() == Some(incoming_json) {
+        // The same record (a book's annotations arrive together when one of
+        // them changed): nothing to store or report.
+        return Ok(false);
+    }
     if let Some(existing) = existing {
         let existing_val = serde_json::from_str::<serde_json::Value>(&existing).ok();
         if let Some(found) = existing_val.as_ref().and_then(|local| {
@@ -1159,6 +1164,33 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM book_annotations", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 0);
+    }
+
+    #[test]
+    fn an_annotation_received_again_unchanged_is_not_rewritten() {
+        let conn = setup_db();
+        let record = r#"{"id":"a1","bookId":"b1","note":"n","updatedAt":5}"#;
+        let first = merge_one(&conn, "anno:b1:a1", record);
+        assert_eq!(first.updated_annotations, vec!["a1".to_string()]);
+        let stamp = |c: &Connection| -> i64 {
+            c.query_row(
+                "SELECT updated_at FROM book_annotations WHERE id = 'a1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        conn.execute("UPDATE book_annotations SET updated_at = 1", [])
+            .unwrap();
+        // The same record again (its book's other annotation changed).
+        let again = merge_one(&conn, "anno:b1:a1", record);
+        assert!(again.updated_annotations.is_empty());
+        assert!(!again.domains_updated.contains(&"annotations".to_string()));
+        assert_eq!(stamp(&conn), 1, "not written again");
+        // A changed one still is.
+        let edited = r#"{"id":"a1","bookId":"b1","note":"n2","updatedAt":6}"#;
+        let changed = merge_one(&conn, "anno:b1:a1", edited);
+        assert_eq!(changed.updated_annotations, vec!["a1".to_string()]);
     }
 
     #[test]
