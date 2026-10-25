@@ -575,7 +575,7 @@ async fn newest_is_deletion(doc: &iroh_docs::api::Doc, key: &str) -> bool {
 /// ("Failed to close ..."), typically when the other side hangs up first over
 /// a relay; the exchange itself completed, so that counts as synced.
 /// (`result` is the event's entry counts, received and sent, or its error.)
-fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize, usize) {
+pub(crate) fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize, usize) {
     match result {
         Ok((received, sent)) => (true, received, sent),
         Err(e) if e.starts_with("Failed to close") => (true, 0, 0),

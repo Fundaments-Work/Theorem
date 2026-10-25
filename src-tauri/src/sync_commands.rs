@@ -1321,6 +1321,8 @@ struct DocRead {
     deleted: Vec<DeletedDocKey>,
     /// Every key's copies as now read, for the next diff.
     seen: std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
+    /// Content of entries that are here without it (left out of the read).
+    missing: Vec<iroh_blobs::Hash>,
 }
 
 /// The newest entry header of one key in one doc: when it was written
@@ -1348,22 +1350,105 @@ async fn read_doc_entries(
     };
     // Copy the doc IDs and let go of the lock: reading the docs takes a while,
     // and pairing, writes and book transfers all need it meanwhile.
-    let doc_ids: Vec<iroh_docs::NamespaceId> = {
+    let (doc_ids, peers): (Vec<iroh_docs::NamespaceId>, Vec<iroh::EndpointId>) = {
         let devices = sync_state.transport_state.paired_devices.lock().await;
-        devices
+        let doc_ids = devices
             .values()
             .filter(|d| !d.sync_doc_id.is_empty())
             .map(|d| d.sync_doc_id.parse())
             .collect::<Result<_, _>>()
-            .map_err(|e| format!("parse doc id: {e}"))?
+            .map_err(|e| format!("parse doc id: {e}"))?;
+        let peers = devices
+            .values()
+            .filter_map(|d| d.iroh_node_id.parse().ok())
+            .collect();
+        (doc_ids, peers)
     };
 
-    // First the entry headers (cheap), then content only for keys that changed.
-    let mut headers: Vec<EntryHeader> = Vec::new();
+    let mut docs = Vec::with_capacity(doc_ids.len());
     for doc_id in doc_ids {
         if let Ok(Some(doc)) = api.open(doc_id).await {
-            headers.extend(read_headers(&doc).await);
+            docs.push(doc);
         }
+    }
+    let read = read_docs(&docs, &blobs, applied).await;
+    if read.missing.is_empty() {
+        return Ok(read);
+    }
+    let Ok(endpoint) = get_or_init_iroh(app).await else {
+        return Ok(read);
+    };
+    let fetched = fetch_missing_content(
+        &blobs,
+        &endpoint.endpoint,
+        &peers,
+        &read.missing,
+        MISSING_CONTENT_BUDGET,
+    )
+    .await;
+    if fetched == 0 {
+        return Ok(read);
+    }
+    Ok(read_docs(&docs, &blobs, applied).await)
+}
+
+/// How long a read spends fetching content that never arrived.
+const MISSING_CONTENT_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Fetches from the paired devices the content of doc entries that are here
+/// without it, within `budget`; returns how many arrived. iroh-docs asks for
+/// an entry's content once, when the entry arrives (again only when a
+/// neighbour announces it, and it forgets what is missing on restart). An
+/// exchange cut off after the entries but before their content, or an app
+/// closed meanwhile, left those entries without content for good: later
+/// exchanges bring no new entries, so nothing asked again, and the items
+/// never reached this device.
+async fn fetch_missing_content(
+    blobs: &iroh_blobs::api::Store,
+    endpoint: &iroh::Endpoint,
+    peers: &[iroh::EndpointId],
+    hashes: &[iroh_blobs::Hash],
+    budget: std::time::Duration,
+) -> usize {
+    use futures::StreamExt;
+    if hashes.is_empty() || peers.is_empty() {
+        return 0;
+    }
+    let downloader = blobs.downloader(endpoint);
+    let fetched = std::sync::atomic::AtomicUsize::new(0);
+    let mut unique: Vec<iroh_blobs::Hash> = hashes.to_vec();
+    unique.sort();
+    unique.dedup();
+    let total = unique.len();
+    let work = futures::stream::iter(unique)
+        .map(|hash| {
+            let (downloader, peers) = (downloader.clone(), peers.to_vec());
+            async move { downloader.download(hash, peers).await.is_ok() }
+        })
+        .buffer_unordered(32)
+        .for_each(|ok| {
+            if ok {
+                fetched.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            std::future::ready(())
+        });
+    let _ = tokio::time::timeout(budget, work).await;
+    let fetched = fetched.load(std::sync::atomic::Ordering::Relaxed);
+    log::info!("[iroh-sync] fetched {fetched} of {total} missing doc contents");
+    fetched
+}
+
+/// [`read_doc_entries`] over open docs (one per paired device) and the blob
+/// store holding their content.
+async fn read_docs(
+    docs: &[iroh_docs::api::Doc],
+    blobs: &iroh_blobs::api::Store,
+    applied: Option<&std::collections::HashMap<String, Vec<iroh_blobs::Hash>>>,
+) -> DocRead {
+    // First the entry headers (cheap), then content only for keys that changed.
+    let mut headers: Vec<EntryHeader> = Vec::new();
+    for doc in docs {
+        headers.extend(read_headers(doc).await);
     }
     let current = hashes_by_key(&headers);
     let changed: std::collections::HashSet<&String> = current
@@ -1376,27 +1461,37 @@ async fn read_doc_entries(
     let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
         std::collections::HashMap::new();
     let mut incomplete: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (key, at, hash) in &headers {
-        if !changed.contains(key) || gone.contains(key) || *hash == iroh_blobs::Hash::EMPTY {
-            continue;
+    let wanted: Vec<&EntryHeader> = headers
+        .iter()
+        .filter(|(key, _, hash)| {
+            changed.contains(key) && !gone.contains(key) && *hash != iroh_blobs::Hash::EMPTY
+        })
+        .collect();
+    // Content usually arrives with the exchange. What is still missing gets
+    // one short wait in all (never one per entry: after an exchange cut off
+    // midway, thousands of entries can be waiting for content that is not
+    // coming, and the read stalled for minutes). Anything still missing is
+    // read again next time.
+    let mut missing: Vec<&EntryHeader> = Vec::new();
+    for header in wanted {
+        match content_of(blobs, header.2).await {
+            Some(v) => per_key
+                .entry(header.0.clone())
+                .or_default()
+                .push((header.1, v)),
+            None => missing.push(header),
         }
-        let mut value = None;
-        // Blobs usually arrive with docs_sync_now; a short wait covers
-        // near-term arrivals, and anything still missing is picked up via the
-        // live ContentReady path or the next round.
-        for _ in 0..2 {
-            if let Ok(content) = blobs.blobs().get_bytes(*hash).await {
-                value = String::from_utf8(content.to_vec()).ok();
-                if value.is_some() {
-                    break;
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-        }
-        match value {
+    }
+    if !missing.is_empty() {
+        tokio::time::sleep(CONTENT_GRACE).await;
+    }
+    let mut missing_hashes = Vec::new();
+    for (key, at, hash) in missing {
+        match content_of(blobs, *hash).await {
             Some(v) => per_key.entry(key.clone()).or_default().push((*at, v)),
             None => {
                 incomplete.insert(key.clone());
+                missing_hashes.push(*hash);
             }
         }
     }
@@ -1420,11 +1515,28 @@ async fn read_doc_entries(
             }
         }
     }
-    Ok(DocRead {
+    DocRead {
         entries: combine_doc_values(per_key),
         deleted,
         seen,
-    })
+        missing: missing_hashes,
+    }
+}
+
+/// How long a read waits, once, for content still on its way.
+const CONTENT_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// A doc entry's content, when it is here (complete and text).
+async fn content_of(blobs: &iroh_blobs::api::Store, hash: iroh_blobs::Hash) -> Option<String> {
+    // Asking for a blob that is not here costs ~10 ms; its status, ~50 µs.
+    if !matches!(
+        blobs.blobs().status(hash).await,
+        Ok(iroh_blobs::api::blobs::BlobStatus::Complete { .. })
+    ) {
+        return None;
+    }
+    let content = blobs.blobs().get_bytes(hash).await.ok()?;
+    String::from_utf8(content.to_vec()).ok()
 }
 
 /// The newest entry of every key in `doc`, deletions included.
@@ -1591,8 +1703,6 @@ pub async fn docs_purge_entities(
     app: tauri::AppHandle,
     entities: Vec<DeletedEntity>,
 ) -> Result<usize, String> {
-    use futures::pin_mut;
-    use futures::StreamExt;
     if entities.is_empty() {
         return Ok(0);
     }
@@ -1610,32 +1720,45 @@ pub async fn docs_purge_entities(
         let Ok(Some(doc)) = snapshot.api.open(doc_id).await else {
             continue;
         };
-        let mut own_keys = Vec::new();
-        if let Ok(stream) = doc
-            .get_many(iroh_docs::store::Query::author(snapshot.author).build())
-            .await
-        {
-            pin_mut!(stream);
-            while let Some(Ok(entry)) = stream.next().await {
-                own_keys.push(String::from_utf8_lossy(entry.key()).to_string());
-            }
-        }
-        for key in keys_of_deleted(&entities, &own_keys) {
-            // A doc deletion is by prefix: never remove a longer key that is
-            // not itself deleted (book:12 would take book:123 with it).
-            let shadows_live_key = own_keys
-                .iter()
-                .any(|other| other.len() > key.len() && other.starts_with(&key));
-            if shadows_live_key {
-                continue;
-            }
-            match doc.del(snapshot.author, key.clone().into_bytes()).await {
-                Ok(n) => removed += n,
-                Err(e) => log::warn!("[iroh-sync] could not remove {key}: {e}"),
-            }
-        }
+        removed += purge_entities_in_doc(&doc, snapshot.author, &entities).await;
     }
     Ok(removed)
+}
+
+/// [`docs_purge_entities`] for one doc.
+async fn purge_entities_in_doc(
+    doc: &iroh_docs::api::Doc,
+    author: iroh_docs::AuthorId,
+    entities: &[DeletedEntity],
+) -> usize {
+    use futures::pin_mut;
+    use futures::StreamExt;
+    let mut removed = 0usize;
+    let mut own_keys = Vec::new();
+    if let Ok(stream) = doc
+        .get_many(iroh_docs::store::Query::author(author).build())
+        .await
+    {
+        pin_mut!(stream);
+        while let Some(Ok(entry)) = stream.next().await {
+            own_keys.push(String::from_utf8_lossy(entry.key()).to_string());
+        }
+    }
+    for key in keys_of_deleted(entities, &own_keys) {
+        // A doc deletion is by prefix: never remove a longer key that is
+        // not itself deleted (book:12 would take book:123 with it).
+        let shadows_live_key = own_keys
+            .iter()
+            .any(|other| other.len() > key.len() && other.starts_with(&key));
+        if shadows_live_key {
+            continue;
+        }
+        match doc.del(author, key.clone().into_bytes()).await {
+            Ok(n) => removed += n,
+            Err(e) => log::warn!("[iroh-sync] could not remove {key}: {e}"),
+        }
+    }
+    removed
 }
 
 /// Keys that hold one record each: with several paired devices, the copy
@@ -1880,6 +2003,10 @@ pub async fn clear_sync_databases(app: tauri::AppHandle) -> Result<(), String> {
     log::info!("[iroh-sync] Cleared sync databases, identity key, and paired devices");
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "sync_scenarios.rs"]
+mod scenarios;
 
 #[cfg(test)]
 mod tests {
