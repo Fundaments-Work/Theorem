@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 /// What this version speaks to paired devices. 2: one doc entry per item
-/// (no whole-list entries), the hello probe, unpair notices. Devices that
-/// never said (0) are older versions and still get the whole lists.
-pub const SYNC_PROTOCOL: u8 = 2;
+/// (no whole-list entries), the hello probe, unpair notices. 3: annotations
+/// as one entry per book (`annos:{bookId}`) instead of one per annotation.
+/// Devices that never said (0) are older versions and still get the whole
+/// lists; devices below 3 still get one entry per annotation as well.
+pub const SYNC_PROTOCOL: u8 = 3;
 
 /// The longest device name shown or sent.
 pub const MAX_DEVICE_NAME_CHARS: usize = 64;

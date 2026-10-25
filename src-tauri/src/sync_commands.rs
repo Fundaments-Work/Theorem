@@ -981,9 +981,16 @@ async fn write_own_entries(
                 continue;
             }
         };
-        let (n, found, error) =
-            write_entries_to_doc(&doc, snapshot.author, *protocol, entries, respect_deletions)
-                .await;
+        fold_single_deletions_once(&doc, &snapshot.blobs, snapshot.author).await;
+        let (n, found, error) = write_entries_to_doc(
+            &doc,
+            &snapshot.blobs,
+            snapshot.author,
+            *protocol,
+            entries,
+            respect_deletions,
+        )
+        .await;
         written += n;
         for d in found {
             if !deleted.iter().any(|x| x.key == d.key) {
@@ -1015,9 +1022,11 @@ pub struct DocWriteResult {
 /// [`write_own_entries`] for one doc, shared with a device on `protocol`.
 /// Returns how many entries were written, the items left unwritten because
 /// their newest entry is a deletion (with `respect_deletions`), and the
-/// first failure.
+/// first failure. Annotations go into this device's group of their book
+/// (see `sync_annotations`).
 async fn write_entries_to_doc(
     doc: &iroh_docs::api::Doc,
+    blobs: &iroh_blobs::api::Store,
     author: iroh_docs::AuthorId,
     protocol: u8,
     entries: &[(String, String)],
@@ -1026,7 +1035,15 @@ async fn write_entries_to_doc(
     let mut written = 0usize;
     let mut deleted = Vec::new();
     let mut error = None;
+    let mut annotations: Vec<(&str, &str)> = Vec::new();
     for (key, value) in entries {
+        if crate::sync_annotations::is_annotation_key(key) {
+            // Groups are built here, never taken whole from the app.
+            if crate::sync_annotations::parse_single_key(key).is_some() {
+                annotations.push((key, value));
+            }
+            continue;
+        }
         if is_legacy_list_key(key) && !reads_legacy_lists(protocol) {
             continue;
         }
@@ -1058,7 +1075,59 @@ async fn write_entries_to_doc(
             }
         }
     }
+    if !annotations.is_empty() {
+        let (n, held, e) = crate::sync_annotations::write_annotations(
+            doc,
+            blobs,
+            author,
+            protocol,
+            &annotations,
+            respect_deletions,
+        )
+        .await;
+        written += n;
+        deleted.extend(held);
+        if let Some(e) = e {
+            error.get_or_insert(e);
+        }
+    }
     (written, deleted, error)
+}
+
+/// Docs whose single annotation deletions from this device were copied into
+/// its groups since start (`sync_annotations::fold_single_deletions`).
+type DocSet = std::collections::HashSet<iroh_docs::NamespaceId>;
+static SINGLE_DELETIONS_FOLDED: std::sync::Mutex<Option<DocSet>> = std::sync::Mutex::new(None);
+
+/// [`crate::sync_annotations::fold_single_deletions`] once per doc and
+/// start; retried while it fails.
+async fn fold_single_deletions_once(
+    doc: &iroh_docs::api::Doc,
+    blobs: &iroh_blobs::api::Store,
+    author: iroh_docs::AuthorId,
+) {
+    let id = doc.id();
+    let done = SINGLE_DELETIONS_FOLDED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|set| set.contains(&id));
+    if done {
+        return;
+    }
+    match crate::sync_annotations::fold_single_deletions(doc, blobs, author).await {
+        Ok(n) => {
+            if n > 0 {
+                log::info!("[iroh-sync] {n} annotation deletions copied into per-book entries");
+            }
+            SINGLE_DELETIONS_FOLDED
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_or_insert_with(Default::default)
+                .insert(id);
+        }
+        Err(e) => log::warn!("[iroh-sync] annotation deletions not copied yet: {e}"),
+    }
 }
 
 /// When `key`'s newest entry in `doc` (by any device) is a deletion, when
@@ -1439,65 +1508,119 @@ async fn fetch_missing_content(
 }
 
 /// [`read_doc_entries`] over open docs (one per paired device) and the blob
-/// store holding their content.
+/// store holding their content. Annotations are combined per annotation
+/// across every copy (see `sync_annotations`) and delivered as `anno:` items.
 async fn read_docs(
     docs: &[iroh_docs::api::Doc],
     blobs: &iroh_blobs::api::Store,
     applied: Option<&std::collections::HashMap<String, Vec<iroh_blobs::Hash>>>,
 ) -> DocRead {
+    use crate::sync_annotations as annos;
     // First the entry headers (cheap), then content only for keys that changed.
     let mut headers: Vec<EntryHeader> = Vec::new();
     for doc in docs {
         headers.extend(read_headers(doc).await);
     }
     let current = hashes_by_key(&headers);
+    let item_headers: Vec<EntryHeader> = headers
+        .iter()
+        .filter(|(key, _, _)| !annos::is_annotation_key(key))
+        .cloned()
+        .collect();
     let changed: std::collections::HashSet<&String> = current
         .iter()
-        .filter(|(key, hashes)| applied.is_none_or(|a| a.get(*key) != Some(*hashes)))
+        .filter(|(key, hashes)| {
+            !annos::is_annotation_key(key) && applied.is_none_or(|a| a.get(*key) != Some(*hashes))
+        })
         .map(|(key, _)| key)
         .collect();
-    let (deleted, gone) = deletions(&headers, &changed);
-
-    let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
-        std::collections::HashMap::new();
-    let mut incomplete: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let wanted: Vec<&EntryHeader> = headers
+    let (mut deleted, gone) = deletions(&item_headers, &changed);
+    let wanted: Vec<&EntryHeader> = item_headers
         .iter()
         .filter(|(key, _, hash)| {
             changed.contains(key) && !gone.contains(key) && *hash != iroh_blobs::Hash::EMPTY
         })
         .collect();
-    // Content usually arrives with the exchange. What is still missing gets
-    // one short wait in all (never one per entry: after an exchange cut off
-    // midway, thousands of entries can be waiting for content that is not
-    // coming, and the read stalled for minutes). Anything still missing is
-    // read again next time.
-    let mut missing: Vec<&EntryHeader> = Vec::new();
-    for header in wanted {
-        match content_of(blobs, header.2).await {
-            Some(v) => per_key
-                .entry(header.0.clone())
-                .or_default()
-                .push((header.1, v)),
-            None => missing.push(header),
+
+    // Books whose annotations changed: all their copies are read.
+    let books = annos::changed_books(&current, applied);
+    let mut book_headers: std::collections::HashMap<&str, Vec<&EntryHeader>> =
+        std::collections::HashMap::new();
+    for header in &headers {
+        if let Some(book) = annos::book_of(&header.0) {
+            if books.contains_key(book) {
+                book_headers.entry(book).or_default().push(header);
+            }
         }
     }
-    if !missing.is_empty() {
-        tokio::time::sleep(CONTENT_GRACE).await;
-    }
+
+    let contents = load_contents(
+        blobs,
+        wanted
+            .iter()
+            .map(|h| h.2)
+            .chain(book_headers.values().flatten().map(|h| h.2)),
+    )
+    .await;
+
+    let mut per_key: std::collections::HashMap<String, Vec<(u64, String)>> =
+        std::collections::HashMap::new();
+    let mut incomplete: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut missing_hashes = Vec::new();
-    for (key, at, hash) in missing {
-        match content_of(blobs, *hash).await {
-            Some(v) => per_key.entry(key.clone()).or_default().push((*at, v)),
+    for (key, at, hash) in wanted {
+        match contents.get(hash) {
+            Some(v) => per_key
+                .entry(key.clone())
+                .or_default()
+                .push((*at, v.clone())),
             None => {
                 incomplete.insert(key.clone());
                 missing_hashes.push(*hash);
             }
         }
     }
+
+    let mut annotation_entries: Vec<(String, String)> = Vec::new();
+    for (book, change) in &books {
+        let copies_of = book_headers
+            .get(book.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let absent: Vec<iroh_blobs::Hash> = copies_of
+            .iter()
+            .map(|h| h.2)
+            .filter(|hash| *hash != iroh_blobs::Hash::EMPTY && !contents.contains_key(hash))
+            .collect();
+        if !absent.is_empty() {
+            // Read again next time, whole: a copy not here yet may hold a
+            // newer change (a deletion) of any of the book's annotations.
+            incomplete.extend(copies_of.iter().map(|h| h.0.clone()));
+            missing_hashes.extend(absent);
+            continue;
+        }
+        let copies: Vec<annos::Copy> = copies_of
+            .iter()
+            .filter_map(|(key, at, hash)| {
+                let content = (*hash != iroh_blobs::Hash::EMPTY)
+                    .then(|| contents.get(hash).map(String::as_str))
+                    .flatten();
+                annos::copy_from_entry(key, *at, *hash, content)
+            })
+            .collect();
+        let ids = annos::ids_to_deliver(change, &copies);
+        annos::deliver(
+            book,
+            &annos::resolve(&copies),
+            ids.as_ref(),
+            &mut annotation_entries,
+            &mut deleted,
+        );
+    }
+    deleted.sort_by(|a, b| a.key.cmp(&b.key));
     log::debug!(
-        "[iroh-sync] read {} changed doc keys of {} ({} deleted, {} waiting for content)",
+        "[iroh-sync] read {} changed doc keys and {} books' annotations of {} keys ({} deleted, {} waiting for content)",
         changed.len(),
+        books.len(),
         current.len(),
         deleted.len(),
         incomplete.len()
@@ -1515,19 +1638,59 @@ async fn read_docs(
             }
         }
     }
+    let mut entries = combine_doc_values(per_key);
+    entries.extend(annotation_entries);
     DocRead {
-        entries: combine_doc_values(per_key),
+        entries,
         deleted,
         seen,
         missing: missing_hashes,
     }
 }
 
+/// The content of each of `hashes` that is here. Content usually arrives
+/// with the exchange; what is still missing gets one short wait in all
+/// (never one per entry: after an exchange cut off midway, thousands of
+/// entries can be waiting for content that is not coming, and the read
+/// stalled for minutes). Anything still missing is read again next time.
+async fn load_contents(
+    blobs: &iroh_blobs::api::Store,
+    hashes: impl Iterator<Item = iroh_blobs::Hash>,
+) -> std::collections::HashMap<iroh_blobs::Hash, String> {
+    let mut unique: Vec<iroh_blobs::Hash> = hashes
+        .filter(|hash| *hash != iroh_blobs::Hash::EMPTY)
+        .collect();
+    unique.sort();
+    unique.dedup();
+    let mut contents = std::collections::HashMap::with_capacity(unique.len());
+    let mut missing = Vec::new();
+    for hash in unique {
+        match content_of(blobs, hash).await {
+            Some(v) => {
+                contents.insert(hash, v);
+            }
+            None => missing.push(hash),
+        }
+    }
+    if !missing.is_empty() {
+        tokio::time::sleep(CONTENT_GRACE).await;
+        for hash in missing {
+            if let Some(v) = content_of(blobs, hash).await {
+                contents.insert(hash, v);
+            }
+        }
+    }
+    contents
+}
+
 /// How long a read waits, once, for content still on its way.
 const CONTENT_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// A doc entry's content, when it is here (complete and text).
-async fn content_of(blobs: &iroh_blobs::api::Store, hash: iroh_blobs::Hash) -> Option<String> {
+pub(crate) async fn content_of(
+    blobs: &iroh_blobs::api::Store,
+    hash: iroh_blobs::Hash,
+) -> Option<String> {
     // Asking for a blob that is not here costs ~10 ms; its status, ~50 µs.
     if !matches!(
         blobs.blobs().status(hash).await,
@@ -1719,20 +1882,48 @@ pub async fn docs_purge_entities(
         let Ok(Some(doc)) = snapshot.api.open(doc_id).await else {
             continue;
         };
-        removed += purge_entities_in_doc(&doc, snapshot.author, &entities).await;
+        removed += purge_entities_in_doc(&doc, &snapshot.blobs, snapshot.author, &entities).await;
     }
     Ok(removed)
 }
 
-/// [`docs_purge_entities`] for one doc.
+/// [`docs_purge_entities`] for one doc: this device's entries of deleted
+/// items are removed, and in its annotation groups the records of deleted
+/// annotations (and of every annotation of a deleted book) become deletion
+/// markers. Returns how many entries were removed or records marked.
 async fn purge_entities_in_doc(
     doc: &iroh_docs::api::Doc,
+    blobs: &iroh_blobs::api::Store,
     author: iroh_docs::AuthorId,
     entities: &[DeletedEntity],
 ) -> usize {
+    let own_keys = own_entry_keys(doc, author).await;
+    let removed = purge_single_entries(doc, author, entities, &own_keys).await;
+    let of_kind = |kind: &str| -> std::collections::HashSet<&str> {
+        entities
+            .iter()
+            .filter(|e| e.entity_type == kind && !e.entity_id.is_empty())
+            .map(|e| e.entity_id.as_str())
+            .collect()
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    removed
+        + crate::sync_annotations::purge_groups(
+            doc,
+            blobs,
+            author,
+            &own_keys,
+            &of_kind("book"),
+            &of_kind("annotation"),
+            now,
+        )
+        .await
+}
+
+/// This device's keys in `doc` (deletions left out).
+async fn own_entry_keys(doc: &iroh_docs::api::Doc, author: iroh_docs::AuthorId) -> Vec<String> {
     use futures::pin_mut;
     use futures::StreamExt;
-    let mut removed = 0usize;
     let mut own_keys = Vec::new();
     if let Ok(stream) = doc
         .get_many(iroh_docs::store::Query::author(author).build())
@@ -1743,7 +1934,18 @@ async fn purge_entities_in_doc(
             own_keys.push(String::from_utf8_lossy(entry.key()).to_string());
         }
     }
-    for key in keys_of_deleted(entities, &own_keys) {
+    own_keys
+}
+
+/// Removes this device's entries (`own_keys`) that hold a deleted entity.
+async fn purge_single_entries(
+    doc: &iroh_docs::api::Doc,
+    author: iroh_docs::AuthorId,
+    entities: &[DeletedEntity],
+    own_keys: &[String],
+) -> usize {
+    let mut removed = 0usize;
+    for key in keys_of_deleted(entities, own_keys) {
         // A doc deletion is by prefix: never remove a longer key that is
         // not itself deleted (book:12 would take book:123 with it).
         let shadows_live_key = own_keys
@@ -1782,6 +1984,11 @@ fn is_per_entity_key(key: &str) -> bool {
 /// When a record last changed, by the stamps the app keeps in it (ms since
 /// the epoch; ISO dates or numbers): the newest of them.
 fn record_stamp(value: &str) -> Option<i64> {
+    let record: serde_json::Value = serde_json::from_str(value).ok()?;
+    stamp_of(&record)
+}
+
+fn stamp_of(record: &serde_json::Value) -> Option<i64> {
     const STAMPS: [&str; 6] = [
         "metadataUpdatedAt",
         "updatedAt",
@@ -1790,7 +1997,6 @@ fn record_stamp(value: &str) -> Option<i64> {
         "addedAt",
         "createdAt",
     ];
-    let record: serde_json::Value = serde_json::from_str(value).ok()?;
     STAMPS
         .iter()
         .filter_map(|field| match record.get(*field)? {
@@ -1801,6 +2007,17 @@ fn record_stamp(value: &str) -> Option<i64> {
             _ => None,
         })
         .max()
+}
+
+/// A record's own `id` (when it is a string) and its stamp ([`record_stamp`]);
+/// `None` when it is not a JSON object.
+pub(crate) fn record_meta(value: &str) -> Option<(Option<String>, Option<i64>)> {
+    let record: serde_json::Value = serde_json::from_str(value).ok()?;
+    if !record.is_object() {
+        return None;
+    }
+    let id = record.get("id").and_then(|v| v.as_str()).map(String::from);
+    Some((id, stamp_of(&record)))
 }
 
 /// One value per key from the copies in each paired device's doc (each with
@@ -2361,6 +2578,7 @@ mod tests {
 
         struct Fixture {
             doc: iroh_docs::api::Doc,
+            blobs: iroh_blobs::api::Store,
             here: iroh_docs::AuthorId,
             there: iroh_docs::AuthorId,
             _router: iroh::protocol::Router,
@@ -2388,6 +2606,7 @@ mod tests {
             let there = api.author_create().await.unwrap();
             Fixture {
                 doc,
+                blobs: (*blobs).clone(),
                 here,
                 there,
                 _router: router,
@@ -2397,12 +2616,13 @@ mod tests {
 
         /// Writes as provisioning does; how many were written (none failing).
         async fn written(
-            doc: &iroh_docs::api::Doc,
+            f: &Fixture,
             author: iroh_docs::AuthorId,
             protocol: u8,
             entries: &[(String, String)],
         ) -> usize {
-            let (n, _, error) = write_entries_to_doc(doc, author, protocol, entries, true).await;
+            let (n, _, error) =
+                write_entries_to_doc(&f.doc, &f.blobs, author, protocol, entries, true).await;
             assert_eq!(error, None);
             n
         }
@@ -2419,28 +2639,28 @@ mod tests {
         async fn an_unchanged_value_is_not_written_again() {
             let f = fixture().await;
             let book = [entry("book:1", r#"{"title":"Dune"}"#)];
-            assert_eq!(written(&f.doc, f.here, 2, &book).await, 1);
-            assert_eq!(written(&f.doc, f.here, 2, &book).await, 0);
+            assert_eq!(written(&f, f.here, 2, &book).await, 1);
+            assert_eq!(written(&f, f.here, 2, &book).await, 0);
             let edited = [entry("book:1", r#"{"title":"Dune Messiah"}"#)];
-            assert_eq!(written(&f.doc, f.here, 2, &edited).await, 1);
+            assert_eq!(written(&f, f.here, 2, &edited).await, 1);
             // The same value from the other device is a different entry: ours is written.
             let theirs = [entry("book:2", "x")];
-            assert_eq!(written(&f.doc, f.there, 2, &theirs).await, 1);
-            assert_eq!(written(&f.doc, f.here, 2, &theirs).await, 1);
+            assert_eq!(written(&f, f.there, 2, &theirs).await, 1);
+            assert_eq!(written(&f, f.here, 2, &theirs).await, 1);
         }
 
         #[tokio::test]
         async fn whole_lists_go_only_to_devices_on_older_versions() {
             let f = fixture().await;
             let lists = [entry("annotations", "[]"), entry("anno:b:a", "{}")];
-            assert_eq!(written(&f.doc, f.here, 2, &lists).await, 1);
+            assert_eq!(written(&f, f.here, 2, &lists).await, 1);
             assert!(f
                 .doc
                 .get_exact(f.here, "annotations", false)
                 .await
                 .unwrap()
                 .is_none());
-            assert_eq!(written(&f.doc, f.here, 0, &lists).await, 1);
+            assert_eq!(written(&f, f.here, 0, &lists).await, 1);
             assert!(f
                 .doc
                 .get_exact(f.here, "annotations", false)
@@ -2453,7 +2673,7 @@ mod tests {
         async fn a_device_back_after_months_does_not_bring_back_what_was_deleted() {
             let f = fixture().await;
             let book = [entry("book:1", r#"{"title":"Dune"}"#)];
-            written(&f.doc, f.here, 2, &book).await;
+            written(&f, f.here, 2, &book).await;
             assert!(deleted_now(&f.doc).await.is_empty());
 
             // Deleted on the other device while this one was away.
@@ -2463,21 +2683,23 @@ mod tests {
 
             // This device starts again and provisions its unchanged copy: not
             // rewritten, so the deletion stays the newest entry.
-            assert_eq!(written(&f.doc, f.here, 2, &book).await, 0);
+            assert_eq!(written(&f, f.here, 2, &book).await, 0);
             assert_eq!(deleted_now(&f.doc).await, vec!["book:1".to_string()]);
 
             // A changed copy is not written over the deletion either: it is
             // reported, for the app to decide.
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
             let edited = [entry("book:1", r#"{"title":"Dune","rating":5}"#)];
-            let (n, reported, error) = write_entries_to_doc(&f.doc, f.here, 2, &edited, true).await;
+            let (n, reported, error) =
+                write_entries_to_doc(&f.doc, &f.blobs, f.here, 2, &edited, true).await;
             assert_eq!((n, error), (0, None));
             assert_eq!(reported.len(), 1);
             assert_eq!(reported[0].key, "book:1");
             assert_eq!(deleted_now(&f.doc).await, vec!["book:1".to_string()]);
 
             // Edited here after the deletion: the app writes it anyway and it stays.
-            let (n, _, error) = write_entries_to_doc(&f.doc, f.here, 2, &edited, false).await;
+            let (n, _, error) =
+                write_entries_to_doc(&f.doc, &f.blobs, f.here, 2, &edited, false).await;
             assert_eq!((n, error), (1, None));
             assert!(deleted_now(&f.doc).await.is_empty());
         }
@@ -2486,12 +2708,13 @@ mod tests {
         async fn a_device_that_never_sent_an_item_does_not_bring_it_back() {
             let f = fixture().await;
             // Written and deleted by the other device before this one wrote it.
-            written(&f.doc, f.there, 2, &[entry("book:7", r#"{"title":"Old"}"#)]).await;
+            written(&f, f.there, 2, &[entry("book:7", r#"{"title":"Old"}"#)]).await;
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
             f.doc.del(f.there, "book:7").await.unwrap();
 
             let copy = [entry("book:7", r#"{"title":"Old"}"#), entry("book:8", "{}")];
-            let (n, reported, error) = write_entries_to_doc(&f.doc, f.here, 2, &copy, true).await;
+            let (n, reported, error) =
+                write_entries_to_doc(&f.doc, &f.blobs, f.here, 2, &copy, true).await;
             assert_eq!((n, error), (1, None));
             assert_eq!(
                 reported.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(),
@@ -2500,9 +2723,307 @@ mod tests {
             assert!(reported[0].at > 0);
             assert_eq!(deleted_now(&f.doc).await, vec!["book:7".to_string()]);
             // Settings and the like are never held back.
-            let (n, reported, _) =
-                write_entries_to_doc(&f.doc, f.here, 2, &[entry("settings", "{}")], true).await;
+            let (n, reported, _) = write_entries_to_doc(
+                &f.doc,
+                &f.blobs,
+                f.here,
+                2,
+                &[entry("settings", "{}")],
+                true,
+            )
+            .await;
             assert_eq!((n, reported.len()), (1, 0));
+        }
+
+        fn anno(id: &str, updated: i64, note: &str) -> String {
+            format!(r#"{{"id":"{id}","bookId":"b1","updatedAt":{updated},"note":"{note}"}}"#)
+        }
+
+        async fn own_group(f: &Fixture, author: iroh_docs::AuthorId, book: &str) -> Option<String> {
+            let entry = f
+                .doc
+                .get_exact(author, format!("annos:{book}:").into_bytes(), false)
+                .await
+                .unwrap()?;
+            content_of(&f.blobs, entry.content_hash()).await
+        }
+
+        async fn read(f: &Fixture) -> DocRead {
+            read_docs(std::slice::from_ref(&f.doc), &f.blobs, None).await
+        }
+
+        #[tokio::test]
+        async fn annotations_go_into_one_group_per_book_rewritten_only_when_changed() {
+            let f = fixture().await;
+            let entries = [
+                entry("anno:b1:x", &anno("x", 10, "x")),
+                entry("anno:b1:y", &anno("y", 10, "y")),
+                entry("anno:b2:z", &anno("z", 10, "z")),
+                entry("book:b1", "{}"),
+            ];
+            assert_eq!(written(&f, f.here, 3, &entries).await, 4);
+            // Two groups and the book; no single entries for a device on 3.
+            let keys: Vec<String> = read_headers(&f.doc)
+                .await
+                .into_iter()
+                .map(|(k, _, _)| k)
+                .collect();
+            assert_eq!(keys.len(), 3, "{keys:?}");
+            assert!(keys.contains(&"annos:b1:".to_string()));
+            assert!(keys.contains(&"annos:b2:".to_string()));
+            let before = f
+                .doc
+                .get_exact(f.here, "annos:b1:", false)
+                .await
+                .unwrap()
+                .unwrap();
+            // Nothing changed: nothing written, the group keeps its date.
+            assert_eq!(written(&f, f.here, 3, &entries).await, 0);
+            let after = f
+                .doc
+                .get_exact(f.here, "annos:b1:", false)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(before.timestamp(), after.timestamp());
+            // One annotation changed: only its book's group is written.
+            let edit = [entry("anno:b1:y", &anno("y", 20, "y2"))];
+            assert_eq!(written(&f, f.here, 3, &edit).await, 1);
+            let group =
+                crate::sync_annotations::Group::parse(&own_group(&f, f.here, "b1").await.unwrap())
+                    .unwrap();
+            assert_eq!(group.annotations["x"].get(), anno("x", 10, "x"));
+            assert_eq!(group.annotations["y"].get(), anno("y", 20, "y2"));
+            // Read back as one item per annotation, as the app knows them.
+            let r = read(&f).await;
+            assert_eq!(r.entries["anno:b1:y"], anno("y", 20, "y2"));
+            assert_eq!(r.entries["anno:b2:z"], anno("z", 10, "z"));
+            assert!(!r.entries.keys().any(|k| k.starts_with("annos:")));
+            // A group is never taken from the app.
+            assert_eq!(written(&f, f.here, 3, &[entry("annos:b9:", "{}")]).await, 0);
+        }
+
+        #[tokio::test]
+        async fn devices_on_older_versions_also_get_one_entry_per_annotation() {
+            let f = fixture().await;
+            let entries = [entry("anno:b1:x", &anno("x", 10, "x"))];
+            assert_eq!(written(&f, f.here, 2, &entries).await, 1);
+            assert!(f
+                .doc
+                .get_exact(f.here, "anno:b1:x", false)
+                .await
+                .unwrap()
+                .is_some());
+            assert!(own_group(&f, f.here, "b1").await.is_some());
+            assert_eq!(written(&f, f.here, 2, &entries).await, 0);
+            // A newer edit goes into both.
+            let edit = [entry("anno:b1:x", &anno("x", 20, "x2"))];
+            assert_eq!(written(&f, f.here, 2, &edit).await, 1);
+            let single = f
+                .doc
+                .get_exact(f.here, "anno:b1:x", false)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                content_of(&f.blobs, single.content_hash()).await.unwrap(),
+                anno("x", 20, "x2")
+            );
+            // Emptied since (a deletion by an older version): held back like
+            // any deletion newer than the record, unless the app insists.
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            f.doc.del(f.here, "anno:b1:x").await.unwrap();
+            let (n, held, _) = write_entries_to_doc(&f.doc, &f.blobs, f.here, 2, &edit, true).await;
+            assert_eq!((n, held.len()), (0, 1));
+            let (n, _, _) = write_entries_to_doc(&f.doc, &f.blobs, f.here, 2, &edit, false).await;
+            assert_eq!(n, 1);
+        }
+
+        #[tokio::test]
+        async fn a_highlight_deleted_elsewhere_is_held_back_unless_changed_after() {
+            let f = fixture().await;
+            // The other device deleted x at 50 ms (a marker in its group).
+            let mut theirs = crate::sync_annotations::Group::default();
+            theirs.put_deleted("x", 50);
+            f.doc
+                .set_bytes(
+                    f.there,
+                    b"annos:b1:".to_vec(),
+                    theirs.to_json().into_bytes(),
+                )
+                .await
+                .unwrap();
+            // This device's copy predates it: held back, for the app to decide.
+            let old = [entry("anno:b1:x", &anno("x", 40, "old"))];
+            let (n, held, error) =
+                write_entries_to_doc(&f.doc, &f.blobs, f.here, 3, &old, true).await;
+            assert_eq!((n, error), (0, None));
+            assert_eq!(
+                held,
+                vec![DeletedDocKey {
+                    key: "anno:b1:x".into(),
+                    at: 50
+                }]
+            );
+            assert!(own_group(&f, f.here, "b1").await.is_none());
+            // Edited after the deletion: written, and it stays.
+            let newer = [entry("anno:b1:x", &anno("x", 60, "kept"))];
+            let (n, held, _) =
+                write_entries_to_doc(&f.doc, &f.blobs, f.here, 3, &newer, true).await;
+            assert_eq!((n, held.len()), (1, 0));
+            let r = read(&f).await;
+            assert_eq!(r.entries["anno:b1:x"], anno("x", 60, "kept"));
+            assert!(r.deleted.is_empty());
+        }
+
+        #[tokio::test]
+        async fn a_deleted_book_or_highlight_becomes_a_marker_in_the_group() {
+            let f = fixture().await;
+            let entries = [
+                entry("anno:b1:x", &anno("x", 10, "x")),
+                entry("anno:b1:y", &anno("y", 10, "y")),
+                entry("anno:b2:z", &anno("z", 10, "z")),
+                entry("anno:b12:w", &anno("w", 10, "w")),
+            ];
+            written(&f, f.here, 3, &entries).await;
+            let deleted_entity = |kind: &str, id: &str| DeletedEntity {
+                entity_type: kind.into(),
+                entity_id: id.into(),
+            };
+            let n = purge_entities_in_doc(
+                &f.doc,
+                &f.blobs,
+                f.here,
+                &[
+                    deleted_entity("annotation", "x"),
+                    deleted_entity("book", "b2"),
+                ],
+            )
+            .await;
+            assert_eq!(n, 2);
+            // Purging again changes nothing (the markers keep their time).
+            let again = purge_entities_in_doc(
+                &f.doc,
+                &f.blobs,
+                f.here,
+                &[
+                    deleted_entity("annotation", "x"),
+                    deleted_entity("book", "b2"),
+                ],
+            )
+            .await;
+            assert_eq!(again, 0);
+            let r = read(&f).await;
+            let mut gone: Vec<&str> = r.deleted.iter().map(|d| d.key.as_str()).collect();
+            gone.sort();
+            assert_eq!(gone, vec!["anno:b1:x", "anno:b2:z"]);
+            assert!(r.entries.contains_key("anno:b1:y"));
+            assert!(r.entries.contains_key("anno:b12:w"), "book b12 is not b1");
+            // The groups are still there: no empty entries.
+            let empties = read_headers(&f.doc)
+                .await
+                .into_iter()
+                .filter(|(_, _, h)| *h == iroh_blobs::Hash::EMPTY)
+                .count();
+            assert_eq!(empties, 0);
+        }
+
+        #[tokio::test]
+        async fn old_deletions_are_copied_into_the_group_as_markers() {
+            let f = fixture().await;
+            // Before protocol 3: x and y written one entry each, x deleted.
+            written(&f, f.here, 2, &[entry("anno:b1:x", &anno("x", 10, "x"))]).await;
+            written(&f, f.here, 2, &[entry("anno:b1:y", &anno("y", 10, "y"))]).await;
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            f.doc.del(f.here, "anno:b1:x").await.unwrap();
+            let deleted_at = f
+                .doc
+                .get_exact(f.here, "anno:b1:x", true)
+                .await
+                .unwrap()
+                .unwrap()
+                .timestamp()
+                / 1000;
+            let before = read(&f).await;
+            assert_eq!(before.deleted.len(), 1);
+
+            let added = crate::sync_annotations::fold_single_deletions(&f.doc, &f.blobs, f.here)
+                .await
+                .unwrap();
+            assert_eq!(added, 1);
+            let group =
+                crate::sync_annotations::Group::parse(&own_group(&f, f.here, "b1").await.unwrap())
+                    .unwrap();
+            assert_eq!(group.deleted.get("x").copied(), Some(deleted_at as i64));
+            assert!(group.annotations.contains_key("y"));
+            // Nothing a read decides changes; doing it again adds nothing.
+            let after = read(&f).await;
+            assert_eq!(after.deleted, before.deleted);
+            assert_eq!(after.entries, before.entries);
+            assert_eq!(
+                crate::sync_annotations::fold_single_deletions(&f.doc, &f.blobs, f.here)
+                    .await
+                    .unwrap(),
+                0
+            );
+        }
+
+        #[tokio::test]
+        async fn live_updates_deliver_the_combined_state_of_what_an_entry_mentions() {
+            let f = fixture().await;
+            written(
+                &f,
+                f.here,
+                3,
+                &[entry("anno:b1:x", &anno("x", 30, "mine, newer"))],
+            )
+            .await;
+            let mut theirs = crate::sync_annotations::Group::default();
+            theirs
+                .put_record("x", &anno("x", 20, "theirs, older"))
+                .unwrap();
+            theirs.put_record("y", &anno("y", 20, "theirs")).unwrap();
+            theirs.put_deleted("z", 25);
+            let raw = theirs.to_json();
+            f.doc
+                .set_bytes(f.there, b"annos:b1:".to_vec(), raw.clone().into_bytes())
+                .await
+                .unwrap();
+            let (mut entries, deleted) = crate::sync_annotations::live_annotations(
+                &f.doc,
+                &f.blobs,
+                "annos:b1:",
+                Some(&raw),
+            )
+            .await;
+            entries.sort();
+            assert_eq!(
+                entries,
+                vec![
+                    ("anno:b1:x".to_string(), anno("x", 30, "mine, newer")),
+                    ("anno:b1:y".to_string(), anno("y", 20, "theirs")),
+                ]
+            );
+            assert_eq!(
+                deleted,
+                vec![DeletedDocKey {
+                    key: "anno:b1:z".into(),
+                    at: 25
+                }]
+            );
+            // An older device's single entry: only that annotation.
+            let (entries, _) = crate::sync_annotations::live_annotations(
+                &f.doc,
+                &f.blobs,
+                "anno:b1:y",
+                Some("{}"),
+            )
+            .await;
+            assert_eq!(entries.len(), 1);
+            // Keys that name no annotation deliver nothing.
+            let (entries, deleted) =
+                crate::sync_annotations::live_annotations(&f.doc, &f.blobs, "anno:", None).await;
+            assert!(entries.is_empty() && deleted.is_empty());
         }
     }
 }

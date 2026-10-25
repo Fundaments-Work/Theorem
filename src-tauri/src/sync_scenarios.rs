@@ -6,6 +6,8 @@
 //! deletion records) is modelled by [`Device`] after the rules in
 //! docs/sync.md; the doc layer underneath is the real code
 //! ([`write_entries_to_doc`], [`read_docs`], [`purge_entities_in_doc`]).
+//! A device can also run as a version before sync protocol 3 (`old`), which
+//! writes and reads one entry per annotation, as those versions did.
 //!
 //! The heavy measurements are `#[ignore]`d:
 //! `cargo test --lib scenarios -- --ignored --nocapture`.
@@ -74,6 +76,8 @@ struct Pairing {
     peer: String,
     peer_id: iroh::EndpointId,
     doc: iroh_docs::api::Doc,
+    /// The sync protocol the other device reported.
+    protocol: u8,
 }
 
 /// One device: an iroh node with its own data folder, and the app's state.
@@ -92,6 +96,8 @@ struct Device {
     /// Deletion records: item key -> when it was deleted.
     tombs: BTreeMap<String, u64>,
     applied: Option<HashMap<String, Vec<iroh_blobs::Hash>>>,
+    /// Runs a version before sync protocol 3 (one entry per annotation).
+    old: bool,
 }
 
 async fn node(
@@ -155,6 +161,50 @@ impl Device {
             items: BTreeMap::new(),
             tombs: BTreeMap::new(),
             applied: None,
+            old: false,
+        }
+    }
+
+    /// The protocol this device speaks.
+    fn protocol(&self) -> u8 {
+        if self.old {
+            2
+        } else {
+            theorem_sync_core::sync_protocol::SYNC_PROTOCOL
+        }
+    }
+
+    /// Writes as this device's version does, into the doc shared with a
+    /// device on `protocol`.
+    async fn write(
+        &self,
+        doc: &iroh_docs::api::Doc,
+        protocol: u8,
+        entries: &[(String, String)],
+        respect_deletions: bool,
+    ) -> (usize, Vec<DeletedDocKey>, Option<String>) {
+        if self.old {
+            old_write(doc, self.author, entries, respect_deletions).await
+        } else {
+            write_entries_to_doc(
+                doc,
+                &self.blobs,
+                self.author,
+                protocol,
+                entries,
+                respect_deletions,
+            )
+            .await
+        }
+    }
+
+    /// Removes (old) or marks deleted (now) this device's entries of `entities`.
+    async fn purge_in(&self, doc: &iroh_docs::api::Doc, entities: &[DeletedEntity]) {
+        if self.old {
+            let own = own_entry_keys(doc, self.author).await;
+            purge_single_entries(doc, self.author, entities, &own).await;
+        } else {
+            purge_entities_in_doc(doc, &self.blobs, self.author, entities).await;
         }
     }
 
@@ -198,15 +248,15 @@ impl Device {
         };
         self.items.insert(key.into(), item.clone());
         self.tombs.remove(key);
-        for doc in self.doc_list() {
-            let (_, _, err) = write_entries_to_doc(
-                &doc,
-                self.author,
-                2,
-                &[(key.to_string(), encode(&item))],
-                false,
-            )
-            .await;
+        for p in &self.pairings {
+            let (_, _, err) = self
+                .write(
+                    &p.doc,
+                    p.protocol,
+                    &[(key.to_string(), encode(&item))],
+                    false,
+                )
+                .await;
             assert_eq!(err, None);
         }
     }
@@ -228,10 +278,10 @@ impl Device {
         tick().await;
         self.apply_deletion(key, now_ms());
         let entity = entity_of(key);
-        for doc in self.doc_list() {
+        for p in &self.pairings {
             let tomb = [(format!("tomb:{key}"), now_ms().to_string())];
-            write_entries_to_doc(&doc, self.author, 2, &tomb, false).await;
-            purge_entities_in_doc(&doc, self.author, std::slice::from_ref(&entity)).await;
+            self.write(&p.doc, p.protocol, &tomb, false).await;
+            self.purge_in(&p.doc, std::slice::from_ref(&entity)).await;
         }
     }
 
@@ -262,9 +312,15 @@ impl Device {
     async fn provision(&mut self) {
         let entries = self.entries();
         let mut deleted_elsewhere = Vec::new();
-        for doc in self.doc_list() {
+        for p in &self.pairings {
+            if !self.old {
+                // As `write_own_entries` does once per start.
+                crate::sync_annotations::fold_single_deletions(&p.doc, &self.blobs, self.author)
+                    .await
+                    .unwrap();
+            }
             for batch in entries.chunks(400) {
-                let (_, found, err) = write_entries_to_doc(&doc, self.author, 2, batch, true).await;
+                let (_, found, err) = self.write(&p.doc, p.protocol, batch, true).await;
                 assert_eq!(err, None);
                 deleted_elsewhere.extend(found);
             }
@@ -273,15 +329,9 @@ impl Device {
             match self.items.get(&d.key).cloned() {
                 // Changed here after it was deleted there: written anyway.
                 Some(item) if item.at > d.at => {
-                    for doc in self.doc_list() {
-                        write_entries_to_doc(
-                            &doc,
-                            self.author,
-                            2,
-                            &[(d.key.clone(), encode(&item))],
-                            false,
-                        )
-                        .await;
+                    for p in &self.pairings {
+                        self.write(&p.doc, p.protocol, &[(d.key.clone(), encode(&item))], false)
+                            .await;
                     }
                 }
                 Some(_) => self.apply_deletion(&d.key, d.at),
@@ -293,8 +343,8 @@ impl Device {
 
     async fn purge(&mut self) {
         let entities: Vec<DeletedEntity> = self.tombs.keys().map(|k| entity_of(k)).collect();
-        for doc in self.doc_list() {
-            purge_entities_in_doc(&doc, self.author, &entities).await;
+        for p in &self.pairings {
+            self.purge_in(&p.doc, &entities).await;
         }
     }
 
@@ -303,7 +353,22 @@ impl Device {
     /// after them.
     async fn hydrate(&mut self) -> DocRead {
         let docs = self.doc_list();
-        let mut read = read_docs(&docs, &self.blobs, self.applied.as_ref()).await;
+        let read_with = |docs: &'_ [iroh_docs::api::Doc]| {
+            let (docs, blobs, applied, old) = (
+                docs.to_vec(),
+                self.blobs.clone(),
+                self.applied.clone(),
+                self.old,
+            );
+            async move {
+                if old {
+                    old_read_docs(&docs, &blobs, applied.as_ref()).await
+                } else {
+                    read_docs(&docs, &blobs, applied.as_ref()).await
+                }
+            }
+        };
+        let mut read = read_with(&docs).await;
         // As `read_doc_entries`: content that never came is fetched.
         let peers: Vec<iroh::EndpointId> = self.pairings.iter().map(|p| p.peer_id).collect();
         let endpoint = self.router.endpoint().clone();
@@ -323,7 +388,7 @@ impl Device {
             );
         }
         if fetched > 0 {
-            read = read_docs(&docs, &self.blobs, self.applied.as_ref()).await;
+            read = read_with(&docs).await;
         }
         let mut incoming: Vec<(&String, &String)> = read.entries.iter().collect();
         incoming.sort();
@@ -334,6 +399,11 @@ impl Device {
                 if !keep {
                     self.apply_deletion(item_key, at);
                 }
+                continue;
+            }
+            if key.starts_with(crate::sync_annotations::GROUP_PREFIX) {
+                // Never delivered by this version, and ignored by older ones.
+                assert!(self.old, "{} was handed a group entry {key}", self.name);
                 continue;
             }
             let Some(item) = decode(raw) else { continue };
@@ -439,11 +509,13 @@ async fn pair(a: &mut Device, b: &mut Device) {
         peer: b.name.clone(),
         peer_id: b.id(),
         doc,
+        protocol: b.protocol(),
     });
     b.pairings.push(Pairing {
         peer: a.name.clone(),
         peer_id: a.id(),
         doc: theirs,
+        protocol: a.protocol(),
     });
 }
 
@@ -812,7 +884,11 @@ async fn a_large_library() {
         a.provision(),
     )
     .await;
-    eprintln!("  A: data folder {}", mib(dir_size(&a.dir)));
+    eprintln!(
+        "  A: data folder {}, {} doc entries",
+        mib(dir_size(&a.dir)),
+        entries_in(&a.doc_with("B")).await
+    );
 
     // The app waits 30 s for the exchange; how long does it really take?
     let ex = timed(
@@ -862,6 +938,11 @@ async fn a_large_library() {
     // Purging deletion records over a large doc (first round after start).
     b.tombs.insert("book:b7".into(), now_ms());
     timed("B: purge one deleted book", b.purge()).await;
+    // A deleted highlight names no book: every group of this device is read.
+    // (Highlight IDs here repeat across books, unlike the app's: one that
+    // no group holds measures the reading alone.)
+    a.tombs.insert("anno:b9:gone".into(), now_ms());
+    timed("A: purge one deleted highlight", a.purge()).await;
     eprintln!(
         "  data folders after: A {}, B {}",
         mib(dir_size(&a.dir)),
@@ -1003,6 +1084,517 @@ async fn a_passed_on_copy_never_hides_a_newer_edit() {
             has(d, "book:1").as_deref(),
             Some("Dune (edited on A)"),
             "{}",
+            d.name
+        );
+    }
+}
+
+// ── Versions before sync protocol 3, and the move to per-book entries ──────
+
+/// `write_entries_to_doc` as versions before protocol 3 had it: one entry
+/// per item, annotations included.
+async fn old_write(
+    doc: &iroh_docs::api::Doc,
+    author: iroh_docs::AuthorId,
+    entries: &[(String, String)],
+    respect_deletions: bool,
+) -> (usize, Vec<DeletedDocKey>, Option<String>) {
+    let mut written = 0;
+    let mut deleted = Vec::new();
+    for (key, value) in entries {
+        let unchanged = matches!(
+            doc.get_exact(author, key.as_bytes(), false).await,
+            Ok(Some(own)) if own.content_hash() == iroh_blobs::Hash::new(value.as_bytes())
+        );
+        if unchanged {
+            continue;
+        }
+        if respect_deletions && is_deletable_key(key) {
+            if let Some(at) = newest_deletion(doc, key).await {
+                deleted.push(DeletedDocKey {
+                    key: key.clone(),
+                    at: at / 1000,
+                });
+                continue;
+            }
+        }
+        doc.set_bytes(author, key.clone().into_bytes(), value.clone().into_bytes())
+            .await
+            .unwrap();
+        written += 1;
+    }
+    (written, deleted, None)
+}
+
+/// `read_docs` as versions before protocol 3 had it: every key on its own,
+/// a key whose newest copy is a deletion reported deleted.
+async fn old_read_docs(
+    docs: &[iroh_docs::api::Doc],
+    blobs: &iroh_blobs::api::Store,
+    applied: Option<&HashMap<String, Vec<iroh_blobs::Hash>>>,
+) -> DocRead {
+    let mut headers: Vec<EntryHeader> = Vec::new();
+    for doc in docs {
+        headers.extend(read_headers(doc).await);
+    }
+    let current = hashes_by_key(&headers);
+    let changed: std::collections::HashSet<&String> = current
+        .iter()
+        .filter(|(key, hashes)| applied.is_none_or(|a| a.get(*key) != Some(*hashes)))
+        .map(|(key, _)| key)
+        .collect();
+    let (deleted, gone) = deletions(&headers, &changed);
+    let mut per_key: HashMap<String, Vec<(u64, String)>> = HashMap::new();
+    let mut seen = current.clone();
+    let mut missing = Vec::new();
+    for (key, at, hash) in &headers {
+        if !changed.contains(key) || gone.contains(key) || *hash == iroh_blobs::Hash::EMPTY {
+            continue;
+        }
+        match content_of(blobs, *hash).await {
+            Some(v) => per_key.entry(key.clone()).or_default().push((*at, v)),
+            None => {
+                missing.push(*hash);
+                match applied.and_then(|a| a.get(key)) {
+                    Some(previous) => {
+                        seen.insert(key.clone(), previous.clone());
+                    }
+                    None => {
+                        seen.remove(key);
+                    }
+                }
+            }
+        }
+    }
+    DocRead {
+        entries: combine_doc_values(per_key),
+        deleted,
+        seen,
+        missing,
+    }
+}
+
+/// `who` now runs this version: it restarts (full reads), and its paired
+/// devices learn its protocol from its next hello.
+async fn upgrade(who: &mut Device, others: &mut [&mut Device]) {
+    who.old = false;
+    who.kill().await;
+    who.restart().await;
+    let protocol = who.protocol();
+    for other in others.iter_mut() {
+        for p in other.pairings.iter_mut().filter(|p| p.peer == who.name) {
+            p.protocol = protocol;
+        }
+    }
+}
+
+/// How many entries of each kind `author` has in `doc`: (single annotation
+/// entries with content, annotation groups).
+async fn annotation_entries_of(
+    doc: &iroh_docs::api::Doc,
+    author: iroh_docs::AuthorId,
+) -> (usize, usize) {
+    let (mut singles, mut groups) = (0, 0);
+    let stream = doc
+        .get_many(
+            iroh_docs::store::Query::author(author)
+                .include_empty()
+                .build(),
+        )
+        .await
+        .unwrap();
+    futures::pin_mut!(stream);
+    while let Some(Ok(entry)) = stream.next().await {
+        let key = String::from_utf8_lossy(entry.key()).to_string();
+        if entry.content_hash() == iroh_blobs::Hash::EMPTY {
+            continue;
+        }
+        if crate::sync_annotations::parse_single_key(&key).is_some() {
+            singles += 1;
+        } else if crate::sync_annotations::parse_group_key(&key).is_some() {
+            groups += 1;
+        }
+    }
+    (singles, groups)
+}
+
+/// Every entry in `doc` (deletions included).
+async fn entries_in(doc: &iroh_docs::api::Doc) -> usize {
+    read_headers(doc).await.len()
+}
+
+/// The same library on every device, and each of `keys` as expected there.
+fn assert_everywhere(devices: &[&Device], expected: &[(&str, Option<&str>)]) {
+    for d in devices {
+        for (key, value) in expected {
+            assert_eq!(has(d, key).as_deref(), *value, "{key} on {}", d.name);
+        }
+    }
+    for d in &devices[1..] {
+        assert_eq!(
+            d.snapshot(),
+            devices[0].snapshot(),
+            "{} and {}",
+            d.name,
+            devices[0].name
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn edits_to_different_highlights_of_one_book_on_two_devices_both_survive() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut a, mut b, mut c) = three_devices(root.path()).await;
+    a.edit("book:1", "Dune").await;
+    a.edit("anno:1:x", "x").await;
+    a.edit("anno:1:y", "y").await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[("anno:1:x", Some("x")), ("anno:1:y", Some("y"))],
+    );
+
+    // At the same time, before either syncs: A edits x, C edits y and adds z.
+    a.edit("anno:1:x", "x edited on A").await;
+    c.edit("anno:1:y", "y edited on C").await;
+    c.edit("anno:1:z", "z from C").await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[
+            ("anno:1:x", Some("x edited on A")),
+            ("anno:1:y", Some("y edited on C")),
+            ("anno:1:z", Some("z from C")),
+        ],
+    );
+    // One entry per book and device; no single annotation entries.
+    for (d, peer) in [(&a, "B"), (&b, "A"), (&b, "C"), (&c, "B")] {
+        assert_eq!(
+            annotation_entries_of(&d.doc_with(peer), d.author).await,
+            (0, 1),
+            "{}",
+            d.name
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_highlight_deleted_on_one_device_and_edited_on_another_follows_the_later_change() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut a, mut b, mut c) = three_devices(root.path()).await;
+    a.edit("book:1", "Dune").await;
+    for id in ["p", "q", "r"] {
+        a.edit(&format!("anno:1:{id}"), id).await;
+    }
+    settle(&mut a, &mut b, &mut c).await;
+
+    // p: deleted on A, then edited on C (later): the edit keeps it.
+    a.delete("anno:1:p").await;
+    c.edit("anno:1:p", "p edited on C after").await;
+    // q: edited on C, then deleted on A (later): gone.
+    c.edit("anno:1:q", "q edited on C before").await;
+    a.delete("anno:1:q").await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[
+            ("anno:1:p", Some("p edited on C after")),
+            ("anno:1:q", None),
+            ("anno:1:r", Some("r")),
+        ],
+    );
+
+    // Everyone restarts (full reads, full provisioning): nothing changes.
+    for d in [&mut a, &mut b, &mut c] {
+        d.kill().await;
+        d.restart().await;
+    }
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[
+            ("anno:1:p", Some("p edited on C after")),
+            ("anno:1:q", None),
+        ],
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_highlight_deleted_while_a_device_is_off_never_comes_back() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut a, mut b, mut c) = three_devices(root.path()).await;
+    a.edit("book:1", "Dune").await;
+    a.edit("anno:1:x", "x").await;
+    a.edit("anno:1:y", "y").await;
+    a.edit("anno:2:z", "z").await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_eq!(has(&c, "anno:1:x").as_deref(), Some("x"));
+
+    // C is off for months: x is deleted, and its deletion record expires.
+    c.kill().await;
+    a.delete("anno:1:x").await;
+    a.edit("anno:1:y", "y edited on A").await;
+    round(&mut a, &mut b).await;
+    round(&mut b, &mut a).await;
+    assert_eq!(has(&b, "anno:1:x"), None);
+    a.expire_tombstones().await;
+    b.expire_tombstones().await;
+    round(&mut a, &mut b).await;
+
+    // C comes back with its unchanged copy of x.
+    c.restart().await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[
+            ("anno:1:x", None),
+            ("anno:1:y", Some("y edited on A")),
+            ("anno:2:z", Some("z")),
+        ],
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn deleting_a_book_takes_its_highlights_everywhere() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut a, mut b, mut c) = three_devices(root.path()).await;
+    a.edit("book:1", "Dune").await;
+    a.edit("anno:1:x", "x").await;
+    c.edit("anno:1:y", "y from C").await;
+    a.edit("anno:2:z", "z").await;
+    settle(&mut a, &mut b, &mut c).await;
+
+    // Only the book's deletion record: each device's purge marks every
+    // highlight of the book deleted in its own group.
+    a.delete("book:1").await;
+    settle(&mut a, &mut b, &mut c).await;
+    // The highlights go as the deletions the docs report (the markers).
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[("book:1", None), ("anno:1:x", None), ("anno:1:y", None)],
+    );
+    for d in [&mut a, &mut b, &mut c] {
+        d.expire_tombstones().await;
+        d.kill().await;
+        d.restart().await;
+    }
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[
+            ("anno:1:x", None),
+            ("anno:1:y", None),
+            ("anno:2:z", Some("z")),
+        ],
+    );
+}
+
+/// A device on an older version (one entry per annotation) paired with this
+/// one: it still gets and sends every change, deletions included.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_on_an_older_version_still_gets_and_sends_every_highlight() {
+    let root = tempfile::tempdir().unwrap();
+    let mut a = Device::new("A", root.path(), None).await;
+    let mut o = Device::new("O", root.path(), None).await;
+    o.old = true;
+    pair(&mut a, &mut o).await;
+    assert_eq!(a.pairings[0].protocol, 2);
+
+    a.edit("book:1", "Dune").await;
+    a.edit("anno:1:x", "x from A").await;
+    o.edit("anno:1:y", "y from O").await;
+    o.edit("anno:1:w", "w from O").await;
+    for _ in 0..2 {
+        round(&mut a, &mut o).await;
+        round(&mut o, &mut a).await;
+    }
+    for d in [&a, &o] {
+        assert_eq!(
+            has(d, "anno:1:x").as_deref(),
+            Some("x from A"),
+            "{}",
+            d.name
+        );
+        assert_eq!(
+            has(d, "anno:1:y").as_deref(),
+            Some("y from O"),
+            "{}",
+            d.name
+        );
+    }
+    // A writes single entries as well as its group, for O.
+    let (singles, groups) = annotation_entries_of(&a.doc_with("O"), a.author).await;
+    assert_eq!((singles, groups), (3, 1));
+
+    // Different highlights of the book edited on both; one deleted on each.
+    a.edit("anno:1:x", "x edited on A").await;
+    o.edit("anno:1:y", "y edited on O").await;
+    a.delete("anno:1:w").await;
+    o.delete("anno:1:x").await;
+    for _ in 0..2 {
+        round(&mut a, &mut o).await;
+        round(&mut o, &mut a).await;
+    }
+    for d in [&a, &o] {
+        assert_eq!(has(d, "anno:1:x"), None, "{}", d.name);
+        assert_eq!(has(d, "anno:1:w"), None, "{}", d.name);
+        assert_eq!(
+            has(d, "anno:1:y").as_deref(),
+            Some("y edited on O"),
+            "{}",
+            d.name
+        );
+    }
+    // Restarts with expired deletion records bring nothing back.
+    for d in [&mut a, &mut o] {
+        d.expire_tombstones().await;
+        d.kill().await;
+        d.restart().await;
+    }
+    for _ in 0..2 {
+        round(&mut a, &mut o).await;
+        round(&mut o, &mut a).await;
+    }
+    assert_eq!(a.snapshot(), o.snapshot());
+    assert_eq!(has(&a, "anno:1:x"), None);
+    assert_eq!(has(&a, "anno:1:w"), None);
+}
+
+/// Whether `author` has a single entry (with content) for `key` in `doc`.
+async fn has_single(doc: &iroh_docs::api::Doc, author: iroh_docs::AuthorId, key: &str) -> bool {
+    matches!(
+        doc.get_exact(author, key.as_bytes(), false).await,
+        Ok(Some(_))
+    )
+}
+
+/// Devices that synced with one entry per annotation move to one per book,
+/// one after another: no highlight is lost or comes back at any step. Where
+/// both sides read groups, no single entry is written any more; those left
+/// from before stay and never win over a newer change.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn moving_to_per_book_entries_loses_and_resurrects_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let mut a = Device::new("A", root.path(), None).await;
+    let mut b = Device::new("B", root.path(), None).await;
+    let mut c = Device::new("C", root.path(), None).await;
+    for d in [&mut a, &mut b, &mut c] {
+        d.old = true;
+    }
+    pair(&mut a, &mut b).await;
+    pair(&mut b, &mut c).await;
+
+    // A library synced the old way, with deletions (emptied entries).
+    a.edit("book:1", "Dune").await;
+    for id in ["k", "d1", "d2", "e"] {
+        a.edit(&format!("anno:1:{id}"), id).await;
+    }
+    c.edit("anno:1:c", "c from C").await;
+    c.edit("anno:global:g", "a note without a book").await;
+    settle(&mut a, &mut b, &mut c).await;
+    a.delete("anno:1:d1").await;
+    c.delete("anno:1:d2").await;
+    settle(&mut a, &mut b, &mut c).await;
+    let expected: &[(&str, Option<&str>)] = &[
+        ("anno:1:k", Some("k")),
+        ("anno:1:d1", None),
+        ("anno:1:d2", None),
+        ("anno:1:e", Some("e")),
+        ("anno:1:c", Some("c from C")),
+        ("anno:global:g", Some("a note without a book")),
+    ];
+    assert_everywhere(&[&a, &b, &c], expected);
+    let library = a.snapshot();
+
+    // B moves first: it reads groups, the others still read single entries.
+    upgrade(&mut b, &mut [&mut a, &mut c]).await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(&[&a, &b, &c], expected);
+    assert_eq!(a.snapshot(), library);
+    // Its peers are older: B writes its groups and its single entries.
+    for peer in ["A", "C"] {
+        let (singles, groups) = annotation_entries_of(&b.doc_with(peer), b.author).await;
+        assert!(
+            singles >= 4 && groups == 2,
+            "B with {peer}: {singles} {groups}"
+        );
+    }
+
+    // An edit and a deletion while versions are mixed.
+    b.edit("anno:1:e", "e edited on B").await;
+    a.delete("anno:1:k").await;
+    settle(&mut a, &mut b, &mut c).await;
+    let expected: &[(&str, Option<&str>)] = &[
+        ("anno:1:k", None),
+        ("anno:1:d1", None),
+        ("anno:1:d2", None),
+        ("anno:1:e", Some("e edited on B")),
+        ("anno:1:c", Some("c from C")),
+        ("anno:global:g", Some("a note without a book")),
+    ];
+    assert_everywhere(&[&a, &b, &c], expected);
+
+    // A moves. Between A and B only groups are written from now on: a new
+    // highlight and an edit go into the book's group; the edited
+    // highlight's old single entry stays behind, stale, and never wins.
+    upgrade(&mut a, &mut [&mut b]).await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(&[&a, &b, &c], expected);
+    a.edit("anno:1:n", "new on A").await;
+    b.edit("anno:1:c", "c edited on B").await;
+    settle(&mut a, &mut b, &mut c).await;
+    let expected: &[(&str, Option<&str>)] = &[
+        ("anno:1:k", None),
+        ("anno:1:d1", None),
+        ("anno:1:d2", None),
+        ("anno:1:e", Some("e edited on B")),
+        ("anno:1:c", Some("c edited on B")),
+        ("anno:1:n", Some("new on A")),
+        ("anno:global:g", Some("a note without a book")),
+    ];
+    assert_everywhere(&[&a, &b, &c], expected);
+    let ab = a.doc_with("B");
+    for (d, who) in [(&a, a.author), (&b, b.author)] {
+        assert!(!has_single(&ab, who, "anno:1:n").await, "{}", d.name);
+        assert_eq!(annotation_entries_of(&ab, who).await.1, 2, "{}", d.name);
+    }
+    let stale = ab.get_exact(b.author, b"anno:1:c".to_vec(), false).await;
+    let stale = stale.unwrap().expect("B's old single entry is still there");
+    let stale = content_of(&a.blobs, stale.content_hash()).await.unwrap();
+    assert_eq!(decode(&stale).unwrap().value, "c from C");
+    // C, older, still gets the new highlight as a single entry from B.
+    assert!(has_single(&b.doc_with("C"), b.author, "anno:1:n").await);
+
+    // C moves last; every deletion record expires; everyone restarts.
+    upgrade(&mut c, &mut [&mut b]).await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(&[&a, &b, &c], expected);
+    for d in [&mut a, &mut b, &mut c] {
+        d.expire_tombstones().await;
+        d.kill().await;
+        d.restart().await;
+    }
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(&[&a, &b, &c], expected);
+
+    // And changes still travel afterwards, with no single entries.
+    c.edit("anno:1:m", "new on C").await;
+    c.edit("anno:1:c", "c edited on C").await;
+    a.delete("anno:1:e").await;
+    settle(&mut a, &mut b, &mut c).await;
+    assert_everywhere(
+        &[&a, &b, &c],
+        &[
+            ("anno:1:m", Some("new on C")),
+            ("anno:1:c", Some("c edited on C")),
+            ("anno:1:e", None),
+            ("anno:1:k", None),
+        ],
+    );
+    for (d, peer) in [(&a, "B"), (&b, "A"), (&b, "C"), (&c, "B")] {
+        assert!(
+            !has_single(&d.doc_with(peer), d.author, "anno:1:m").await,
+            "{} with {peer}",
             d.name
         );
     }

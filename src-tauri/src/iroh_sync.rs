@@ -399,6 +399,12 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         activity.note(&app, from);
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
+                        if crate::sync_annotations::is_annotation_key(&key)
+                            && hash == iroh_blobs::Hash::EMPTY
+                        {
+                            deliver_annotations(&doc, &blobs, &batcher, &key, None).await;
+                            continue;
+                        }
                         if hash == iroh_blobs::Hash::EMPTY {
                             // A deletion. It counts only if nothing in this doc
                             // is newer (this device may have written the key since).
@@ -425,7 +431,7 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         match content {
                             Some(content) => {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                    batcher.push(key, value);
+                                    deliver_entry(&doc, &blobs, &batcher, key, value).await;
                                 }
                             }
                             None => {
@@ -437,7 +443,7 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         if let Some(key) = pending.remove(&hash) {
                             if let Ok(content) = blobs.blobs().get_bytes(hash).await {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                    batcher.push(key, value);
+                                    deliver_entry(&doc, &blobs, &batcher, key, value).await;
                                 }
                             }
                         }
@@ -447,7 +453,7 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         for (hash, key) in remaining {
                             if let Ok(content) = blobs.blobs().get_bytes(hash).await {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
-                                    batcher.push(key, value);
+                                    deliver_entry(&doc, &blobs, &batcher, key, value).await;
                                 }
                             }
                         }
@@ -568,6 +574,40 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
             backoff_ms = std::cmp::min(backoff_ms * 2, 30_000);
         }
     });
+}
+
+/// A remote entry's content, delivered live: annotation entries as the
+/// combined state of the annotations they mention (`sync_annotations`),
+/// anything else as it is.
+async fn deliver_entry<R: tauri::Runtime>(
+    doc: &iroh_docs::api::Doc,
+    blobs: &iroh_blobs::api::Store,
+    batcher: &Arc<EntryBatcher<R>>,
+    key: String,
+    value: String,
+) {
+    if crate::sync_annotations::is_annotation_key(&key) {
+        deliver_annotations(doc, blobs, batcher, &key, Some(&value)).await;
+    } else {
+        batcher.push(key, value);
+    }
+}
+
+async fn deliver_annotations<R: tauri::Runtime>(
+    doc: &iroh_docs::api::Doc,
+    blobs: &iroh_blobs::api::Store,
+    batcher: &Arc<EntryBatcher<R>>,
+    key: &str,
+    value: Option<&str>,
+) {
+    let (entries, deleted) =
+        crate::sync_annotations::live_annotations(doc, blobs, key, value).await;
+    for (key, value) in entries {
+        batcher.push(key, value);
+    }
+    for d in deleted {
+        batcher.push_deleted(d);
+    }
 }
 
 /// Whether the newest entry for `key` in `doc` (by any device) is a deletion.
