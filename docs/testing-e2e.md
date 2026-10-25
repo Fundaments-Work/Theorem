@@ -117,12 +117,6 @@ contain it.
 
 ## Known failures
 
-- `03-reader-position`, "reopening the book returns to the same page" and "the
-  position survives an app restart" are marked `todo`: in about one run of
-  three, reopening lands on page 1 and the saved position is lost. While
-  resuming, `handleLocationChange` in `src/features/reader/Reader.tsx` resets
-  progress (`updateProgress(bookId, 0, '')`) when the first relocation is not at
-  the saved CFI. Remove `todo` once that is fixed.
 - Opening a book seconds after importing it: the first click on the book
   occasionally does nothing (seen in 2 of about 12 runs). `openBook` in
   `e2e/lib/flows.mjs` clicks a second time and prints

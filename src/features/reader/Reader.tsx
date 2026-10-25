@@ -72,6 +72,7 @@ import { showTtsError } from "./audio/tts-errors";
 import { toast } from "sonner";
 import { AudiobookBar } from "./audio/AudiobookBar";
 import { SpeedReader } from "./components/SpeedReader";
+import { resumeDecision } from "./lib/resume-progress";
 
 const MOBILE_READER_MEDIA_QUERY = '(max-width: 768px)';
 const MIN_READER_ZOOM = 50;
@@ -877,6 +878,9 @@ const BookReaderPage = memo(function BookReaderPage() {
             }
             if (resumeTimeoutRef.current) {
                 clearTimeout(resumeTimeoutRef.current);
+                // A cleared id left here blocked the next resume's timer, so
+                // its suppression could never end.
+                resumeTimeoutRef.current = null;
             }
             setLoadError(null);
 
@@ -1219,36 +1223,37 @@ const BookReaderPage = memo(function BookReaderPage() {
                 percentage: loc.percentage,
             });
 
-            if (target && loc.cfi && loc.cfi.startsWith(target)) {
-                debug('[Reader] ✓ Arrived at resume target, clearing suppression');
-                suppressProgressRef.current = false;
-                resumeTargetRef.current = null;
-                hasAppliedInitialLocationRef.current = true;
-                if (resumeTimeoutRef.current) {
-                    clearTimeout(resumeTimeoutRef.current);
-                    resumeTimeoutRef.current = null;
+            const decision = resumeDecision({ target, cfi: loc.cfi, byUser: loc.byUser });
+            if (decision === 'wait') {
+                // A location that does not start with the target is not a failed
+                // resume: the paginator reports the start of the visible page (an
+                // earlier CFI than a mid-page target) and the first render can land
+                // on the section start before the jump. Erasing the saved progress
+                // here lost the reading position in about one reopen in three, so
+                // a mismatch only waits; the timeout below ends the suppression and
+                // the saved position is kept.
+                if (!resumeTimeoutRef.current) {
+                    debug('[Reader] Starting suppression timeout (1000ms)');
+                    resumeTimeoutRef.current = setTimeout(() => {
+                        debug('[Reader] Suppression timeout expired');
+                        suppressProgressRef.current = false;
+                        resumeTargetRef.current = null;
+                        resumeTimeoutRef.current = null;
+                    }, 1000);
                 }
-                return; 
+                return;
             }
 
-            // A location that does not start with the target is not a failed
-            // resume: the paginator reports the start of the visible page (an
-            // earlier CFI than a mid-page target) and the first render can land
-            // on the section start before the jump. Erasing the saved progress
-            // here lost the reading position in about one reopen in three, so
-            // a mismatch only waits; the timeout below ends the suppression and
-            // the saved position is kept.
-            if (!resumeTimeoutRef.current) {
-                debug('[Reader] Starting suppression timeout (1000ms)');
-                resumeTimeoutRef.current = setTimeout(() => {
-                    debug('[Reader] Suppression timeout expired');
-                    suppressProgressRef.current = false;
-                    resumeTargetRef.current = null;
-                    resumeTimeoutRef.current = null;
-                }, 1000);
+            debug('[Reader] Resume over, clearing suppression:', decision);
+            suppressProgressRef.current = false;
+            resumeTargetRef.current = null;
+            hasAppliedInitialLocationRef.current = true;
+            if (resumeTimeoutRef.current) {
+                clearTimeout(resumeTimeoutRef.current);
+                resumeTimeoutRef.current = null;
             }
-
-            return; 
+            // At the target nothing changed; a page turn is a new position to save.
+            if (decision === 'arrived') return;
         }
 
         if (currentBookId) {

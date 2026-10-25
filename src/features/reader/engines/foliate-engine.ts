@@ -31,6 +31,7 @@ import { toDocMetadata } from './doc-metadata';
 import { collectAudioSections } from './audio-sections';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 import { useLibraryStore } from '../../../core/store';
+import { isUserRelocation } from '../lib/resume-progress';
 
 const READER_SEARCH_EXACT_LIMIT = 120;
 const MIN_READER_ZOOM_LEVEL = 0.2;
@@ -104,7 +105,8 @@ export class FoliateEngine {
     private pendingUpdateFrame: number | null = null;
 
     private _lastCssSettingsKey = '';
-    private _lastCssResult: string | null = null;
+    /** Exactly what was last passed to `renderer.setStyles`: foliate's base sheet and ours. */
+    private _lastCssResult: string | [string, string] | null = null;
     private _lastTapNotifiedAt = 0;
     private _lastAnnotationActivatedAt = 0;
 
@@ -589,6 +591,7 @@ export class FoliateEngine {
                 tocItem: detail.tocItem,
                 pageItem: detail.pageItem,
                 pageInfo,
+                ...(isUserRelocation(detail.reason) ? { byUser: true } : {}),
             };
 
             this.currentLocation = location;
@@ -1033,13 +1036,16 @@ export class FoliateEngine {
             const cssResult = Array.isArray(foliateCSS)
                 ? `${foliateCSS[1]}\n${customCSS}\n${comicCSS}`
                 : `${foliateCSS}\n${customCSS}\n${comicCSS}`;
-            this._lastCssResult = cssResult;
-
-            if (Array.isArray(foliateCSS)) {
-                renderer.setStyles([foliateCSS[0], cssResult]);
-            } else {
-                renderer.setStyles(cssResult);
-            }
+            // Cache the pair, not only the second sheet: re-applying just the
+            // string dropped foliate's base sheet (line height, orphans/widows)
+            // from every section loaded afterwards, so the same page could break
+            // at a different place on the next open and a saved position came
+            // back one page early.
+            const styles: string | [string, string] = Array.isArray(foliateCSS)
+                ? [foliateCSS[0], cssResult]
+                : cssResult;
+            this._lastCssResult = styles;
+            renderer.setStyles(styles);
         }
     }
 

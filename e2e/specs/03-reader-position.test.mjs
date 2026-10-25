@@ -16,14 +16,6 @@ before(async () => {
 });
 after(() => box.dispose());
 
-// KNOWN BUG (1.6.0): reopening a book can land one page before the saved
-// spot (page 2 instead of 3 in about half the runs). The saved CFI is the start
-// of the visible page, and jumping back to it can show the previous page at
-// the page boundary. (The worse variant, where the saved position was erased
-// and the book reopened on page 1, is fixed.) Marked `todo` so the suite
-// reports it without failing; remove `todo` once fixed. Assertions unchanged.
-const KNOWN_RESUME_BUG = "reader resume can land one page early (CFI at a page boundary)";
-
 test("a new book opens on page 1 and pages turn forward and back", async () => {
     const start = await openBook(app, title);
     assert.equal(start.page, 1);
@@ -39,14 +31,14 @@ test("a new book opens on page 1 and pages turn forward and back", async () => {
     assert.equal(again.page, 3);
 });
 
-test("reopening the book returns to the same page", { todo: KNOWN_RESUME_BUG }, async () => {
+test("reopening the book returns to the same page", async () => {
     await backToLibrary(app);
     await openBook(app, title);
     const settled = await app.waitFor(async () => ((await readerPage(app))?.page === 3 ? 3 : null), { timeout: 8000, what: "page 3 on reopen" }).catch(async () => (await readerPage(app))?.page);
     assert.equal(settled, 3);
 });
 
-test("the position survives an app restart", { todo: KNOWN_RESUME_BUG }, async () => {
+test("the position survives an app restart", async () => {
     await backToLibrary(app);
     await box.quit();
     app = await box.launch();
