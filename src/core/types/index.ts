@@ -519,6 +519,8 @@ export interface DocLocation {
         range?: string;           
         isEstimated?: boolean;    
     };
+    /** True when the reader turned the page (button, key, swipe, scroll), not a jump the app made. */
+    byUser?: boolean;
 }
 
 export interface TocItem {

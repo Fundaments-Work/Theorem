@@ -4,7 +4,7 @@ import type { Collection } from "../../../../core/types";
 import { canSetShelfParent } from "../../../../core/lib/shelf-hierarchy";
 import { useState, useEffect } from "react";
 import { cn } from "../../../../core/lib/utils";
-import { Modal, ModalBody, ModalFooter } from "../../../../ui";
+import { Modal, ModalBody, ModalFooter, ModalHeader } from "../../../../ui";
 
 interface ShelfModalProps {
     isOpen: boolean;
@@ -63,6 +63,7 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave, collections = [], i
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="md" showCloseButton={true}>
+            <ModalHeader title={isEditing ? "Edit Shelf" : "Create Shelf"} onClose={onClose} />
             <form onSubmit={handleSubmit}>
                 <ModalBody>
                     <div className="space-y-4">

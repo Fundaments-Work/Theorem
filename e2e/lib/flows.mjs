@@ -45,7 +45,9 @@ export async function openBook(app, title) {
     // Observed in 1.6.0: a click on a book seconds after it was imported is
     // occasionally ignored (no reader, no error). Click once more, loudly, so
     // the flow under test continues; see docs/testing-e2e.md "Known failures".
-    if (!(await app.find(reader, { timeout: 6000 }).catch(() => null))) {
+    // A reader that is merely slow to appear has taken the library away; only
+    // click again while the book is still there to click.
+    if (!(await app.find(reader, { timeout: 6000 }).catch(() => null)) && (await app.exists(bookButton(title)))) {
         console.warn(`[e2e] first click on "${title}" did not open the reader; clicking again`);
         await app.click(bookButton(title));
         await app.find(reader, { timeout: 20000 });

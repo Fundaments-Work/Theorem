@@ -13,6 +13,7 @@ vi.mock("../src/ui", () => ({
     Modal: ({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) => isOpen ? <div>{children}</div> : null,
     ModalBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     ModalFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    ModalHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
 }));
 const rules: SmartShelfDefinition = { mode: "all", conditions: [{ field: "status", operator: "equals", value: "unread" }] };
 const shelf = (id: string, smartRules?: SmartShelfDefinition): Collection => ({ id, name: id, kind: "general", bookIds: [], createdAt: new Date("2026-01-01"), smartRules });

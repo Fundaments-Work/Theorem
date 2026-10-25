@@ -28,13 +28,13 @@ test("select a book and add it to a new shelf", async () => {
     await app.find({ role: "checkbox", name: `Select ${BOOKS.harbour.title}`, checked: true });
     await app.click({ role: "button", name: "Add selected to shelf" });
 
-    await app.find({ role: "heading", name: "Add to Shelf" });
+    await app.find({ role: "dialog", name: "Add to Shelf" });
     // An empty name cannot be created.
     const create = await app.find({ role: "button", name: "Create" });
     assert.equal(await app.session.execute("return arguments[0].disabled", create), true);
-    await app.fill({ role: "textbox", name: "Shelf name..." }, SHELF);
+    await app.fill({ role: "textbox", name: "New shelf name" }, SHELF);
     await app.click({ role: "button", name: "Create" });
-    await app.waitGone({ role: "heading", name: "Add to Shelf" });
+    await app.waitGone({ role: "dialog", name: "Add to Shelf" });
     if (await app.exists({ role: "button", name: /^Done/ })) await app.click({ role: "button", name: /^Done/ });
 });
 

@@ -35,6 +35,11 @@ The suite never touches your library or your running Theorem:
   have open;
 - it runs on a private headless display (`mutter --headless`, or `Xvfb` with
   `THEOREM_E2E_DISPLAY=xvfb`), never on your desktop.
+- every helper runs in a process group of its own (bus, display, and per spec
+  tauri-driver with WebKitWebDriver and the app under it); teardown stops each
+  group and waits until it is empty, a restart waits for the old app to exit,
+  and each run uses its own display name, so back-to-back runs never race a
+  previous one that is still shutting down (`e2e/lib/procs.mjs`).
 
 `THEOREM_E2E_KEEP=1` keeps each spec's temporary folder (app log at
 `home/.local/share/work.fundamentals.theorem/logs/theorem.log`). When a wait
@@ -117,12 +122,6 @@ contain it.
 
 ## Known failures
 
-- `03-reader-position`, "reopening the book returns to the same page" and "the
-  position survives an app restart" are marked `todo`: in about one run of
-  three, reopening lands on page 1 and the saved position is lost. While
-  resuming, `handleLocationChange` in `src/features/reader/Reader.tsx` resets
-  progress (`updateProgress(bookId, 0, '')`) when the first relocation is not at
-  the saved CFI. Remove `todo` once that is fixed.
 - Opening a book seconds after importing it: the first click on the book
   occasionally does nothing (seen in 2 of about 12 runs). `openBook` in
   `e2e/lib/flows.mjs` clicks a second time and prints

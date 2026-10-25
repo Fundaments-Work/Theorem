@@ -316,8 +316,14 @@
                          const el = resolved.anchor(doc)
                          el.classList.add(activeClass)
                          if (playbackActiveClass) el.ownerDocument
-@@ -337,7 +545,7 @@
-         this.#emit('relocate', this.lastLocation)
+@@ -334,10 +542,12 @@
+         this.lastLocation = { ...progress, tocItem, pageItem, cfi, range }
+         if (reason === 'snap' || reason === 'page' || reason === 'scroll')
+             this.history.replaceState(cfi)
+-        this.#emit('relocate', this.lastLocation)
++        // Pass the paginator's reason on: the reader tells a page turn the
++        // user made from a jump the app made (restoring the saved position).
++        this.#emit('relocate', { ...this.lastLocation, reason })
      }
      #onLoad({ doc, index }) {
 -        // set language and dir if not already set
@@ -325,7 +331,7 @@
          doc.documentElement.lang ||= this.language.canonical ?? ''
          if (!this.language.isCJK)
              doc.documentElement.dir ||= this.language.direction ?? ''
-@@ -350,17 +558,74 @@
+@@ -350,17 +560,74 @@
      #handleLinks(doc, index) {
          const { book } = this
          const section = book.sections[index]
@@ -403,7 +409,7 @@
                  .then(x => x ? this.goTo(href) : null)
                  .catch(e => console.error(e))
          })
-@@ -388,9 +653,25 @@
+@@ -388,9 +655,25 @@
              const { overlayer, doc } = obj
              overlayer.remove(value)
              if (!remove) {
@@ -432,7 +438,7 @@
              }
          }
          const label = this.#tocProgress.getProgress(index)?.label ?? ''
-@@ -405,7 +686,40 @@
+@@ -405,7 +688,40 @@
      }
      #createOverlayer({ doc, index }) {
          const overlayer = new Overlayer()
@@ -473,7 +479,7 @@
              const [value, range] = overlayer.hitTest(e)
              if (value && !value.startsWith(SEARCH_PREFIX)) {
                  this.#emit('show-annotation', { value, index, range })
-@@ -423,9 +737,17 @@
+@@ -423,9 +739,17 @@
          const resolved = await this.goTo(value)
          if (resolved) {
              const { index, anchor } = resolved

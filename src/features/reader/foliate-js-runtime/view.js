@@ -542,7 +542,9 @@ export class View extends HTMLElement {
         this.lastLocation = { ...progress, tocItem, pageItem, cfi, range }
         if (reason === 'snap' || reason === 'page' || reason === 'scroll')
             this.history.replaceState(cfi)
-        this.#emit('relocate', this.lastLocation)
+        // Pass the paginator's reason on: the reader tells a page turn the
+        // user made from a jump the app made (restoring the saved position).
+        this.#emit('relocate', { ...this.lastLocation, reason })
     }
     #onLoad({ doc, index }) {
         if (!doc?.documentElement) return;

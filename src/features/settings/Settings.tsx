@@ -1143,6 +1143,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                         onChange={(e) => updateVaultSettings({
                                             vaultPath: e.target.value,
                                         })}
+                                        aria-label="Export folder"
                                         placeholder="/Users/you/Documents/MarkdownExport"
                                         className={cn(
                                             "ui-input",
