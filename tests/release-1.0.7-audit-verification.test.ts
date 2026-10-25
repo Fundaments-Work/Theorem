@@ -5,12 +5,19 @@
  * Run with: pnpm test
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // Helper to read source files for structural verification
 function readSource(relativePath: string): string {
     return readFileSync(resolve(__dirname, "..", relativePath), "utf-8");
+}
+
+/** `database.rs` and its child modules (`database/*.rs`), which the code was split into. */
+function readDatabaseModule(): string {
+    const dir = resolve(__dirname, "..", "src-tauri/src/database");
+    const children = readdirSync(dir).filter((f) => f.endsWith(".rs")).sort();
+    return [readSource("src-tauri/src/database.rs"), ...children.map((f) => readSource(`src-tauri/src/database/${f}`))].join("\n");
 }
 
 // ─── Fix 50/51: PairedDevice types have all fields ───
@@ -183,7 +190,7 @@ describe("Custom ALPN removed (Rust)", () => {
 // ─── Fix 60: SQLite getBookData reads from books.data (Rust verification) ───
 describe("SQLite getBookData fallback (Rust)", () => {
     it("sqlite_get_book_data reads from books.data column", () => {
-        const content = readSource("src-tauri/src/database.rs");
+        const content = readDatabaseModule();
         expect(content).toContain("SELECT data FROM books WHERE id = ?1");
     });
 });
@@ -252,7 +259,7 @@ describe("Live events merge pipeline", () => {
 // ─── Fix: Covers table has DATA BLOB column ───
 describe("Cover BLOB migration (Rust)", () => {
     it("covers table has data BLOB column alongside data_url", () => {
-        const content = readSource("src-tauri/src/database.rs");
+        const content = readDatabaseModule();
         expect(content).toContain("data BLOB");
         expect(content).toContain("ALTER TABLE covers ADD COLUMN data BLOB");
     });
@@ -261,7 +268,7 @@ describe("Cover BLOB migration (Rust)", () => {
 // ─── Fix: Database indexes created ───
 describe("Database indexes (Rust)", () => {
     it("covers(book_id) index exists, books(title/author) removed (no such columns)", () => {
-        const content = readSource("src-tauri/src/database.rs");
+        const content = readDatabaseModule();
         expect(content).toContain("CREATE INDEX IF NOT EXISTS idx_covers_book_id");
         expect(content).not.toContain("idx_books_title");
         expect(content).not.toContain("idx_books_author");

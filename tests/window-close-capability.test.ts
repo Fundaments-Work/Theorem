@@ -53,7 +53,8 @@ describe("window capability", () => {
 });
 
 describe("reader window chrome matches the main window", () => {
-    const rust = readFileSync(resolve("src-tauri/src/lib.rs"), "utf-8");
+    // The window code moved from lib.rs into window.rs when lib.rs was split.
+    const rust = ["src-tauri/src/lib.rs", "src-tauri/src/window.rs"].map((f) => readFileSync(resolve(f), "utf-8")).join("\n");
 
     it("builds reader windows frameless, like the configured main window", () => {
         // decorations(true) stacked the OS title bar above the app's own.
