@@ -188,6 +188,74 @@ describe("a round only succeeds when this peer finished a sync (R3, R4)", () => 
         expect(ui().deviceSyncStatus).toBe("synced");
     });
 
+    it("a long first exchange that keeps receiving entries is waited for, not reported offline", async () => {
+        // 55,000 entries take minutes to arrive: the exchange is still going
+        // when the 30 s wait is up.
+        const p = orch.runDeviceSync("dev-1");
+        let done = false;
+        void p.then(() => { done = true; });
+        for (let s = 0; s < 120; s += 10) {
+            await vi.advanceTimersByTimeAsync(10_000);
+            emit("docs-sync-activity", { peer: "node-1" });
+        }
+        expect(done).toBe(false);
+        emit("docs-sync-finished", { peer: "node-1", synced: true, received: 55_000, sent: 0 });
+        emit("docs-pending-content-ready", { remaining_count: 0 });
+        await vi.advanceTimersByTimeAsync(1_000);
+        const result = await p;
+        expect(result.success).toBe(true);
+    });
+
+    it("the sending side keeps waiting while the peer still answers, and stops when it does not", async () => {
+        // Sending a large library gives this side no entries to see; the
+        // peer answering a probe tells it the exchange is still going.
+        let reachable = true;
+        ipc.sync_probe_device = () => reachable;
+        const p = orch.runDeviceSync("dev-1");
+        let done = false;
+        void p.then(() => { done = true; });
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        expect(done).toBe(false);
+        emit("docs-sync-finished", { peer: "node-1", synced: true, received: 0, sent: 55_000 });
+        emit("docs-pending-content-ready", { remaining_count: 0 });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect((await p).success).toBe(true);
+
+        const q = orch.runDeviceSync("dev-1");
+        let qDone = false;
+        void q.then(() => { qDone = true; });
+        await vi.advanceTimersByTimeAsync(40_000);
+        expect(qDone).toBe(false);
+        reachable = false;
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(qDone).toBe(true);
+        expect((await q).error).toBe("Peer offline");
+    });
+
+    it("activity from another peer does not keep the wait going, and silence ends it", async () => {
+        const p = orch.runDeviceSync("dev-1");
+        let done = false;
+        void p.then(() => { done = true; });
+        for (let s = 0; s < 60; s += 10) {
+            await vi.advanceTimersByTimeAsync(10_000);
+            emit("docs-sync-activity", { peer: "node-OTHER" });
+        }
+        expect(done).toBe(true);
+        expect((await p).error).toBe("Peer offline");
+
+        // This peer's activity stops: 30 s of silence later, the wait ends.
+        const q = orch.runDeviceSync("dev-1");
+        let qDone = false;
+        void q.then(() => { qDone = true; });
+        await vi.advanceTimersByTimeAsync(20_000);
+        emit("docs-sync-activity", { peer: "node-1" });
+        await vi.advanceTimersByTimeAsync(25_000);
+        expect(qDone).toBe(false);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(qDone).toBe(true);
+        expect((await q).error).toBe("Peer offline");
+    });
+
     it("an unreachable peer keeps the data dirty, so the next timer round retries it", async () => {
         stores.useSettingsStore.setState({
             settings: { ...stores.useSettingsStore.getState().settings, deviceSync: { ...stores.useSettingsStore.getState().settings.deviceSync, autoSyncEnabled: true } },

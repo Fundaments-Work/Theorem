@@ -203,7 +203,7 @@ pub struct DocsApiSnapshot {
 /// instead of after QUIC's default 30 s.
 pub const CONNECTION_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
-fn transport_config() -> iroh::endpoint::QuicTransportConfig {
+pub(crate) fn transport_config() -> iroh::endpoint::QuicTransportConfig {
     let builder = iroh::endpoint::QuicTransportConfig::builder();
     match CONNECTION_IDLE_TIMEOUT.try_into() {
         Ok(idle) => builder.max_idle_timeout(Some(idle)),
@@ -387,10 +387,16 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
             use futures::StreamExt;
             let mut pending: std::collections::HashMap<iroh_blobs::Hash, String> =
                 std::collections::HashMap::new();
+            let mut activity = SyncActivity::default();
 
             while let Some(event) = stream.next().await {
                 match event {
-                    Ok(LiveEvent::InsertRemote { entry, .. }) => {
+                    Ok(LiveEvent::InsertRemote {
+                        entry,
+                        from,
+                        content_status,
+                    }) => {
+                        activity.note(&app, from);
                         let key = String::from_utf8_lossy(entry.key()).to_string();
                         let hash = entry.content_hash();
                         if hash == iroh_blobs::Hash::EMPTY {
@@ -408,13 +414,21 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         }
                         // Content already here: deliver it now. Otherwise wait for
                         // ContentReady (delivering on both would send it twice).
-                        match blobs.blobs().get_bytes(hash).await {
-                            Ok(content) => {
+                        // Most entries of an exchange arrive before their
+                        // content: those are not looked up.
+                        let content = match content_status {
+                            iroh_docs::ContentStatus::Complete => {
+                                blobs.blobs().get_bytes(hash).await.ok()
+                            }
+                            _ => None,
+                        };
+                        match content {
+                            Some(content) => {
                                 if let Ok(value) = String::from_utf8(content.to_vec()) {
                                     batcher.push(key, value);
                                 }
                             }
-                            Err(_) => {
+                            None => {
                                 pending.insert(hash, key);
                             }
                         }
@@ -570,12 +584,38 @@ async fn newest_is_deletion(doc: &iroh_docs::api::Doc, key: &str) -> bool {
     )
 }
 
+/// Tells the app, at most every 2 s per doc, that entries are arriving from
+/// a peer (`docs-sync-activity` `{ peer }`): a round keeps waiting for an
+/// exchange that is still bringing entries (a large library's first one
+/// takes minutes) instead of calling the peer offline after 30 s.
+#[derive(Default)]
+struct SyncActivity {
+    last: Option<(PublicKey, std::time::Instant)>,
+}
+
+impl SyncActivity {
+    const EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+
+    fn note<R: tauri::Runtime>(&mut self, app: &tauri::AppHandle<R>, peer: PublicKey) {
+        if let Some((last_peer, at)) = self.last {
+            if last_peer == peer && at.elapsed() < Self::EVERY {
+                return;
+            }
+        }
+        self.last = Some((peer, std::time::Instant::now()));
+        let _ = app.emit(
+            "docs-sync-activity",
+            serde_json::json!({ "peer": peer.to_string() }),
+        );
+    }
+}
+
 /// Whether a finished iroh-docs exchange actually synced, and its counts.
 /// iroh-docs reports an error when only the connection teardown failed
 /// ("Failed to close ..."), typically when the other side hangs up first over
 /// a relay; the exchange itself completed, so that counts as synced.
 /// (`result` is the event's entry counts, received and sent, or its error.)
-fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize, usize) {
+pub(crate) fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize, usize) {
     match result {
         Ok((received, sent)) => (true, received, sent),
         Err(e) if e.starts_with("Failed to close") => (true, 0, 0),
@@ -1254,6 +1294,23 @@ mod pairing_tests {
     }
 
     async fn host() -> Host {
+        host_with(None).await
+    }
+
+    /// An endpoint that can be reached only through `relay` (no direct
+    /// addresses), with the app's connection settings.
+    fn relay_only(
+        builder: iroh::endpoint::Builder,
+        relay: iroh::RelayMap,
+    ) -> iroh::endpoint::Builder {
+        builder
+            .relay_mode(RelayMode::Custom(relay))
+            .ca_tls_config(iroh_relay::tls::CaTlsConfig::insecure_skip_verify())
+            .clear_ip_transports()
+            .transport_config(transport_config())
+    }
+
+    async fn host_with(relay: Option<iroh::RelayMap>) -> Host {
         let app = tauri::test::mock_app();
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(SyncTransportState {
@@ -1269,11 +1326,13 @@ mod pairing_tests {
             pairing: PairingSessions::default(),
             pairing_confirms: Default::default(),
         });
-        let ep = iroh::Endpoint::builder(presets::Minimal)
-            .hooks(PeerGate::new(state.allowlist.clone(), ALPN))
-            .bind()
-            .await
-            .unwrap();
+        let builder = iroh::Endpoint::builder(presets::Minimal)
+            .hooks(PeerGate::new(state.allowlist.clone(), ALPN));
+        let builder = match relay {
+            Some(relay) => relay_only(builder, relay),
+            None => builder,
+        };
+        let ep = builder.bind().await.unwrap();
         let handler = PairingProtocolHandler {
             state: state.clone(),
             host_key: ep.id(),
@@ -1319,8 +1378,23 @@ mod pairing_tests {
         secret: &str,
         claimed_node_id: &str,
     ) -> Result<PairingResponse, String> {
+        pair_at(
+            joiner,
+            host.router.endpoint().addr(),
+            secret,
+            claimed_node_id,
+        )
+        .await
+    }
+
+    async fn pair_at(
+        joiner: &iroh::Endpoint,
+        host: iroh::EndpointAddr,
+        secret: &str,
+        claimed_node_id: &str,
+    ) -> Result<PairingResponse, String> {
         let conn = joiner
-            .connect(host.router.endpoint().addr(), ALPN)
+            .connect(host, ALPN)
             .await
             .map_err(|e| e.to_string())?;
         let request = PairingRequest {
@@ -1384,6 +1458,31 @@ mod pairing_tests {
         let err = pair(&other, &host, &secret, "").await.unwrap_err();
         assert!(err.contains("expired or was already used"), "{err}");
         assert!(!host.state.allowlist.is_allowed(&other.id()));
+        host.router.shutdown().await.unwrap();
+    }
+
+    /// Two devices that cannot reach each other directly (no direct
+    /// addresses at all) pair through a relay, as the QR code's relay URL
+    /// lets them, well within the app's timeouts.
+    #[tokio::test]
+    async fn pairing_works_through_a_relay_alone() {
+        let (relay_map, relay_url, _relay) = iroh::test_utils::run_relay_server().await.unwrap();
+        let host = host_with(Some(relay_map.clone())).await;
+        answer_prompts(&host, true);
+        let joiner = relay_only(iroh::Endpoint::builder(presets::Minimal), relay_map)
+            .bind()
+            .await
+            .unwrap();
+        let secret = host.state.pairing.open();
+        // What the QR code gives the joiner: the node ID and the relay URL.
+        let addr = iroh::EndpointAddr::new(host.router.endpoint().id()).with_relay_url(relay_url);
+        let started = std::time::Instant::now();
+        let response = pair_at(&joiner, addr, &secret, "").await.unwrap();
+        let took = started.elapsed();
+        eprintln!("pairing through the relay: {took:?}");
+        assert_eq!(response.device_id, "host-device");
+        assert_eq!(paired_node_ids(&host).await, vec![joiner.id().to_string()]);
+        assert!(took < crate::file_transfer::PROBE_TIMEOUT, "{took:?}");
         host.router.shutdown().await.unwrap();
     }
 

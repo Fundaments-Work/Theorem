@@ -111,6 +111,10 @@ jpeg-encoder = { version = "0.7", features = ["simd"] }
 [dev-dependencies]
 # tauri::test::mock_app, for the pairing protocol tests in iroh_sync.rs.
 tauri = { version = "2", features = ["test"] }
+# A local relay server (iroh::test_utils::run_relay_server) and relay TLS that
+# trusts it, for the sync tests over a relay (src/sync_scenarios.rs).
+iroh = { version = "1.3.0", features = ["test-utils"] }
+iroh-relay = { version = "1.3.0", features = ["test-utils"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # Desktop TTS shells (spd-say / say / powershell) need tokio process spawning.

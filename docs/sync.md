@@ -29,6 +29,8 @@ The design follows KDE Connect and Syncthing (identity = public key, explicit ap
 
 Tests: `sync_access.rs` (IDs, paths, symlinks, secrets, allowlist, and two endpoints over loopback proving the gate on the wire), `iroh_sync.rs` `pairing_tests` (the full pairing exchange with the user's answer scripted: accept, decline, wrong/expired secrets, spoofed identity, oversized frames), `database/sync_merge.rs` (planted paths, bad IDs, kv keys).
 
+Sync scenarios (`src-tauri/src/sync_scenarios.rs`) run real iroh nodes, each with its own data folder, over loopback: three devices A–B–C (A and C not paired) with edits, conflicts, deletions while a device is off, expired deletion records, a copy passed on through the middle device, and unpairing; an exchange cut off midway; pairing and sync through a local relay with no direct addresses; and, ignored by default, a 5,000-book / 50,000-highlight library (`cargo test --release --lib scenarios::a_large_library -- --ignored --nocapture`). The app's TypeScript layer (provisioning, merging, deletion records) is modelled there after the rules below.
+
 ## Pairing
 
 ```
@@ -74,15 +76,15 @@ Provisioning also removes this device's doc entries for deleted items and its ex
 
 1. Provision.
 2. `docs_sync_now(peer)` first probes the peer over the book protocol (`probe_peer`): a hello (`?hello {"name","protocol"}`, never a book ID) answered with the peer's own (`HELLO {...}`). An answer means reachable and still paired, and both devices save the other's current name and protocol, so a rename shows on the other device by the next round. Close code 403 means it removed this device (forgotten here too); no answer within 6 s, connecting included, means offline. Only then is the peer queued for reconciliation. The probe exists because iroh-docs checks the connection teardown before the sync result, so a refused sync and a completed one both end with "Failed to close connection"; after the probe, a teardown-only error counts as synced.
-3. Wait for **that peer's** `docs-sync-finished` (filtered by its node ID). `synced: false`, or nothing within 30 s, means the peer was not reached: the round returns `success: false` ("Peer offline") and the data stays dirty for the next round. `lastSyncAt` is recorded only for a finished exchange.
-4. Hydrate: `docs_get_changed_entries` returns only keys whose content (the hashes of every device's copy, deletions included) changed since the last read the app acknowledged, and in `deleted` the items whose newest entry is a deletion (see Deletions). Content, not timestamps, so a device with a wrong clock is never skipped. The read is acknowledged (`docs_ack_entries`) only after the merge was persisted; otherwise it comes again. The first read after start, and one every 30 minutes, is full.
+3. Wait for **that peer's** `docs-sync-finished` (filtered by its node ID). `synced: false`, or nothing within 30 s, means the peer was not reached: the round returns `success: false` ("Peer offline") and the data stays dirty for the next round. The 30 s count from the last sign that the exchange is still going: entries arriving from that peer (`docs-sync-activity`, the receiving side) or, when the 30 s are up, the peer still answering a probe (the sending side sees no entries); 20 minutes at most. A large library's first exchange takes minutes (see Measured). `lastSyncAt` is recorded only for a finished exchange.
+4. Hydrate: `docs_get_changed_entries` returns only keys whose content (the hashes of every device's copy, deletions included) changed since the last read the app acknowledged, and in `deleted` the items whose newest entry is a deletion (see Deletions). Content, not timestamps, so a device with a wrong clock is never skipped. Every device's entry of a key is read, not only the one written last (see Merge). An entry whose content has not arrived is left out and read again next time; the read waits for such content once (150 ms), never per entry, and fetches it from the paired devices (3 s at most): iroh-docs asks for an entry's content only when the entry arrives, so content lost to an exchange cut off midway was otherwise never asked for again. The read is acknowledged (`docs_ack_entries`) only after the merge was persisted; otherwise it comes again. The first read after start, and one every 30 minutes, is full.
 5. Merge (below).
 
 Rounds never overlap: a second caller waits for the running round (and shares its result for the same peer). Cancelling is a generation counter, so a cancel with nothing running (unpairing) cannot block the next round or download.
 
 ### 4. Merge
 
-With several paired devices, each key's copies are combined in Rust: records (`book:`, `anno:`, `annotation:`, `collection:`, `cover:`, `rss_article:`, `rss_feed:`, `tomb:`, `vocab:`) take the newest copy whole; objects merge field by field with newer copies winning; lists (from older devices) are concatenated for the app to deduplicate. The app folds `tomb:` and `rss_feed:` entries into the lists its merge works on.
+With several paired devices, each key's copies are combined in Rust: records (`book:`, `anno:`, `annotation:`, `collection:`, `cover:`, `rss_article:`, `rss_feed:`, `tomb:`, `vocab:`) take whole the copy with the newest change by the record's own stamps (`metadataUpdatedAt`, `updatedAt`, `lastReadAt`, `deletedAt`, `addedAt`, `createdAt`), by when it was written only when those tie or are missing. When it was written misleads: a device passing on an item it received (the middle one of three) writes its copy at its next provisioning, possibly after another device's newer edit it has not read yet; objects merge field by field with newer copies winning; lists (from older devices) are concatenated for the app to deduplicate. The app folds `tomb:` and `rss_feed:` entries into the lists its merge works on.
 
 `sqlite_merge_sync_entries` then writes SQLite **in one transaction**, and `mergeIncomingData` updates the stores. All merges (rounds, live batches, progressive flushes, tombstones) run one at a time, and library changes are applied per ID onto the current store, so an edit made while a merge awaits survives it.
 
@@ -148,7 +150,7 @@ Books travel over `theorem-file/v1`, on demand, not with metadata.
 
 `iroh_start`, `iroh_stop`, `generate_pairing_qr`, `close_pairing_qr`, `submit_pairing_code`, `respond_pairing_request`, `get_device_identity`, `set_device_fingerprint`, `set_device_name`, `get_paired_devices` (without the doc's write ticket), `unpair_device`, `sync_probe_device`, `docs_create_sync_doc`, `docs_import_sync_doc`, `docs_set_entry`, `docs_set_entries`, `docs_retain_own_entries`, `docs_get_all_entries`, `docs_get_changed_entries`, `docs_ack_entries`, `docs_purge_entities`, `docs_sync_now`, `clear_sync_databases` (`sync_commands.rs`), `download_book_file` (`file_transfer.rs`), `sqlite_list_sync_conflicts`, `sqlite_dismiss_sync_conflicts` (`offload_commands.rs`).
 
-Events: `pairing-progress`, `pairing-confirm-request`, `pairing-confirm-closed`, `pairing-completed`, `docs-entry-batch` `{ entries, deleted }`, `docs-pending-content-ready`, `docs-sync-finished` `{ peer, synced, received, sent }`, `docs-peer-online` / `docs-peer-offline` `{ peer }`, `sync-peer-presence` `{ peer, online }`, `sync-peer-removed` `{ deviceId, deviceName }`, `paired-devices-changed`, `doc-reimported`, `sync-doc-missing`, `download-progress`. In the app: `theorem:sync-conflicts` (a window event) when a merge found conflicts.
+Events: `pairing-progress`, `pairing-confirm-request`, `pairing-confirm-closed`, `pairing-completed`, `docs-entry-batch` `{ entries, deleted }`, `docs-pending-content-ready`, `docs-sync-finished` `{ peer, synced, received, sent }`, `docs-sync-activity` `{ peer }` (entries arriving from that peer, at most every 2 s), `docs-peer-online` / `docs-peer-offline` `{ peer }`, `sync-peer-presence` `{ peer, online }`, `sync-peer-removed` `{ deviceId, deviceName }`, `paired-devices-changed`, `doc-reimported`, `sync-doc-missing`, `download-progress`. In the app: `theorem:sync-conflicts` (a window event) when a merge found conflicts.
 
 ## Measured
 
@@ -172,4 +174,19 @@ Desktop (Linux, debug build) with the Android 15 emulator behind its NAT, 2026-1
 | Book deleted while the phone was off, deletion record then expired (the 90-day case) | dropped by the phone 10.3 s after it started, not sent back |
 | Favourite on the phone in airplane mode, tag on the desktop 5 s later | one conflict on each side (phone: "your change was replaced"); "Use the replaced version" on the phone reached the desktop live, no new conflict |
 | First round after pairing (3 books) | 113 ms; doc holds only per-item entries |
+
+Large library, 2026-10-25 (`a_large_library`, release build, two devices in one process on loopback; 5,000 books with descriptions and cover references, 50,000 highlights: 55,000 entries, 17 MiB):
+
+| What | Result |
+|---|---|
+| First provisioning (all written, batches of 400) | 29 s |
+| Provisioning again with nothing changed (every app start) | 1.8 s |
+| First exchange, until the other device holds everything | 5.7 min; its docs engine answers nothing else meanwhile (iroh-docs storing the entries, not the content downloads: the same without them) |
+| Round with nothing changed: exchange / read | 0.11 s / 0.10 s |
+| Full read of 55,000 entries (first after start, then every 30 min) | 2.4 s |
+| One edit: exchange / read on the other device | 0.11 s / 0.10 s |
+| Data folder per device | 88–96 MiB (5x the payload) |
+| Peak memory, both devices together | 456 MiB |
+
+Through a local relay with no direct addresses (`devices_sync_through_a_relay_alone`, `pairing_works_through_a_relay_alone`): pairing 1.0 s, exchanges 2.3–2.8 s; both inside the 6 s probe. A relay over the internet adds its round trips; that needs a real network test: two devices on different networks (say a phone on mobile data and a desktop on Wi-Fi, mDNS off with `THEOREM_DISABLE_MDNS=1`), then pairing, a round, and Settings → Device Sync's Online label.
 | Unpaired stranger fetching `../theorem.db`, `../iroh-key`, the docs protocol | refused at the handshake, never reaches a handler |

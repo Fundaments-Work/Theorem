@@ -138,7 +138,7 @@ pub const PEER_REMOVED_THIS_DEVICE: &str =
 
 /// How long a probe waits to connect and be answered: a device that does not
 /// answer within this is reported offline (and tried again later).
-const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+pub(crate) const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// How long unpairing waits to tell the other device before going ahead
 /// (connecting included). One that is offline learns it on its next attempt.
