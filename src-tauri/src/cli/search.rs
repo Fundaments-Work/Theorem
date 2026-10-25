@@ -61,7 +61,7 @@ fn in_book_search(output: &Output, ctx: &Ctx, book_id: &str, query: &str, limit:
     let path = match resolve_book_path(ctx, book_id) {
         Ok(Some(path)) => path,
         Ok(None) => {
-            return output.error(&format!("book '{book_id}' not found in library"));
+            return output.error(book_not_found(book_id));
         }
         Err(e) => return output.error(&e),
     };
@@ -88,7 +88,7 @@ fn in_book_search(output: &Output, ctx: &Ctx, book_id: &str, query: &str, limit:
     }
 }
 
-pub(crate) fn resolve_book_path(ctx: &Ctx, book_id: &str) -> Result<Option<PathBuf>, String> {
+pub(crate) fn resolve_book_path(ctx: &Ctx, book_id: &str) -> Result<Option<PathBuf>, AppError> {
     crate::database::get_materialized_book_path_in(&ctx.store, book_id)
         .map(|opt| opt.map(PathBuf::from))
 }

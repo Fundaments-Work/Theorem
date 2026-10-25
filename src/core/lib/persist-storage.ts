@@ -2,6 +2,7 @@ import type { StateStorage } from 'zustand/middleware';
 import { createStore, del as idbDel, get as idbGet, set as idbSet, type UseStore } from 'idb-keyval';
 import { isTauri } from './env';
 import { sqliteDeleteKv, sqliteGetKv, sqliteSetKv } from './sqlite-storage';
+import { errorKind } from './error-kind';
 
 const SQLITE_PERSIST_KEY_PREFIX = 'zustand:';
 // Desktop/mobile only: values that could not reach SQLite before the page went
@@ -226,10 +227,18 @@ async function flushPersistWrite(name: string): Promise<void> {
 
     try {
         await sqliteSetKv(sqliteKey, pendingValue);
+        markPersistWriteOk(name);
         removeLocalItem(name);
         removeLocalItem(asUnloadSnapshotKey(name));
     } catch (error) {
         writeFallbackItem(name, pendingValue);
+        // A locked or damaged database is worth telling the user about (the
+        // toast says what to do); other failures stay quiet behind the
+        // localStorage fallback, as before.
+        const kind = errorKind(error);
+        if (kind === "busy" || kind === "corrupt") {
+            reportPersistWriteFailure(name, error);
+        }
     }
 }
 

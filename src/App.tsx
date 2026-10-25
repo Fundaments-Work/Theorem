@@ -17,6 +17,7 @@ import { initLogger } from "./core/lib/debug";
 import { dispatchBackAction } from "./core/lib/back-navigation";
 import { sqliteShrinkMemory } from "./core/lib/sqlite-storage";
 import { flushAllPersistence, onPersistWriteFailure } from "./core/lib/persist-storage";
+import { storageErrorHint } from "./core/lib/error-kind";
 import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { subscribeUntilCleanup } from "./core/lib/async-subscription";
 import { bootstrapAutoSync } from "./core/lib/sync-bootstrap";
@@ -108,10 +109,12 @@ function App() {
     // silently: the user would lose their library on the next reload.
     useEffect(
         () =>
-            onPersistWriteFailure(() => {
+            onPersistWriteFailure((_name, error) => {
                 toast.error("Theorem could not save your changes", {
                     id: "persist-write-failure",
-                    description: "Browser storage is full or unavailable. Recent changes may be lost when you reload.",
+                    description:
+                        storageErrorHint(error) ??
+                        "Browser storage is full or unavailable. Recent changes may be lost when you reload.",
                     duration: 10000,
                 });
             }),

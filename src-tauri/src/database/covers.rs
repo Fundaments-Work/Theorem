@@ -117,7 +117,7 @@ pub fn sqlite_save_cover_image(
     app: AppHandle,
     book_id: String,
     data_url: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_save_cover_image_inner(connection, &book_id, &data_url)
     })
@@ -152,7 +152,7 @@ pub fn sqlite_get_cover_image_inner(
     }))
 }
 
-pub fn sqlite_get_cover_image(app: AppHandle, book_id: String) -> Result<Option<String>, String> {
+pub fn sqlite_get_cover_image(app: AppHandle, book_id: String) -> Result<Option<String>, AppError> {
     with_connection(&app, |connection| {
         sqlite_get_cover_image_inner(connection, &book_id)
     })
@@ -166,7 +166,7 @@ pub fn sqlite_delete_cover_image_inner(
     Ok(())
 }
 
-pub fn sqlite_delete_cover_image(app: AppHandle, book_id: String) -> Result<(), String> {
+pub fn sqlite_delete_cover_image(app: AppHandle, book_id: String) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_delete_cover_image_inner(connection, &book_id)
     })

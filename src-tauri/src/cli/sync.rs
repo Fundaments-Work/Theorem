@@ -126,7 +126,7 @@ fn sync_now(output: &Output, app: &tauri::AppHandle, device: Option<&str>) -> i3
     let targets: Vec<String> = match device {
         Some(id) => {
             if !devices.iter().any(|d| d.device_id == id) {
-                return output.error(&format!("device '{id}' is not paired"));
+                return output.error(format!("device '{id}' is not paired"));
             }
             vec![id.to_string()]
         }

@@ -1,33 +1,37 @@
 //! HTTP fetches for feeds, article pages and binary downloads.
 
+//! Failures are `Network` errors (`Internal` when the HTTP client cannot be
+//! built, `InvalidInput` for a malformed URL); the messages are unchanged.
+
+use crate::error::AppError;
 use crate::shared_http_client;
 use tauri::ipc::Response;
 
-pub(crate) fn fetch_rss_feed(url: String) -> Result<String, String> {
+pub(crate) fn fetch_rss_feed(url: String) -> Result<String, AppError> {
     let response = shared_http_client()?
         .get(&url)
         .timeout(std::time::Duration::from_secs(30))
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .header("Accept", "application/atom+xml;profile=opds-catalog, application/atom+xml, application/rss+xml, application/xml, text/xml, */*")
         .send()
-        .map_err(|e| format!("Failed to fetch feed: {}", e))?;
+        .map_err(|e| AppError::network(format!("Failed to fetch feed: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(format!(
+        return Err(AppError::network(format!(
             "HTTP error: {} {}",
             response.status(),
             response.status().canonical_reason().unwrap_or("Unknown")
-        ));
+        )));
     }
 
     response
         .text()
-        .map_err(|e| format!("Failed to read response: {}", e))
+        .map_err(|e| AppError::network(format!("Failed to read response: {}", e)))
 }
 
-pub(crate) fn fetch_url_content(url: String) -> Result<String, String> {
-    let parsed_url =
-        reqwest::Url::parse(&url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+pub(crate) fn fetch_url_content(url: String) -> Result<String, AppError> {
+    let parsed_url = reqwest::Url::parse(&url)
+        .map_err(|e| AppError::invalid_input(format!("Invalid URL '{}': {}", url, e)))?;
     let referer = {
         let mut origin = parsed_url.clone();
         origin.set_path("/");
@@ -74,7 +78,7 @@ pub(crate) fn fetch_url_content(url: String) -> Result<String, String> {
         if response.status().is_success() {
             return response
                 .text()
-                .map_err(|e| format!("Failed to read response: {}", e));
+                .map_err(|e| AppError::network(format!("Failed to read response: {}", e)));
         }
 
         let status = response.status();
@@ -103,19 +107,21 @@ pub(crate) fn fetch_url_content(url: String) -> Result<String, String> {
             continue;
         }
 
-        return Err(format!(
+        return Err(AppError::network(format!(
             "HTTP error: {} {}",
             status,
             status.canonical_reason().unwrap_or("Unknown")
-        ));
+        )));
     }
 
-    Err(last_error.unwrap_or_else(|| "Failed to fetch URL content".to_string()))
+    Err(AppError::network(last_error.unwrap_or_else(|| {
+        "Failed to fetch URL content".to_string()
+    })))
 }
 
-pub(crate) fn fetch_binary_content(url: String) -> Result<Response, String> {
-    let parsed_url =
-        reqwest::Url::parse(&url).map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+pub(crate) fn fetch_binary_content(url: String) -> Result<Response, AppError> {
+    let parsed_url = reqwest::Url::parse(&url)
+        .map_err(|e| AppError::invalid_input(format!("Invalid URL '{}': {}", url, e)))?;
     let referer = {
         let mut origin = parsed_url.clone();
         origin.set_path("/");
@@ -136,18 +142,18 @@ pub(crate) fn fetch_binary_content(url: String) -> Result<Response, String> {
         .header("Accept-Language", "en-US,en;q=0.9")
         .header("Referer", &referer)
         .send()
-        .map_err(|e| format!("Failed to fetch binary content: {}", e))?;
+        .map_err(|e| AppError::network(format!("Failed to fetch binary content: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(format!(
+        return Err(AppError::network(format!(
             "HTTP error: {} {}",
             response.status(),
             response.status().canonical_reason().unwrap_or("Unknown")
-        ));
+        )));
     }
 
     let bytes = response
         .bytes()
-        .map_err(|e| format!("Failed to read binary response: {}", e))?;
+        .map_err(|e| AppError::network(format!("Failed to read binary response: {}", e)))?;
     Ok(Response::new(bytes.to_vec()))
 }

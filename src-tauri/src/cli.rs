@@ -22,6 +22,7 @@ use std::future::Future;
 use std::io::{IsTerminal, Seek, SeekFrom, Write as _};
 use std::path::PathBuf;
 
+use crate::error::{AppError, ErrorKind};
 use rusqlite::OptionalExtension;
 
 use clap::{Parser, Subcommand};
@@ -438,7 +439,7 @@ impl Ctx {
         self.store.dir()
     }
 
-    fn kv_get(&self, key: &str) -> Result<Option<String>, String> {
+    fn kv_get(&self, key: &str) -> Result<Option<String>, AppError> {
         self.store
             .with_connection(|conn| crate::database::sqlite_get_kv_inner(conn, key))
     }
@@ -478,7 +479,7 @@ fn with_sync_app(output: &Output, f: impl FnOnce(&tauri::AppHandle) -> i32) -> i
     }
     let app = match tauri::Builder::default().build(tauri::generate_context!()) {
         Ok(app) => app,
-        Err(e) => return output.error(&format!("Failed to initialize app context: {e}")),
+        Err(e) => return output.error(format!("Failed to initialize app context: {e}")),
     };
     let handle = app.handle().clone();
     {
@@ -489,7 +490,7 @@ fn with_sync_app(output: &Output, f: impl FnOnce(&tauri::AppHandle) -> i32) -> i
             }
             Err(e) => {
                 app.cleanup_before_exit();
-                return output.error(&format!("sync could not start: {e}"));
+                return output.error(format!("sync could not start: {e}"));
             }
         }
     }

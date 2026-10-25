@@ -5,12 +5,12 @@ use super::*;
 pub(super) fn run_open(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
     match load_book(ctx, book_id) {
         Ok(Some(_)) => {}
-        Ok(None) => return output.error(&book_not_found(book_id)),
+        Ok(None) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     }
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
-        Err(e) => return output.error(&format!("Failed to resolve executable: {e}")),
+        Err(e) => return output.error(format!("Failed to resolve executable: {e}")),
     };
     match std::process::Command::new(exe)
         .arg(format!("--open-book={book_id}"))
@@ -24,7 +24,7 @@ pub(super) fn run_open(output: &Output, ctx: &Ctx, book_id: &str) -> i32 {
                 0
             }
         }
-        Err(e) => output.error(&format!("Failed to launch GUI: {e}")),
+        Err(e) => output.error(format!("Failed to launch GUI: {e}")),
     }
 }
 
@@ -43,7 +43,7 @@ pub(super) fn run_read(
     let path = match resolve_book_path(ctx, book_id) {
         Ok(Some(path)) => path,
         Ok(None) => {
-            return output.error(&format!("book '{book_id}' not found in library"));
+            return output.error(book_not_found(book_id));
         }
         Err(e) => return output.error(&e),
     };
@@ -72,12 +72,12 @@ pub(super) fn run_read(
 fn run_read_cfi(output: &Output, ctx: &Ctx, book_id: &str, cfi: &str) -> i32 {
     let location = match crate::epubcfi::parse(cfi) {
         Ok(location) => location,
-        Err(e) => return output.error(&format!("invalid CFI: {e}")),
+        Err(e) => return output.error(format!("invalid CFI: {e}")),
     };
 
     let path = match resolve_book_path(ctx, book_id) {
         Ok(Some(path)) => path,
-        Ok(None) => return output.error(&format!("book '{book_id}' not found in library")),
+        Ok(None) => return output.error(book_not_found(book_id)),
         Err(e) => return output.error(&e),
     };
 

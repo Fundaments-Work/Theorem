@@ -64,7 +64,7 @@ pub fn check_goal_reminder_inner(
     }))
 }
 
-pub fn sqlite_check_goal_reminder(app: AppHandle) -> Result<Option<GoalReminderData>, String> {
+pub fn sqlite_check_goal_reminder(app: AppHandle) -> Result<Option<GoalReminderData>, AppError> {
     with_connection(&app, check_goal_reminder_inner)
 }
 
@@ -108,7 +108,7 @@ pub fn sqlite_record_reading_session(
     minutes: f64,
     book_id: Option<String>,
     books_read_json: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_record_reading_session_inner(
             conn,
@@ -172,7 +172,7 @@ pub fn sqlite_get_reading_sessions(
     app: AppHandle,
     start_date: Option<String>,
     end_date: Option<String>,
-) -> Result<Vec<ReadingSessionDto>, String> {
+) -> Result<Vec<ReadingSessionDto>, AppError> {
     with_connection(&app, |conn| {
         sqlite_get_reading_sessions_inner(conn, start_date.as_deref(), end_date.as_deref())
     })

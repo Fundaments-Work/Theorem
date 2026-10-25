@@ -11,16 +11,18 @@ pub(crate) fn materialized_book_path_in_dir(app_data_dir: &Path, book_id: &str) 
 pub(super) fn materialized_book_path_creating(
     app_data_dir: &Path,
     book_id: &str,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, AppError> {
     let cache_dir = app_data_dir.join(MATERIALIZED_BOOK_CACHE_DIR);
     fs::create_dir_all(&cache_dir).map_err(|error| {
-        format!("Failed to create materialized cache directory '{cache_dir:?}': {error}")
+        AppError::io(format!(
+            "Failed to create materialized cache directory '{cache_dir:?}': {error}"
+        ))
     })?;
 
     Ok(materialized_book_path_in_dir(app_data_dir, book_id))
 }
 
-pub(crate) fn materialized_book_path(app: &AppHandle, book_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn materialized_book_path(app: &AppHandle, book_id: &str) -> Result<PathBuf, AppError> {
     materialized_book_path_creating(&app_data_dir_of(app)?, book_id)
 }
 
@@ -31,7 +33,7 @@ pub(super) fn remove_materialized_cache_file_in(app_data_dir: &Path, book_id: &s
 pub(crate) fn reconcile_synced_without_file_metadata(
     connection: &Connection,
     app_data_dir: &Path,
-) -> Result<Vec<HealedBook>, String> {
+) -> Result<Vec<HealedBook>, AppError> {
     let table_exists: bool = connection
         .query_row(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'book_metadata'",
@@ -138,7 +140,11 @@ pub(crate) fn write_healed_metadata(
     Ok(changed > 0)
 }
 
-pub fn sqlite_save_book_data(app: AppHandle, id: String, data: Vec<u8>) -> Result<String, String> {
+pub fn sqlite_save_book_data(
+    app: AppHandle,
+    id: String,
+    data: Vec<u8>,
+) -> Result<String, AppError> {
     let materialized_path = materialized_book_path(&app, &id)?;
     fs::write(&materialized_path, &data).map_err(|error| {
         format!("Failed to write book data file '{materialized_path:?}': {error}")
@@ -179,13 +185,13 @@ pub fn sqlite_register_materialized_book_inner(
     Ok(())
 }
 
-pub fn sqlite_register_materialized_book(app: AppHandle, id: String) -> Result<(), String> {
+pub fn sqlite_register_materialized_book(app: AppHandle, id: String) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_register_materialized_book_inner(connection, &id)
     })
 }
 
-pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>>, String> {
+pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>>, AppError> {
     if let Ok(Some(path)) = sqlite_get_materialized_book_path(app.clone(), id.clone()) {
         let content = fs::read(&path).map_err(|e| format!("Failed to read book file: {}", e))?;
         return Ok(Some(content));
@@ -202,12 +208,12 @@ pub fn sqlite_get_book_data(app: AppHandle, id: String) -> Result<Option<Vec<u8>
     })
 }
 
-pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), String> {
+pub fn sqlite_delete_book_data(app: AppHandle, id: String) -> Result<(), AppError> {
     delete_book_data_in(&DataStore::for_app(&app)?, &id)
 }
 
 /// Remove a book's cached file and every row stored for it.
-pub fn delete_book_data_in(store: &DataStore, id: &str) -> Result<(), String> {
+pub fn delete_book_data_in(store: &DataStore, id: &str) -> Result<(), AppError> {
     // Close cached EPUB archives first: Windows cannot delete an open file.
     crate::epub_entries::clear_cache();
     remove_materialized_cache_file_in(store.dir(), id);
@@ -251,7 +257,7 @@ pub(crate) fn delete_book_rows(connection: &Connection, id: &str) -> rusqlite::R
 pub fn sqlite_get_materialized_book_path(
     app: AppHandle,
     id: String,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, AppError> {
     get_materialized_book_path_in(&DataStore::for_app(&app)?, &id)
 }
 
@@ -260,7 +266,7 @@ pub fn sqlite_get_materialized_book_path(
 pub fn get_materialized_book_path_in(
     store: &DataStore,
     id: &str,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, AppError> {
     let materialized_path = store.materialized_book_path(id)?;
 
     if materialized_path.exists() {
@@ -334,7 +340,7 @@ pub fn sqlite_index_book_fts(
     book_id: String,
     title: String,
     author: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_index_book_fts_inner(connection, &book_id, &title, &author)
     })
@@ -359,7 +365,7 @@ pub fn sqlite_index_books_fts_batch_inner(
 pub fn sqlite_index_books_fts_batch(
     app: AppHandle,
     entries: Vec<(String, String, String)>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_index_books_fts_batch_inner(connection, &entries)
     })
@@ -389,7 +395,7 @@ pub fn sqlite_search_books(
     app: AppHandle,
     query: String,
     limit: u32,
-) -> Result<Vec<SqliteBookSearchResult>, String> {
+) -> Result<Vec<SqliteBookSearchResult>, AppError> {
     with_connection(&app, |connection| {
         sqlite_search_books_inner(connection, &query, limit)
     })
@@ -425,7 +431,7 @@ pub fn sqlite_save_book_metadata(
     app: AppHandle,
     book_id: String,
     metadata_json: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_save_book_metadata_inner(connection, &book_id, &metadata_json)
     })
@@ -443,7 +449,7 @@ pub fn sqlite_delete_book_metadata_inner(
     Ok(())
 }
 
-pub fn sqlite_delete_book_metadata(app: AppHandle, book_id: String) -> Result<(), String> {
+pub fn sqlite_delete_book_metadata(app: AppHandle, book_id: String) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_delete_book_metadata_inner(connection, &book_id)
     })
@@ -456,7 +462,7 @@ pub fn sqlite_load_all_books_inner(connection: &Connection) -> rusqlite::Result<
     rows.collect::<rusqlite::Result<Vec<_>>>()
 }
 
-pub fn sqlite_load_all_books(app: AppHandle) -> Result<Vec<String>, String> {
+pub fn sqlite_load_all_books(app: AppHandle) -> Result<Vec<String>, AppError> {
     with_connection(&app, sqlite_load_all_books_inner)
 }
 
@@ -511,7 +517,7 @@ pub fn sqlite_update_book_progress(
     app: AppHandle,
     book_id: String,
     update: BookProgressUpdate,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |conn| {
         sqlite_update_book_progress_inner(conn, &book_id, &update)
     })
@@ -530,7 +536,10 @@ pub fn sqlite_get_book_metadata_inner(
         .optional()
 }
 
-pub fn sqlite_get_book_metadata(app: AppHandle, book_id: String) -> Result<Option<String>, String> {
+pub fn sqlite_get_book_metadata(
+    app: AppHandle,
+    book_id: String,
+) -> Result<Option<String>, AppError> {
     with_connection(&app, |connection| {
         sqlite_get_book_metadata_inner(connection, &book_id)
     })
@@ -585,7 +594,7 @@ pub fn sqlite_query_books_window(
     app: AppHandle,
     limit: u32,
     offset: u32,
-) -> Result<BookWindowResult, String> {
+) -> Result<BookWindowResult, AppError> {
     with_connection(&app, |connection| {
         sqlite_query_books_window_inner(connection, limit, offset)
     })

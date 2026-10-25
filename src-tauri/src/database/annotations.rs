@@ -45,7 +45,7 @@ pub fn sqlite_save_book_annotations(
     app: AppHandle,
     book_id: String,
     annotations_json: Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_save_book_annotations_inner(connection, &book_id, &annotations_json)
     })
@@ -62,7 +62,10 @@ pub fn sqlite_get_book_annotations_inner(
     rows.collect::<rusqlite::Result<Vec<_>>>()
 }
 
-pub fn sqlite_get_book_annotations(app: AppHandle, book_id: String) -> Result<Vec<String>, String> {
+pub fn sqlite_get_book_annotations(
+    app: AppHandle,
+    book_id: String,
+) -> Result<Vec<String>, AppError> {
     with_connection(&app, |connection| {
         sqlite_get_book_annotations_inner(connection, &book_id)
     })
@@ -144,7 +147,7 @@ pub fn sqlite_load_all_annotations_inner(
     })
 }
 
-pub fn sqlite_load_all_annotations(app: AppHandle) -> Result<AnnotationsLoad, String> {
+pub fn sqlite_load_all_annotations(app: AppHandle) -> Result<AnnotationsLoad, AppError> {
     with_connection(&app, sqlite_load_all_annotations_inner)
 }
 
@@ -168,7 +171,7 @@ pub fn sqlite_upsert_annotation(
     id: String,
     book_id: String,
     annotation_json: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_upsert_annotation_inner(connection, &id, &book_id, &annotation_json)
     })
@@ -179,7 +182,7 @@ pub fn sqlite_delete_annotation_inner(connection: &Connection, id: &str) -> rusq
     Ok(())
 }
 
-pub fn sqlite_delete_annotation(app: AppHandle, id: String) -> Result<(), String> {
+pub fn sqlite_delete_annotation(app: AppHandle, id: String) -> Result<(), AppError> {
     with_connection(&app, |connection| {
         sqlite_delete_annotation_inner(connection, &id)
     })

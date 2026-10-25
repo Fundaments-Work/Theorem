@@ -125,24 +125,26 @@ impl TuiApp {
             return;
         };
         self.scroll = 0;
-        let result = crate::cli::resolve_book_path(app, &book.id).and_then(|path| {
-            path.ok_or_else(|| "book file not found".to_string())
-                .and_then(|path| {
-                    if book.format.eq_ignore_ascii_case("epub") {
-                        crate::cli::read_epub_chapter(&path, chapter + 1)
-                    } else if book.format.eq_ignore_ascii_case("mobi")
-                        || book.format.eq_ignore_ascii_case("azw")
-                        || book.format.eq_ignore_ascii_case("azw3")
-                    {
-                        crate::mobi_parser::extract_mobi_text(&path)
-                    } else {
-                        Err(format!(
-                            "{} reading is not supported in the TUI",
-                            book.format
-                        ))
-                    }
-                })
-        });
+        let result = crate::cli::resolve_book_path(app, &book.id)
+            .map_err(String::from)
+            .and_then(|path| {
+                path.ok_or_else(|| "book file not found".to_string())
+                    .and_then(|path| {
+                        if book.format.eq_ignore_ascii_case("epub") {
+                            crate::cli::read_epub_chapter(&path, chapter + 1)
+                        } else if book.format.eq_ignore_ascii_case("mobi")
+                            || book.format.eq_ignore_ascii_case("azw")
+                            || book.format.eq_ignore_ascii_case("azw3")
+                        {
+                            crate::mobi_parser::extract_mobi_text(&path)
+                        } else {
+                            Err(format!(
+                                "{} reading is not supported in the TUI",
+                                book.format
+                            ))
+                        }
+                    })
+            });
         match result {
             Ok(text) => {
                 self.chapter_text = text;

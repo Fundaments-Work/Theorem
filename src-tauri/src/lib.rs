@@ -30,6 +30,7 @@ pub mod epub_entries;
 mod epub_parser;
 mod epub_rewriter;
 pub mod epubcfi;
+pub mod error;
 mod file_transfer;
 pub mod folder_walk;
 pub mod fuzzy_search;

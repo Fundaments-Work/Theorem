@@ -5,7 +5,7 @@ use super::*;
 pub(crate) fn reclaim_legacy_stardict_blobs(
     connection: &Connection,
     app_data_dir: &Path,
-) -> Result<usize, String> {
+) -> Result<usize, AppError> {
     let ifo_keys: Vec<String> = {
         let mut statement = connection
             .prepare("SELECT key FROM blob_store WHERE key LIKE 'theorem-stardict:%:ifo'")
@@ -111,7 +111,7 @@ pub(crate) fn reclaim_legacy_stardict_blobs(
 pub(crate) fn reclaim_legacy_book_blobs(
     connection: &Connection,
     app_data_dir: &Path,
-) -> Result<usize, String> {
+) -> Result<usize, AppError> {
     // Collect only ids first so the BLOBs are read one at a time below; reading
     // every legacy book into memory at once could OOM large libraries.
     let legacy_ids: Vec<String> = {

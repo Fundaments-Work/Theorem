@@ -28,13 +28,13 @@ fn opds_load_feed(output: &Output, url: &str) -> Result<theorem_core::opds::mode
         Ok(loaded) => match loaded.outcome {
             Outcome::Feed { feed } => Ok(*feed),
             Outcome::Unsupported { reason } => Err(output.error(&reason)),
-            Outcome::Authentication { title, .. } => Err(output.error(&format!(
+            Outcome::Authentication { title, .. } => Err(output.error(format!(
                 "{title}: this catalog requires a sign-in, which the CLI does not support yet"
             ))),
             _ => Err(output.error("the address did not return a catalog")),
         },
         Err(e) => {
-            output.error(&e.to_string());
+            output.error(e.to_string());
             Err(opds_error_code(&e))
         }
     }
@@ -107,12 +107,12 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
         }),
     };
     let Some(entry) = entry else {
-        return output.error(&format!(
+        return output.error(AppError::not_found(format!(
             "entry '{entry_selector}' not found among the catalog's books"
-        ));
+        )));
     };
     let Some(acquisition) = entry.primary.and_then(|i| entry.acquisitions.get(i)) else {
-        return output.error(&format!(
+        return output.error(format!(
             "entry '{}' has no direct download (borrow, purchase or DRM-protected)",
             entry.title
         ));
@@ -125,7 +125,7 @@ fn opds_download(output: &Output, ctx: &Ctx, url: &str, entry_selector: &str) ->
     let downloaded = match block_on(|| crate::opds_net::download(&download_url, None, |_, _| {})) {
         Ok(file) => file,
         Err(e) => {
-            output.error(&e.to_string());
+            output.error(e.to_string());
             return opds_error_code(&e);
         }
     };
