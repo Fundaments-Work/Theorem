@@ -73,7 +73,17 @@ if (!existsSync(BINARY)) {
 const runtime = mkdtempSync(join("/tmp", "te2e-"));
 process.on("exit", () => rmSync(runtime, { recursive: true, force: true }));
 
-const env = { ...process.env, XDG_RUNTIME_DIR: runtime };
+// The compositor and the bus get data/config/cache/state dirs of this run too:
+// mutter otherwise keeps window session state in the user's own
+// ~/.local/share/mutter, shared by every run (and touching real data).
+const env = {
+    ...process.env,
+    XDG_RUNTIME_DIR: runtime,
+    XDG_DATA_HOME: join(runtime, "data"),
+    XDG_CONFIG_HOME: join(runtime, "config"),
+    XDG_CACHE_HOME: join(runtime, "cache"),
+    XDG_STATE_HOME: join(runtime, "state"),
+};
 delete env.DISPLAY;
 delete env.WAYLAND_DISPLAY;
 delete env.DBUS_SESSION_BUS_ADDRESS;
