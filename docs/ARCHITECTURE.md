@@ -125,7 +125,7 @@ Reader.tsx
 
 ## State Architecture
 
-All state lives in 6 Zustand stores. Each persisted store saves to SQLite via Tauri commands (`sqlite_set_kv` / `sqlite_get_kv` from `database.rs`).
+All state lives in 6 Zustand stores. Each persisted store saves to SQLite via Tauri commands (`sqlite_set_kv` / `sqlite_get_kv` from `database/kv.rs`).
 
 ```
 uiStore (persisted, version 1; partialize: route/book/sidebar)

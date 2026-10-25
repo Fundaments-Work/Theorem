@@ -26,7 +26,7 @@ narration process is tracked, so Stop kills only Theorem's own `say` /
 `powershell` — not every one on the machine. `tts_speak` takes an optional
 `speed`, mapped to `say -r`, `spd-say -r` and `SpeechSynthesizer.Rate`.
 
-Backend wiring: `tts_speak` / `tts_stop` in `src-tauri/src/lib.rs` dispatch to
+Backend wiring: `tts_speak` / `tts_stop` in `src-tauri/src/tts_platform.rs` dispatch to
 the platform implementation (`src-tauri/src/tts_linux.rs` on Linux, the
 `tauri-plugin-android-tts-audio` plugin on Android). Every platform reports
 the real end of speech. On desktop the narration process lives exactly as long
