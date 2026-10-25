@@ -160,6 +160,64 @@ describe("provisioning writes one entry per item", () => {
         expect(keysWritten().filter((k) => k.startsWith("book:"))).toHaveLength(900);
     });
 
+    it("a book's annotations go together, in one call where they fit", async () => {
+        // 30 books and notes without a book, interleaved as a library collects them.
+        const annotations = Array.from({ length: 900 }, (_, i) =>
+            annotation(`a${i}`, { bookId: i % 7 === 0 ? undefined : `b${i % 30}` } as Partial<Annotation>));
+        stores.useLibraryStore.setState({ annotations });
+        await orch.provisionToIrohDocs();
+        const batches = ipcCalls
+            .filter((c) => c.cmd === "docs_set_entries")
+            .map((c) => (c.args.entries as Array<{ key: string }>).map((e) => e.key));
+        expect(batches.length).toBeGreaterThan(1);
+        expect(batches.every((b) => b.length <= 400)).toBe(true);
+        const bookOf = (key: string) => key.split(":")[1];
+        const callsPerBook = new Map<string, Set<number>>();
+        batches.forEach((keys, call) => {
+            for (const key of keys.filter((k) => k.startsWith("anno:"))) {
+                if (!callsPerBook.has(bookOf(key))) callsPerBook.set(bookOf(key), new Set());
+                callsPerBook.get(bookOf(key))!.add(call);
+            }
+        });
+        expect(callsPerBook.size).toBe(31);
+        expect(callsPerBook.has("global")).toBe(true);
+        for (const [b, calls] of callsPerBook) expect(calls.size, b).toBe(1);
+        // Every annotation is sent, once.
+        const sent = batches.flat().filter((k) => k.startsWith("anno:"));
+        expect(sent).toHaveLength(900);
+        expect(new Set(sent).size).toBe(900);
+    });
+
+    it("a book with more annotations than one call holds goes in full calls", () => {
+        const entries = [
+            { key: "book:b1" },
+            ...Array.from({ length: 900 }, (_, i) => ({ key: `anno:big:a${i}` })),
+            { key: "anno:small:x" },
+            { key: "anno:small:y" },
+        ];
+        const batches = orch.provisionBatches(entries, 400);
+        // The book's entry; the big book in calls of 400 (the last 100 with
+        // the small book, which fits whole).
+        expect(batches.map((b) => b.length)).toEqual([1, 400, 400, 102]);
+        expect(batches.flat()).toEqual(entries);
+        // The small book is not split.
+        const smallCalls = batches.filter((b) => b.some((e) => e.key.startsWith("anno:small:")));
+        expect(smallCalls).toHaveLength(1);
+        expect(orch.provisionBatches([], 400)).toEqual([]);
+    });
+
+    it("annotations are ordered by book, keeping their order within a book", () => {
+        const list = [
+            annotation("1", { bookId: "b2" }),
+            annotation("2", { bookId: "b1" }),
+            annotation("3", { bookId: "" }),
+            annotation("4", { bookId: "b2" }),
+            annotation("5", { bookId: "b1" }),
+        ];
+        expect(orch.annotationsByBook(list).map((a) => a.id)).toEqual(["2", "5", "1", "4", "3"]);
+        expect(orch.annotationsByBook([])).toEqual([]);
+    });
+
     it("expired deletion records leave the doc with the deletions", async () => {
         stores.useLibraryStore.setState({ deletionTombstones: [tomb("book", "gone")] });
         await orch.provisionToIrohDocs();

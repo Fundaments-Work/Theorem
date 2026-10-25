@@ -2219,6 +2219,59 @@ async function settleDeletedElsewhere(
 /** Entries per IPC call when provisioning (a large library goes in parts). */
 const PROVISION_BATCH = 400;
 
+/** The book an `anno:{bookId}:{annotationId}` key belongs to; null for other keys. */
+function annotationBookOf(key: string): string | null {
+    if (!key.startsWith("anno:")) return null;
+    const rest = key.slice("anno:".length);
+    const end = rest.indexOf(":");
+    return end > 0 ? rest.slice(0, end) : null;
+}
+
+/** Annotations ordered by book (`global` for those without one), each book's in their own order. */
+export function annotationsByBook(annotations: Annotation[]): Annotation[] {
+    const book = (a: Annotation) => a.bookId || "global";
+    return annotations
+        .map((a, i) => ({ a, i }))
+        .sort((x, y) => {
+            const bx = book(x.a);
+            const by = book(y.a);
+            return bx < by ? -1 : bx > by ? 1 : x.i - y.i;
+        })
+        .map(({ a }) => a);
+}
+
+/**
+ * Splits provisioning into calls of at most `max` entries, keeping a book's
+ * annotations (adjacent `anno:{bookId}:…` keys) in one call where they fit:
+ * Rust writes them as one entry per book (sync protocol 3), and a book split
+ * across calls has that entry written once per call.
+ */
+export function provisionBatches<T extends { key: string }>(pending: T[], max = PROVISION_BATCH): T[][] {
+    const batches: T[][] = [];
+    let current: T[] = [];
+    const flush = () => {
+        if (current.length > 0) batches.push(current);
+        current = [];
+    };
+    let i = 0;
+    while (i < pending.length) {
+        const book = annotationBookOf(pending[i].key);
+        let end = i + 1;
+        if (book !== null) {
+            while (end < pending.length && annotationBookOf(pending[end].key) === book) end++;
+        }
+        // A book with more than `max` annotations goes in parts of `max`.
+        for (let start = i; start < end; start += max) {
+            const part = pending.slice(start, Math.min(end, start + max));
+            if (current.length + part.length > max) flush();
+            current.push(...part);
+        }
+        i = end;
+    }
+    flush();
+    return batches;
+}
+
 /**
  * Writes entries; null when that failed. Unless `force`, items whose newest
  * doc entry is another device's deletion are not written but returned.
@@ -2296,7 +2349,8 @@ export async function provisionToIrohDocs(): Promise<boolean> {
                 // A missing cover must not fail provisioning.
             }
         }
-        for (const a of lib.annotations) queue(annotationEntryKey(a), JSON.stringify(a));
+        // Book by book: Rust writes a book's annotations as one entry.
+        for (const a of annotationsByBook(lib.annotations)) queue(annotationEntryKey(a), JSON.stringify(a));
         for (const c of lib.collections) queue(`collection:${c.id}`, JSON.stringify(c));
         for (const t of lib.deletionTombstones) queue(tombstoneEntryKey(t), JSON.stringify(t));
         for (const v of vocab.vocabularyTerms) queue(VOCAB_KEY_PREFIX + v.id, JSON.stringify(v));
@@ -2319,8 +2373,7 @@ export async function provisionToIrohDocs(): Promise<boolean> {
 
         let failed = 0;
         const deletedElsewhere: DocDeletion[] = [];
-        for (let i = 0; i < pending.length; i += PROVISION_BATCH) {
-            const batch = pending.slice(i, i + PROVISION_BATCH);
+        for (const batch of provisionBatches(pending)) {
             for (const e of batch) rememberOwnWrite(e.key, e.value);
             const result = await docsSetEntries(batch.map(({ key, value }) => ({ key, value })));
             if (result) {
