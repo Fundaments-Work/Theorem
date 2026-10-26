@@ -60,13 +60,17 @@ A single r2d2 connection pool (max 4 connections on desktop, 2 on Android) manag
 
 All connections go through `with_connection(app, |conn| operation(conn))` which acquires a connection from the pool and handles errors. No raw `Connection::open()` calls in hot paths.
 
+**Code layout.** `database.rs` holds the pool, the PRAGMAs, `with_connection` and `DataStore`; `database/` has one module per domain (`schema`, `books`, `covers`, `kv`, `annotations`, `sync_merge`, `sync_conflicts`, `rss`, `reading`, `vocabulary`, `storage`, `legacy`, `files`), all re-exported as `crate::database::*`.
+
+**Errors.** `with_connection` returns `crate::error::AppError`, classifying SQLite failures by result code: `Busy` (busy or locked), `Corrupt` (malformed or not a database), `Constraint`, `Io` (cannot open, I/O failure, disk full, read-only, permission denied), `NotFound` (including no rows), `InvalidInput` (bad parameters, too big), else `Internal`. The text sent to the app is unchanged ("SQLite operation failed: …"); the interface reads the kind with `errorKind()` (`src/core/lib/error-kind.ts`) to show a hint for a busy or damaged library. See "Errors" in AGENTS.md.
+
 ## Backups, Snapshots and Startup Safety
 
 `src-tauri/src/db_backup.rs` owns everything that copies the database. It opens connections of its own only where SQLite's online backup API needs them (a destination it can write, a snapshot file); reading the live database for a backup still goes through `with_connection`.
 
 ### Startup guard
 
-`lib.rs` setup calls `db_backup::run_startup_guard` instead of calling `run_schema_migrations` directly:
+`setup()` (`setup.rs`) calls `db_backup::run_startup_guard` instead of calling `run_schema_migrations` directly:
 
 1. If a check is due — the app version changed since the last check (the only time migrations have work to do), the last check is 24 h old, or the clock moved backwards — run `PRAGMA quick_check`.
 2. If it passes, copy the database with the backup API to `db-snapshots/theorem-<unix-seconds>-v<version>.db` (a single file in rollback-journal mode) and keep only the two newest. A damaged database never replaces a good snapshot. When the version changed, the copy is made here, before migrations: it is their rollback point. On a same-version daily check there is nothing to migrate, so the copy is left to the background maintenance (`snapshot_deferred` on the health, taken by `run_deferred_snapshot` as the maintenance thread's first step), and the check is recorded in `db-health.json` only once the copy exists; a start that ends sooner checks again next time.

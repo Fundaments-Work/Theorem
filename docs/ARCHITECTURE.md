@@ -73,25 +73,26 @@ File system          Tauri command            JS import pipeline        Store
 Device A                              Device B
   │                                       │
   │  provisionToIrohDocs()                │
-  │  (serializes all store state          │
-  │   into iroh-docs entries)             │
+  │  (one doc entry per item, written     │
+  │   only when it changed)               │
   │                                       │
-  │  docsSetEntry("book:{id}", ...)       │
-  │  docsSetEntry("annotations", ...)     │
-  │  docsSetEntry("settings", ...)        │
-  │  ...                                  │
+  │  book:{id}  collection:{id}  vocab:…  │
+  │  annos:{bookId}:  (all of a book's    │
+  │   highlights, built in Rust)          │
+  │  rss_feed:…  rss_article:…  tomb:…    │
   │                                       │
   │  docsSyncNow(peerDeviceId) ──────────►│
-  │  (iroh-docs CRDT sync via gossip)     │
+  │  (iroh-docs range reconciliation)     │
   │                                       │
-  │◄──── docs-entry-changed (events) ─────│
+  │◄──── docs-sync-activity (entries) ────│
   │◄──── docs-sync-finished (event) ──────│
   │                                       │
-  │  hydrateFromIrohDocs()                │
-  │  mergeIncomingData()                  │
-  │   ├─ mergeBooks()                     │
-  │   ├─ mergeAnnotations()               │
-  │   └─ mergeSettings()                  │
+  │  docs_get_changed_entries             │
+  │  (every device's copy, newest change  │
+  │   by the record's own stamps)         │
+  │  native merge (sync_merge.rs)         │
+  │   ├─ books, annotations (base stamps) │
+  │   └─ deletions → tombstones           │
   │                                       │
   │  Open synced book:                    │
   │  download_book_file(peerId,           │
@@ -210,14 +211,14 @@ Three protocols, one per concern:
 | iroh-mdns | LAN peer discovery via mDNS | `iroh-mdns-address-lookup` |
 | theorem-file/v1 | Custom QUIC protocol for book file transfer (not iroh-blobs) | `file_transfer.rs` |
 
-Sync lifecycle:
+Sync lifecycle (full rules and measurements in [sync.md](sync.md)):
 1. **Start**: `iroh_start` initializes iroh endpoint, attaches to docs+gossip+blobs
-2. **Pair**: QR code exchange → bidirectional key registration → doc import
+2. **Pair**: QR code exchange (one-time secret + user approval) → bidirectional key registration → doc import. Unpaired devices reach no protocol but pairing (`sync_access.rs`)
 3. **Accept loop**: Subscribes to each paired device's doc, establishes gossip mesh via `doc.start_sync()`
-4. **Provision**: All store state serialized into per-key iroh-docs entries
-5. **Sync**: `docs_sync_now` triggers CRDT reconciliation with a peer (15s timeout)
-6. **Merge**: Incoming data merged with CRDT Last-Write-Wins and domain-specific conflict resolution
-7. **Live**: `docs-entry-changed` events stream real-time changes during sync; gossip `NeighborUp` triggers auto-sync
+4. **Provision**: one entry per item; annotations as one `annos:{bookId}:` entry per book and device (sync protocol 3; per-annotation `anno:` entries only for older peers). Unchanged entries are never rewritten
+5. **Sync**: `docs_sync_now` reconciles with a peer. The round waits 30 s from the last sign of progress (entries arriving, or the peer answering a probe), up to 20 minutes for a large library's first exchange
+6. **Merge**: reads take every device's copy of a key and keep the newest change by the record's stamps; the native merge resolves conflicts with base stamps. Deletions are empty entries, protected by a per-device ledger (`sync_deletions.rs`) so an older copy can't bring an item back
+7. **Live**: `docs-entry-batch` delivers changes that arrive after a round's read; gossip `NeighborUp` triggers auto-sync
 8. **File transfer**: On-demand `download_book_file` writes directly to `book-cache/` from Rust (no IPC), with progress events
 
 ## Announcements & Creator Support Architecture

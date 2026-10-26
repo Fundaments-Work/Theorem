@@ -91,14 +91,21 @@ The name and email come from your `git config user.name` and `user.email`, and m
 
 ### Before Submitting
 
-Run all applicable quality gates:
+Run the quality gates (the same as CI, plus the build):
 
 ```bash
-pnpm typecheck                           # TypeScript — zero errors
-pnpm test                                # Vitest — all pass
-cd src-tauri && cargo fmt && cargo check # Rust — fmt no diff, check compiles
-cd src-tauri && cargo clippy             # Rust lint — zero warnings
+cd src-tauri
+cargo fmt --check                                          # no diff
+cargo clippy --all-features --all-targets -- -D warnings   # zero warnings (run `pnpm build` once first: the e2e feature embeds dist/)
+cargo test --workspace --lib --tests
+cd ..
+pnpm install --frozen-lockfile                             # lockfile matches package.json
+pnpm typecheck                                             # zero errors
+pnpm test                                                  # the whole suite
+pnpm build                                                 # includes the startup bundle budget
 ```
+
+Also, when they apply: `pnpm foliate:check` (reader runtime), `pnpm e2e` (user-visible flows, Linux, see `docs/testing-e2e.md`), and the sync scenarios `cargo test --lib scenarios::` for sync changes. A bug fix comes with a test that failed before it. See "How we work" in [AGENTS.md](./AGENTS.md) for the full standard.
 
 ### Pull Request Lifecycle
 
