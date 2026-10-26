@@ -37,7 +37,10 @@ trap cleanup EXIT
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64)  ARCH="amd64"  ;;
-    aarch64) ARCH="arm64"  ;;
+    aarch64)
+        log_error "No Linux build for ARM (aarch64) is published yet; only x86_64."
+        log_error "Build from source: https://github.com/fundaments-work/Theorem#quick-start-development"
+        exit 1 ;;
     *)       log_error "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
@@ -119,6 +122,7 @@ run_as_root() {
 install_deb_locally() {
     local -r artifact="$1"
     local -r icons_root="$HOME/.local/share/icons/hicolor"
+    need_cmd bsdtar
     local temp_dir
     temp_dir="$(mktemp -d)"
     TMPFILES+=("$temp_dir")
@@ -126,8 +130,6 @@ install_deb_locally() {
     mkdir -p "$APP_DIR" "$BIN_DIR" "$HOME/.local/share/applications" "$icons_root"
     rm -rf "$APP_DIR/usr"
     rm -f "$BIN_DIR/theorem-daemon"
-    rm -rf "$HOME/.local/share/com.lionreader.app"
-    rm -rf "$HOME/.local/share/work.fundamentals.theorem/books"
 
     bsdtar -xf "$artifact" -C "$temp_dir"
     bsdtar -xzf "$temp_dir/data.tar.gz" -C "$APP_DIR"
@@ -150,22 +152,29 @@ install_deb_locally() {
 # ── AppImage install ──
 install_appimage() {
     local -r artifact="$1"
-    local -r icons_dir="$HOME/.local/share/icons/hicolor/128x128/apps"
-
-    mkdir -p "$APP_DIR" "$BIN_DIR" "$HOME/.local/share/applications" "$icons_dir"
+    local -r icons_root="$HOME/.local/share/icons/hicolor"
+    mkdir -p "$APP_DIR" "$BIN_DIR" "$HOME/.local/share/applications"
     rm -rf "$APP_DIR/usr"
     rm -f "$BIN_DIR/theorem-daemon"
-    rm -rf "$HOME/.local/share/com.lionreader.app"
-    rm -rf "$HOME/.local/share/work.fundamentals.theorem/books"
 
     install -Dm755 "$artifact" "$APP_DIR/Theorem.AppImage"
     ln -sf "$APP_DIR/Theorem.AppImage" "$BIN_DIR/theorem"
 
-    if [[ -n "$repo_root" && -f "$repo_root/src-tauri/icons/128x128.png" ]]; then
-        install -Dm644 "$repo_root/src-tauri/icons/128x128.png" "$icons_dir/theorem.png"
-    else
-        curl -fsSL -o "$icons_dir/theorem.png" "https://raw.githubusercontent.com/$GH_REPO/main/src-tauri/icons/128x128.png"
-    fi
+    # The icon of the version being installed: from this checkout when run
+    # from the repo, else from that release's tag.
+    local size file
+    for size in 32x32:32x32.png 128x128:128x128.png 256x256:128x128@2x.png 512x512:icon.png; do
+        file="${size#*:}"
+        size="${size%%:*}"
+        if [[ -n "$repo_root" && -f "$repo_root/src-tauri/icons/$file" ]]; then
+            install -Dm644 "$repo_root/src-tauri/icons/$file" "$icons_root/$size/apps/theorem.png"
+        else
+            mkdir -p "$icons_root/$size/apps"
+            curl -fsSL -o "$icons_root/$size/apps/theorem.png" \
+                "https://raw.githubusercontent.com/$GH_REPO/v$VERSION/src-tauri/icons/$file" \
+                || log_warn "Could not download the $size icon"
+        fi
+    done
 
     cat > "$HOME/.local/share/applications/theorem.desktop" <<DESKTOP
 [Desktop Entry]
@@ -176,7 +185,7 @@ Exec=$BIN_DIR/theorem %F
 Icon=theorem
 Terminal=false
 Categories=Education;
-MimeType=application/epub+zip;application/x-mobipocket-ebook;application/vnd.amazon.ebook;application/vnd.amazon.mobi8-ebook;application/x-fictionbook+xml;application/vnd.comicbook+zip;application/pdf;
+MimeType=application/epub+zip;application/x-mobipocket-ebook;application/vnd.amazon.ebook;application/vnd.amazon.mobi8-ebook;application/x-fictionbook+xml;application/vnd.comicbook+zip;application/vnd.comicbook-rar;application/pdf;
 StartupWMClass=theorem
 DESKTOP
 
@@ -201,8 +210,8 @@ Options:
     --print-latest      Print the latest available version and exit
     -h, --help          Show this help
 
-Note: only .deb and .AppImage are published. rpm-based distros
-(Fedora, RHEL, SUSE) install the AppImage.
+Note: only .deb and .AppImage are published, for x86_64. rpm-based
+distros (Fedora, RHEL, SUSE) install the AppImage.
 EOF
     exit "${1:-0}"
 }
@@ -232,7 +241,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 need_cmd curl
-need_cmd bsdtar
 
 # Auto-detect latest version
 if [[ -z "$VERSION" ]]; then
