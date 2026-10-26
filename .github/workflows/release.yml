@@ -726,3 +726,24 @@ jobs:
       - name: Publish Release
         run: |
           gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Notify Studio & Landing
+        env:
+          GH_TOKEN: ${{ secrets.STUDIO_SYNC_TOKEN }}
+          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -n "$GH_TOKEN" ]; then
+            echo "Dispatching docs-updated event to Fundaments-Work/fundaments-landing..."
+            gh api repos/Fundaments-Work/fundaments-landing/dispatches \
+              -f event_type=docs-updated \
+              -F "client_payload[product]=theorem" \
+              -F "client_payload[ref]=${{ env.RELEASE_TAG }}" \
+              -F "client_payload[sha]=${{ github.sha }}" || echo "Failed to dispatch to fundaments-landing"
+          else
+            echo "::warning::STUDIO_SYNC_TOKEN is not set; skipping docs portal dispatch."
+          fi
+
+          if [ -n "$DEPLOY_HOOK" ]; then
+            echo "Triggering Cloudflare Pages deploy hook..."
+            curl -sS -X POST "$DEPLOY_HOOK" || echo "Failed to trigger Cloudflare deploy hook"
+          fi
