@@ -652,6 +652,7 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
     }
 
     let mut existing: HashMap<String, (String, String)> = HashMap::new();
+    let mut duplicates: HashSet<String> = HashSet::new();
     {
         let mut stmt = tx.prepare("SELECT id, title, author FROM books_fts")?;
         let rows = stmt.query_map([], |row| {
@@ -665,7 +666,9 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
         })?;
         for row in rows {
             let (id, fields) = row?;
-            existing.insert(id, fields);
+            if existing.insert(id.clone(), fields).is_some() {
+                duplicates.insert(id);
+            }
         }
     }
 
@@ -678,10 +681,10 @@ pub(crate) fn reconcile_books_fts(connection: &Connection) -> rusqlite::Result<u
     }
     for (id, (title, author)) in &wanted {
         let current = existing.get(id);
-        if current.is_some_and(|(t, a)| t == title && a == author) {
+        if !duplicates.contains(id) && current.is_some_and(|(t, a)| t == title && a == author) {
             continue;
         }
-        if current.is_some() {
+        if current.is_some() || duplicates.contains(id) {
             tx.execute("DELETE FROM books_fts WHERE id = ?1", params![id])?;
         }
         tx.execute(
@@ -1055,5 +1058,48 @@ mod tests {
             .unwrap();
         assert!(none.book_ids.is_empty());
         assert_eq!(none.total_count, 25);
+    }
+
+    #[test]
+    fn reconcile_books_fts_cleans_up_duplicate_rows() {
+        let conn = setup_db();
+        conn.execute("INSERT INTO books (id, data) VALUES ('dup', X'')", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO book_metadata (book_id, metadata_json) VALUES ('dup', '{\"title\":\"Title\",\"author\":\"Author\"}')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES ('dup', 'Title', 'Author')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES ('dup', 'Old Title', 'Author')",
+            [],
+        )
+        .unwrap();
+        let count_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM books_fts WHERE id = 'dup'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count_before, 2);
+
+        let changed = reconcile_books_fts(&conn).unwrap();
+        assert_eq!(changed, 1);
+        let count_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM books_fts WHERE id = 'dup'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count_after, 1);
+        let title: String = conn
+            .query_row("SELECT title FROM books_fts WHERE id = 'dup'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(title, "Title");
     }
 }
