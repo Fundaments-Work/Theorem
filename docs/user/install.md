@@ -18,7 +18,7 @@ The release page also lists x86 and x86_64 Android builds. Those are meant for e
 
 ## Install on Windows
 
-1. Download the `.exe` setup file from the release page. The v1.5.9 release has no `.msi` package.
+1. Download the `.exe` setup file from the release page. From 1.6.0 there is also an `.msi` package, for IT departments that deploy with Group Policy, Intune or `msiexec`. Install one or the other, not both.
 2. Run it and follow the installer.
 3. Start Theorem from the Start menu.
 

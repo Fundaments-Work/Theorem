@@ -98,7 +98,7 @@ chmod +x Theorem_<version>_amd64.AppImage
 
 ### RPM (Fedora / RHEL / SUSE)
 
-Not currently built — `tauri.conf.json` targets `deb`, `appimage`, `nsis`, `msi`, and
+Not currently built — `tauri.conf.json` targets `deb`, `appimage`, `nsis`, `msi`, `app` and
 `dmg` only. To enable, add `"rpm"` to `bundle.targets` and a CI step, then
 publish to COPR (<https://copr.fedorainfracloud.org/>). Until then, use the
 AppImage.
