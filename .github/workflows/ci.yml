@@ -154,8 +154,12 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
+      # tauri::generate_context! requires frontendDist (../dist) to exist; this
+      # job checks Rust only, so an empty folder stands in for the web build.
       - name: Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-features --all-targets -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
+        run: |
+          mkdir -p dist
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-features --all-targets -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
 
       - name: Check
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-features
