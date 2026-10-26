@@ -514,8 +514,8 @@ jobs:
       - name: Initialize Android project
         run: pnpm tauri android init --ci
 
-      - name: Generate branded Android launcher icons
-        run: pnpm tauri icon public/favicon.svg
+      - name: Android launcher icon
+        run: git checkout -- src-tauri/gen/android/app/src/main/res
 
       - name: Disable Android release minification
         run: |
