@@ -41,6 +41,8 @@ The Paired Devices list shows when each device last synced. When the sync finish
 
 On desktop, the system tray menu also has a Sync Now item.
 
+The first sync between two devices sends the whole library, so with a large library it takes longer: about a minute for 5,000 books with 50,000 highlights. Keep both devices open until it finishes. Later syncs send only what changed and take a moment.
+
 ## Automatic sync
 
 By default Theorem syncs on its own. In the Sync Settings card, Auto-sync is On. While it is on, Theorem syncs:

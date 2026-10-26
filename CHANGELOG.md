@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2026-10-21
+## [1.6.0] - 2026-10-26
 
 ### Smart Shelves & Sub-Shelves
 
@@ -140,8 +140,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Exit codes and errors scripts can use** — `theorem` now exits with 2 for a command line that does not make sense, 3 when a book, shelf, highlight, feed or catalog entry does not exist, 4 when the network failed and 5 when the app is running; other errors stay 1. With `--json`, errors are printed on standard error as `{"error": …, "exitCode": …}`. Setting `NO_COLOR` turns colors off.
 - **The text interface starts with the first book selected and stays idle** — Enter did nothing until you moved the selection, and the screen was redrawn five times a second while nothing happened. The first book is now selected, and the screen is drawn only after a key press or a resize.
 
+### Under the Hood
+
+- **End-to-end tests against the real app** — A new suite (`pnpm e2e`, `docs/testing-e2e.md`) drives the desktop app the way a person does: it clicks, types, picks files and reads the screen, in an isolated data folder. It found the reading-position bugs fixed above, and it is the behaviour spec the 2.0 interface must pass unchanged.
+- **Sync tested between real devices** — Scenario tests run real sync nodes with their own data: three devices with one in the middle, devices away for months, a sync cut off midway, a relay-only connection, older app versions, and a 5,000-book / 50,000-highlight library. They found the sync fixes listed above.
+- **Typed errors** — Every native command error now has a kind (busy, damaged, constraint, not found, invalid input, I/O, network, internal). The text the app receives is unchanged; the command line picks its exit code from the kind.
+- **Smaller modules** — The database, the command line and the app setup were split into one module per area, with no change in behaviour.
+- **Fewer duplicate dependencies** — One version each of `reqwest` and `rand`.
+
 ### Fixed
 
+- **A save that fails says why** — When the library could not be saved because the database was busy or damaged, the message blamed full browser storage. It now says the library is busy and to try again in a moment, or that the database is damaged and to restore a snapshot in Settings → Data & Storage.
 - **Reopening a book no longer forgets your place** — While the reader restored your position, a page-change event that did not exactly match the saved spot reset the book to page 1 and erased the saved position (seen in about one reopen in three by the new end-to-end tests). A mismatch now only waits for the restore to finish.
 - **Pages you turn right after opening a book are remembered, and it reopens on the same page** — Opening a book held back position saves for a second; pages turned in that second were never saved (and a stale timer could keep the hold on for the whole visit), so the book reopened on page 1. A page turn now ends the hold at once, and no longer gets undone by the jump to the start that a new book makes a moment after opening (a page turned in that moment snapped back to page 1). Separately, re-applying the reader's styles dropped foliate's base sheet (line height, orphans/widows) from chapters loaded afterwards, so the same chapter could break into pages differently on the next open and the book came back one page early.
 - **Highlights load in one step, and unreadable ones are reported** — At startup every stored highlight and note was sent to the app as a separate JSON string and parsed one by one, and a damaged one vanished without a trace. They now arrive parsed and checked in one payload (with 50,000 annotations: webview work about 105 → 72 ms, payload 19.7 → 18.2 MB), and a damaged one is logged with its id (never its text).
