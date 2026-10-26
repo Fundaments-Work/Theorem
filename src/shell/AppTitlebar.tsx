@@ -246,10 +246,11 @@ export const AppTitlebar = memo(function AppTitlebar({
                 data-tauri-drag-region={showDesktopWindowControls ? "true" : undefined}
             >
                 
+                {/* "deep": the title text drags too. Double-click maximizes through the drag
+                    region itself; a React handler on top would toggle a second time. */}
                 <div
                     className="flex items-center gap-2 shrink-0 min-w-0"
-                    data-tauri-drag-region={showDesktopWindowControls ? "true" : undefined}
-                    onDoubleClick={showDesktopWindowControls ? handleMaximize : undefined}
+                    data-tauri-drag-region={showDesktopWindowControls ? "deep" : undefined}
                 >
 
                     <button

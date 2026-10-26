@@ -289,15 +289,16 @@ export function WindowTitlebar({
         <div
             // This bar draws the window controls for the reader, so it is also the
             // drag handle. Reader windows are frameless (like the main window), and
-            // without a drag region they could not be moved at all.
-            data-tauri-drag-region={showDesktopWindowControls ? "true" : undefined}
+            // without a drag region they could not be moved at all. "deep": the
+            // whole bar drags, not only the strip its row leaves uncovered; buttons
+            // still click. Double-click maximizes through the drag region itself.
+            data-tauri-drag-region={showDesktopWindowControls ? "deep" : undefined}
             className={cn(
                 "w-full z-[150] select-none reader-toolbar relative",
                 "border-b border-[var(--color-border)] bg-[var(--color-surface)]",
                 "pt-[max(var(--safe-area-top),2px)] lg:pt-0",
                 className
             )}
-            onDoubleClick={showDesktopWindowControls ? handleMaximize : undefined}
         >
             <div className="h-12 lg:h-11 flex items-center gap-1 pl-3 pr-2">
 

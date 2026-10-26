@@ -81,15 +81,37 @@ describe("reader titlebar is draggable", () => {
         "utf-8",
     );
 
-    it("provides a drag region on the bar itself", () => {
-        // A frameless window has no OS drag area, so the bar must supply one.
+    it("provides a drag region over the whole bar", () => {
+        // A frameless window has no OS drag area, so the bar must supply one. "deep":
+        // its row covers the bar, and a "true" region drags only on direct clicks.
         expect(titlebar).toMatch(
-            /data-tauri-drag-region=\{showDesktopWindowControls \? "true" : undefined\}/,
+            /data-tauri-drag-region=\{showDesktopWindowControls \? "deep" : undefined\}/,
         );
+    });
+
+    it("leaves double-click maximize to the drag region (#163)", () => {
+        // Tauri toggles maximize on a double-click in a drag region; a React
+        // onDoubleClick on the same bar toggled it back.
+        expect(titlebar).not.toMatch(/onDoubleClick=\{[^}]*handleMaximize/);
+        const appTitlebar = readFileSync(resolve("src/shell/AppTitlebar.tsx"), "utf-8");
+        expect(appTitlebar).not.toMatch(/onDoubleClick=\{[^}]*handleMaximize/);
     });
 
     it("opts the back button and title out of dragging", () => {
         const optOuts = titlebar.match(/data-tauri-drag-region=\{undefined\}/g) ?? [];
         expect(optOuts.length).toBeGreaterThanOrEqual(2);
+    });
+});
+
+describe("frameless windows can be moved (#163)", () => {
+    it("grants start_dragging, which data-tauri-drag-region invokes", () => {
+        // core:window:default does not include it: without it no title bar ever
+        // moved a window, unnoticed while the main window opened maximized.
+        const capability = JSON.parse(
+            readFileSync(resolve("src-tauri/capabilities/default.json"), "utf-8"),
+        ) as { permissions: Array<string | { identifier: string }> };
+        const ids = capability.permissions.map((p) => (typeof p === "string" ? p : p.identifier));
+        expect(ids).toContain("core:window:allow-start-dragging");
+        expect(ids).toContain("core:window:default"); // carries allow-internal-toggle-maximize
     });
 });
