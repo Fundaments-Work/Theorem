@@ -10,7 +10,7 @@ Click Workbench in the sidebar (the fifth icon), or press `Ctrl+5`. On Android, 
 
 ## Filter, sort and search
 
-1. Use the tabs to choose what to see: All, Highlights, Notes, Words or Bookmarks. Words are the terms you saved from the dictionary. Bookmarks opens the Bookmarks page, described below.
+1. Use the tabs to choose what to see: All, Highlights, Notes, Words or Bookmarks. Words are the terms you saved from the dictionary. Bookmarks shows your bookmarks, described below.
 2. Click Cards to switch from the list to a card view, and click List to switch back. The button is hidden on the Words tab.
 3. Use the sort menu to choose Newest First, Oldest First or By Book.
 4. Type in the search box at the top to search highlights, notes and books.
@@ -38,9 +38,9 @@ To save words in the first place, see [Dictionary and vocabulary](dictionary.md)
 
 ## Bookmarks
 
-Bookmarks are the last tab in the Workbench, so you can reach them on every screen, phones included. You can also press `Ctrl+7` to jump straight to it. The Bookmarks page shows the same tabs at the top, so you can move between your highlights, notes, words and bookmarks without going back to the sidebar. Choosing Notes there, for example, takes you to the Workbench on the Notes tab. On a narrow screen the tab you are on shows its name and the others show an icon, so all five always fit.
+Bookmarks are the last tab in the Workbench, so you can reach them on every screen, phones included. You can also press `Ctrl+7` to jump straight to it. On a narrow screen each tab shows its icon over a small label, so all five always fit.
 
-1. Use the first menu at the top to show bookmarks from All sources or from one book or article. Each book is listed with its bookmark count.
+1. Use the first menu next to the tabs to show bookmarks from All sources or from one book or article. Each book is listed with its bookmark count.
 2. Use the second menu to sort by Newest First, Oldest First or By Book.
 3. Type in the search box to search bookmarks, books or authors.
 4. Click a bookmark, or choose Go to bookmark (Open article for RSS articles) from its menu, to open the reader at that spot.

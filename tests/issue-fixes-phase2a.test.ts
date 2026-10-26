@@ -12,7 +12,6 @@ describe("App route keep-alive", () => {
             "<LibraryPage />",
             "<ShelvesPage />",
             "<AnnotationsPage />",
-            "<BookmarksPage />",
             "<SettingsPage />",
             "<StatisticsPage />",
             "<FeedsPage />",
@@ -20,6 +19,11 @@ describe("App route keep-alive", () => {
             expect(app).toContain(page);
         }
         expect(app).toContain('"hidden"');
+    });
+
+    it("opens Bookmarks as a tab of the kept-alive Workbench page, not a page of its own", () => {
+        expect(app).not.toContain("BookmarksPage");
+        expect(app).toMatch(/showAnnotationsRoute = [^;]*currentRoute === "bookmarks"/);
     });
 
     it("does not remount pages through a route switch", () => {

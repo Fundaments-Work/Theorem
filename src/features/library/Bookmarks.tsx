@@ -1,5 +1,5 @@
 import { localDateKey } from "../../core/lib/date-keys";
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { joinFields } from "../../core/lib/search/native-rank";
 import { useFuzzyRank } from "../../core/lib/search/useFuzzyRank";
@@ -14,7 +14,6 @@ import {
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
 import { Bookmark } from "lucide-react";
 import { AnnotationListCard } from "./components/AnnotationListCard";
-import { WorkbenchTabs } from "./components/WorkbenchTabs";
 import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
 import { useCardTextMeasurer } from "./components/useCardTextMeasurer";
 import { bookmarkPositionLabel } from "./components/bookmark-position";
@@ -95,12 +94,16 @@ function bookmarkBlocks(bookmark: Annotation) {
     };
 }
 
-export function BookmarksPage() {
+/**
+ * The Workbench's Bookmarks tab. Bookmarks are annotations like highlights and notes, so they
+ * live on the Workbench page under its title; `tabs` is the Workbench's own tab row, laid out
+ * with this tab's filters the way the other tabs lay out theirs.
+ */
+export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
     const annotations = useLibraryStore((state) => state.annotations);
     const getBook = useLibraryStore((state) => state.getBook);
     const removeAnnotation = useLibraryStore((state) => state.removeAnnotation);
     const setRoute = useUIStore((state) => state.setRoute);
-    const requestWorkbenchFilter = useUIStore((state) => state.requestWorkbenchFilter);
     const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const rssArticles = useRssStore((state) => state.articles);
@@ -263,55 +266,42 @@ export function BookmarksPage() {
 
     if (visibleBookmarks.length === 0) {
         return (
-            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-                <WorkbenchTabs
-                    active="bookmarks"
-                    onSelect={(tab) => {
-                        if (tab === "bookmarks") return;
-                        requestWorkbenchFilter(tab);
-                        setRoute("annotations");
-                    }}
-                />
+            <>
+                {tabs}
                 <EmptyBookmarks />
-            </div>
+            </>
         );
     }
 
     const bookTotal = new Set(filteredBookmarks.map((b) => b.bookId)).size;
 
     return (
-        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
+        <>
             <PageHeader
-                title="Bookmarks"
+                title="Workbench"
                 description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "source" : "sources"}`}
             />
 
-            <WorkbenchTabs
-                active="bookmarks"
-                className="mb-6"
-                onSelect={(tab) => {
-                    if (tab === "bookmarks") return;
-                    requestWorkbenchFilter(tab);
-                    setRoute("annotations");
-                }}
-            />
-
             <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <Dropdown
-                    value={activeBookFilter}
-                    onChange={(value) => setBookFilter(value)}
-                    options={bookOptions}
-                    className="w-full max-w-full sm:w-auto sm:max-w-[20rem]"
-                />
-                <Dropdown
-                    value={sortBy}
-                    onChange={(value) => setSortBy(value as typeof sortBy)}
-                    options={[
-                        { value: "newest", label: "Newest First" },
-                        { value: "oldest", label: "Oldest First" },
-                        { value: "book", label: "By Book" },
-                    ]}
-                />
+                {tabs}
+
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                    <Dropdown
+                        value={activeBookFilter}
+                        onChange={(value) => setBookFilter(value)}
+                        options={bookOptions}
+                        className="w-full max-w-full sm:w-auto sm:max-w-[20rem]"
+                    />
+                    <Dropdown
+                        value={sortBy}
+                        onChange={(value) => setSortBy(value as typeof sortBy)}
+                        options={[
+                            { value: "newest", label: "Newest First" },
+                            { value: "oldest", label: "Oldest First" },
+                            { value: "book", label: "By Book" },
+                        ]}
+                    />
+                </div>
             </div>
 
             <ConfirmDialog
@@ -369,6 +359,6 @@ export function BookmarksPage() {
                     })}
                 </div>
             )}
-        </div>
+        </>
     );
 }

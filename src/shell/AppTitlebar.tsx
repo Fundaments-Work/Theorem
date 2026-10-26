@@ -179,9 +179,8 @@ export const AppTitlebar = memo(function AppTitlebar({
             case "statistics":
                 return "Statistics";
             case "annotations":
-                return "Workbench";
             case "bookmarks":
-                return "Bookmarks";
+                return "Workbench";
             case "shelves":
                 return "Shelves";
             case "feeds":

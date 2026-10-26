@@ -56,9 +56,6 @@ const ShelvesPage = lazy(() =>
 const AnnotationsPage = lazy(() =>
     import("./features/library").then((module) => ({ default: module.AnnotationsPage })),
 );
-const BookmarksPage = lazy(() =>
-    import("./features/library").then((module) => ({ default: module.BookmarksPage })),
-);
 const SettingsPage = lazy(() =>
     import("./features/settings").then((module) => ({ default: module.SettingsPage })),
 );
@@ -617,7 +614,7 @@ function App() {
     // The reader stays exclusive (heavy engines unmount on exit).
 
     const showLibraryRoute = currentRoute === "library";
-    const showAnnotationsRoute = currentRoute === "annotations" || currentRoute === "vocabulary";
+    const showAnnotationsRoute = currentRoute === "annotations" || currentRoute === "vocabulary" || currentRoute === "bookmarks";
     const showOpdsRoute = currentRoute === "opds";
 
     // Mount-on-first-visit keep-alive: wrappers stay in the DOM, but a
@@ -688,15 +685,6 @@ function App() {
                         <RouteErrorBoundary>
                             <Suspense fallback={<PageLoader />}>
                                 <AnnotationsPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={currentRoute === "bookmarks" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "bookmarks"}>
-                        {visitedRoutes.has("bookmarks") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <BookmarksPage />
                             </Suspense>
                         </RouteErrorBoundary>
                         )}

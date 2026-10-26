@@ -16,7 +16,8 @@ import {
 } from "../../core/lib/annotation-source";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
 import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
-import { WorkbenchTabs } from "./components/WorkbenchTabs";
+import { WorkbenchTabs, type WorkbenchTab } from "./components/WorkbenchTabs";
+import { BookmarksPanel } from "./Bookmarks";
 import {
     Highlighter,
     StickyNote,
@@ -198,6 +199,8 @@ export function AnnotationsPage() {
     const updateAnnotation = useLibraryStore((state) => state.updateAnnotation);
     const currentBookId = useUIStore((state) => state.currentBookId);
     const setRoute = useUIStore((state) => state.setRoute);
+    // Bookmarks are a Workbench tab; the `bookmarks` route (Ctrl+7, its own search scope) opens it.
+    const showBookmarks = useUIStore((state) => state.currentRoute === "bookmarks");
     const setPendingReaderLocation = useUIStore((state) => state.setPendingReaderLocation);
     const searchQuery = useUIStore((state) => state.searchQuery);
     const vocabularyTerms = useVocabularyStore((state) => state.vocabularyTerms);
@@ -218,7 +221,7 @@ export function AnnotationsPage() {
     const workbenchSavedState = savedViewState.current;
 
     const [activeFilter, setActiveFilter] = useState<"all" | "highlights" | "notes" | "vocabulary">(workbenchSavedState.activeFilter ?? "all");
-    // The Bookmarks page's tabs ask for a specific Workbench tab; honour it once.
+    // Other pages can ask for a specific Workbench tab; honour it once.
     const workbenchFilterRequest = useUIStore((state) => state.workbenchFilterRequest);
     const requestWorkbenchFilter = useUIStore((state) => state.requestWorkbenchFilter);
     useEffect(() => {
@@ -519,10 +522,28 @@ export function AnnotationsPage() {
         ? (sourceLookup.get(currentBookId)?.title || "Selected reference")
         : null;
 
+    const selectTab = (tab: WorkbenchTab) => {
+        if (tab === "bookmarks") {
+            setRoute("bookmarks");
+            return;
+        }
+        setActiveFilter(tab);
+        if (showBookmarks) setRoute("annotations");
+    };
+    const tabs = <WorkbenchTabs active={showBookmarks ? "bookmarks" : activeFilter} onSelect={selectTab} />;
+
+    if (showBookmarks) {
+        return (
+            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
+                <BookmarksPanel tabs={tabs} />
+            </div>
+        );
+    }
+
     if (!hasAnyContent) {
         return (
             <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-                <WorkbenchTabs active="all" onSelect={(tab) => { if (tab === "bookmarks") setRoute("bookmarks"); }} />
+                {tabs}
                 <EmptyAnnotations type="all" />
             </div>
         );
@@ -553,13 +574,7 @@ export function AnnotationsPage() {
 
             <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 
-                <WorkbenchTabs
-                    active={activeFilter}
-                    onSelect={(tab) => {
-                        if (tab === "bookmarks") setRoute("bookmarks");
-                        else setActiveFilter(tab);
-                    }}
-                />
+                {tabs}
 
                 <div className="flex items-center gap-2">
                     {activeFilter !== "vocabulary" && (
