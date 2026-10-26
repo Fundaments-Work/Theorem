@@ -715,7 +715,8 @@ impl ProtocolHandler for FileTransferHandler {
 }
 
 /// The largest book a peer may send (comics can be large; nothing is this big).
-const MAX_BOOK_BYTES: usize = 4 * 1024 * 1024 * 1024;
+/// `u64`: 4 GiB does not fit in `usize` on 32-bit Android (armv7, x86).
+const MAX_BOOK_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 /// Downloads a book from a peer into `book-cache/{book_id}.book` and returns
 /// that path. The path is derived here from a validated ID, never passed in,
@@ -731,7 +732,7 @@ pub async fn download_book_file(
     }
     let dest = crate::database::materialized_book_path(&app, &book_id)?;
     let (mut reader, size) = connect_and_request(&app, &peer_device_id, &book_id).await?;
-    if size > MAX_BOOK_BYTES {
+    if size as u64 > MAX_BOOK_BYTES {
         return Err(format!("peer offered a {size}-byte file; refusing"));
     }
     if let Some(parent) = dest.parent() {

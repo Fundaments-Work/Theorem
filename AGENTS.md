@@ -51,7 +51,7 @@ All of these, in this order; each must be clean (this is what CI runs, plus the 
 5. `pnpm typecheck`
 6. `pnpm test` — the whole suite, not only the files you touched
 7. `pnpm build` — also enforces the startup bundle budget
-8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` (Android-only code or dependencies; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers), `pnpm e2e` (user-visible flows)
+8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` and `--target armv7-linux-androideabi` (Android-only code or dependencies, and any size or offset constant: the release ships 32-bit APKs, where `usize` is 32 bits; set the NDK `CC_/CXX_/AR_<target>` compilers), `pnpm e2e` (user-visible flows)
 
 If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it changed.
 
