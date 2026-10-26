@@ -52,6 +52,7 @@ src-tauri/gen/android/*
 !src-tauri/gen/android/app/src/main/res/values/ic_launcher_background.xml
 !src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 !src-tauri/gen/android/app/src/main/AndroidManifest.xml
+!src-tauri/gen/android/app/proguard-rules.pro
 !src-tauri/gen/android/app/src/main/res/mipmap-hdpi/ic_launcher*
 !src-tauri/gen/android/app/src/main/res/mipmap-mdpi/ic_launcher*
 !src-tauri/gen/android/app/src/main/res/mipmap-xhdpi/ic_launcher*

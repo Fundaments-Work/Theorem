@@ -21,6 +21,9 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.theorem"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode" />
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
