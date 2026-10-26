@@ -30,27 +30,37 @@ The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upst
 | Tests | `pnpm test` |
 | Single test | `pnpm test tests/some.test.ts` |
 | Rust fmt | `cd src-tauri && cargo fmt` |
-| Rust lint | `cd src-tauri && cargo clippy` |
-| Rust check | `cd src-tauri && cargo check` |
+| Rust lint | `cd src-tauri && cargo clippy --all-features --all-targets -- -D warnings` |
+| Rust tests | `cd src-tauri && cargo test --workspace --lib --tests` |
+| One Rust test | `cd src-tauri && cargo test --lib <name>` |
+| Sync scenarios | `cd src-tauri && cargo test --lib scenarios::` (large library: `cargo test --release --lib scenarios::a_large_library -- --ignored --nocapture`) |
+| End-to-end (real app) | `pnpm e2e:build` once, then `pnpm e2e [spec-word]` (Linux; see `docs/testing-e2e.md`) |
+| Foliate runtime | `pnpm foliate:check` |
 | Rust release build | `cd src-tauri && cargo build --release` |
 
-Root `pnpm` commands run from repo root. Cargo commands run from `src-tauri/`. `pnpm build` runs typecheck first.
+Root `pnpm` commands run from repo root. Cargo commands run from `src-tauri/`. `pnpm build` runs typecheck first. Clippy with `--all-features` builds the `e2e` feature, which embeds `dist/`: run `pnpm build` once first in a fresh checkout.
 
 ## Quality Gates (before every commit)
 
-Run all that apply:
+All of these, in this order; each must be clean (this is what CI runs, plus the build):
 
-- TypeScript: `pnpm typecheck` — zero errors
-- Vitest: `pnpm test` — all unit and integration tests must pass
-- Rust (if any `.rs` changed): `cd src-tauri && cargo fmt && cargo clippy && cargo check` — fmt must produce no diff, clippy zero warnings
-- Rust touching Android-only code or dependencies: `cargo clippy --target aarch64-linux-android` (CI runs it; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers locally)
+1. `cd src-tauri && cargo fmt --check` — no diff
+2. `cargo clippy --all-features --all-targets -- -D warnings` — zero warnings, tests included
+3. `cargo test --workspace --lib --tests`
+4. `pnpm install --frozen-lockfile` — CI installs frozen; a dependency change must update `pnpm-lock.yaml`
+5. `pnpm typecheck`
+6. `pnpm test` — the whole suite, not only the files you touched
+7. `pnpm build` — also enforces the startup bundle budget
+8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` (Android-only code or dependencies; set the NDK `CC_/CXX_/AR_aarch64_linux_android` compilers), `pnpm e2e` (user-visible flows)
 
-If clippy is noisy, try `cargo clippy --fix --lib` first.
+If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it changed.
 
 ### Testing Integrity & Outlier Coverage
 
 - Tests must rigorously cover edge cases, boundaries, and outliers (e.g. 0-length inputs, rapid concurrent interactions, missing elements, corrupted data, boundary navigation).
 - **NEVER weaken, delete, loosen assertions, or edit tests simply to make them pass.** If a test or outlier fails, investigate and fix the underlying implementation code. The test exists to defend correctness.
+- Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
+- Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
 CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `cargo test --workspace --lib --tests`) on push to main.
 
@@ -58,6 +68,52 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `
 
 - `tests/release-1.0.7-store-scale.test.ts` asserts a wall-clock budget (`expect(elapsed).toBeLessThan(25)`) and can exceed it under full-suite parallel load while passing in isolation. Treat a lone failure here as a perf-measurement flake: re-run the file alone (`pnpm test tests/release-1.0.7-store-scale.test.ts`) to confirm, but still verify no genuine O(n) scan was introduced.
 - `tests/library-virtualization.test.ts` ("Row height estimation") asserts `elapsed < 1` ms for a pure size calculation and can exceed it under full-suite load. Same rule: re-run the file alone to confirm.
+
+Do not add to this list casually. A new intermittent failure is a bug until shown otherwise: find what the test waits for versus what it should wait for, and wait on that condition (never a longer sleep or a looser assertion). If the flake shows a product bug, fix the product. Prove the fix with repeated runs and report the count (e.g. 20/20).
+
+## How we work
+
+The standard every change is held to, whether a person or an agent writes it.
+
+**Bugs**
+- Reproduce first, with a test that fails for the reason you think. Then fix, and keep the test.
+- For timing-dependent bugs, run the test repeatedly before and after the fix and report both counts (e.g. "fails 5/5 without, passes 10/10 with").
+- Find the root cause, not the symptom. When the behaviour depends on a dependency (iroh-docs, foliate-js, rusqlite …), read its source (`~/.cargo/registry`, the submodule) and write the exact rule you relied on into the relevant `docs/*.md`. Don't design around a guess.
+
+**Changes**
+- Make the smallest change that is safe. Moving code (splitting a module, renaming) is its own commit with no behaviour change.
+- Never change a persisted or synced format without a compatibility path:
+  - bump the version (`SYNC_PROTOCOL`, store `version` + `migrate`);
+  - keep reading the old form;
+  - keep writing it for peers that still need it;
+  - prove that mixed old/new data neither loses nor resurrects anything.
+- Back performance claims with numbers: release build, the same machine, before and after, with the size of the data.
+- Errors are typed (see Errors). Never branch on message text.
+
+**Docs travel with the code**
+- Every behaviour change updates its `docs/<area>.md`, the `CHANGELOG.md` entry of the unreleased version, and this file when a rule, module layout or command changes.
+- Don't hard-code counts that drift (test totals, line numbers). When you state one, check it.
+
+**Commits**
+- Atomic conventional commits (`feat:`, `fix:`, `perf:`, `test:`, `docs:`, `refactor:`, `chore:`), one concern each.
+- Signed off (`git commit -s`). AI-assisted commits end with a `Co-Authored-By:` line naming the model.
+- Commit only your own changes. Never sweep in unrelated files from the working tree.
+
+**Never without the maintainer's approval:** merge to `main`, tag, publish a release, deploy, or close an issue.
+
+**Reporting back**
+- Say what was verified and how (commands, run counts, measurements), what was not verified, and what risk remains.
+- A fix that was not tested end to end is reported as such, not as done.
+
+**Parallel and agent work**
+- One git worktree per agent or task, each with its own `CARGO_TARGET_DIR`. A shared target dir has linked stale crates into another checkout's build.
+- Cap heavy builds and tests so several can run at once without exhausting memory.
+- Never `pkill -f` by pattern: stop only the PIDs you started.
+- Never use bare `git stash` / `git stash pop`: the stash is shared across worktrees. Use a WIP commit instead.
+- On the maintainer's machine the tools for this live in the private `fundaments-agent-harness` repo, documented in the Fundaments handbook (`Engineering/Agent harness.md`):
+  - `resources/capped.sh <mem> <cpu%> cmd` runs a command inside the shared memory slice;
+  - `theorem/gates.sh <worktree> [--android]` runs every gate above;
+  - `theorem/land-worktree.sh <branch>` merges into the release branch, runs the gates, pushes and removes the worktree.
 
 ## Architecture
 
@@ -81,7 +137,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `
 
 **Runtime split**: Guard desktop-only code with `isTauri()` / `isTauriDesktop()` / `isTauriMobile()` / `isMobile()` from `src/core/lib/env.ts`. Provide browser fallbacks.
 
-**Sync**: P2P via iroh stack (iroh + iroh-docs + iroh-blobs + iroh-gossip). 23 Tauri commands in `sync_commands.rs`. Iroh is always compiled (no feature gate). See `docs/sync.md`. Security lives in `src-tauri/src/sync_access.rs`: every sync protocol except pairing is closed to devices that are not paired (`PeerGate`, an endpoint hook, so new protocols are covered automatically); pairing needs the QR code's one-time secret plus the user's approval; book requests are IDs, never paths, and only book files are served. Every change to `paired_devices` goes through `SyncTransportState::persist_paired` (it also updates the allowlist). Never take file paths from synced data, and never write a `kv_store` key from sync that is not in `is_syncable_kv_key`. Doc entries are one per item (`book:`, `collection:`, `vocab:`, `rss_feed:`, `rss_article:`, `tomb:`), except annotations: one entry per book and device, `annos:{bookId}:` (records by ID plus deletion markers, `src-tauri/src/sync_annotations.rs`, sync protocol 3), built in Rust from the app's `anno:{bookId}:{id}` entries and expanded back into them on read, merged per annotation by stamps across every copy. The trailing `:` matters: writing an iroh-docs key removes that author's older entries under it. Per-annotation `anno:` entries are still read, and written only for devices on protocol < 3; whole lists go only to devices on protocol < 2. Never empty or prefix-delete annotation entries to clean up: empty entries read as deletions, and iroh-docs puts older entries back under a deletion. Never rewrite an unchanged doc entry (`write_own_entries` skips them): a rewrite dates it now and undoes other devices' deletions, which live in the docs as empty entries and are read back as `deleted`. Book and annotation edits carry a base stamp (`metadataBaseAt`, `baseUpdatedAt`) for conflict detection in the native merge.
+**Sync**: P2P via iroh stack (iroh + iroh-docs + iroh-blobs + iroh-gossip). 23 Tauri commands in `sync_commands.rs`. Iroh is always compiled (no feature gate). See `docs/sync.md`. Security lives in `src-tauri/src/sync_access.rs`: every sync protocol except pairing is closed to devices that are not paired (`PeerGate`, an endpoint hook, so new protocols are covered automatically); pairing needs the QR code's one-time secret plus the user's approval; book requests are IDs, never paths, and only book files are served. Every change to `paired_devices` goes through `SyncTransportState::persist_paired` (it also updates the allowlist). Never take file paths from synced data, and never write a `kv_store` key from sync that is not in `is_syncable_kv_key`. Doc entries are one per item (`book:`, `collection:`, `vocab:`, `rss_feed:`, `rss_article:`, `tomb:`), except annotations: one entry per book and device, `annos:{bookId}:` (records by ID plus deletion markers, `src-tauri/src/sync_annotations.rs`, sync protocol 3), built in Rust from the app's `anno:{bookId}:{id}` entries and expanded back into them on read, merged per annotation by stamps across every copy. The trailing `:` matters: writing an iroh-docs key removes that author's older entries under it. Per-annotation `anno:` entries are still read, and written only for devices on protocol < 3; whole lists go only to devices on protocol < 2. Never empty or prefix-delete annotation entries to clean up: empty entries read as deletions, and iroh-docs puts older entries back under a deletion. Never rewrite an unchanged doc entry (`write_own_entries` skips them): a rewrite dates it now and undoes other devices' deletions, which live in the docs as empty entries and are read back as `deleted`. iroh-docs lets an older non-empty copy of this device's own entry replace its emptied one, so each device records the deletions it writes (`sync_deletions.rs`, `iroh-docs/own-deletions.jsonl`); an own entry older than a recorded deletion is read as the deletion and the deletion is put back with its original timestamp. Never "re-delete" through the docs API instead: it stamps the current time and would beat later edits made elsewhere. Book and annotation edits carry a base stamp (`metadataBaseAt`, `baseUpdatedAt`) for conflict detection in the native merge. Every sync change gets a scenario in `sync_scenarios.rs` (three devices, a device that was away, both exchange orders); `docs/sync.md` holds the rules and measurements.
 
 **TTS (Immersion Reading)**: two narration paths, orchestrated by `src/features/reader/audio/ImmersionPlayer.ts` (UI lives in the reader navbar's immersion row — there is no separate ImmersionBar component):
 - **Platform TTS (fallback, always available)**: Android `TextToSpeech` (custom `tauri-plugin-android-tts-audio`), Linux `spd-say` (`src-tauri/src/tts_linux.rs`), macOS `say`, Windows PowerShell `System.Speech`. Android supports engine selection (`tts_get_engines`/`tts_set_engine`), real word boundaries (`tts-utterance-range` events), and `tts_synthesize_to_file`.
@@ -183,12 +239,7 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 1. **Merge branches into `main` first**:
    Always merge feature/fix branches into `main` before tagging. Releases and documentation builds depend on commits being present on the `main` branch.
 
-2. **Run full local quality gates**:
-   - TypeScript: `pnpm typecheck` — zero errors
-   - Vitest: `pnpm test` — all suites must pass (currently 182 files / 1779 tests)
-   - Production bundle: `pnpm build` — verifies bundle, WebAssembly modules, and PDF.js assets
-   - Rust: `cd src-tauri && cargo fmt --check && cargo clippy && cargo check` — zero warnings/errors
-   - Foliate runtime: `pnpm foliate:check` — clean pass
+2. **Run full local quality gates**: every step of [Quality Gates](#quality-gates-before-every-commit), including `pnpm foliate:check`, Android clippy and `pnpm e2e`.
 
 3. **Bump version in all 5 files**:
    - `package.json` — `version` field
