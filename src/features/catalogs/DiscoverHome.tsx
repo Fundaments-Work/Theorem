@@ -39,9 +39,9 @@ export function addRecentSearch(list: string[], query: string): string[] {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** Catalog summaries are HTML; the hero shows a short plain-text line. Rendered as text, never HTML. */
-function plainSummary(html?: string): string {
+export function plainSummary(html?: string): string {
     if (!html) return "";
-    return html.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&rsquo;/g, "’").replace(/\s+/g, " ").trim();
+    return html.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&#39;|&rsquo;/g, "’").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 }
 
 function compactCount(n?: number): string {

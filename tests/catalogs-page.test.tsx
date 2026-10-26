@@ -19,7 +19,7 @@ import { DEFAULT_OPDS_PRESETS } from "../src/core/services/OpdsService";
 import { useOpdsStore } from "../src/core/store";
 import { resetOpdsBrowserSession } from "../src/features/catalogs/opds/useOpdsBrowser";
 import { CatalogsPage } from "../src/features/catalogs/CatalogsPage";
-import { addRecentSearch, readRecentSearches } from "../src/features/catalogs/DiscoverHome";
+import { addRecentSearch, plainSummary, readRecentSearches } from "../src/features/catalogs/DiscoverHome";
 import { flush, makeEntry, makeFeed, render, setInputValue, stubLayout, unmountAll } from "./helpers/opds-browser-harness";
 
 const BASE = "https://catalog.fundaments.work/opds";
@@ -169,6 +169,13 @@ describe("Discover page", () => {
             let list: string[] = [];
             for (const q of ["a", "b", "A", "c", "d", "e", "f", "g", "h", "i", "  ", ""]) list = addRecentSearch(list, q);
             expect(list).toEqual(["i", "h", "g", "f", "e", "d", "c", "A"]);
+        });
+
+        it("strips HTML and decodes entities in summary without double unescaping", () => {
+            expect(plainSummary("<p>Fish &amp; chips</p>")).toBe("Fish & chips");
+            expect(plainSummary("<b>&quot;Quotes&quot;</b> &amp; &#39;Apostrophes&#39;")).toBe('"Quotes" & ’Apostrophes’');
+            expect(plainSummary("&amp;quot;not unescaped quote&amp;quot;")).toBe("&quot;not unescaped quote&quot;");
+            expect(plainSummary(undefined)).toBe("");
         });
 
         it("offers Add a catalog in the header and in the bring-your-library card, with no built-in suggestions", async () => {

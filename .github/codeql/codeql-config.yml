@@ -20,7 +20,12 @@ paths-ignore:
   - src/features/reader/foliate-js
 
   # Tests are not shipped and several rules fire on test fixtures
-  - tests
+  - tests/**
+  - "**/tests/**"
+  - "**/tests.rs"
+  - "**/*_test.rs"
+  - "**/test_*.rs"
+  - "e2e/**"
   - "**/*.test.*"
   - "**/*.spec.*"
 
