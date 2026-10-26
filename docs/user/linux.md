@@ -110,7 +110,7 @@ The in-app installer downloads a signed update. Whether it can replace a `.deb` 
 3. Copy the whole `work.fundamentals.theorem` folder from the old computer into `~/.local/share/` on the new one, replacing the new folder.
 4. Start Theorem. Your books, highlights and settings should appear.
 
-This was not tested end to end. The folder includes `iroh-key`, the sync identity, so if you use device sync, do not run the old and new copies side by side with the same key. For a supported way to share a library, pair the two computers with [device sync](device-sync.md). The backup file in Settings is a JSON export that cannot be restored, so it is not a way to move books. See [Settings and shortcuts](settings-and-shortcuts.md#create-a-backup-file).
+This was not tested end to end. The folder includes `iroh-key`, the sync identity, so if you use device sync, do not run the old and new copies side by side with the same key. For supported ways to share a library, pair the two computers with [device sync](device-sync.md), or create a backup file and restore it on the new computer. See [Settings and shortcuts](settings-and-shortcuts.md#back-up-your-library).
 
 ## How do I uninstall it?
 
