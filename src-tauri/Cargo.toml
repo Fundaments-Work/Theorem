@@ -105,7 +105,7 @@ iroh-mdns-address-lookup = "0.6.0"
 readability = { version = "0.3.0", default-features = false }
 url = "2.5.8"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-rars = "0.10.0"
+rars = "0.11.0"
 jpeg-encoder = { version = "0.7", features = ["simd"] }
 
 [dev-dependencies]
@@ -135,7 +135,7 @@ hound = "3.5"
 unicode-normalization = "0.1"
 # Native playback of synthesized audio — the webview audio stack proved
 # unreliable; rodio/cpal output real device audio.
-rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
+rodio = { version = "0.23", default-features = false, features = ["playback", "wav"] }
 # Save-as-Audiobook Opus encoding. libopus is built from the bundled source
 # and linked statically: `static` here (same audiopus_sys version audiopus
 # uses) plus LIBOPUS_NO_PKG in .cargo/config.toml, since pkg-config would
