@@ -8,7 +8,7 @@ import { resolvePdfTargetPage } from "../src/features/reader/Reader";
 import { applyAppTheme, resolveThemeColors } from "../src/core/lib/design-tokens";
 import { getCSS } from "../src/features/reader/foliate/reader";
 
-describe("Release 1.6.0 - Critical Bug Fixes & Regressions", () => {
+describe("Release 1.6.1 - Bug Fixes & Regressions", () => {
     let root: Root | null = null;
     let host: HTMLDivElement | null = null;
 
