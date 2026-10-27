@@ -12,6 +12,17 @@ pub(super) enum FeedsCommand {
     Remove { feed: String },
     /// Fetch every feed and merge new articles into the library
     Refresh,
+    /// Import feeds from an OPML file
+    Import {
+        /// Path to OPML file
+        file: PathBuf,
+    },
+    /// Export subscribed feeds to OPML format
+    Export {
+        /// Write to a file instead of stdout
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 // Feeds live in SQLite (`rss_feeds`, `rss_articles`, `rss_article_content`),
@@ -133,6 +144,8 @@ pub(super) fn run_feeds(output: &Output, ctx: &Ctx, command: FeedsCommand) -> i3
         FeedsCommand::Add { url } => feeds_add(output, ctx, &url),
         FeedsCommand::Remove { feed } => feeds_remove(output, ctx, &feed),
         FeedsCommand::Refresh => feeds_refresh(output, ctx),
+        FeedsCommand::Import { file } => feeds_import(output, ctx, &file),
+        FeedsCommand::Export { out } => feeds_export(output, ctx, out),
     }
 }
 
@@ -397,4 +410,193 @@ pub(super) fn run_extract(output: &Output, url: &str) -> i32 {
         }
         0
     }
+}
+
+fn feeds_import(output: &Output, ctx: &Ctx, file: &std::path::Path) -> i32 {
+    let bytes = match std::fs::read(file) {
+        Ok(b) => b,
+        Err(e) => return output.error(format!("cannot read {}: {e}", file.display())),
+    };
+
+    let mut reader = quick_xml::Reader::from_reader(bytes.as_slice());
+    let mut buf = Vec::new();
+
+    struct OpmlOutline {
+        title: String,
+        xml_url: String,
+        html_url: Option<String>,
+    }
+
+    let mut outlines = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(quick_xml::events::Event::Start(ref e))
+            | Ok(quick_xml::events::Event::Empty(ref e)) => {
+                if e.local_name().as_ref().eq_ignore_ascii_case(b"outline") {
+                    let mut xml_url: Option<String> = None;
+                    let mut title: Option<String> = None;
+                    let mut html_url: Option<String> = None;
+
+                    for attr in e.attributes().flatten() {
+                        let key = String::from_utf8_lossy(attr.key.as_ref()).to_ascii_lowercase();
+                        let val = String::from_utf8_lossy(&attr.value).into_owned();
+                        match key.as_str() {
+                            "xmlurl" => xml_url = Some(val),
+                            "htmlurl" => html_url = Some(val),
+                            "title" | "text" if title.is_none() => {
+                                title = Some(val);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let Some(url) = xml_url {
+                        let url = url.trim().to_string();
+                        if url.starts_with("http://") || url.starts_with("https://") {
+                            let t = title.unwrap_or_else(|| url.clone());
+                            outlines.push(OpmlOutline {
+                                title: t,
+                                xml_url: url,
+                                html_url,
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(e) => return output.error(format!("{}: invalid XML: {e}", file.display())),
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    if outlines.is_empty() {
+        return output.error(format!(
+            "{}: no feed outlines found in OPML",
+            file.display()
+        ));
+    }
+
+    let existing_feeds = match load_feeds(ctx) {
+        Ok(feeds) => feeds,
+        Err(e) => return output.error(&e),
+    };
+    let mut known_urls: std::collections::HashSet<String> = existing_feeds
+        .iter()
+        .map(|f| normalize_feed_url(&f.url))
+        .collect();
+
+    let mut added = 0;
+    let mut skipped = 0;
+    let now = now_millis();
+
+    let save_res = ctx.store.with_connection(|conn| {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+        for item in &outlines {
+            let normalized = normalize_feed_url(&item.xml_url);
+            if !known_urls.insert(normalized) {
+                skipped += 1;
+                continue;
+            }
+            let feed_dto = crate::database::RssFeedDto {
+                id: uuid::Uuid::new_v4().to_string().into(),
+                title: item.title.clone().into(),
+                url: item.xml_url.clone().into(),
+                site_url: item.html_url.clone().map(Into::into),
+                description: None,
+                icon_url: None,
+                last_fetched: None,
+                added_at: Some(now),
+                error_message: None,
+                unread_count: 0,
+            };
+            crate::database::sqlite_save_rss_feed_inner(&tx, &feed_dto)?;
+            added += 1;
+        }
+        tx.commit()?;
+        Ok(())
+    });
+
+    if let Err(e) = save_res {
+        return output.error(&e);
+    }
+
+    if output.json {
+        output.print_json(&serde_json::json!({
+            "imported": added,
+            "skipped": skipped,
+            "totalFound": outlines.len(),
+        }))
+    } else {
+        println!(
+            "{} {} feeds from {} ({} skipped, already subscribed)",
+            output.green("imported"),
+            added,
+            output.bold(&file.display().to_string()),
+            skipped
+        );
+        0
+    }
+}
+
+fn feeds_export(output: &Output, ctx: &Ctx, out: Option<PathBuf>) -> i32 {
+    let feeds = match load_feeds(ctx) {
+        Ok(feeds) => feeds,
+        Err(e) => return output.error(&e),
+    };
+
+    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\">\n  <head>\n    <title>Theorem Feeds</title>\n  </head>\n  <body>\n");
+    for f in &feeds {
+        let title_esc = xml_escape(&f.title);
+        let url_esc = xml_escape(&f.url);
+        let site_attr = match f.site_url.as_deref() {
+            Some(site) => format!(" htmlUrl=\"{}\"", xml_escape(site)),
+            None => String::new(),
+        };
+        xml.push_str(&format!(
+            "    <outline text=\"{title_esc}\" title=\"{title_esc}\" type=\"rss\" xmlUrl=\"{url_esc}\"{site_attr} />\n"
+        ));
+    }
+    xml.push_str("  </body>\n</opml>\n");
+
+    match out {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
+            if let Err(e) = std::fs::write(&path, xml.as_bytes()) {
+                return output.error(format!("Failed to write {}: {e}", path.display()));
+            }
+            if output.json {
+                output.print_json(&serde_json::json!({
+                    "path": path.display().to_string(),
+                    "feeds": feeds.len(),
+                }))
+            } else {
+                println!(
+                    "{} {} feeds to {}",
+                    output.green("exported"),
+                    feeds.len(),
+                    output.bold(&path.display().to_string())
+                );
+                0
+            }
+        }
+        None => {
+            print!("{xml}");
+            0
+        }
+    }
+}
+
+fn xml_escape(val: &str) -> String {
+    val.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }

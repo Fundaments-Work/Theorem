@@ -99,6 +99,10 @@ struct Cli {
     #[arg(long, global = true)]
     force: bool,
 
+    /// Path to data directory (or use THEOREM_DATA_DIR env var)
+    #[arg(long, global = true)]
+    data_dir: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -291,16 +295,27 @@ fn dispatch(args: &[String]) -> i32 {
         }
     };
     let output = Output::new(cli.json, cli.no_color);
+    let data_dir = match cli
+        .data_dir
+        .clone()
+        .or_else(|| {
+            std::env::var("THEOREM_DATA_DIR")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+        })
+        .map(Ok)
+        .unwrap_or_else(app_data_dir)
+    {
+        Ok(dir) => dir,
+        Err(e) => return output.error(&e),
+    };
     // Commands that change the library refuse to run next to the app: the
     // app keeps the library in memory and would write its own copy over
     // theirs (and sync would spread the loser). `_guard` keeps the app from
     // starting until the command is done.
     let _guard = if command_writes(&cli.command) && !cli.force {
-        let dir = match app_data_dir() {
-            Ok(dir) => dir,
-            Err(e) => return output.error(&e),
-        };
-        match crate::app_lock::check_from_cli(&dir) {
+        match crate::app_lock::check_from_cli(&data_dir) {
             Ok(crate::app_lock::AppState::NotRunning(guard)) => Some(guard),
             Ok(crate::app_lock::AppState::Running) => {
                 output.error(
@@ -315,7 +330,7 @@ fn dispatch(args: &[String]) -> i32 {
     } else {
         None
     };
-    run(cli.command, &output)
+    run(cli.command, &output, &data_dir)
 }
 
 /// Whether a command changes the library (or runs the sync engine, which
@@ -329,8 +344,13 @@ fn command_writes(command: &Command) -> bool {
                 | LibraryCommand::Export { .. }
         ),
         Command::Shelf { command } => !matches!(command, ShelfCommand::List),
-        Command::Highlights { command } => !matches!(command, HighlightsCommand::List { .. }),
-        Command::Feeds { command } => !matches!(command, FeedsCommand::List),
+        Command::Highlights { command } => !matches!(
+            command,
+            HighlightsCommand::List { .. } | HighlightsCommand::Export { .. }
+        ),
+        Command::Feeds { command } => {
+            !matches!(command, FeedsCommand::List | FeedsCommand::Export { .. })
+        }
         Command::Opds { command } => matches!(command, OpdsCommand::Download { .. }),
         Command::Storage { command } => matches!(command, StorageCommand::Cleanup),
         Command::Sync { .. } => true,
@@ -338,7 +358,7 @@ fn command_writes(command: &Command) -> bool {
     }
 }
 
-fn run(command: Command, output: &Output) -> i32 {
+fn run(command: Command, output: &Output, data_dir: &std::path::Path) -> i32 {
     match command {
         Command::SetupCli => match crate::setup_linux_cli_symlink_inner() {
             Ok(link) => {
@@ -363,9 +383,11 @@ fn run(command: Command, output: &Output) -> i32 {
             }
         }
         // Sync needs the iroh engine, which runs inside a Tauri app context.
-        Command::Sync { command } => with_sync_app(output, |app| run_sync(output, app, command)),
+        Command::Sync { command } => {
+            with_sync_app(output, data_dir, |app| run_sync(output, app, command))
+        }
         other => {
-            let ctx = match Ctx::open() {
+            let ctx = match Ctx::open_at(data_dir) {
                 Ok(ctx) => ctx,
                 Err(e) => return output.error(&e),
             };
@@ -424,10 +446,6 @@ pub(crate) struct Ctx {
 }
 
 impl Ctx {
-    fn open() -> Result<Self, String> {
-        Self::open_at(&app_data_dir()?)
-    }
-
     pub(crate) fn open_at(dir: &std::path::Path) -> Result<Self, String> {
         crate::database::run_startup_migrations_in(dir)?;
         Ok(Self {
@@ -462,7 +480,11 @@ fn display_available() -> bool {
 
 /// Build a bare Tauri app (no plugins, no windows) with the sync subsystem
 /// managed, so the `sync_commands` surface works headless.
-fn with_sync_app(output: &Output, f: impl FnOnce(&tauri::AppHandle) -> i32) -> i32 {
+fn with_sync_app(
+    output: &Output,
+    dir: &std::path::Path,
+    f: impl FnOnce(&tauri::AppHandle) -> i32,
+) -> i32 {
     if !display_available() {
         return output.error(
             "sync commands run the sync engine inside the Theorem app, which needs a \
@@ -470,11 +492,7 @@ fn with_sync_app(output: &Output, f: impl FnOnce(&tauri::AppHandle) -> i32) -> i
              desktop session, or sync from the app.",
         );
     }
-    let dir = match app_data_dir() {
-        Ok(dir) => dir,
-        Err(e) => return output.error(&e),
-    };
-    if let Err(e) = crate::database::run_startup_migrations_in(&dir) {
+    if let Err(e) = crate::database::run_startup_migrations_in(dir) {
         return output.error(&e);
     }
     let app = match tauri::Builder::default().build(tauri::generate_context!()) {
@@ -484,7 +502,7 @@ fn with_sync_app(output: &Output, f: impl FnOnce(&tauri::AppHandle) -> i32) -> i
     let handle = app.handle().clone();
     {
         use tauri::Manager;
-        match crate::sync_commands::init_sync(dir, handle.clone()) {
+        match crate::sync_commands::init_sync(dir.to_path_buf(), handle.clone()) {
             Ok(sync_state) => {
                 app.manage(sync_state);
             }
@@ -554,5 +572,12 @@ mod tests {
         assert!(!launches_gui(&args(&["--verbose"])));
         assert!(!launches_gui(&args(&["/no/such/book.epub"])));
         assert!(!launches_gui(&args(&[&book, "--json"])));
+        assert!(!launches_gui(&args(&[
+            "--data-dir",
+            "/tmp/custom",
+            "library",
+            "list"
+        ])));
+        assert!(!launches_gui(&args(&["--data-dir", "/tmp/custom"])));
     }
 }

@@ -1158,3 +1158,161 @@ fn errors_have_exit_codes_and_json_form() {
     assert_eq!(error["exitCode"], 3);
     assert!(error["error"].as_str().unwrap().contains("nope"));
 }
+
+// ── release 1.6.1 CLI follow-ups: data-dir, highlights export, OPML ─────────
+
+#[test]
+fn data_dir_flag_and_env_var_override_library_location() {
+    let sb = Sandbox::new();
+
+    // 1. --data-dir flag points at an isolated custom folder
+    let flag_dir = sb.path().join("custom_flag_dir");
+    let out = sb.run(&[
+        "--data-dir",
+        flag_dir.to_str().unwrap(),
+        "--json",
+        "library",
+        "list",
+    ]);
+    assert_ok(&out);
+    assert_eq!(json(&out), serde_json::json!([]));
+    assert!(flag_dir.join("theorem.db").exists());
+
+    // 2. THEOREM_DATA_DIR environment variable
+    let env_dir = sb.path().join("custom_env_dir");
+    let mut cmd = sb.command(&["--json", "library", "list"]);
+    cmd.env("THEOREM_DATA_DIR", &env_dir);
+    let out = cmd.output().expect("run with THEOREM_DATA_DIR");
+    assert_ok(&out);
+    assert_eq!(json(&out), serde_json::json!([]));
+    assert!(env_dir.join("theorem.db").exists());
+}
+
+#[test]
+fn highlights_export_supports_json_csv_and_markdown() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+
+    // Add another highlight to test multi-annotation export
+    let add_out = sb.run(&[
+        "highlights",
+        "add",
+        APP_BOOK,
+        "--text",
+        "A second highlighted passage",
+        "--note",
+        "Reflective comment",
+        "--color",
+        "blue",
+    ]);
+    assert_ok(&add_out);
+
+    // 1. JSON export to stdout
+    let out_json = sb.run(&["highlights", "export", "--format", "json"]);
+    assert_ok(&out_json);
+    let annos: Vec<serde_json::Value> = serde_json::from_slice(&out_json.stdout).unwrap();
+    assert!(annos.len() >= 2);
+    assert!(annos
+        .iter()
+        .any(|a| a["selectedText"].as_str() == Some("A second highlighted passage")));
+    assert!(annos
+        .iter()
+        .any(|a| a["bookTitle"].as_str() == Some("Sample Field Guide")));
+
+    // 2. CSV export to stdout
+    let out_csv = sb.run(&["highlights", "export", "--format", "csv"]);
+    assert_ok(&out_csv);
+    let csv_text = stdout(&out_csv);
+    assert!(csv_text.starts_with("id,book_id,book_title,book_author,type,color,created_at"));
+    assert!(csv_text.contains("Sample Field Guide"));
+    assert!(csv_text.contains("A second highlighted passage"));
+    assert!(csv_text.contains("Reflective comment"));
+
+    // 3. Markdown export to stdout
+    let out_md = sb.run(&["highlights", "export", "--format", "md", "--book", APP_BOOK]);
+    assert_ok(&out_md);
+    let md_text = stdout(&out_md);
+    assert!(md_text.contains("# Sample Field Guide"));
+    assert!(md_text.contains("## Highlights"));
+    assert!(md_text.contains("> ==A second highlighted passage=="));
+    assert!(md_text.contains("Reflective comment"));
+
+    // 4. Export to file via --out
+    let file_out = sb.path().join("exported_highlights.md");
+    let out_file = sb.run(&[
+        "highlights",
+        "export",
+        "--format",
+        "md",
+        "--out",
+        file_out.to_str().unwrap(),
+    ]);
+    assert_ok(&out_file);
+    assert!(file_out.exists());
+    let saved_md = std::fs::read_to_string(&file_out).unwrap();
+    assert!(saved_md.contains("# Sample Field Guide"));
+
+    // 5. Future date filter with --since returns empty match
+    let out_since = sb.run(&[
+        "highlights",
+        "export",
+        "--format",
+        "md",
+        "--since",
+        "2099-01-01",
+    ]);
+    assert_ok(&out_since);
+    assert!(stdout(&out_since).contains("_No highlights match the criteria._"));
+}
+
+#[test]
+fn feeds_import_and_export_opml() {
+    let sb = Sandbox::new();
+
+    // 1. Create an OPML file
+    let opml_content = r#"<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Subscriptions</title>
+  </head>
+  <body>
+    <outline text="Rust Blog" title="Rust Blog" type="rss" xmlUrl="https://blog.rust-lang.org/feed.xml" htmlUrl="https://blog.rust-lang.org" />
+    <outline text="Hacker News" title="Hacker News" type="rss" xmlUrl="https://news.ycombinator.com/rss" />
+  </body>
+</opml>"#;
+
+    let opml_file = sb.path().join("feeds.opml");
+    std::fs::write(&opml_file, opml_content).unwrap();
+
+    // 2. Import OPML feeds
+    let import_out = sb.run(&["feeds", "import", opml_file.to_str().unwrap()]);
+    assert_ok(&import_out);
+    assert!(stdout(&import_out).contains("imported 2 feeds"));
+
+    // 3. Verify feeds are listed
+    let list_out = sb.run(&["--json", "feeds", "list"]);
+    assert_ok(&list_out);
+    let feeds = json(&list_out);
+    assert_eq!(feeds.as_array().unwrap().len(), 2);
+
+    // 4. Re-importing should skip already-subscribed feeds
+    let reimport_out = sb.run(&["feeds", "import", opml_file.to_str().unwrap()]);
+    assert_ok(&reimport_out);
+    assert!(stdout(&reimport_out).contains("2 skipped"));
+
+    // 5. Export feeds to OPML stdout
+    let export_out = sb.run(&["feeds", "export"]);
+    assert_ok(&export_out);
+    let exported_xml = stdout(&export_out);
+    assert!(exported_xml.contains("<opml version=\"2.0\">"));
+    assert!(exported_xml.contains("xmlUrl=\"https://blog.rust-lang.org/feed.xml\""));
+    assert!(exported_xml.contains("xmlUrl=\"https://news.ycombinator.com/rss\""));
+
+    // 6. Export to file via --out
+    let export_file = sb.path().join("exported.opml");
+    let export_file_out = sb.run(&["feeds", "export", "--out", export_file.to_str().unwrap()]);
+    assert_ok(&export_file_out);
+    assert!(export_file.exists());
+    let saved_xml = std::fs::read_to_string(&export_file).unwrap();
+    assert!(saved_xml.contains("https://blog.rust-lang.org/feed.xml"));
+}

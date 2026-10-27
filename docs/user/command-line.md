@@ -28,8 +28,11 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem highlights list [--book <id>]` | Prints annotations as JSON |
 | `theorem highlights add <book_id> --text <t> [--note <n>] [--type highlight\|note] [--color <c>]` | Adds an annotation. The color defaults to `yellow` |
 | `theorem highlights delete <annotation_id>` | Deletes an annotation |
+| `theorem highlights export [--format md\|json\|csv] [--book <id>] [--since <date>] [--out <path>]` | Exports highlights and notes to Markdown (Obsidian format), JSON, or CSV, optionally writing to disk |
 | `theorem bookmarks list [--book <id>]` | Lists bookmarks |
 | `theorem feeds list`, `add <url>`, `remove <feed>`, `refresh` | Manages RSS and Atom feeds, the same ones the app shows. `add` refuses an address that is not a feed. A feed can be named by its id or its address |
+| `theorem feeds import <file.opml>` | Imports feeds from an OPML file |
+| `theorem feeds export [--out <file.opml>]` | Exports subscribed feeds to OPML format |
 | `theorem opds browse <url>` | Lists the entries of an OPDS catalog |
 | `theorem opds download <url> <entry>` | Downloads an entry, by title or by the number `browse` shows, into your library |
 | `theorem sync status`, `pair <code>`, `unpair <device_id>`, `now [--device <id>]` | Controls [device sync](device-sync.md) |
@@ -41,7 +44,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem setup-cli` | Creates the `theorem` link in `~/.local/bin` (Linux only) |
 | `theorem version` | Prints the version |
 
-Three options work with every command: `--json` prints machine-readable output, `--no-color` turns off color, and `--force` lets a command change the library while the app is running. Color is also off by default whenever the output is not a terminal. `-h` and `-V` print help and the version, and `theorem help <command>` prints the help of one command. A command line that is not a command (a typo, an option on its own, a file that does not exist) prints a usage error and exits with code 2. Only `theorem` alone, or files and links to open, start the app window.
+Global options work with every command: `--json` prints machine-readable output, `--no-color` turns off color, `--force` lets a command change the library while the app is running, and `--data-dir <path>` (or the `THEOREM_DATA_DIR` environment variable) points the command at an alternative library folder (such as a NAS, another profile, or a test directory). Color is also off by default whenever the output is not a terminal. `-h` and `-V` print help and the version, and `theorem help <command>` prints the help of one command. A command line that is not a command (a typo, an option on its own, a file that does not exist) prints a usage error and exits with code 2. Only `theorem` alone, or files and links to open, start the app window.
 
 ## How do I put theorem on my PATH?
 
