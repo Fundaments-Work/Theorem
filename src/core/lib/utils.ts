@@ -45,12 +45,23 @@ export function formatFileSize(bytes: number): string {
     return `${size.toFixed(1)} ${units[unitIndex]}`;
 }
 
-export function formatRelativeDate(date: Date): string {
+export function formatRelativeDate(date: Date | string | null | undefined): string {
+    if (!date) return "";
+    const parsed = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(parsed.getTime())) return "";
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
+    const diffMs = now.getTime() - parsed.getTime();
+    if (diffMs < 0) return "Just now";
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return "Today";
+    if (diffDays === 0) {
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        if (diffHours === 0) {
+            const diffMinutes = Math.floor(diffMs / (1000 * 60));
+            return diffMinutes < 1 ? "Just now" : `${diffMinutes}m ago`;
+        }
+        return `${diffHours}h ago`;
+    }
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.6.1] - Unreleased
 
+### Features & Enhancements
+
+- **Library List View Details (#159)** — Enhanced the library list view row cards with dedicated format badges, series and volume index annotations, compact progress bar visualization, and relative date indicators for last read and added dates, maintaining a fixed 96px virtualized row height.
+
 ### Bug Fixes
 
 - **EPUB Note Saving** — Fixed an issue where clicking "Add Note" from the highlight color picker triggered a delayed dismissal that cleared selection context, preventing the "Save" button from saving the note.

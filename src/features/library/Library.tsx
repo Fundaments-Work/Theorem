@@ -499,24 +499,29 @@ export const BookCard = memo(function BookCard({
                         )}
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                        <h3 className="text-sm text-[color:var(--color-text-primary)] line-clamp-2 break-words">
+                    <div className="flex-1 min-w-0 pr-2 sm:pr-4">
+                        <h3 className="text-sm font-medium text-[color:var(--color-text-primary)] line-clamp-1 break-words transition-colors group-hover:text-[color:var(--color-accent)]">
                             <HighlightMatch text={book.title} indices={titleHighlightIndices} />
                         </h3>
-                        <p className="text-xs text-[color:var(--color-text-secondary)] line-clamp-1">
-                            <HighlightMatch text={normalizeAuthor(book.author) || "Unknown Author"} indices={authorHighlightIndices} />
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                            <div
-                                className={cn(
-                                    "transition-colors pointer-events-none",
-                                    book.isFavorite
-                                        ? "text-[color:var(--color-accent)]"
-                                        : "opacity-0"
-                                )}
-                            >
-                                <Heart className={cn("w-3 h-3 fill-current")} />
-                            </div>
+                        <div className="flex items-center gap-1.5 text-xs text-[color:var(--color-text-secondary)] line-clamp-1 mt-0.5">
+                            <span className="truncate">
+                                <HighlightMatch text={normalizeAuthor(book.author) || "Unknown Author"} indices={authorHighlightIndices} />
+                            </span>
+                            {book.series && (
+                                <>
+                                    <span className="text-[color:var(--color-text-muted)] shrink-0">·</span>
+                                    <span className="text-[color:var(--color-text-muted)] italic truncate">
+                                        {book.series}{book.seriesIndex != null ? ` #${book.seriesIndex}` : ""}
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1.5">
+                            {book.isFavorite && (
+                                <div className="text-[color:var(--color-accent)] pointer-events-none">
+                                    <Heart className="w-3 h-3 fill-current" />
+                                </div>
+                            )}
                             {book.rating && (
                                 <div className="flex items-center gap-0.5">
                                     <Star className="w-3 h-3 text-[color:var(--color-warning)] fill-current" />
@@ -529,20 +534,67 @@ export const BookCard = memo(function BookCard({
                                     <span className="text-[var(--font-size-3xs)]">No file</span>
                                 </div>
                             )}
+                            <span className="sm:hidden border border-[var(--color-border)] bg-[var(--color-surface)] px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[color:var(--color-text-secondary)]">
+                                {book.format}
+                            </span>
                         </div>
-                        {/* Progress lives in the right-hand column at every width. It used to be
-                        duplicated as an `sm:hidden` line under the title, which
-                        made phone rows taller than desktop rows and broke the
-                        virtualizer's single row estimate — rows overlapped. */}
+                    </div>
+
+                    {/* Format and file size column (tablets & desktops) */}
+                    <div className="hidden sm:flex flex-col items-center justify-center w-16 shrink-0 text-center">
+                        <span className="border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[color:var(--color-text-secondary)]">
+                            {book.format}
+                        </span>
+                        {book.fileSize > 0 && (
+                            <span className="text-[10px] text-[color:var(--color-text-muted)] mt-1 font-mono">
+                                {formatFileSize(book.fileSize)}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Last read / date added column (desktops) */}
+                    <div className="hidden md:flex flex-col items-end justify-center w-28 shrink-0 text-right pr-2">
+                        {book.lastReadAt ? (
+                            <>
+                                <span className="text-xs font-mono text-[color:var(--color-text-secondary)]">
+                                    {formatRelativeDate(book.lastReadAt)}
+                                </span>
+                                <span className="text-[10px] text-[color:var(--color-text-muted)] mt-0.5">Last read</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="text-xs font-mono text-[color:var(--color-text-muted)]">
+                                    {formatRelativeDate(book.addedAt)}
+                                </span>
+                                <span className="text-[10px] text-[color:var(--color-text-muted)] mt-0.5">Added</span>
+                            </>
+                        )}
                     </div>
 
                     <div className="shrink-0 text-right">
                         {book.progress > 0 ? (
-                            <p className="text-sm text-[color:var(--color-text-secondary)]">
-                                {formatProgress(book.progress)}
-                            </p>
+                            <div className="flex flex-col items-end">
+                                <span className="font-mono text-xs text-[color:var(--color-text-primary)]">
+                                    {formatProgress(book.progress)}
+                                </span>
+                                <div className="w-16 sm:w-20 h-1 bg-[var(--color-surface-variant)] mt-1 overflow-hidden">
+                                    <div
+                                        className="h-full bg-[var(--color-accent)] transition-all"
+                                        style={{ width: `${Math.min(100, Math.max(0, Math.round(book.progress * 100)))}%` }}
+                                    />
+                                </div>
+                                <span className="text-[10px] text-[color:var(--color-text-muted)] font-mono md:hidden mt-1">
+                                    {book.lastReadAt ? formatRelativeDate(book.lastReadAt) : "Started"}
+                                </span>
+                            </div>
                         ) : (
-                            <p className="text-xs text-[color:var(--color-text-muted)]">Not started</p>
+                            <div className="flex flex-col items-end">
+                                <span className="text-xs text-[color:var(--color-text-muted)]">Not started</span>
+                                <div className="w-16 sm:w-20 h-1 bg-[var(--color-surface-variant)] mt-1 opacity-30" />
+                                <span className="text-[10px] text-[color:var(--color-text-muted)] font-mono md:hidden mt-1">
+                                    {book.addedAt ? formatRelativeDate(book.addedAt) : ""}
+                                </span>
+                            </div>
                         )}
                     </div>
                 </div>
