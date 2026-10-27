@@ -5,7 +5,7 @@
 //
 // Entry: __a11y(op, query) where op is "find" | "findAll" | "outline" | "text".
 /* eslint-disable */
-function __a11y(op, query) {
+function __a11y(op, query, withinElement) {
     const IMPLICIT = (el) => {
         const tag = el.tagName.toLowerCase();
         const type = (el.getAttribute("type") || "").toLowerCase();
@@ -99,8 +99,9 @@ function __a11y(op, query) {
         return new RegExp(pattern.source, pattern.flags).test(clean(value));
     };
     const scopeOf = (q) => {
-        if (!q.within) return document;
-        return q.within;
+        const scope = withinElement || q.within;
+        if (scope && typeof scope.querySelectorAll === "function") return scope;
+        return document;
     };
     const candidates = (q) => {
         const scope = scopeOf(q);

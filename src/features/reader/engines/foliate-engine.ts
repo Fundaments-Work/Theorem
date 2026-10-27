@@ -90,6 +90,7 @@ export class FoliateEngine {
     private selectionOverlayDocs: WeakSet<Document> = new WeakSet();
     private currentLocation: DocLocation | null = null;
     private sectionFractions: number[] = [];
+    private sectionPageCounts: Map<number, number> = new Map();
 
     private comicFlowController = new ComicFlowController();
     private format: BookFormat = 'epub';
@@ -388,6 +389,7 @@ export class FoliateEngine {
             );
 
             this.sectionFractions = this.view.getSectionFractions() || [];
+            this.sectionPageCounts.clear();
             
             if (this.sectionFractions.length === 0) {
                 
@@ -523,19 +525,63 @@ export class FoliateEngine {
             const renderer = this.view?.renderer as any;
             const isPaginator = renderer && typeof renderer.page === 'number' && typeof renderer.pages === 'number' && !renderer.scrolled;
             const isSingleSection = !detail.section || detail.section.total <= 1;
-            const isAtEnd = !!(renderer?.atEnd || (isPaginator && isSingleSection && renderer.page >= (renderer.pages > 2 ? renderer.pages - 2 : renderer.pages)));
+            const sectionIndex = typeof detail.index === 'number' ? detail.index
+                : typeof detail.section?.current === 'number' ? detail.section.current : 0;
+            const totalSections = detail.section?.total ?? this.book?.sections?.length ?? 1;
+            const isLastSection = sectionIndex >= totalSections - 1;
+            const sectionPages = isPaginator ? Math.max(1, renderer.pages > 2 ? renderer.pages - 2 : renderer.pages) : 1;
+            const isAtEnd = !!(renderer?.atEnd || (isPaginator && isLastSection && renderer.page >= sectionPages));
 
             let pageInfo: DocLocation['pageInfo'] | undefined;
-            if (isPaginator && isSingleSection) {
-                const totalPages = Math.max(1, renderer.pages > 2 ? renderer.pages - 2 : renderer.pages);
-                const currentPage = isAtEnd ? totalPages : Math.max(1, Math.min(totalPages, renderer.page ?? 1));
-                pageInfo = {
-                    currentPage,
-                    endPage: currentPage,
-                    totalPages,
-                    range: `${currentPage}`,
-                    isEstimated: false,
-                };
+            if (isPaginator) {
+                this.sectionPageCounts.set(sectionIndex, sectionPages);
+                if (isSingleSection) {
+                    const currentPage = isAtEnd ? sectionPages : Math.max(1, Math.min(sectionPages, renderer.page ?? 1));
+                    pageInfo = {
+                        currentPage,
+                        endPage: currentPage,
+                        totalPages: sectionPages,
+                        range: `${currentPage}`,
+                        isEstimated: false,
+                    };
+                } else {
+                    const sectionSizes: number[] = this.book?.sections?.map((s: any) =>
+                        (s.linear !== 'no' && s.size > 0 ? s.size : 0)
+                    ) || [];
+                    const currentSectionSize = sectionSizes[sectionIndex] || 0;
+                    const bytesPerPage = currentSectionSize > 0 ? currentSectionSize / sectionPages : 1500;
+
+                    let pagesBefore = 0;
+                    for (let i = 0; i < sectionIndex; i++) {
+                        if (this.sectionPageCounts.has(i)) {
+                            pagesBefore += this.sectionPageCounts.get(i)!;
+                        } else {
+                            const size_i = sectionSizes[i] || 0;
+                            pagesBefore += Math.max(1, Math.round(size_i / bytesPerPage));
+                        }
+                    }
+
+                    let pagesAfter = 0;
+                    for (let i = sectionIndex + 1; i < totalSections; i++) {
+                        if (this.sectionPageCounts.has(i)) {
+                            pagesAfter += this.sectionPageCounts.get(i)!;
+                        } else {
+                            const size_i = sectionSizes[i] || 0;
+                            pagesAfter += Math.max(1, Math.round(size_i / bytesPerPage));
+                        }
+                    }
+
+                    const rawCurrentPage = pagesBefore + Math.max(1, Math.min(sectionPages, renderer.page ?? 1));
+                    const totalPages = Math.max(rawCurrentPage, pagesBefore + sectionPages + pagesAfter);
+                    const currentPage = isAtEnd ? totalPages : rawCurrentPage;
+                    pageInfo = {
+                        currentPage,
+                        endPage: currentPage,
+                        totalPages,
+                        range: `${currentPage}`,
+                        isEstimated: true,
+                    };
+                }
             } else if (isComicFormat(this.format) && typeof detail.section?.current === 'number') {
                 const currentPage = detail.section.current + 1;
                 pageInfo = { currentPage, endPage: currentPage, totalPages: this.book.sections.length,
@@ -596,8 +642,6 @@ export class FoliateEngine {
 
             this.currentLocation = location;
 
-            const sectionIndex = typeof detail.index === 'number' ? detail.index
-                : typeof detail.section?.current === 'number' ? detail.section.current : -1;
             if (sectionIndex >= 0 && sectionIndex !== this._lastSectionIndex) {
                 this._lastSectionIndex = sectionIndex;
                 if (!this._navigationInProgress) {
@@ -2612,6 +2656,7 @@ export class FoliateEngine {
         this.annotations.clear();
         this.annotationLocations.clear();
         this.annotationSectionCache.clear();
+        this.sectionPageCounts.clear();
         if (this.book) {
             try { this.book.destroy?.(); } catch { /* ignore destroy errors */ }
         }

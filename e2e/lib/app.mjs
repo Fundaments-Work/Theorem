@@ -203,7 +203,18 @@ export class App {
     }
 
     a11y(op, query) {
-        return this.session.execute(`${A11Y}\nreturn __a11y(arguments[0], arguments[1]);`, op, serializeQuery(query));
+        const within = query?.within;
+        let q = query;
+        if (within) {
+            q = { ...query };
+            delete q.within;
+        }
+        return this.session.execute(
+            `${A11Y}\nreturn __a11y(arguments[0], arguments[1], arguments[2]);`,
+            op,
+            serializeQuery(q),
+            within || null,
+        );
     }
 
     /** Wait until `fn` returns a truthy value; returns it. */
