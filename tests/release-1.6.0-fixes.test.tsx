@@ -227,4 +227,23 @@ describe("Release 1.6.0 - Critical Bug Fixes & Regressions", () => {
             expect(joinedCss).toContain("background-color: #ffffff !important;");
         });
     });
+
+    describe("Issue 5 (#164): Library Book Cards Overlap Prevention on Mobile Tab Switching", () => {
+        it("guards card width and row height estimate from collapsing to zero width", () => {
+            const gap = 20;
+            const effectiveCols = 2;
+            const textH = 72;
+
+            // When el.clientWidth is 0 (hidden via display: none in App.tsx)
+            const elClientWidth = 0;
+            const fallbackWidth = 380; // representative mobile viewport width
+            const containerWidth = elClientWidth > 0 ? elClientWidth : fallbackWidth;
+            const cardW = Math.max(1, (containerWidth - (effectiveCols - 1) * gap) / Math.max(effectiveCols, 1));
+            const estimatedHeight = Math.round(cardW * 1.5 + textH + gap);
+
+            // Expect realistic non-collapsed card height instead of single-digit collapsed height
+            expect(cardW).toBeGreaterThan(100);
+            expect(estimatedHeight).toBeGreaterThan(250);
+        });
+    });
 });

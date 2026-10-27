@@ -484,6 +484,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
     }, [addToShelfBookId, collections]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
+    const currentRoute = useUIStore((state) => state.currentRoute);
     const isListView = viewMode === "list";
     const isCompactView = viewMode === "compact";
 
@@ -526,8 +527,15 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             if (w >= 640) return 3;
             return 2;
         };
-        setCols(compute());
-        const observer = new ResizeObserver(() => setCols(compute()));
+        let lastWidth = el.clientWidth;
+        const observer = new ResizeObserver(() => {
+            const currentWidth = el.clientWidth;
+            setCols(compute());
+            if (lastWidth === 0 && currentWidth > 0) {
+                rowVirtualizer.measure();
+            }
+            lastWidth = currentWidth;
+        });
         observer.observe(el);
         return () => observer.disconnect();
     }, [isListView, isCompactView]);
@@ -545,7 +553,10 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
         const el = scrollRef.current;
         if (!el) return 300;
         const gap = isCompactView ? 8 : 20;
-        const cardW = Math.max(1, (el.clientWidth - (effectiveCols - 1) * gap) / Math.max(effectiveCols, 1));
+        const containerWidth = el.clientWidth > 0
+            ? el.clientWidth
+            : (typeof window !== "undefined" && window.innerWidth > 0 ? window.innerWidth : 300);
+        const cardW = Math.max(1, (containerWidth - (effectiveCols - 1) * gap) / Math.max(effectiveCols, 1));
         const textH = isCompactView ? 0 : 72;
         return Math.round(cardW * 1.5 + textH + gap);
     }, [isListView, isCompactView, effectiveCols]);
@@ -564,8 +575,10 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
     });
 
     useLayoutEffect(() => {
-        rowVirtualizer.measure();
-    }, [rowVirtualizer, viewMode, effectiveCols, isCompactView, isListView]);
+        if (currentRoute === "shelves") {
+            rowVirtualizer.measure();
+        }
+    }, [currentRoute, rowVirtualizer, viewMode, effectiveCols, isCompactView, isListView]);
 
     const handleOpenBook = (book: Book) => {
         import("../../features/reader"); 

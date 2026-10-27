@@ -1209,6 +1209,7 @@ export function LibraryPage() {
 
     const setRoute = useUIStore((state) => state.setRoute);
     const searchQuery = useUIStore((state) => state.searchQuery);
+    const currentRoute = useUIStore((state) => state.currentRoute);
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
 
@@ -1628,8 +1629,15 @@ export function LibraryPage() {
             if (w >= 640) return 3;
             return 2;
         };
-        setObservedCols(compute());
-        const observer = new ResizeObserver(() => setObservedCols(compute()));
+        let lastWidth = el.clientWidth;
+        const observer = new ResizeObserver(() => {
+            const currentWidth = el.clientWidth;
+            setObservedCols(compute());
+            if (lastWidth === 0 && currentWidth > 0) {
+                rowVirtualizer.measure();
+            }
+            lastWidth = currentWidth;
+        });
         observer.observe(el);
         return () => observer.disconnect();
     }, [isListView, isCompactView]);
@@ -1645,7 +1653,10 @@ export function LibraryPage() {
         const el = scrollRef.current;
         if (!el) return 300;
         const gap = isCompactView ? 8 : 20;
-        const cardW = Math.max(1, (el.clientWidth - (effectiveCols - 1) * gap) / Math.max(effectiveCols, 1));
+        const containerWidth = el.clientWidth > 0
+            ? el.clientWidth
+            : (typeof window !== "undefined" && window.innerWidth > 0 ? window.innerWidth : 300);
+        const cardW = Math.max(1, (containerWidth - (effectiveCols - 1) * gap) / Math.max(effectiveCols, 1));
         const textH = isCompactView ? 0 : 72;
         return Math.round(cardW * 1.5 + textH + gap);
     }, [isListView, isCompactView, effectiveCols]);
@@ -1664,8 +1675,10 @@ export function LibraryPage() {
     });
 
     useLayoutEffect(() => {
-        rowVirtualizer.measure();
-    }, [rowVirtualizer, settings.libraryViewMode, effectiveCols, isCompactView, isListView]);
+        if (currentRoute === "library") {
+            rowVirtualizer.measure();
+        }
+    }, [currentRoute, rowVirtualizer, settings.libraryViewMode, effectiveCols, isCompactView, isListView]);
 
     useEffect(() => {
         if (!coversHydrated || isExtractingCovers || books.length === 0) {
