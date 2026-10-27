@@ -282,7 +282,8 @@
     color-scheme: light;
 }
 
-:root {
+:root,
+.theme-light {
     --reader-bg-override: #ffffff;
     --reader-fg-override: #1a1a1a;
     --reader-link-override: #1a1a1a;

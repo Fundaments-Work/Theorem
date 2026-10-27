@@ -412,7 +412,7 @@ function getContrastRatio(a: number, b: number): number {
     return (lighter + 0.05) / (darker + 0.05);
 }
 
-function resolveThemeColors(theme: ReaderTheme): Record<ThemeColorSlot, string> {
+export function resolveThemeColors(theme: ReaderTheme): Record<ThemeColorSlot, string> {
     if (!canResolveCssVariables()) {
         return FALLBACK_THEME_COLORS[theme];
     }

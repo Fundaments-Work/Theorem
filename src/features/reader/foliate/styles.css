@@ -8,32 +8,15 @@
     --hover: var(--color-overlay-subtle);
     --active: var(--color-overlay-medium);
     --border: var(--color-border);
-    --bg: var(--light-bg);
-    --fg: var(--light-fg);
+    --bg: var(--reader-bg);
+    --fg: var(--reader-fg);
 }
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --hover: var(--color-overlay-subtle);
-        --active: var(--color-overlay-medium);
-        --border: var(--color-border);
-        --bg: var(--dark-bg);
-        --fg: var(--dark-fg);
-    }
-}
-
 
 foliate-view {
     display: block;
     width: 100%;
     height: 100%;
     --overlayer-highlight-blend-mode: multiply;
-}
-
-@media (prefers-color-scheme: dark) {
-    foliate-view {
-        --overlayer-highlight-blend-mode: screen;
-    }
 }
 
 

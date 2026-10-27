@@ -102,7 +102,7 @@ function clampReaderZoomByFlow(zoom: number, flow: ReaderSettingsState['flow']):
     return Math.max(minZoom, Math.min(MAX_READER_ZOOM, Math.round(zoom)));
 }
 
-function resolvePdfTargetPage(target: string): number | null {
+export function resolvePdfTargetPage(target: string): number | null {
     const directMatch = target.match(/pdf:page:(\d+)/i);
     if (directMatch) {
         return Number(directMatch[1]);
@@ -838,11 +838,12 @@ const BookReaderPage = memo(function BookReaderPage() {
                 useUIStore.getState().setPendingReaderLocation(undefined);
             }
             if (book.format === 'pdf') {
-                const fallbackPage = resolvePdfTargetPage(pendingLocation || book.currentLocation || '') ?? 1;
+                const pendingTargetPage = pendingLocation ? resolvePdfTargetPage(pendingLocation) : null;
                 const savedPdfState = book.pdfViewState;
+                const fallbackPage = resolvePdfTargetPage(book.currentLocation || '') ?? 1;
                 const nextInitialPage = Math.max(
                     1,
-                    Math.floor(savedPdfState?.page ?? fallbackPage),
+                    Math.floor(pendingTargetPage ?? savedPdfState?.page ?? fallbackPage),
                 );
                 const nextInitialZoom = Math.max(
                     0.25,
@@ -2614,7 +2615,7 @@ const BookReaderPage = memo(function BookReaderPage() {
             setAnnotations(prev => [...prev, annotation]);
 
             try {
-                await readerRef.current?.addHighlight?.(selectedCfi, selectedText, pendingHighlightColor ?? 'yellow');
+                await readerRef.current?.addAnnotation?.(annotation);
             } catch (err) {
             }
         }

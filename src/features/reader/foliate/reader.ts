@@ -214,6 +214,9 @@ export function getCSS({
 }: ReaderStyle & { lineHeight?: number }): string[] {
     const spacing = lineHeight ?? 1.4;
     const activeClass = mediaActiveClass ?? 'media-active';
+    const isDark = theme.name === 'dark';
+    const activeColors = isDark ? theme.dark : theme.light;
+    const colorScheme = invert ? 'only light' : (isDark ? 'dark' : 'light');
     
     return [`
         @namespace epub "http://www.idpf.org/2007/ops";
@@ -226,26 +229,17 @@ export function getCSS({
         }
         @media screen {
             html {
-                color-scheme: ${invert ? 'only light' : 'light dark'};
-                color: ${theme.light.fg};
+                color-scheme: ${colorScheme};
+                color: ${activeColors.fg};
             }
             a:any-link {
-                color: ${theme.light.link};
+                color: ${activeColors.link};
                 text-decoration-color: light-dark(
                     color-mix(in srgb, currentColor 20%, transparent),
                     color-mix(in srgb, currentColor 40%, transparent));
                 text-underline-offset: .1em;
                 &:hover {
                     text-decoration-color: unset;
-                }
-            }
-            @media (prefers-color-scheme: dark) {
-                html {
-                    color: ${invert ? theme.dark.bg : theme.dark.fg};
-                    ${invert ? '-webkit-font-smoothing: antialiased;' : ''}
-                }
-                a:any-link {
-                    color: ${invert ? theme.dark.bg : theme.dark.link};
                 }
             }
             aside[epub|type~="footnote"] {
@@ -274,46 +268,25 @@ export function getCSS({
             tab-size: 2;
         }
     `, `
-        @media screen and (prefers-color-scheme: light) {
-            html, body {
-                color: ${theme.light.fg} !important;
-                background: none !important;
-            }
-            body * {
-                color: inherit !important;
-                border-color: currentColor !important;
-                background-color: ${theme.light.bg} !important;
-            }
-            a:any-link {
-                color: ${theme.light.link} !important;
-            }
-            svg, img {
-                background-color: transparent !important;
-                mix-blend-mode: multiply;
-            }
-            .${CSS.escape(activeClass)}, .${CSS.escape(activeClass)} * {
-                color: ${theme.light.fg} !important;
-                background: color-mix(in hsl, ${theme.light.fg}, ${theme.light.bg} 85%) !important;
-            }
+        html, body {
+            color: ${activeColors.fg} !important;
+            background: none !important;
         }
-        @media screen and (prefers-color-scheme: dark) {
-            ${invert ? '' : `
-            html, body {
-                color: ${theme.dark.fg} !important;
-                background: none !important;
-            }
-            body * {
-                color: inherit !important;
-                border-color: currentColor !important;
-                background-color: ${theme.dark.bg} !important;
-            }
-            a:any-link {
-                color: ${theme.dark.link} !important;
-            }
-            .${CSS.escape(activeClass)}, .${CSS.escape(activeClass)} * {
-                color: ${theme.dark.fg} !important;
-                background: color-mix(in hsl, ${theme.dark.fg}, ${theme.dark.bg} 75%) !important;
-            }`}
+        body * {
+            color: inherit !important;
+            border-color: currentColor !important;
+            background-color: ${activeColors.bg} !important;
+        }
+        a:any-link {
+            color: ${activeColors.link} !important;
+        }
+        svg, img {
+            background-color: transparent !important;
+            ${isDark ? '' : 'mix-blend-mode: multiply;'}
+        }
+        .${CSS.escape(activeClass)}, .${CSS.escape(activeClass)} * {
+            color: ${activeColors.fg} !important;
+            background: color-mix(in hsl, ${activeColors.fg}, ${activeColors.bg} ${isDark ? '75%' : '85%'}) !important;
         }
         p, li, blockquote, dd {
             line-height: ${spacing};

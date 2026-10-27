@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.6.0] - 2026-10-26
 
+### Bug Fixes
+
+- **EPUB Note Saving** — Fixed an issue where clicking "Add Note" from the highlight color picker triggered a delayed dismissal that cleared selection context, preventing the "Save" button from saving the note.
+- **Mobile Smart Shelf Modal Scrolling** — Restructured modal layout with an internal flex column container so the shelf form and conditions list scroll properly within the viewport on mobile devices.
+- **Workbench PDF Note Navigation** — Opening PDF documents from freehand notes and annotations in the Workbench now jumps directly to the target annotated page instead of defaulting to the first page.
+- **Light Theme Switching** — Ensured explicit light theme selections override OS system dark mode styles and color schemes, preventing unintended dark overrides in EPUB and app reader views.
+
 ### Smart Shelves & Sub-Shelves
 
 - **Smart Shelves (#132)** — Introduced dynamic, automated smart shelves powered by native filter rules (reading status, tags, series, authors, and formats). Smart shelves dynamically recompute membership on library changes without manual bookkeeping, preserving upstream layout and custom shelf sorting.

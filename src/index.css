@@ -466,10 +466,9 @@ foliate-view * {
 
 
 
-.theme-light,
-.theme-sepia,
-.theme-dark {
-    
+[data-reading-mode].theme-light,
+[data-reading-mode].theme-sepia,
+[data-reading-mode].theme-dark {
     background-color: var(--reader-bg);
 }
 

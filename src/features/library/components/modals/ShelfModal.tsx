@@ -63,8 +63,8 @@ export function ShelfModal({ isOpen, shelf, onClose, onSave, collections = [], i
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} size="md" showCloseButton={true}>
-            <ModalHeader title={isEditing ? "Edit Shelf" : "Create Shelf"} onClose={onClose} />
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+                <ModalHeader title={isEditing ? "Edit Shelf" : "Create Shelf"} onClose={onClose} />
                 <ModalBody>
                     <div className="space-y-4">
                         <div>

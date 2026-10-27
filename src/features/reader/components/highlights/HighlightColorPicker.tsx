@@ -610,7 +610,7 @@ export function HighlightColorPicker({
                                     <Copy className="w-4 h-4 mr-2" /> Copy
                                 </button>
                             )}
-                            <button onClick={() => { onAddNote(); handleClose(); }}
+                            <button onClick={onAddNote}
                                 className={PICKER_ACTION_BUTTON_CLASS}>
                                 <NotebookPen className="w-4 h-4 mr-2" /> Add Note
                             </button>

@@ -6,7 +6,7 @@ import { AnnouncementBar } from "./ui/AnnouncementBar";
 import { AppTitlebar, Sidebar, BottomNav } from "./shell";
 import { useUIStore, useLibraryStore, useSettingsStore } from "./core/store";
 import { isTauriDesktop, isTauri, isTauriMobile } from "./core/lib/env";
-import { initReaderStyles } from "./core/lib/design-tokens";
+import { applyAppTheme, initReaderStyles, watchSystemTheme } from "./core/lib/design-tokens";
 import { requestNotificationPermission } from "./core/lib/notifications";
 import { startSystemInsets } from "./core/lib/system-insets";
 import { importBooksIncremental, getBookFormat, isImportFormatSupported } from "./core/lib/import";
@@ -99,6 +99,15 @@ function App() {
         if (showShortcutsHelp) setShortcutsHelpLoaded(true);
     }, [showShortcutsHelp]);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
+    const appTheme = useSettingsStore((state) => state.settings.theme);
+    const accentColor = useSettingsStore((state) => state.settings.accentColor);
+
+    useEffect(() => {
+        if (appTheme !== "system") return;
+        return watchSystemTheme(() => {
+            applyAppTheme("system", accentColor);
+        });
+    }, [appTheme, accentColor]);
 
     useDailyGoalReminder();
 

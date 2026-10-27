@@ -79,6 +79,12 @@ export function NoteEditor({
     }, [isOpen]);
 
     useEffect(() => {
+        if (isOpen) {
+            setNote(initialNote);
+        }
+    }, [isOpen, initialNote]);
+
+    useEffect(() => {
         if (!isOpen) return;
 
         const handleClickOutside = (e: MouseEvent) => {
@@ -91,7 +97,12 @@ export function NoteEditor({
         document.addEventListener('mousedown', handleClickOutside, true);
         document.addEventListener('click', handleClickOutside, true);
         
-        const handleScroll = () => onClose();
+        const handleScroll = (e: Event) => {
+            if (editorRef.current && editorRef.current.contains(e.target as Node)) {
+                return;
+            }
+            onClose();
+        };
         window.addEventListener('scroll', handleScroll, true);
         
         return () => {
