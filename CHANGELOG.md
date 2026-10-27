@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2026-10-26
+## [1.6.1] - Unreleased
 
 ### Bug Fixes
 
@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workbench PDF Note Navigation** — Opening PDF documents from freehand notes and annotations in the Workbench now jumps directly to the target annotated page instead of defaulting to the first page.
 - **Light Theme Switching** — Ensured explicit light theme selections override OS system dark mode styles and color schemes, preventing unintended dark overrides in EPUB and app reader views.
 - **Mobile Library Card Overlap (#164)** — Fixed an issue where switching between tabs on mobile caused virtualized library book cards to collapse to zero height and stack on top of each other upon returning to the Library.
+
+## [1.6.0] - 2026-10-26
 
 ### Smart Shelves & Sub-Shelves
 

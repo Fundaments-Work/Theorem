@@ -8073,7 +8073,7 @@ dependencies = [
 
 [[package]]
 name = "theorem"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "audiopus",
  "audiopus_sys",
@@ -8152,7 +8152,7 @@ dependencies = [
 
 [[package]]
 name = "theorem-core"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "nucleo-matcher",
  "percent-encoding",
@@ -8166,7 +8166,7 @@ dependencies = [
 
 [[package]]
 name = "theorem-sync-core"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "hex",
  "qrcode",
