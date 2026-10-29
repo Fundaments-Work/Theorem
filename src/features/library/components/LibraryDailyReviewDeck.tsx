@@ -1,5 +1,5 @@
 import { memo, useState, useMemo, useCallback } from "react";
-import { X, Sparkles } from "lucide-react";
+import { X, Layers } from "lucide-react";
 import { useLibraryStore, useUIStore, useRssStore } from "../../../core/store";
 import { localDateKey } from "../../../core/lib/date-keys";
 import {
@@ -113,9 +113,9 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
         <div className="w-full max-w-[38rem] sm:max-w-[42rem] mx-auto mb-6 px-1 animate-fade-in">
             <div className="flex items-center justify-between gap-3 mb-2 px-1 select-none">
                 <div className="flex items-center gap-2 min-w-0">
-                    <Sparkles className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
+                    <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
                     <span className="font-serif text-sm font-medium text-[color:var(--color-text-primary)]">
-                        Daily Highlights
+                        Daily Review
                     </span>
                     <span className="text-[11px] text-[color:var(--color-text-muted)] font-mono">
                         {dailyCards.length} {dailyCards.length === 1 ? "card" : "cards"}
@@ -138,7 +138,7 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
                 onComplete={handleComplete}
                 onGoToSource={handleGoToSource}
                 onClose={handleDismiss}
-                completionTitle="Daily Highlights Complete"
+                completionTitle="Daily Review Complete"
                 completionDescription={`You reviewed all ${dailyCards.length} daily highlights. A fresh deck will be curated tomorrow.`}
                 completionActionLabel="Done"
                 onCompletionAction={handleDismiss}

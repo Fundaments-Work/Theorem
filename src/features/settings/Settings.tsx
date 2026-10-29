@@ -893,7 +893,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         </SettingRow>
 
                         <SettingRow
-                            label="Daily Highlights"
+                            label="Daily Review"
                             description="Review a curated deck of daily highlights at the top of your library"
                         >
                             <Toggle

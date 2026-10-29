@@ -51,7 +51,7 @@ describe("Library Daily Highlights Deck & Refocused Workbench", () => {
     ];
 
     describe("LibraryDailyReviewDeck", () => {
-        it("renders interactive Daily Highlights deck when enabled with unreviewed cards", () => {
+        it("renders interactive Daily Review deck when enabled with unreviewed cards", () => {
             useLibraryStore.setState({
                 books: [mockBook],
                 annotations: mockAnnotations,
@@ -66,7 +66,7 @@ describe("Library Daily Highlights Deck & Refocused Workbench", () => {
                 />,
             );
 
-            expect(root.textContent).toContain("Daily Highlights");
+            expect(root.textContent).toContain("Daily Review");
             expect(root.textContent).toContain("2 cards");
             expect(root.textContent).toContain("True happiness is to enjoy the present.");
             expect(root.textContent).toContain("Letters from a Stoic");
