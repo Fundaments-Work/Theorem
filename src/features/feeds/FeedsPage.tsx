@@ -13,6 +13,8 @@ import {
     Bookmark, BookmarkCheck, Star,
 } from "lucide-react";
 import { AddFeedModal } from "./AddFeedModal";
+import { SwipeableArticleItem } from "./components/SwipeableArticleItem";
+import { toast } from "sonner";
 import { ContextMenu } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
 import { sanitizeArticleHtml } from "../reader/article-reader/utils";
@@ -488,6 +490,7 @@ export function FeedsPage() {
     const addFeed = useRssStore((s) => s.addFeed);
     const removeFeed = useRssStore((s) => s.removeFeed);
     const deleteArticle = useRssStore((s) => s.deleteArticle);
+    const restoreArticle = useRssStore((s) => s.restoreArticle);
     const toggleArticleRead = useRssStore((s) => s.toggleArticleRead);
     const toggleArticleFavorite = useRssStore((s) => s.toggleArticleFavorite);
     const toggleArticleSaved = useRssStore((s) => s.toggleArticleSaved);
@@ -518,6 +521,19 @@ export function FeedsPage() {
     const showTouchActions = useTouchVisibleActions();
     const feedListScrollRef = useRef<HTMLDivElement | null>(null);
     const articleListScrollRef = useRef<HTMLDivElement | null>(null);
+
+    const handleDeleteArticleWithUndo = useCallback((article: RssArticle) => {
+        deleteArticle(article.id);
+        toast.success("Article deleted", {
+            action: {
+                label: "Undo",
+                onClick: () => {
+                    restoreArticle(article);
+                    toast.info("Article restored");
+                },
+            },
+        });
+    }, [deleteArticle, restoreArticle]);
 
     const selectedFeed = selectedFeedId && !selectedFeedId.startsWith("__")
         ? feeds.find(f => f.id === selectedFeedId)
@@ -953,15 +969,24 @@ export function FeedsPage() {
                                                 className="absolute left-0 top-0 w-full pb-4"
                                                 style={style}
                                             >
-                                                <ArticleCard
-                                                    article={article}
-                                                    feedTitle={!selectedFeedId || selectedFeedId.startsWith("__") ? feedTitleById.get(article.feedId) : undefined}
-                                                    onRead={() => openArticleInReader(article)}
-                                                    onDelete={deleteArticle}
-                                                    onToggleRead={toggleArticleRead}
-                                                    onToggleFavorite={toggleArticleFavorite}
-                                                    onToggleSaved={toggleArticleSaved}
-                                                />
+                                                <SwipeableArticleItem
+                                                    onSwipeRight={() => toggleArticleRead(article.id)}
+                                                    rightLabel={article.isRead ? "Mark Unread" : "Mark Read"}
+                                                    rightIcon={article.isRead ? <EyeOff className="w-4 h-4" /> : <CheckCheck className="w-4 h-4" />}
+                                                    onSwipeLeft={() => handleDeleteArticleWithUndo(article)}
+                                                    leftLabel="Delete"
+                                                    leftIcon={<Trash2 className="w-4 h-4" />}
+                                                >
+                                                    <ArticleCard
+                                                        article={article}
+                                                        feedTitle={!selectedFeedId || selectedFeedId.startsWith("__") ? feedTitleById.get(article.feedId) : undefined}
+                                                        onRead={() => openArticleInReader(article)}
+                                                        onDelete={deleteArticle}
+                                                        onToggleRead={toggleArticleRead}
+                                                        onToggleFavorite={toggleArticleFavorite}
+                                                        onToggleSaved={toggleArticleSaved}
+                                                    />
+                                                </SwipeableArticleItem>
                                             </div>
                                         );
                                     })}

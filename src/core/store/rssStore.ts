@@ -259,6 +259,7 @@ interface RssStore {
     addFeed: (url: string) => Promise<RssFeed | null>;
     removeFeed: (feedId: string) => void;
     deleteArticle: (articleId: string) => void;
+    restoreArticle: (article: RssArticle) => void;
     refreshFeed: (feedId: string) => Promise<void>;
     refreshAll: () => Promise<void>;
     markArticleRead: (articleId: string) => void;
@@ -378,6 +379,22 @@ export const useRssStore = create<RssStore>()(
                         ...state.deletionTombstones,
                         { entityId: articleId, entityType: "rss_article", deletedAt: now },
                     ],
+                }));
+                scheduleMutationSync();
+            },
+
+            restoreArticle: (article: RssArticle) => {
+                set(state => {
+                    if (state.articles.some(a => a.id === article.id)) return state;
+                    return { articles: [article, ...state.articles] };
+                });
+                if (isTauri()) {
+                    void persistRss("restore article", ({ sqliteSaveRssArticle }) =>
+                        sqliteSaveRssArticle(rssArticleRow(article), article.content, article.fullContent)
+                    );
+                }
+                useLibraryStore.setState(state => ({
+                    deletionTombstones: state.deletionTombstones.filter(t => t.entityId !== article.id),
                 }));
                 scheduleMutationSync();
             },
