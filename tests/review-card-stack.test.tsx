@@ -316,4 +316,88 @@ describe("ReviewCardStack", () => {
         });
         expect(onNextDeck).toHaveBeenCalledTimes(1);
     });
+
+    it("renders bookmark card cleanly without redundant quote bar or generic position chips", () => {
+        const bookmarkCard: Annotation = {
+            id: "bookmark-1",
+            bookId: "book-1",
+            type: "bookmark",
+            location: "loc-bm-1",
+            chapterTitle: "Side by Side",
+            selectedText: "Side by Side", // often duplicated in bookmark objects
+            createdAt: new Date(),
+        };
+
+        const onGoToSource = vi.fn();
+        const root = render(
+            <ReviewCardStack
+                cards={[bookmarkCard]}
+                sources={mockSources}
+                onGoToSource={onGoToSource}
+                onClose={vi.fn()}
+            />
+        );
+
+        // Renders title and jump button
+        expect(root.textContent).toContain("Side by Side");
+        expect(root.textContent).toContain("Jump to Bookmark");
+
+        // Does NOT render redundant quote block or generic placeholder chip
+        expect(root.querySelector("blockquote")).toBeNull();
+        expect(root.textContent).not.toContain("Saved reading location");
+        expect(root.textContent).not.toContain("Bookmarked position");
+
+        // Clicking Jump to Bookmark triggers navigation
+        const jumpBtn = root.querySelector("button") as HTMLButtonElement;
+        expect(jumpBtn).toBeDefined();
+        act(() => {
+            jumpBtn.click();
+        });
+        expect(onGoToSource).toHaveBeenCalledWith("book-1", "loc-bm-1");
+    });
+
+    it("renders multiple stepped background cards like a proper deck when cards are available", () => {
+        const fiveCards: Annotation[] = Array.from({ length: 5 }, (_, i) => ({
+            id: `card-${i + 1}`,
+            bookId: "book-1",
+            type: "highlight",
+            location: `loc-${i + 1}`,
+            selectedText: `Highlight text ${i + 1}`,
+            createdAt: new Date(),
+        }));
+
+        const root = render(
+            <ReviewCardStack
+                cards={fiveCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+            />
+        );
+
+        // Check for stepped deck cards underneath the top card
+        const deckLayers = root.querySelectorAll(".absolute.inset-0.rounded-2xl");
+        // We expect up to 4 background cards (Card 1, 2, 3, 4) layered beneath the active top card
+        expect(deckLayers.length).toBe(4);
+
+        // Verify bottom center transformOrigin for physical deck stacking
+        for (const layer of Array.from(deckLayers)) {
+            const htmlLayer = layer as HTMLElement;
+            expect(htmlLayer.style.transformOrigin).toBe("bottom center");
+        }
+    });
+
+    it("does not render decorative quote watermark illustration behind text", () => {
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+            />
+        );
+
+        // The text-8xl quote watermark illustration should be completely removed
+        expect(root.querySelector(".text-8xl")).toBeNull();
+    });
 });
+
+

@@ -125,15 +125,10 @@ const BookmarkCard = memo(function BookmarkCard({
                     )}
                 </div>
 
-                {/* Badge row */}
+                {/* Meta row: clean date and optional position without chip */}
                 <div className="flex items-center gap-2 mt-1.5 min-w-0">
-                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[color:var(--color-text-secondary)] px-2 py-0.5 rounded bg-[var(--color-surface-muted)] border border-[var(--color-border-subtle)] shrink-0">
-                        <Bookmark className="w-2.5 h-2.5 text-[color:var(--color-accent)] fill-current" />
-                        <span>{position || "Bookmarked position"}</span>
-                    </span>
-
                     <span className="font-mono text-[10px] text-[color:var(--color-text-muted)] shrink-0">
-                        {dateLabel}
+                        {position ? `${position} · ${dateLabel}` : dateLabel}
                     </span>
 
                     {bookmark.noteContent && (
