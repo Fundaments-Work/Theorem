@@ -10,7 +10,7 @@ import {
     AlertCircle,
     LayoutTemplate, ArrowLeft,
     ExternalLink, BookOpen, CheckCheck, EyeOff, Link2,
-    Bookmark, BookmarkCheck, Star,
+    Bookmark, BookmarkCheck, Heart,
 } from "lucide-react";
 import { AddFeedModal } from "./AddFeedModal";
 import { SwipeableArticleItem } from "./components/SwipeableArticleItem";
@@ -103,8 +103,8 @@ export function FeedListItem({
             className={cn(
                 "group relative flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors",
                 isSelected
-                    ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
-                    : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                    ? "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                    : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
                 "active:bg-[var(--color-surface-muted)]"
             )}
         >
@@ -112,7 +112,7 @@ export function FeedListItem({
             <div className={cn(
                 "w-6 h-6 flex items-center justify-center flex-shrink-0 overlay",
                 isSelected
-                    ? "text-[color:var(--color-accent)]"
+                    ? "md:text-[color:var(--color-accent)] text-[color:var(--color-text-muted)]"
                     : "text-[color:var(--color-text-muted)]",
             )}>
                 {feed.iconUrl ? (
@@ -233,7 +233,7 @@ function ArticleCard({
         ...(onToggleFavorite ? [{
             id: "toggle-favorite",
             label: article.isFavorite ? "Remove from Favorites" : "Add to Favorites",
-            icon: <Star className={cn("w-4 h-4", article.isFavorite && "fill-current text-[color:var(--color-accent)]")} />,
+            icon: <Heart className={cn("w-4 h-4", article.isFavorite && "fill-current text-[color:var(--color-accent)]")} />,
             onClick: () => onToggleFavorite(article.id),
         }] as ContextMenuItem[] : []),
         ...(article.url ? [{
@@ -323,7 +323,7 @@ function ArticleCard({
                                 <>
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
                                     <span className="text-[10px] text-[color:var(--color-accent)] flex items-center gap-1">
-                                        <Star className="w-3 h-3 fill-current" />
+                                        <Heart className="w-3 h-3 fill-current" />
                                         Favorite
                                     </span>
                                 </>
@@ -363,7 +363,7 @@ function ArticleCard({
                             </div>
                         )}
 
-                        <div className="flex items-center gap-2 mt-3">
+                        <div className="flex items-center gap-3.5 mt-3">
                             {article.url && (
                                 <button
                                     type="button"
@@ -371,7 +371,7 @@ function ArticleCard({
                                         e.stopPropagation();
                                         void openExternalUrl(article.url);
                                     }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors"
+                                    className="inline-flex items-center gap-1.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors cursor-pointer"
                                     title="Open original website in browser"
                                 >
                                     <ExternalLink className="w-3.5 h-3.5" />
@@ -387,10 +387,10 @@ function ArticleCard({
                                         onToggleSaved(article.id);
                                     }}
                                     className={cn(
-                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors",
+                                        "inline-flex items-center gap-1.5 py-1 text-xs transition-colors cursor-pointer",
                                         article.isSaved
-                                            ? "text-[color:var(--color-accent)] bg-[var(--color-accent)]/10"
-                                            : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                                            ? "text-[color:var(--color-accent)]"
+                                            : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)]"
                                     )}
                                     title={article.isSaved ? "Saved for offline reading" : "Save for offline"}
                                 >
@@ -407,14 +407,15 @@ function ArticleCard({
                                         onToggleFavorite(article.id);
                                     }}
                                     className={cn(
-                                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors",
+                                        "inline-flex items-center justify-center p-1 text-xs transition-colors cursor-pointer",
                                         article.isFavorite
-                                            ? "text-[color:var(--color-accent)] bg-[color:color-mix(in_srgb,var(--color-accent)_10%,transparent)]"
-                                            : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
+                                            ? "text-[color:var(--color-accent)]"
+                                            : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)]"
                                     )}
                                     title={article.isFavorite ? "Remove favorite" : "Add to favorites"}
+                                    aria-label={article.isFavorite ? "Remove favorite" : "Add to favorites"}
                                 >
-                                    <Star className={cn("w-3.5 h-3.5", article.isFavorite && "fill-current")} />
+                                    <Heart className={cn("w-3.5 h-3.5", article.isFavorite && "fill-current")} />
                                 </button>
                             )}
                         </div>
@@ -782,17 +783,15 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed(null)}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
-                                                    selectedFeedId === null
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
-                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === null && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className={cn(
                                                         "w-6 h-6 flex items-center justify-center transition-colors",
                                                         selectedFeedId === null
-                                                            ? "text-[color:var(--color-accent)]"
+                                                            ? "md:text-[color:var(--color-accent)] text-[color:var(--color-text-muted)]"
                                                             : "text-[color:var(--color-text-muted)]",
                                                     )}>
                                                         <LayoutTemplate className="w-4 h-4" />
@@ -805,20 +804,18 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed("__saved__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
-                                                    selectedFeedId === "__saved__"
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
-                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__saved__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-6 h-6 flex items-center justify-center">
-                                                        <Bookmark className={cn("w-4 h-4", selectedFeedId === "__saved__" ? "fill-current text-[color:var(--color-accent)]" : "text-[color:var(--color-text-muted)]")} />
+                                                        <Bookmark className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__saved__" && "md:fill-current md:text-[color:var(--color-accent)]")} />
                                                     </div>
                                                     <span className="text-sm">Saved Offline</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-accent)]/15 text-[color:var(--color-accent)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -827,20 +824,18 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed("__favorites__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
-                                                    selectedFeedId === "__favorites__"
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
-                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__favorites__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-6 h-6 flex items-center justify-center">
-                                                        <Star className={cn("w-4 h-4 text-[color:var(--color-accent)]", selectedFeedId === "__favorites__" && "fill-current")} />
+                                                        <Heart className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__favorites__" && "md:text-[color:var(--color-accent)] md:fill-current")} />
                                                     </div>
                                                     <span className="text-sm">Favorites</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[color:color-mix(in_srgb,var(--color-accent)_15%,transparent)] text-[color:var(--color-accent)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -849,15 +844,13 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed("__unread__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors",
-                                                    selectedFeedId === "__unread__"
-                                                        ? "bg-[var(--color-accent)]/10 text-[color:var(--color-accent)]"
-                                                        : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__unread__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-6 h-6 flex items-center justify-center">
-                                                        <EyeOff className="w-4 h-4 text-[color:var(--color-text-muted)]" />
+                                                        <EyeOff className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__unread__" && "md:text-[color:var(--color-accent)]")} />
                                                     </div>
                                                     <span className="text-sm">Unread</span>
                                                 </div>
@@ -916,16 +909,14 @@ export function FeedsPage() {
                     </div>
 
                     <button
+                        type="button"
                         onClick={handleRefreshHeader}
                         disabled={isRefreshingCurrent || isLoading}
-                        className={cn(
-                            "ui-btn shrink-0",
-                            "disabled:opacity-50",
-                        )}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)] transition-colors disabled:opacity-50 touch-manipulation cursor-pointer"
                         title={selectedFeed ? `Refresh ${selectedFeed.title}` : "Refresh all feeds"}
+                        aria-label={selectedFeed ? `Refresh ${selectedFeed.title}` : "Refresh all feeds"}
                     >
                         <RefreshCw className={cn("w-4 h-4", (isRefreshingCurrent || isLoading) && "animate-spin")} />
-                        <span className="hidden sm:inline">Refresh</span>
                     </button>
                 </header>
 
