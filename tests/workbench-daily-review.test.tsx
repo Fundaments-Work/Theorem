@@ -143,4 +143,28 @@ describe("Workbench in-page Daily Review & Card View", () => {
         // ReviewCardStack is replaced with list view
         expect(root.textContent).not.toContain("Deck 1 of 1");
     });
+
+    it("renders sort dropdown with expected sorting options", () => {
+        window.sessionStorage.setItem("theorem:daily-review-dismissed-session", "true");
+        useLibraryStore.setState({
+            books: [mockBook],
+            annotations: mockAnnotations,
+        });
+
+        const root = render(<AnnotationsPage />);
+
+        // The sort dropdown should be present in the workbench toolbar
+        const sortButton = root.querySelector('button[aria-haspopup="menu"]') as HTMLButtonElement;
+        expect(sortButton).not.toBeNull();
+        expect(sortButton.textContent).toContain("Newest First");
+
+        // Open dropdown options via pointerdown or Enter key
+        act(() => {
+            sortButton.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        });
+
+        expect(document.body.textContent).toContain("Newest First");
+        expect(document.body.textContent).toContain("Oldest First");
+        expect(document.body.textContent).toContain("By Book");
+    });
 });

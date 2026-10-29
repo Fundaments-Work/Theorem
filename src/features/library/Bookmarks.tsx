@@ -12,8 +12,7 @@ import {
     type ResolvedAnnotationSource,
 } from "../../core/lib/annotation-source";
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
-import { Bookmark } from "lucide-react";
-import { cn } from "../../core/lib/utils";
+import { Bookmark, Layers, List } from "lucide-react";
 import { ReviewCardStack } from "./components/ReviewCardStack";
 import { AnnotationListCard } from "./components/AnnotationListCard";
 import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
@@ -293,7 +292,6 @@ export function BookmarksPanel({
         <>
             <PageHeader
                 title="Workbench"
-                actionsClassName="w-full sm:w-auto ml-0 sm:ml-auto justify-between sm:justify-end"
                 description={
                     <span>
                         {filteredBookmarks.length} {filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across {bookTotal} {bookTotal === 1 ? "source" : "sources"}
@@ -312,44 +310,30 @@ export function BookmarksPanel({
                         )}
                     </span>
                 }
-            >
-                <div className="flex items-center gap-2 shrink-0">
-                    <div role="group" aria-label="View mode" className="inline-flex h-8 shrink-0 items-center border border-[var(--color-border)] bg-[var(--color-surface)]">
-                        <button
-                            type="button"
-                            aria-pressed={viewMode === "list"}
-                            onClick={() => setViewMode("list")}
-                            className={cn(
-                                "h-full px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
-                                viewMode === "list"
-                                    ? "ui-selected"
-                                    : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                            )}
-                            aria-label="List view"
-                        >
-                            List
-                        </button>
-                        <button
-                            type="button"
-                            aria-pressed={viewMode === "cards"}
-                            onClick={() => setViewMode("cards")}
-                            className={cn(
-                                "h-full border-l border-[var(--color-border)] px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
-                                viewMode === "cards"
-                                    ? "ui-selected"
-                                    : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                            )}
-                            aria-label="Cards view"
-                        >
-                            Cards
-                        </button>
-                    </div>
+            />
 
+            <div className="mb-4 sm:mb-6">
+                {tabs}
+            </div>
+
+            <div className="mb-6 flex items-center justify-between gap-3">
+                <button
+                    type="button"
+                    onClick={() => setViewMode((prev) => (prev === "list" ? "cards" : "list"))}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation ui-btn"
+                    title={viewMode === "list" ? "Cards view" : "List view"}
+                    aria-label={viewMode === "list" ? "Cards view" : "List view"}
+                >
+                    {viewMode === "list" ? <Layers className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                </button>
+
+                <div className="shrink-0">
                     <Dropdown
                         value={sortBy}
                         onChange={(value) => setSortBy(value as typeof sortBy)}
                         size="sm"
-                        className="h-8 shrink-0 !w-auto min-w-[100px] max-w-[140px] sm:max-w-none !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
+                        align="right"
+                        className="h-8 !w-auto min-w-[115px] sm:min-w-[130px] !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
                         options={[
                             { value: "newest", label: "Newest First" },
                             { value: "oldest", label: "Oldest First" },
@@ -357,10 +341,6 @@ export function BookmarksPanel({
                         ]}
                     />
                 </div>
-            </PageHeader>
-
-            <div className="mb-6">
-                {tabs}
             </div>
 
             <ConfirmDialog

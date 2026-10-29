@@ -85,9 +85,10 @@ export function Dropdown<T extends string = string>({
                     side={openUp ? "top" : "bottom"}
                     align={align === "right" ? "end" : "start"}
                     sideOffset={4}
+                    collisionPadding={16}
                     className={cn(
                         "z-[calc(var(--z-dropdown)+1)] min-w-[--radix-dropdown-menu-trigger-width]",
-                        "border border-[var(--color-border)] bg-[var(--color-surface)]",
+                        "border border-[var(--color-border)] bg-[var(--color-surface)] shadow-md",
                         "py-1 max-h-60 overflow-y-auto",
                         dropdownClassName,
                     )}

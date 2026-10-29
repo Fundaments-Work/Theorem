@@ -1,7 +1,6 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "../../core/lib/utils";
 import { joinFields } from "../../core/lib/search/native-rank";
 import { useFuzzyRank } from "../../core/lib/search/useFuzzyRank";
 import { sanitizeHtmlForDisplay } from "../../core/lib/sanitize";
@@ -23,6 +22,8 @@ import {
     StickyNote,
     Trash2,
     X,
+    Layers,
+    List,
 } from "lucide-react";
 import { ReviewCardStack } from "./components/ReviewCardStack";
 import { getDailyReviewStatus, selectDailyReviewCards, markDailyReviewCompleted } from "../../core/lib/daily-review";
@@ -638,7 +639,6 @@ export function AnnotationsPage() {
                 <>
                     <PageHeader
                         title="Workbench"
-                        actionsClassName="w-full sm:w-auto ml-0 sm:ml-auto justify-between sm:justify-end"
                         description={
                             <span>
                                 {workbenchSummary(activeFilter, filteredAnnotations, filteredVocabularyTerms.length)}
@@ -657,66 +657,7 @@ export function AnnotationsPage() {
                                 )}
                             </span>
                         }
-                    >
-                        <div className="flex items-center gap-2 shrink-0">
-                            <div role="group" aria-label="View mode" className="inline-flex h-8 shrink-0 items-center border border-[var(--color-border)] bg-[var(--color-surface)]">
-                                <button
-                                    type="button"
-                                    aria-pressed={viewMode === "list"}
-                                    onClick={() => setViewMode("list")}
-                                    className={cn(
-                                        "h-full px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
-                                        viewMode === "list"
-                                            ? "ui-selected"
-                                            : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                                    )}
-                                    aria-label="List view"
-                                >
-                                    List
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-pressed={viewMode === "cards"}
-                                    onClick={() => setViewMode("cards")}
-                                    className={cn(
-                                        "h-full border-l border-[var(--color-border)] px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
-                                        viewMode === "cards"
-                                            ? "ui-selected"
-                                            : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                                    )}
-                                    aria-label="Cards view"
-                                >
-                                    Cards
-                                </button>
-                            </div>
-
-                            <Dropdown
-                                value={activeFilter === "vocabulary" ? vocabSortBy : sortBy}
-                                onChange={(value) => {
-                                    if (activeFilter === "vocabulary") {
-                                        setVocabSortBy(value as typeof vocabSortBy);
-                                    } else {
-                                        setSortBy(value as typeof sortBy);
-                                    }
-                                }}
-                                size="sm"
-                                className="h-8 shrink-0 !w-auto min-w-[100px] max-w-[140px] sm:max-w-none !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
-                                options={
-                                    activeFilter === "vocabulary"
-                                        ? [
-                                              { value: "alpha", label: "Alphabetical" },
-                                              { value: "newest", label: "Newest First" },
-                                              { value: "oldest", label: "Oldest First" },
-                                          ]
-                                        : [
-                                              { value: "newest", label: "Newest First" },
-                                              { value: "oldest", label: "Oldest First" },
-                                              { value: "book", label: "By Book" },
-                                          ]
-                                }
-                            />
-                        </div>
-                    </PageHeader>
+                    />
 
                     {currentBookId && (
                         <div className="mb-6 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px]">
@@ -733,8 +674,49 @@ export function AnnotationsPage() {
                         </div>
                     )}
 
-                    <div className="mb-6">
+                    <div className="mb-4 sm:mb-6">
                         {tabs}
+                    </div>
+
+                    <div className="mb-6 flex items-center justify-between gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode((prev) => (prev === "list" ? "cards" : "list"))}
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation ui-btn"
+                            title={viewMode === "list" ? "Cards view" : "List view"}
+                            aria-label={viewMode === "list" ? "Cards view" : "List view"}
+                        >
+                            {viewMode === "list" ? <Layers className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                        </button>
+
+                        <div className="shrink-0">
+                            <Dropdown
+                                value={activeFilter === "vocabulary" ? vocabSortBy : sortBy}
+                                onChange={(value) => {
+                                    if (activeFilter === "vocabulary") {
+                                        setVocabSortBy(value as typeof vocabSortBy);
+                                    } else {
+                                        setSortBy(value as typeof sortBy);
+                                    }
+                                }}
+                                size="sm"
+                                align="right"
+                                className="h-8 !w-auto min-w-[115px] sm:min-w-[130px] !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
+                                options={
+                                    activeFilter === "vocabulary"
+                                        ? [
+                                              { value: "alpha", label: "Alphabetical" },
+                                              { value: "newest", label: "Newest First" },
+                                              { value: "oldest", label: "Oldest First" },
+                                          ]
+                                        : [
+                                              { value: "newest", label: "Newest First" },
+                                              { value: "oldest", label: "Oldest First" },
+                                              { value: "book", label: "By Book" },
+                                          ]
+                                }
+                            />
+                        </div>
                     </div>
 
                     {activeFilter === "vocabulary" ? (
