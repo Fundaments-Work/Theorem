@@ -172,7 +172,7 @@ describe("Library Daily Highlights Deck & Refocused Workbench", () => {
             // Now renders ReviewCardStack with deck title
             expect(root.textContent).toContain("Deck 1 of 1: Letters from a Stoic");
             expect(root.textContent).toContain("Book Deck");
-            expect(root.textContent).toContain("1 of 2");
+            expect(root.textContent).toContain("Letters from a Stoic");
             expect(root.textContent).toContain("True happiness is to enjoy the present.");
 
             // Switch back to list mode

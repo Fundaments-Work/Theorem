@@ -1,47 +1,83 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
-    ChevronLeft, ChevronRight,
     RotateCcw, CheckCircle2, ChevronsLeft, ChevronsRight,
-    ArrowUpRight, Check, StickyNote
+    Check, StickyNote, Bookmark, BookOpen
 } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
+import { bookmarkPositionLabel } from "./bookmark-position";
+
 interface CardColorTheme {
-    border: string;
-    bgWash: string;
+    border: string;       // inner card face border (same color, ~0.26 opacity)
+    borderSubtle: string; // divider line (same color, ~0.15 opacity)
+    borderOuter: string;  // outer card border (same color, ~0.20 opacity)
+    bgWash: string;       // inner card background wash (~0.08 opacity)
+    accent: string;       // accent color for icons/ribbons
 }
 
 const CARD_PALETTES: CardColorTheme[] = [
     {
-        border: "#e06c53", // Terracotta
+        // Terracotta
+        border: "rgba(224, 108, 83, 0.28)",
+        borderSubtle: "rgba(224, 108, 83, 0.16)",
+        borderOuter: "rgba(224, 108, 83, 0.22)",
         bgWash: "rgba(224, 108, 83, 0.08)",
+        accent: "#e06c53",
     },
     {
-        border: "#4e9b67", // Sage Green
+        // Sage Green
+        border: "rgba(78, 155, 103, 0.28)",
+        borderSubtle: "rgba(78, 155, 103, 0.16)",
+        borderOuter: "rgba(78, 155, 103, 0.22)",
         bgWash: "rgba(78, 155, 103, 0.08)",
+        accent: "#4e9b67",
     },
     {
-        border: "#4f78cf", // Cobalt Blue
+        // Cobalt Blue
+        border: "rgba(79, 120, 207, 0.28)",
+        borderSubtle: "rgba(79, 120, 207, 0.16)",
+        borderOuter: "rgba(79, 120, 207, 0.22)",
         bgWash: "rgba(79, 120, 207, 0.08)",
+        accent: "#4f78cf",
     },
     {
-        border: "#d9822b", // Warm Ochre
+        // Warm Ochre
+        border: "rgba(217, 130, 43, 0.28)",
+        borderSubtle: "rgba(217, 130, 43, 0.16)",
+        borderOuter: "rgba(217, 130, 43, 0.22)",
         bgWash: "rgba(217, 130, 43, 0.08)",
+        accent: "#d9822b",
     },
     {
-        border: "#9b59b6", // Amethyst / Mauve
+        // Amethyst / Mauve
+        border: "rgba(155, 89, 182, 0.28)",
+        borderSubtle: "rgba(155, 89, 182, 0.16)",
+        borderOuter: "rgba(155, 89, 182, 0.22)",
         bgWash: "rgba(155, 89, 182, 0.08)",
+        accent: "#9b59b6",
     },
     {
-        border: "#2f9e99", // Teal
+        // Teal
+        border: "rgba(47, 158, 153, 0.28)",
+        borderSubtle: "rgba(47, 158, 153, 0.16)",
+        borderOuter: "rgba(47, 158, 153, 0.22)",
         bgWash: "rgba(47, 158, 153, 0.08)",
+        accent: "#2f9e99",
     },
     {
-        border: "#d9536f", // Rose / Crimson
+        // Rose / Crimson
+        border: "rgba(217, 83, 111, 0.28)",
+        borderSubtle: "rgba(217, 83, 111, 0.16)",
+        borderOuter: "rgba(217, 83, 111, 0.22)",
         bgWash: "rgba(217, 83, 111, 0.08)",
+        accent: "#d9536f",
     },
     {
-        border: "#8ba832", // Olive Lime
+        // Olive Lime
+        border: "rgba(139, 168, 50, 0.28)",
+        borderSubtle: "rgba(139, 168, 50, 0.16)",
+        borderOuter: "rgba(139, 168, 50, 0.22)",
         bgWash: "rgba(139, 168, 50, 0.08)",
+        accent: "#8ba832",
     },
 ];
 
@@ -355,44 +391,46 @@ export function ReviewCardStack({
                 {isFinished ? (
                     /* Completion Card in Native Theorem Swiss Style */
                     <div
-                        className="border border-[var(--color-border)] bg-[var(--color-surface)] p-8 sm:p-12 flex flex-col items-center justify-center text-center w-full min-h-[360px]"
+                        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 sm:p-4 shadow-xl w-full min-h-[380px] flex flex-col justify-between"
                     >
-                        <div className="w-10 h-10 bg-[var(--color-surface-muted)] border border-[var(--color-border)] flex items-center justify-center mb-4 text-[color:var(--color-accent)]">
-                            <Check className="w-5 h-5 stroke-[2]" />
-                        </div>
+                        <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)]/50 p-8 sm:p-12 flex flex-col items-center justify-center text-center flex-1">
+                            <div className="w-12 h-12 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center mb-4 text-[color:var(--color-accent)] shadow-xs">
+                                <Check className="w-6 h-6 stroke-[2]" />
+                            </div>
 
-                        <h3 className="font-serif text-2xl sm:text-3xl text-[color:var(--color-text-primary)] mb-2 font-normal">
-                            {completionTitle}
-                        </h3>
+                            <h3 className="font-serif text-2xl sm:text-3xl text-[color:var(--color-text-primary)] mb-2 font-normal">
+                                {completionTitle}
+                            </h3>
 
-                        <p className="font-sans text-xs sm:text-sm text-[color:var(--color-text-secondary)] leading-relaxed max-w-[26rem] mx-auto mb-6">
-                            {completionDescription || `You have reviewed all ${cards.length} ${cards.length === 1 ? "highlight" : "highlights"}. A fresh deck will be curated tomorrow.`}
-                        </p>
+                            <p className="font-sans text-xs sm:text-sm text-[color:var(--color-text-secondary)] leading-relaxed max-w-[26rem] mx-auto mb-6">
+                                {completionDescription || `You have reviewed all ${cards.length} ${cards.length === 1 ? "highlight" : "highlights"}. A fresh deck will be curated tomorrow.`}
+                            </p>
 
-                        <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={handleRestart}
-                                className="ui-btn text-xs px-3.5 py-1.5 flex items-center gap-1.5"
-                            >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                <span>Review Again</span>
-                            </button>
-
-                            {(onCompletionAction || onClose) && (
+                            <div className="flex items-center gap-3">
                                 <button
                                     type="button"
-                                    onClick={onCompletionAction || onClose}
-                                    className="ui-btn-primary text-xs px-4 py-1.5 flex items-center gap-1.5"
+                                    onClick={handleRestart}
+                                    className="ui-btn text-xs px-3.5 py-1.5 flex items-center gap-1.5"
                                 >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>{completionActionLabel}</span>
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span>Review Again</span>
                                 </button>
-                            )}
+
+                                {(onCompletionAction || onClose) && (
+                                    <button
+                                        type="button"
+                                        onClick={onCompletionAction || onClose}
+                                        className="ui-btn-primary text-xs px-4 py-1.5 flex items-center gap-1.5"
+                                    >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>{completionActionLabel}</span>
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : cards.length === 0 ? (
-                    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-8 flex flex-col items-center justify-center text-center w-full min-h-[360px]">
+                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 flex flex-col items-center justify-center text-center w-full min-h-[380px]">
                         <p className="font-serif text-lg text-[color:var(--color-text-primary)] mb-1">No Highlights Yet</p>
                         <p className="font-sans text-xs text-[color:var(--color-text-muted)] max-w-[20rem] mx-auto">
                             Highlight passages while reading books or RSS feeds to review them here.
@@ -403,70 +441,77 @@ export function ReviewCardStack({
                         {/* Background Card 3 (Base of Stack) */}
                         {thirdCard && (
                             <div
-                                className="absolute inset-0 border border-[var(--color-border)] pointer-events-none select-none transition-all duration-200 shadow-sm overflow-hidden bg-[var(--color-surface-muted)]"
+                                className="absolute inset-0 rounded-2xl border pointer-events-none select-none transition-all duration-200 overflow-hidden bg-[var(--color-surface-muted)]"
                                 style={{
+                                    borderColor: thirdColor.borderOuter,
                                     transformOrigin: "top center",
-                                    transform: `translate3d(0, ${18 - 9 * dragProgress}px, 0) scale(${0.93 + 0.04 * dragProgress}) rotate(${-1.2 + 0.6 * dragProgress}deg)`,
-                                    opacity: 0.55 + 0.35 * dragProgress,
+                                    transform: `translate3d(0, ${18 - 9 * dragProgress}px, 0) scale(${0.93 + 0.04 * dragProgress}) rotate(${-1.4 + 0.7 * dragProgress}deg)`,
+                                    opacity: 0.6 + 0.35 * dragProgress,
                                     zIndex: 0,
+                                    boxShadow: "0 10px 20px -5px rgba(0,0,0,0.12), 0 4px 6px -2px rgba(0,0,0,0.04)",
                                     userSelect: "none",
                                     WebkitUserSelect: "none",
                                 }}
                             >
-                                <div className="h-1 w-full shrink-0" style={{ backgroundColor: thirdColor.border }} />
+                                <div className="h-1.5 w-full shrink-0" style={{ backgroundColor: thirdColor.accent }} />
                             </div>
                         )}
 
                         {/* Background Card 2 (Middle of Stack / Next Card) */}
                         {nextCard && (
                             <div
-                                className="absolute inset-0 border border-[var(--color-border)] shadow-md pointer-events-none transition-all duration-200 overflow-hidden flex flex-col justify-between select-none bg-[var(--color-surface)]"
+                                className="absolute inset-0 rounded-2xl border pointer-events-none transition-all duration-200 overflow-hidden flex flex-col justify-between p-3 sm:p-4.5 select-none bg-[var(--color-surface)]"
                                 style={{
+                                    borderColor: nextColor.borderOuter,
                                     transformOrigin: "top center",
-                                    transform: `translate3d(0, ${9 - 9 * dragProgress}px, 0) scale(${0.965 + 0.035 * dragProgress}) rotate(${1.0 - 1.0 * dragProgress}deg)`,
+                                    transform: `translate3d(0, ${9 - 9 * dragProgress}px, 0) scale(${0.965 + 0.035 * dragProgress}) rotate(${1.2 - 1.2 * dragProgress}deg)`,
                                     opacity: 0.85 + 0.15 * dragProgress,
                                     zIndex: 1,
+                                    boxShadow: "0 14px 25px -5px rgba(0,0,0,0.15), 0 6px 10px -2px rgba(0,0,0,0.06)",
                                     userSelect: "none",
                                     WebkitUserSelect: "none",
                                 }}
                             >
-                                <div className="h-1 w-full shrink-0" style={{ backgroundColor: nextColor.border }} />
-                                <div className="px-5 sm:px-8 pt-4 sm:pt-5 pb-3 border-b border-[var(--color-border-subtle)] flex items-center justify-between gap-3 shrink-0 opacity-70">
-                                    <div className="flex items-center gap-2 text-xs text-[color:var(--color-text-secondary)] min-w-0">
-                                        <span className="truncate font-medium text-xs text-[color:var(--color-text-primary)]">
-                                            {nextSource?.title || "Unknown source"}
-                                        </span>
-                                        {nextSource?.author && (
-                                            <>
-                                                <span className="text-[color:var(--color-text-muted)] shrink-0">·</span>
-                                                <span className="truncate text-xs hidden sm:inline">{nextSource.author}</span>
-                                            </>
-                                        )}
+                                <div
+                                    className="relative flex-1 rounded-xl border overflow-hidden flex flex-col justify-between p-4 sm:p-6 opacity-75"
+                                    style={{
+                                        backgroundColor: nextColor.bgWash,
+                                        borderColor: nextColor.border,
+                                    }}
+                                >
+                                    {/* Body */}
+                                    <div className="relative py-4 flex-1 flex flex-col justify-center overflow-hidden">
+                                        {nextCard.type === "bookmark" ? (
+                                            <div className="flex flex-col items-center justify-center text-center">
+                                                <div
+                                                    className="w-10 h-10 rounded-xl flex items-center justify-center bg-[var(--color-surface)] border text-[color:var(--color-accent)] mb-2 shadow-xs"
+                                                    style={{ borderColor: nextColor.border, color: nextColor.accent }}
+                                                >
+                                                    <Bookmark className="w-5 h-5 fill-current" />
+                                                </div>
+                                                <p className="font-serif text-sm font-medium text-[color:var(--color-text-primary)] line-clamp-1">
+                                                    {nextCard.chapterTitle || "Bookmark"}
+                                                </p>
+                                            </div>
+                                        ) : nextCard.selectedText ? (
+                                            <blockquote
+                                                className="font-serif text-[1.12rem] sm:text-[1.24rem] leading-relaxed text-[color:var(--color-text-primary)] line-clamp-4 text-center select-none"
+                                                style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                                            >
+                                                “{nextCard.selectedText}”
+                                            </blockquote>
+                                        ) : null}
                                     </div>
-                                    <span className="font-mono text-xs text-[color:var(--color-text-muted)] whitespace-nowrap ml-2">
-                                        {currentIndex + 2} of {cards.length}
-                                    </span>
-                                </div>
 
-                                <div className="relative px-5 sm:px-8 py-6 sm:py-8 flex-1 flex flex-col justify-center opacity-70 select-none overflow-hidden">
-                                    <span
-                                        className="absolute top-2 right-6 font-serif text-8xl select-none pointer-events-none leading-none opacity-5 dark:opacity-10 text-[color:var(--color-text-primary)]"
-                                        aria-hidden="true"
+                                    {/* Footer: Book name in small letter */}
+                                    <div
+                                        className="pt-2.5 border-t flex items-center justify-center text-center shrink-0 select-none"
+                                        style={{ borderColor: nextColor.borderSubtle }}
                                     >
-                                        ”
-                                    </span>
-                                    {nextCard.selectedText && (
-                                        <blockquote
-                                            className="font-serif text-[1.12rem] sm:text-[1.28rem] leading-relaxed text-[color:var(--color-text-primary)] select-none"
-                                            style={{ userSelect: "none", WebkitUserSelect: "none" }}
-                                        >
-                                            {nextCard.selectedText}
-                                        </blockquote>
-                                    )}
-                                </div>
-
-                                <div className="px-5 sm:px-8 pb-4 pt-1 flex items-center justify-center opacity-40 select-none">
-                                    <span className="text-[10px] text-[color:var(--color-text-muted)] font-mono">Next in deck</span>
+                                        <span className="text-xs font-sans text-[color:var(--color-text-muted)] truncate max-w-full">
+                                            {nextSource?.title ? `${nextSource.title}${nextSource.author ? ` · ${nextSource.author}` : ""}` : "Unknown source"}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -480,11 +525,12 @@ export function ReviewCardStack({
                             onPointerCancel={handlePointerUp}
                             onClick={handleCardClick}
                             className={cn(
-                                "relative w-full border border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col justify-between overflow-hidden touch-none select-none z-10 cursor-grab active:cursor-grabbing shadow-lg dark:shadow-2xl"
+                                "relative w-full rounded-2xl border bg-[var(--color-surface)] p-3 sm:p-4.5 flex flex-col justify-between overflow-hidden touch-none select-none z-10 cursor-grab active:cursor-grabbing shadow-xl dark:shadow-2xl"
                             )}
                             style={{
                                 width: "100%",
-                                minHeight: "360px",
+                                minHeight: "380px",
+                                borderColor: topColor.borderOuter,
                                 transformOrigin: "top center",
                                 transform: topTransform,
                                 opacity: topOpacity,
@@ -497,122 +543,131 @@ export function ReviewCardStack({
                                     : "transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease-out",
                             }}
                         >
-                            <div className="h-1 w-full shrink-0" style={{ backgroundColor: topColor.border }} />
+                            <div
+                                className="relative flex-1 rounded-xl border overflow-hidden flex flex-col justify-between p-4 sm:p-6.5 transition-colors"
+                                style={{
+                                    backgroundColor: topColor.bgWash,
+                                    borderColor: topColor.border,
+                                }}
+                            >
+                                {/* Card Body: Dedicated Bookmark vs Highlight/Note View */}
+                                <div className="relative py-6 sm:py-8 flex-1 min-h-[180px] flex flex-col justify-center overflow-hidden select-none">
+                                    {topCard.type === "bookmark" ? (
+                                        <div className="flex flex-col items-center justify-center text-center my-auto">
+                                            <div
+                                                className="w-14 h-14 rounded-2xl flex items-center justify-center bg-[var(--color-surface)] border shadow-xs mb-3 text-[color:var(--color-accent)]"
+                                                style={{ color: topColor.accent, borderColor: topColor.border }}
+                                            >
+                                                <Bookmark className="w-7 h-7 fill-current" />
+                                            </div>
 
-                            {/* Card Header with Source Info, Open in Reader icon, and Stepper */}
-                            <div className="px-5 sm:px-8 pt-4 sm:pt-5 pb-3 border-b border-[var(--color-border-subtle)] flex items-center justify-between gap-3 shrink-0 select-none">
-                                <div className="flex items-center gap-2 text-xs text-[color:var(--color-text-secondary)] min-w-0">
-                                    <span className="truncate font-medium text-xs text-[color:var(--color-text-primary)]">
-                                        {topSource?.title || "Unknown source"}
-                                    </span>
-                                    {topSource?.author && (
+                                            <h3 className="font-serif text-xl sm:text-2xl text-[color:var(--color-text-primary)] font-medium text-center leading-snug mb-1.5 max-w-[28rem] px-2">
+                                                {topCard.chapterTitle || "Bookmark"}
+                                            </h3>
+
+                                            <div
+                                                className="inline-flex items-center gap-2 px-3 py-1 rounded-full font-mono text-xs bg-[var(--color-surface)]/90 border text-[color:var(--color-text-secondary)] shadow-xs mx-auto mb-4"
+                                                style={{ borderColor: topColor.borderSubtle }}
+                                            >
+                                                <span>{bookmarkPositionLabel(topCard) || "Saved reading location"}</span>
+                                            </div>
+
+                                            {topCard.selectedText && (
+                                                <blockquote className="font-serif text-sm italic text-[color:var(--color-text-secondary)] leading-relaxed max-w-[24rem] mx-auto mb-4 border-l-2 pl-3 border-[var(--color-accent)]">
+                                                    “{topCard.selectedText}”
+                                                </blockquote>
+                                            )}
+
+                                            {topCard.noteContent && (
+                                                <div
+                                                    className="bg-[var(--color-surface)]/80 border rounded-xl p-3 max-w-[24rem] mx-auto mb-4 text-xs font-sans text-[color:var(--color-text-primary)]"
+                                                    style={{ borderColor: topColor.borderSubtle }}
+                                                >
+                                                    {topCard.noteContent}
+                                                </div>
+                                            )}
+
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onClose?.();
+                                                    onGoToSource(topCard.bookId, topCard.location);
+                                                }}
+                                                className="ui-btn-primary mx-auto text-xs px-5 py-2 rounded-xl flex items-center gap-2 shadow-sm cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                                            >
+                                                <BookOpen className="w-4 h-4" />
+                                                <span>Jump to Bookmark</span>
+                                            </button>
+                                        </div>
+                                    ) : (
                                         <>
-                                            <span className="text-[color:var(--color-text-muted)] shrink-0">·</span>
-                                            <span className="truncate text-xs text-[color:var(--color-text-secondary)] hidden sm:inline">{topSource.author}</span>
+                                            <span
+                                                className="absolute top-0 right-4 font-serif text-8xl select-none pointer-events-none leading-none opacity-5 dark:opacity-10 text-[color:var(--color-text-primary)]"
+                                                aria-hidden="true"
+                                            >
+                                                ”
+                                            </span>
+
+                                            {topCard.chapterTitle && (
+                                                <div className="relative z-1 mb-2.5 text-[10px] font-mono uppercase tracking-widest text-[color:var(--color-text-muted)] text-center">
+                                                    {topCard.chapterTitle}
+                                                </div>
+                                            )}
+
+                                            {topCard.selectedText ? (
+                                                <blockquote
+                                                    className="relative z-1 leading-relaxed font-serif text-[1.18rem] sm:text-[1.38rem] text-[color:var(--color-text-primary)] text-center select-none max-w-[34rem] mx-auto my-auto"
+                                                    style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                                                >
+                                                    “{topCard.selectedText}”
+                                                </blockquote>
+                                            ) : !topCard.noteContent ? (
+                                                <p
+                                                    className="relative z-1 font-serif text-base sm:text-lg text-[color:var(--color-text-secondary)] italic text-center select-none"
+                                                    style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                                                >
+                                                    Highlight at {topCard.chapterTitle || "saved location"}
+                                                </p>
+                                            ) : null}
+
+                                            {topCard.noteContent && (
+                                                <div
+                                                    className="relative z-1 mt-4 pt-3 border-t select-none max-w-[32rem] mx-auto w-full"
+                                                    style={{ borderColor: topColor.borderSubtle }}
+                                                >
+                                                    <div className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-[color:var(--color-text-muted)] mb-1">
+                                                        <StickyNote className="w-3 h-3" /> Personal Note
+                                                    </div>
+                                                    <p
+                                                        className="font-sans text-xs sm:text-sm leading-relaxed text-[color:var(--color-text-secondary)] whitespace-pre-wrap select-none"
+                                                        style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                                                    >
+                                                        {topCard.noteContent}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2 shrink-0 select-none">
-                                    <button
-                                        type="button"
+                                {/* Card Footer: Book name in small letter */}
+                                <div
+                                    className="pt-2.5 border-t flex items-center justify-center text-center shrink-0 select-none"
+                                    style={{ borderColor: topColor.borderSubtle }}
+                                >
+                                    <span
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             onClose?.();
                                             onGoToSource(topCard.bookId, topCard.location);
                                         }}
-                                        className="p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] hover:bg-[var(--color-surface-muted)] transition-colors touch-manipulation flex items-center justify-center cursor-pointer"
+                                        className="text-xs font-sans text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)] hover:underline transition-colors cursor-pointer truncate max-w-full"
                                         title="Open in Reader"
-                                        aria-label="Open in Reader"
                                     >
-                                        <ArrowUpRight className="w-4 h-4 text-[color:var(--color-accent)]" />
-                                        <span className="sr-only">Open in Reader</span>
-                                    </button>
-
-                                    <div className="h-3 w-px bg-[var(--color-border-subtle)]" />
-
-                                    <div className="flex items-center gap-1 font-mono text-xs text-[color:var(--color-text-muted)] whitespace-nowrap select-none">
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handlePrev();
-                                            }}
-                                            disabled={currentIndex === 0}
-                                            className="p-1 hover:text-[color:var(--color-text-primary)] disabled:opacity-20 transition-colors touch-manipulation cursor-pointer"
-                                            aria-label="Previous card"
-                                        >
-                                            <ChevronLeft className="w-3.5 h-3.5" />
-                                        </button>
-                                        <span>
-                                            {currentIndex + 1} of {cards.length}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleNext();
-                                            }}
-                                            className="p-1 hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation cursor-pointer"
-                                            aria-label="Next card"
-                                        >
-                                            <ChevronRight className="w-3.5 h-3.5" />
-                                        </button>
-                                    </div>
+                                        {topSource?.title ? `${topSource.title}${topSource.author ? ` · ${topSource.author}` : ""}` : "Unknown source"}
+                                    </span>
                                 </div>
-                            </div>
-
-                            {/* Card Body: Quote and Note */}
-                            <div className="relative px-5 sm:px-8 py-6 sm:py-10 flex-1 min-h-[160px] flex flex-col justify-center overflow-hidden select-none">
-                                <span
-                                    className="absolute top-2 right-6 font-serif text-8xl select-none pointer-events-none leading-none opacity-5 dark:opacity-10 text-[color:var(--color-text-primary)]"
-                                    aria-hidden="true"
-                                >
-                                    ”
-                                </span>
-
-                                {topCard.chapterTitle && (
-                                    <div className="relative z-1 mb-3 text-[10px] font-mono uppercase tracking-widest text-[color:var(--color-text-muted)]">
-                                        {topCard.chapterTitle}
-                                    </div>
-                                )}
-
-                                {topCard.selectedText ? (
-                                    <blockquote
-                                        className="relative z-1 leading-relaxed font-serif text-[1.15rem] sm:text-[1.32rem] text-[color:var(--color-text-primary)] select-none"
-                                        style={{ userSelect: "none", WebkitUserSelect: "none" }}
-                                    >
-                                        {topCard.selectedText}
-                                    </blockquote>
-                                ) : !topCard.noteContent ? (
-                                    <p
-                                        className="relative z-1 font-serif text-base sm:text-lg text-[color:var(--color-text-secondary)] italic select-none"
-                                        style={{ userSelect: "none", WebkitUserSelect: "none" }}
-                                    >
-                                        Bookmark at {topCard.chapterTitle || "saved location"}
-                                    </p>
-                                ) : null}
-
-                                {topCard.noteContent && (
-                                    <div className="relative z-1 mt-5 pt-3.5 border-t border-[var(--color-border-subtle)] select-none">
-                                        <div className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-[color:var(--color-text-muted)] mb-1">
-                                            <StickyNote className="w-3 h-3" /> Personal Note
-                                        </div>
-                                        <p
-                                            className="font-sans text-xs sm:text-sm leading-relaxed text-[color:var(--color-text-secondary)] whitespace-pre-wrap select-none"
-                                            style={{ userSelect: "none", WebkitUserSelect: "none" }}
-                                        >
-                                            {topCard.noteContent}
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Card Footer: Subtle tap/swipe hint */}
-                            <div className="px-5 sm:px-8 pb-4 pt-1 flex items-center justify-center shrink-0 select-none">
-                                <span className="text-[10px] font-mono text-[color:var(--color-text-muted)]/70 select-none">
-                                    Tap card or swipe to advance
-                                </span>
                             </div>
                         </div>
                     </>

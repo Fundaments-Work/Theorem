@@ -76,10 +76,9 @@ describe("ReviewCardStack", () => {
         expect(root.textContent).toContain("My personal reflection on card 1.");
         expect(root.textContent).toContain("Meditations");
         expect(root.textContent).toContain("Marcus Aurelius");
-        expect(root.textContent).toContain("1 of 2");
     });
 
-    it("navigates forward using next button and reaches completion state", () => {
+    it("navigates forward using keyboard and reaches completion state", () => {
         vi.useFakeTimers();
         const onComplete = vi.fn();
 
@@ -93,22 +92,18 @@ describe("ReviewCardStack", () => {
             />
         );
 
-        // Click next
-        const nextBtn = root.querySelector('button[aria-label="Next card"]') as HTMLButtonElement;
-        expect(nextBtn).toBeDefined();
-
+        // Advance to card 2 via keyboard
         act(() => {
-            nextBtn.click();
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
             vi.advanceTimersByTime(250);
         });
 
         // Now on card 2 of 2
         expect(root.textContent).toContain("A second memorable passage.");
-        expect(root.textContent).toContain("2 of 2");
 
-        // Click next on last card
+        // Advance past last card
         act(() => {
-            (root.querySelector('button[aria-label="Next card"]') as HTMLButtonElement)?.click();
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
             vi.advanceTimersByTime(250);
         });
 
@@ -117,7 +112,7 @@ describe("ReviewCardStack", () => {
         expect(onComplete).toHaveBeenCalledTimes(1);
     });
 
-    it("navigates backward using prev button", () => {
+    it("navigates backward using keyboard", () => {
         vi.useFakeTimers();
 
         const root = render(
@@ -131,18 +126,18 @@ describe("ReviewCardStack", () => {
 
         // Advance to card 2
         act(() => {
-            (root.querySelector('button[aria-label="Next card"]') as HTMLButtonElement)?.click();
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
             vi.advanceTimersByTime(250);
         });
 
-        expect(root.textContent).toContain("2 of 2");
+        expect(root.textContent).toContain("A second memorable passage.");
 
         // Go back to card 1
         act(() => {
-            (root.querySelector('button[aria-label="Previous card"]') as HTMLButtonElement)?.click();
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+            vi.advanceTimersByTime(50);
         });
 
-        expect(root.textContent).toContain("1 of 2");
         expect(root.textContent).toContain("The first great idea in this book.");
     });
 
@@ -170,7 +165,7 @@ describe("ReviewCardStack", () => {
             vi.advanceTimersByTime(250);
         });
 
-        expect(root.textContent).toContain("2 of 2");
+        expect(root.textContent).toContain("A second memorable passage.");
     });
 
     it("invokes onGoToSource and closes when clicking open in reader", () => {
@@ -186,11 +181,11 @@ describe("ReviewCardStack", () => {
             />
         );
 
-        const openBtn = Array.from(root.querySelectorAll("button")).find(b => b.textContent?.includes("Open in Reader"));
-        expect(openBtn).toBeDefined();
+        const openBtn = root.querySelector('[title="Open in Reader"]') as HTMLElement;
+        expect(openBtn).not.toBeNull();
 
         act(() => {
-            openBtn?.click();
+            openBtn.click();
         });
 
         expect(onClose).toHaveBeenCalledTimes(1);
@@ -232,7 +227,7 @@ describe("ReviewCardStack", () => {
         });
 
         // Advances to card 2
-        expect(root.textContent).toContain("2 of 2");
+        expect(root.textContent).toContain("A second memorable passage.");
 
         // Now on card 2: tap on the left edge (clientX = 30 < 400 * 0.18) -> goes back
         const newTopCard = root.querySelector(".cursor-grab") as HTMLElement;
@@ -250,10 +245,11 @@ describe("ReviewCardStack", () => {
 
         act(() => {
             newTopCard.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 30 }));
+            vi.advanceTimersByTime(50);
         });
 
         // Went back to card 1
-        expect(root.textContent).toContain("1 of 2");
+        expect(root.textContent).toContain("The first great idea in this book.");
     });
 
     it("disables text selection on the card and quote to avoid gesture interference", () => {

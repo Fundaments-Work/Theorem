@@ -1,5 +1,5 @@
 import { localDateKey } from "../../core/lib/date-keys";
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { joinFields } from "../../core/lib/search/native-rank";
 import { useFuzzyRank } from "../../core/lib/search/useFuzzyRank";
@@ -11,13 +11,14 @@ import {
     parseAnnotationSourceId,
     type ResolvedAnnotationSource,
 } from "../../core/lib/annotation-source";
-import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
-import { Bookmark, Layers, List } from "lucide-react";
+import { PageHeader, Dropdown, ConfirmDialog, TheoremBookCover, HighlightMatch } from "../../ui";
+import { Bookmark, Layers, List, MoreVertical, ArrowUpRight, Trash2 } from "lucide-react";
 import { ReviewCardStack } from "./components/ReviewCardStack";
-import { AnnotationListCard } from "./components/AnnotationListCard";
-import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
-import { useCardTextMeasurer } from "./components/useCardTextMeasurer";
 import { bookmarkPositionLabel } from "./components/bookmark-position";
+
+const BOOKMARK_ROW_HEIGHT = 88;
+const BOOKMARK_ROW_GAP_PX = 8;
+const BOOKMARK_TOTAL_ROW_HEIGHT = BOOKMARK_ROW_HEIGHT + BOOKMARK_ROW_GAP_PX;
 
 function EmptyBookmarks() {
     return (
@@ -39,8 +40,6 @@ interface BookmarkCardProps {
     bookmark: Annotation;
     source: ResolvedAnnotationSource | undefined;
     menuOpen: boolean;
-    layout: CardLayout;
-    onToggleExpanded: (id: string) => void;
     searchQuery?: string;
     onMenuOpenChange: (id: string | null) => void;
     onDelete: (id: string) => void;
@@ -51,8 +50,6 @@ const BookmarkCard = memo(function BookmarkCard({
     bookmark,
     source,
     menuOpen,
-    layout,
-    onToggleExpanded,
     searchQuery,
     onMenuOpenChange,
     onDelete,
@@ -60,38 +57,163 @@ const BookmarkCard = memo(function BookmarkCard({
 }: BookmarkCardProps) {
     const isArticle = source?.isArticle ?? bookmark.bookId.startsWith("rss:");
     const goTo = () => onGoToBookmark(bookmark.bookId, bookmark.location);
+    const dateLabel = localDateKey(new Date(bookmark.createdAt));
+    const position = bookmarkPositionLabel(bookmark);
+    const pointerInsideRef = useRef(false);
+
+    useEffect(() => {
+        if (!menuOpen) return;
+        const handlePointerDown = () => {
+            const inside = pointerInsideRef.current;
+            pointerInsideRef.current = false;
+            if (!inside) onMenuOpenChange(null);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") onMenuOpenChange(null);
+        };
+        document.addEventListener("pointerdown", handlePointerDown);
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.removeEventListener("pointerdown", handlePointerDown);
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [menuOpen, onMenuOpenChange]);
+
     return (
-        <AnnotationListCard
-            id={bookmark.id}
-            typeLabel="bookmark"
-            dateLabel={localDateKey(new Date(bookmark.createdAt))}
-            sourceTitle={source?.title || "Unknown source"}
-            sourceAuthor={source?.author || "Unknown author"}
-            quote={bookmark.selectedText}
-            note={bookmark.noteContent}
-            meta={bookmarkPositionLabel(bookmark)}
-            searchQuery={searchQuery}
-            menuOpen={menuOpen}
-            onMenuOpenChange={onMenuOpenChange}
-            layout={layout}
-            onToggleExpanded={onToggleExpanded}
-            menuItems={[
-                { label: isArticle ? "Open article" : "Go to bookmark", onSelect: goTo },
-                { label: "Delete", onSelect: () => onDelete(bookmark.id), danger: true },
-            ]}
-            onOpen={goTo}
-            openTitle={isArticle ? "Click to open article at this bookmark" : "Click to open at this bookmark"}
-        />
+        <div
+            onClick={goTo}
+            className="group relative flex items-center justify-between gap-3 sm:gap-4 p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)] hover:shadow-xs transition-all overflow-hidden cursor-pointer h-[88px]"
+            title={isArticle ? "Open article at this bookmark" : "Open in reader at this bookmark"}
+        >
+            {/* Bookmark ribbon tab fold on top-left edge */}
+            <div
+                className="absolute top-0 left-3 sm:left-4 w-3.5 h-4.5 bg-[var(--color-accent)] shadow-xs pointer-events-none group-hover:h-5 transition-all"
+                style={{
+                    clipPath: "polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%)",
+                }}
+            />
+
+            {/* Left Cover Preview Thumbnail */}
+            <div className="w-10 sm:w-11 h-14 sm:h-15 shrink-0 rounded-sm overflow-hidden shadow-xs border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] flex items-center justify-center">
+                <TheoremBookCover
+                    title={source?.title || "Book"}
+                    author={source?.author}
+                    coverUrl={source?.coverPath}
+                    className="w-full h-full object-cover"
+                />
+            </div>
+
+            {/* Middle Content */}
+            <div className="min-w-0 flex-1 flex flex-col justify-center">
+                <div className="flex items-center gap-2">
+                    <h4 className="font-serif text-sm sm:text-[15px] font-medium text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
+                        <HighlightMatch text={bookmark.chapterTitle || source?.title || "Bookmark"} query={searchQuery} />
+                    </h4>
+                </div>
+
+                <div className="text-xs text-[color:var(--color-text-secondary)] truncate flex items-center gap-1.5 mt-0.5">
+                    <span className="truncate font-sans">
+                        <HighlightMatch text={source?.title || "Unknown source"} query={searchQuery} />
+                    </span>
+                    {source?.author && (
+                        <>
+                            <span className="text-[color:var(--color-text-muted)] select-none">·</span>
+                            <span className="text-[color:var(--color-text-muted)] truncate font-sans">
+                                <HighlightMatch text={source.author} query={searchQuery} />
+                            </span>
+                        </>
+                    )}
+                </div>
+
+                {/* Badge row */}
+                <div className="flex items-center gap-2 mt-1.5 min-w-0">
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[color:var(--color-text-secondary)] px-2 py-0.5 rounded bg-[var(--color-surface-muted)] border border-[var(--color-border-subtle)] shrink-0">
+                        <Bookmark className="w-2.5 h-2.5 text-[color:var(--color-accent)] fill-current" />
+                        <span>{position || "Bookmarked position"}</span>
+                    </span>
+
+                    <span className="font-mono text-[10px] text-[color:var(--color-text-muted)] shrink-0">
+                        {dateLabel}
+                    </span>
+
+                    {bookmark.noteContent && (
+                        <span className="text-[11px] font-sans text-[color:var(--color-text-muted)] italic truncate hidden md:inline">
+                            “{bookmark.noteContent}”
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            {/* Right Actions */}
+            <div className="flex items-center gap-2 shrink-0">
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        goTo();
+                    }}
+                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-medium text-[color:var(--color-accent)] bg-[var(--color-surface-muted)] hover:bg-[var(--color-accent)] hover:text-white rounded-lg border border-[var(--color-border)] hover:border-transparent transition-all shrink-0 cursor-pointer touch-manipulation shadow-2xs"
+                >
+                    <span>Jump to Page</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+
+                <div
+                    className="relative"
+                    onPointerDownCapture={() => {
+                        pointerInsideRef.current = true;
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onMenuOpenChange(menuOpen ? null : bookmark.id);
+                        }}
+                        aria-label="Bookmark options"
+                        aria-haspopup="menu"
+                        aria-expanded={menuOpen}
+                        className="p-1.5 rounded-md text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors cursor-pointer"
+                    >
+                        <MoreVertical className="w-4 h-4" />
+                    </button>
+
+                    {menuOpen && (
+                        <div
+                            role="menu"
+                            className="absolute right-0 top-full z-30 mt-1 w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg"
+                        >
+                            <button
+                                role="menuitem"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onMenuOpenChange(null);
+                                    goTo();
+                                }}
+                                className="w-full text-left px-3 py-1.5 font-sans text-xs text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] flex items-center gap-2 cursor-pointer"
+                            >
+                                <ArrowUpRight className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
+                                <span>{isArticle ? "Open article" : "Go to page"}</span>
+                            </button>
+                            <button
+                                role="menuitem"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onMenuOpenChange(null);
+                                    onDelete(bookmark.id);
+                                }}
+                                className="w-full text-left px-3 py-1.5 font-sans text-xs text-[color:var(--color-error)] hover:bg-[var(--color-surface-muted)] flex items-center gap-2 cursor-pointer"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 });
-
-function bookmarkBlocks(bookmark: Annotation) {
-    return {
-        quote: bookmark.selectedText,
-        note: bookmark.noteContent,
-        meta: bookmarkPositionLabel(bookmark),
-    };
-}
 
 /**
  * The Workbench's Bookmarks tab. Bookmarks are annotations like highlights and notes, so they
@@ -118,20 +240,10 @@ export function BookmarksPanel({
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const [deleteBookmarkId, setDeleteBookmarkId] = useState<string | null>(null);
-    const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
-    const { listRef, measurer } = useCardTextMeasurer();
-    const toggleExpanded = useCallback((id: string) => {
-        setExpandedIds((prev) => {
-            const next = new Set(prev);
-            if (!next.delete(id)) next.add(id);
-            return next;
-        });
-    }, []);
+    const listRef = useRef<HTMLDivElement>(null);
 
     // Derive lookup from bookmark bookIds only — avoids subscribing to the
-    // entire books array which re-renders on every progress tick. The book
-    // count still invalidates it: books hydrate after annotations, and a lookup
-    // built before that would hide every bookmark until annotations change.
+    // entire books array which re-renders on every progress tick.
     const bookCount = useLibraryStore((state) => state.books.length);
     const bookmarks = useMemo(() => annotations.filter((a) => a.type === "bookmark"), [annotations]);
     const sourceLookup = useMemo(
@@ -144,7 +256,6 @@ export function BookmarksPanel({
             }
             return lookup;
         },
-        // getBook is stable (store action ref); bookCount re-derives once books load
         [bookmarks, getBook, bookCount, rssArticles, rssFeeds],
     );
 
@@ -172,7 +283,7 @@ export function BookmarksPanel({
     const rankedBookmarks = useFuzzyRank(scopedBookmarks, searchQuery, (bookmark) => {
         const source = sourceLookup.get(bookmark.bookId);
         return {
-            primary: bookmark.selectedText || "",
+            primary: joinFields(bookmark.chapterTitle, bookmark.selectedText),
             secondary: joinFields(source?.title, source?.author),
         };
     });
@@ -201,25 +312,13 @@ export function BookmarksPanel({
         return filtered;
     }, [scopedBookmarks, rankedBookmarks, sortBy, sourceLookup]);
 
-    // Exact, not an estimate: each card renders at its computed layout height.
-    const cardLayouts = useMemo(
-        () => filteredBookmarks.map((bm) => computeCardLayout(bookmarkBlocks(bm), measurer, expandedIds.has(bm.id))),
-        [filteredBookmarks, measurer, expandedIds],
-    );
-    const estimateBookmarkSize = useCallback((index: number) => annotationRowSize(cardLayouts[index]), [cardLayouts]);
-
     const bookmarksVirtualizer = useVirtualizer({
         count: filteredBookmarks.length,
         getScrollElement: useCallback(() => document.getElementById('app-main'), []),
-        estimateSize: estimateBookmarkSize,
+        estimateSize: useCallback(() => BOOKMARK_TOTAL_ROW_HEIGHT, []),
         getItemKey: useCallback((index: number) => filteredBookmarks[index]?.id ?? String(index), [filteredBookmarks]),
         overscan: 5,
     });
-
-    // Sizes come from estimateSize only; recompute offsets when they change.
-    useLayoutEffect(() => {
-        bookmarksVirtualizer.measure();
-    }, [bookmarksVirtualizer, cardLayouts]);
 
     const handleDelete = useCallback((id: string) => {
         setDeleteBookmarkId(id);
@@ -349,11 +448,8 @@ export function BookmarksPanel({
                                     top: 0,
                                     left: 0,
                                     width: "100%",
-                                    height: virtualRow.size,
-                                    paddingBottom: ANNOTATION_ROW_GAP_PX,
+                                    height: `${BOOKMARK_ROW_HEIGHT}px`,
                                     transform: `translateY(${virtualRow.start}px)`,
-                                    // Each transformed row is its own stacking context;
-                                    // lift the one with an open menu above later rows.
                                     zIndex: menuOpenId === bookmark.id ? 30 : undefined,
                                 }}
                             >
@@ -361,8 +457,6 @@ export function BookmarksPanel({
                                     bookmark={bookmark}
                                     source={sourceLookup.get(bookmark.bookId)}
                                     menuOpen={menuOpenId === bookmark.id}
-                                    layout={cardLayouts[virtualRow.index]}
-                                    onToggleExpanded={toggleExpanded}
                                     searchQuery={searchQuery}
                                     onMenuOpenChange={setMenuOpenId}
                                     onDelete={handleDelete}
