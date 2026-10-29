@@ -55,26 +55,26 @@ describe("phone bottom navigation", () => {
 });
 
 describe("Workbench tabs (the shared row that keeps Bookmarks reachable)", () => {
-    it("lists all five sections and marks the active one", () => {
+    it("lists all four sections and marks the active one", () => {
         act(() => root.render(<WorkbenchTabs active="bookmarks" onSelect={() => {}} />));
         const tabs = Array.from(container.querySelectorAll("[role=tab]"));
-        expect(tabs.map((t) => t.textContent)).toEqual(["All", "Highlights", "Notes", "Words", "Bookmarks"]);
+        expect(tabs.map((t) => t.textContent)).toEqual(["Highlights", "Notes", "Words", "Bookmarks"]);
         expect(tabs.filter((t) => t.getAttribute("aria-selected") === "true").map((t) => t.textContent)).toEqual(["Bookmarks"]);
     });
 
     it("names every tab for assistive tech and shows every label on a phone too", () => {
         act(() => root.render(<WorkbenchTabs active="notes" onSelect={() => {}} />));
         const tabs = Array.from(container.querySelectorAll<HTMLElement>("[role=tab]"));
-        expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["All", "Highlights", "Notes", "Words", "Bookmarks"]);
+        expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(["Highlights", "Notes", "Words", "Bookmarks"]);
         // An icon-only tab had to be guessed; on a phone each tab stacks its icon over its name.
         const hiddenLabels = tabs.filter((t) => /(^|\s)hidden(\s|$)/.test(t.querySelector("span")?.className ?? ""));
         expect(hiddenLabels).toHaveLength(0);
-        expect(container.querySelector("[role=tablist]")!.className).toContain("grid-cols-5");
+        expect(container.querySelector("[role=tablist]")!.className).toContain("grid-cols-4");
     });
 
     it("reports the chosen tab", () => {
         const chosen: string[] = [];
-        act(() => root.render(<WorkbenchTabs active="all" onSelect={(t) => chosen.push(t)} />));
+        act(() => root.render(<WorkbenchTabs active="highlights" onSelect={(t) => chosen.push(t)} />));
         const byName = (n: string) => Array.from(container.querySelectorAll("[role=tab]")).find((t) => t.textContent === n) as HTMLButtonElement;
         act(() => byName("Bookmarks").click());
         act(() => byName("Words").click());

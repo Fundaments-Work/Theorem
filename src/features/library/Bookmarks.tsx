@@ -13,12 +13,12 @@ import {
 } from "../../core/lib/annotation-source";
 import { PageHeader, Dropdown, ConfirmDialog } from "../../ui";
 import { Bookmark } from "lucide-react";
+import { cn } from "../../core/lib/utils";
+import { ReviewCardStack } from "./components/ReviewCardStack";
 import { AnnotationListCard } from "./components/AnnotationListCard";
 import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
 import { useCardTextMeasurer } from "./components/useCardTextMeasurer";
 import { bookmarkPositionLabel } from "./components/bookmark-position";
-
-const ALL_BOOKS = "__all__";
 
 function EmptyBookmarks() {
     return (
@@ -99,7 +99,17 @@ function bookmarkBlocks(bookmark: Annotation) {
  * live on the Workbench page under its title; `tabs` is the Workbench's own tab row, laid out
  * with this tab's filters the way the other tabs lay out theirs.
  */
-export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
+export function BookmarksPanel({
+    tabs,
+    onOpenDailyReview,
+    hasDailyReview,
+    dailyCardsCount,
+}: {
+    tabs: ReactNode;
+    onOpenDailyReview?: () => void;
+    hasDailyReview?: boolean;
+    dailyCardsCount?: number;
+}) {
     const annotations = useLibraryStore((state) => state.annotations);
     const getBook = useLibraryStore((state) => state.getBook);
     const removeAnnotation = useLibraryStore((state) => state.removeAnnotation);
@@ -111,8 +121,8 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
     const openArticleInReader = useRssStore((state) => state.openArticleInReader);
     const getArticle = useRssStore((state) => state.getArticle);
     const loadArticle = useRssStore((state) => state.loadArticle);
+    const [viewMode, setViewMode] = useState<"list" | "cards">("list");
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">("newest");
-    const [bookFilter, setBookFilter] = useState<string>(ALL_BOOKS);
     const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const [deleteBookmarkId, setDeleteBookmarkId] = useState<string | null>(null);
     const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -163,27 +173,7 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
         [bookmarks, sourceLookup],
     );
 
-    const bookOptions = useMemo(() => {
-        const counts = new Map<string, number>();
-        for (const bm of visibleBookmarks) counts.set(bm.bookId, (counts.get(bm.bookId) ?? 0) + 1);
-        const options = [...counts.entries()]
-            .map(([bookId, count]) => ({ value: bookId, label: `${sourceLookup.get(bookId)?.title ?? "Unknown source"} (${count})` }))
-            .sort((a, b) => a.label.localeCompare(b.label));
-        return [{ value: ALL_BOOKS, label: "All sources" }, ...options];
-    }, [visibleBookmarks, sourceLookup]);
-
-    // A filtered book whose last bookmark was deleted falls back to all books.
-    const activeBookFilter = bookFilter !== ALL_BOOKS && sourceLookup.has(bookFilter)
-        && visibleBookmarks.some((b) => b.bookId === bookFilter)
-        ? bookFilter
-        : ALL_BOOKS;
-
-    const scopedBookmarks = useMemo(
-        () => (activeBookFilter === ALL_BOOKS
-            ? visibleBookmarks
-            : visibleBookmarks.filter((b) => b.bookId === activeBookFilter)),
-        [visibleBookmarks, activeBookFilter],
-    );
+    const scopedBookmarks = visibleBookmarks;
 
     // Search ranks with the native matcher; null while there is no ranking yet.
     const rankedBookmarks = useFuzzyRank(scopedBookmarks, searchQuery, (bookmark) => {
@@ -251,9 +241,10 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
 
     const hasBook = useCallback((id: string) => !!useLibraryStore.getState().getBook(id), []);
 
-    const handleGoToBookmark = useCallback((sourceId: string, location: string) => {
-        const bm = bookmarks.find((b) => b.bookId === sourceId && b.location === location);
-        navigateToAnnotationSource(sourceId, location, {
+    const handleGoToBookmark = useCallback((sourceId: string, location?: string) => {
+        const loc = location || bookmarks.find((b) => b.bookId === sourceId)?.location || "";
+        const bm = bookmarks.find((b) => b.bookId === sourceId && b.location === loc);
+        navigateToAnnotationSource(sourceId, loc, {
             setPendingReaderLocation,
             setRoute,
             openArticleInReader,
@@ -267,7 +258,30 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
     if (visibleBookmarks.length === 0) {
         return (
             <>
-                {tabs}
+                <PageHeader
+                    title="Workbench"
+                    description={
+                        <span>
+                            0 bookmarks across 0 sources
+                            {hasDailyReview && (
+                                <>
+                                    <span className="text-[color:var(--color-border-strong)] mx-1.5 select-none">·</span>
+                                    <button
+                                        type="button"
+                                        onClick={onOpenDailyReview}
+                                        className="inline-flex items-center gap-1 font-medium text-[color:var(--color-accent)] hover:underline transition-colors"
+                                        aria-label="Open Daily Review"
+                                    >
+                                        Daily Review ({dailyCardsCount})
+                                    </button>
+                                </>
+                            )}
+                        </span>
+                    }
+                />
+                <div className="mb-6">
+                    {tabs}
+                </div>
                 <EmptyBookmarks />
             </>
         );
@@ -279,22 +293,63 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
         <>
             <PageHeader
                 title="Workbench"
-                description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "source" : "sources"}`}
-            />
+                actionsClassName="w-full sm:w-auto ml-0 sm:ml-auto justify-between sm:justify-end"
+                description={
+                    <span>
+                        {filteredBookmarks.length} {filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across {bookTotal} {bookTotal === 1 ? "source" : "sources"}
+                        {hasDailyReview && (
+                            <>
+                                <span className="text-[color:var(--color-border-strong)] mx-1.5 select-none">·</span>
+                                <button
+                                    type="button"
+                                    onClick={onOpenDailyReview}
+                                    className="inline-flex items-center gap-1 font-medium text-[color:var(--color-accent)] hover:underline transition-colors"
+                                    aria-label="Open Daily Review"
+                                >
+                                    Daily Review ({dailyCardsCount})
+                                </button>
+                            </>
+                        )}
+                    </span>
+                }
+            >
+                <div className="flex items-center gap-2 shrink-0">
+                    <div role="group" aria-label="View mode" className="inline-flex h-8 shrink-0 items-center border border-[var(--color-border)] bg-[var(--color-surface)]">
+                        <button
+                            type="button"
+                            aria-pressed={viewMode === "list"}
+                            onClick={() => setViewMode("list")}
+                            className={cn(
+                                "h-full px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
+                                viewMode === "list"
+                                    ? "ui-selected"
+                                    : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                            )}
+                            aria-label="List view"
+                        >
+                            List
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={viewMode === "cards"}
+                            onClick={() => setViewMode("cards")}
+                            className={cn(
+                                "h-full border-l border-[var(--color-border)] px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
+                                viewMode === "cards"
+                                    ? "ui-selected"
+                                    : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                            )}
+                            aria-label="Cards view"
+                        >
+                            Cards
+                        </button>
+                    </div>
 
-            <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                {tabs}
-
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                    <Dropdown
-                        value={activeBookFilter}
-                        onChange={(value) => setBookFilter(value)}
-                        options={bookOptions}
-                        className="w-full max-w-full sm:w-auto sm:max-w-[20rem]"
-                    />
                     <Dropdown
                         value={sortBy}
                         onChange={(value) => setSortBy(value as typeof sortBy)}
+                        size="sm"
+                        className="h-8 shrink-0 !w-auto min-w-[100px] max-w-[140px] sm:max-w-none !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
                         options={[
                             { value: "newest", label: "Newest First" },
                             { value: "oldest", label: "Oldest First" },
@@ -302,6 +357,10 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
                         ]}
                     />
                 </div>
+            </PageHeader>
+
+            <div className="mb-6">
+                {tabs}
             </div>
 
             <ConfirmDialog
@@ -320,6 +379,21 @@ export function BookmarksPanel({ tabs }: { tabs: ReactNode }) {
                     <p className="text-[color:var(--color-text-muted)]">
                         No bookmarks found{searchQuery ? " matching your search" : ""}.
                     </p>
+                </div>
+            ) : viewMode === "cards" ? (
+                <div className="w-full max-w-[42rem] mx-auto my-2 sm:my-6">
+                    <ReviewCardStack
+                        cards={filteredBookmarks}
+                        sources={sourceLookup}
+                        onGoToSource={handleGoToBookmark}
+                        onDelete={handleDelete}
+                        deckTitle="Bookmarks"
+                        deckSubtitle={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"}`}
+                        completionTitle="All Bookmarks Reviewed"
+                        completionDescription="You have reviewed all your bookmarks in this deck."
+                        completionActionLabel="Back to List"
+                        onCompletionAction={() => setViewMode("list")}
+                    />
                 </div>
             ) : (
                 <div ref={listRef} style={{ height: `${bookmarksVirtualizer.getTotalSize()}px`, position: "relative" }}>

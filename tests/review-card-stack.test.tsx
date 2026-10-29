@@ -1,0 +1,323 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, afterEach } from "vitest";
+import React, { act } from "react";
+import { render, flush, unmountAll } from "./helpers/opds-browser-harness";
+import { ReviewCardStack } from "../src/features/library/components/ReviewCardStack";
+import type { Annotation } from "../src/core/types";
+import type { ResolvedAnnotationSource } from "../src/core/lib/annotation-source";
+
+function pointerDown(el: HTMLElement, opts: { clientX: number; clientY: number; pointerId?: number }) {
+    act(() => {
+        el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, isPrimary: true, pointerId: opts.pointerId ?? 1, ...opts }));
+    });
+}
+
+function pointerMove(el: HTMLElement, opts: { clientX: number; clientY: number; pointerId?: number }) {
+    act(() => {
+        el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, isPrimary: true, pointerId: opts.pointerId ?? 1, ...opts }));
+    });
+}
+
+function pointerUp(el: HTMLElement, opts: { clientX: number; clientY: number; pointerId?: number }) {
+    act(() => {
+        el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, isPrimary: true, pointerId: opts.pointerId ?? 1, ...opts }));
+    });
+}
+
+describe("ReviewCardStack", () => {
+    afterEach(() => {
+        unmountAll();
+        vi.useRealTimers();
+    });
+
+    const mockCards: Annotation[] = [
+        {
+            id: "card-1",
+            bookId: "book-1",
+            type: "highlight",
+            location: "loc-1",
+            selectedText: "The first great idea in this book.",
+            noteContent: "My personal reflection on card 1.",
+            createdAt: new Date(),
+        },
+        {
+            id: "card-2",
+            bookId: "book-1",
+            type: "highlight",
+            location: "loc-2",
+            selectedText: "A second memorable passage.",
+            createdAt: new Date(),
+        },
+    ];
+
+    const mockSources = new Map<string, ResolvedAnnotationSource>([
+        [
+            "book-1",
+            {
+                id: "book-1",
+                title: "Meditations",
+                author: "Marcus Aurelius",
+                isArticle: false,
+            },
+        ],
+    ]);
+
+    it("renders the active top card with quote, source and author", () => {
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+                onClose={vi.fn()}
+            />
+        );
+
+        expect(root.textContent).toContain("The first great idea in this book.");
+        expect(root.textContent).toContain("My personal reflection on card 1.");
+        expect(root.textContent).toContain("Meditations");
+        expect(root.textContent).toContain("Marcus Aurelius");
+        expect(root.textContent).toContain("1 of 2");
+    });
+
+    it("navigates forward using next button and reaches completion state", () => {
+        vi.useFakeTimers();
+        const onComplete = vi.fn();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onComplete={onComplete}
+                onGoToSource={vi.fn()}
+                onClose={vi.fn()}
+            />
+        );
+
+        // Click next
+        const nextBtn = root.querySelector('button[aria-label="Next card"]') as HTMLButtonElement;
+        expect(nextBtn).toBeDefined();
+
+        act(() => {
+            nextBtn.click();
+            vi.advanceTimersByTime(250);
+        });
+
+        // Now on card 2 of 2
+        expect(root.textContent).toContain("A second memorable passage.");
+        expect(root.textContent).toContain("2 of 2");
+
+        // Click next on last card
+        act(() => {
+            (root.querySelector('button[aria-label="Next card"]') as HTMLButtonElement)?.click();
+            vi.advanceTimersByTime(250);
+        });
+
+        // Now finished
+        expect(root.textContent).toContain("All Caught Up");
+        expect(onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("navigates backward using prev button", () => {
+        vi.useFakeTimers();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+                onClose={vi.fn()}
+            />
+        );
+
+        // Advance to card 2
+        act(() => {
+            (root.querySelector('button[aria-label="Next card"]') as HTMLButtonElement)?.click();
+            vi.advanceTimersByTime(250);
+        });
+
+        expect(root.textContent).toContain("2 of 2");
+
+        // Go back to card 1
+        act(() => {
+            (root.querySelector('button[aria-label="Previous card"]') as HTMLButtonElement)?.click();
+        });
+
+        expect(root.textContent).toContain("1 of 2");
+        expect(root.textContent).toContain("The first great idea in this book.");
+    });
+
+    it("advances card upon drag fling gesture", () => {
+        vi.useFakeTimers();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+                onClose={vi.fn()}
+            />
+        );
+
+        const topCard = root.querySelector(".cursor-grab") as HTMLElement;
+        expect(topCard).toBeDefined();
+
+        // Fling drag to the right past 100px
+        pointerDown(topCard, { clientX: 100, clientY: 100 });
+        pointerMove(topCard, { clientX: 220, clientY: 100 });
+        pointerUp(topCard, { clientX: 220, clientY: 100 });
+
+        act(() => {
+            vi.advanceTimersByTime(250);
+        });
+
+        expect(root.textContent).toContain("2 of 2");
+    });
+
+    it("invokes onGoToSource and closes when clicking open in reader", () => {
+        const onGoToSource = vi.fn();
+        const onClose = vi.fn();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={onGoToSource}
+                onClose={onClose}
+            />
+        );
+
+        const openBtn = Array.from(root.querySelectorAll("button")).find(b => b.textContent?.includes("Open in Reader"));
+        expect(openBtn).toBeDefined();
+
+        act(() => {
+            openBtn?.click();
+        });
+
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(onGoToSource).toHaveBeenCalledWith("book-1", "loc-1");
+    });
+
+    it("advances card upon tapping the card body (tap-to-swipe)", () => {
+        vi.useFakeTimers();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+                onClose={vi.fn()}
+            />
+        );
+
+        const topCard = root.querySelector(".cursor-grab") as HTMLElement;
+        expect(topCard).toBeDefined();
+
+        // Mock bounding client rect for click calculation
+        vi.spyOn(topCard, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            top: 0,
+            width: 400,
+            height: 360,
+            right: 400,
+            bottom: 360,
+            x: 0,
+            y: 0,
+            toJSON: () => {},
+        });
+
+        // Tap in the middle of the card (clientX = 250)
+        act(() => {
+            topCard.click();
+            vi.advanceTimersByTime(250);
+        });
+
+        // Advances to card 2
+        expect(root.textContent).toContain("2 of 2");
+
+        // Now on card 2: tap on the left edge (clientX = 30 < 400 * 0.18) -> goes back
+        const newTopCard = root.querySelector(".cursor-grab") as HTMLElement;
+        vi.spyOn(newTopCard, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            top: 0,
+            width: 400,
+            height: 360,
+            right: 400,
+            bottom: 360,
+            x: 0,
+            y: 0,
+            toJSON: () => {},
+        });
+
+        act(() => {
+            newTopCard.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 30 }));
+        });
+
+        // Went back to card 1
+        expect(root.textContent).toContain("1 of 2");
+    });
+
+    it("disables text selection on the card and quote to avoid gesture interference", () => {
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+                onClose={vi.fn()}
+            />
+        );
+
+        const topCard = root.querySelector(".cursor-grab") as HTMLElement;
+        expect(topCard).toBeDefined();
+        expect(topCard.className).toContain("select-none");
+        expect(topCard.style.userSelect).toBe("none");
+
+        const quotes = Array.from(root.querySelectorAll("blockquote"));
+        expect(quotes.length).toBeGreaterThan(0);
+        for (const quote of quotes) {
+            expect(quote.className).toContain("select-none");
+            expect(quote.className).not.toContain("select-text");
+            expect(quote.style.userSelect).toBe("none");
+        }
+    });
+
+    it("renders deck navigation header and triggers onPrevDeck and onNextDeck", () => {
+        const onPrevDeck = vi.fn();
+        const onNextDeck = vi.fn();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                deckTitle="Deck 2 of 5: Deep Work"
+                deckSubtitle="Book Deck"
+                hasPrevDeck={true}
+                hasNextDeck={true}
+                prevDeckLabel="Prev Deck"
+                nextDeckLabel="Next Deck"
+                onPrevDeck={onPrevDeck}
+                onNextDeck={onNextDeck}
+                onGoToSource={vi.fn()}
+            />
+        );
+
+        expect(root.textContent).toContain("Deck 2 of 5: Deep Work");
+        expect(root.textContent).toContain("Book Deck");
+
+        const prevDeckBtn = root.querySelector('button[aria-label="Prev Deck"]') as HTMLButtonElement;
+        const nextDeckBtn = root.querySelector('button[aria-label="Next Deck"]') as HTMLButtonElement;
+        expect(prevDeckBtn).toBeDefined();
+        expect(nextDeckBtn).toBeDefined();
+        expect(prevDeckBtn.disabled).toBe(false);
+        expect(nextDeckBtn.disabled).toBe(false);
+
+        act(() => {
+            prevDeckBtn.click();
+        });
+        expect(onPrevDeck).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            nextDeckBtn.click();
+        });
+        expect(onNextDeck).toHaveBeenCalledTimes(1);
+    });
+});

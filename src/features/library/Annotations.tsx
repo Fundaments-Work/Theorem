@@ -21,15 +21,11 @@ import { BookmarksPanel } from "./Bookmarks";
 import {
     Highlighter,
     StickyNote,
-    Pencil,
-    BookOpen,
-    BookOpenText,
     Trash2,
-    ChevronLeft,
-    ChevronRight,
-    ChevronsLeft,
-    ChevronsRight,
+    X,
 } from "lucide-react";
+import { ReviewCardStack } from "./components/ReviewCardStack";
+import { getDailyReviewStatus, selectDailyReviewCards, markDailyReviewCompleted } from "../../core/lib/daily-review";
 import { ShareMenu } from "./components/ShareMenu";
 import { AnnotationListCard } from "./components/AnnotationListCard";
 import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
@@ -219,17 +215,21 @@ export function AnnotationsPage() {
         );
     }
     const workbenchSavedState = savedViewState.current;
-
-    const [activeFilter, setActiveFilter] = useState<"all" | "highlights" | "notes" | "vocabulary">(workbenchSavedState.activeFilter ?? "all");
+    const initialFilter = (workbenchSavedState.activeFilter === "all" || !workbenchSavedState.activeFilter)
+        ? "highlights"
+        : workbenchSavedState.activeFilter;
+    const [activeFilter, setActiveFilter] = useState<"highlights" | "notes" | "vocabulary">(initialFilter as "highlights" | "notes" | "vocabulary");
     // Other pages can ask for a specific Workbench tab; honour it once.
     const workbenchFilterRequest = useUIStore((state) => state.workbenchFilterRequest);
     const requestWorkbenchFilter = useUIStore((state) => state.requestWorkbenchFilter);
     useEffect(() => {
         if (!workbenchFilterRequest) return;
-        setActiveFilter(workbenchFilterRequest);
+        const target = workbenchFilterRequest === "all" ? "highlights" : workbenchFilterRequest;
+        setActiveFilter(target);
         requestWorkbenchFilter(undefined);
     }, [workbenchFilterRequest, requestWorkbenchFilter]);
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "book">(workbenchSavedState.sortBy ?? "newest");
+    const [vocabSortBy, setVocabSortBy] = useState<"alpha" | "newest" | "oldest">("alpha");
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
     const [sharingId, setSharingId] = useState<string | null>(null);
@@ -247,9 +247,32 @@ export function AnnotationsPage() {
     const [cardIndex, setCardIndex] = useState(0);
     const [groupIndex, setGroupIndex] = useState(0);
     const [selectedVocabTerm, setSelectedVocabTerm] = useState<VocabularyTerm | null>(null);
+    const dailyCards = useMemo(() => selectDailyReviewCards(annotations), [annotations]);
+    const [showDailyReview, setShowDailyReview] = useState(() => {
+        try {
+            const dismissed = typeof window !== "undefined" ? window.sessionStorage.getItem("theorem:daily-review-dismissed-session") : null;
+            const status = getDailyReviewStatus();
+            return !status.completed && !dismissed;
+        } catch {
+            return false;
+        }
+    });
+    const dailyReviewStatus = useMemo(() => getDailyReviewStatus(), [showDailyReview]);
 
-    const cardTouchStartX = useRef(0);
-    const cardTouchStartY = useRef(0);
+    const handleDismissDailyReview = useCallback(() => {
+        try {
+            window.sessionStorage.setItem("theorem:daily-review-dismissed-session", "true");
+        } catch {
+            // best-effort
+        }
+        setShowDailyReview(false);
+    }, []);
+
+    const handleCompleteDailyReview = useCallback(() => {
+        markDailyReviewCompleted(undefined, dailyCards.map((c) => c.id));
+    }, [dailyCards]);
+
+    const isDailyReviewActive = showDailyReview && dailyCards.length > 0;
 
     // Derive source lookup from annotation bookIds only — avoids subscribing to
     // the entire books array (which re-renders on every progress tick). The
@@ -291,11 +314,11 @@ export function AnnotationsPage() {
             filtered = filtered.filter((annotation) => annotation.bookId === currentBookId);
         }
 
-        if (activeFilter !== "all" && activeFilter !== "vocabulary") {
+        if (activeFilter !== "vocabulary") {
             const typeMap = {
                 highlights: "highlight",
                 notes: "note",
-            };
+            } as const;
             filtered = filtered.filter((a) => a.type === typeMap[activeFilter]);
         }
         return filtered;
@@ -338,12 +361,20 @@ export function AnnotationsPage() {
     const sortedVocabularyTerms = useMemo(() => {
         if (activeFilter !== "vocabulary") return [];
         return [...vocabularyTerms].sort((a, b) => {
-            const updatedA = a.updatedAt ? new Date(a.updatedAt).getTime() : new Date(a.createdAt).getTime();
-            const updatedB = b.updatedAt ? new Date(b.updatedAt).getTime() : new Date(b.createdAt).getTime();
-            if (updatedA !== updatedB) return updatedB - updatedA;
-            return a.term.localeCompare(b.term);
+            if (vocabSortBy === "alpha") {
+                return a.term.localeCompare(b.term);
+            }
+            const timeA = new Date(a.createdAt).getTime();
+            const timeB = new Date(b.createdAt).getTime();
+            if (vocabSortBy === "newest") {
+                return timeB - timeA;
+            }
+            if (vocabSortBy === "oldest") {
+                return timeA - timeB;
+            }
+            return 0;
         });
-    }, [vocabularyTerms, activeFilter]);
+    }, [vocabularyTerms, activeFilter, vocabSortBy]);
 
     const rankedVocabularyTerms = useFuzzyRank(sortedVocabularyTerms, searchQuery, (term) => ({
         primary: term.term,
@@ -407,25 +438,6 @@ export function AnnotationsPage() {
             // sessionStorage unavailable — best-effort persistence
         }
     }, [viewMode, activeFilter, sortBy, groupIndex, cardIndex, annotationGroups]);
-
-    const handleCardTouchStart = useCallback((e: React.TouchEvent) => {
-        cardTouchStartX.current = e.touches[0].clientX;
-        cardTouchStartY.current = e.touches[0].clientY;
-    }, []);
-    const handleCardTouchEnd = useCallback((e: React.TouchEvent) => {
-        const dx = e.changedTouches[0].clientX - cardTouchStartX.current;
-        const dy = e.changedTouches[0].clientY - cardTouchStartY.current;
-        if (Math.abs(dx) < 30 || Math.abs(dx) < Math.abs(dy)) return;
-        const group = annotationGroups[groupIndex];
-        if (!group) return;
-        if (dx > 0) {
-            if (cardIndex > 0) setCardIndex(i => i - 1);
-            else if (groupIndex > 0) { setGroupIndex(g => g - 1); setCardIndex(0); }
-        } else {
-            if (cardIndex < group.annotations.length - 1) setCardIndex(i => i + 1);
-            else if (groupIndex < annotationGroups.length - 1) { setGroupIndex(g => g + 1); setCardIndex(0); }
-        }
-    }, [cardIndex, groupIndex, annotationGroups]);
 
     // Exact, not an estimate: each card renders at its computed layout height.
     const cardLayouts = useMemo(
@@ -527,7 +539,11 @@ export function AnnotationsPage() {
             setRoute("bookmarks");
             return;
         }
-        setActiveFilter(tab);
+        if (tab === "all") {
+            setActiveFilter("highlights");
+        } else {
+            setActiveFilter(tab);
+        }
         if (showBookmarks) setRoute("annotations");
     };
     const tabs = <WorkbenchTabs active={showBookmarks ? "bookmarks" : activeFilter} onSelect={selectTab} />;
@@ -535,7 +551,15 @@ export function AnnotationsPage() {
     if (showBookmarks) {
         return (
             <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
-                <BookmarksPanel tabs={tabs} />
+                <BookmarksPanel
+                    tabs={tabs}
+                    hasDailyReview={!dailyReviewStatus.completed && dailyCards.length > 0}
+                    dailyCardsCount={dailyCards.length}
+                    onOpenDailyReview={() => {
+                        setShowDailyReview(true);
+                        setRoute("annotations");
+                    }}
+                />
             </div>
         );
     }
@@ -549,61 +573,9 @@ export function AnnotationsPage() {
         );
     }
 
+
     return (
-            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
-            
-            <PageHeader
-                title="Workbench"
-                description={workbenchSummary(activeFilter, filteredAnnotations, activeFilter === "all" ? vocabularyTerms.length : filteredVocabularyTerms.length)}
-            />
-
-            {currentBookId && (
-                <div className="mb-8 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px]">
-                    <span className="text-[color:var(--color-text-secondary)]">
-                        Showing highlights and notes for:
-                    </span>
-                    <span className="text-[color:var(--color-text-primary)]">{selectedBookTitle}</span>
-                    <button
-                        onClick={() => setRoute("annotations")}
-                        className="ml-auto border border-[var(--color-border)] px-2 py-1 text-[11px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                    >
-                        Clear
-                    </button>
-                </div>
-            )}
-
-            <div className="mb-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                
-                {tabs}
-
-                <div className="flex items-center gap-2">
-                    {activeFilter !== "vocabulary" && (
-                    <button
-                        onClick={() => setViewMode(viewMode === "list" ? "cards" : "list")}
-                        className={cn(
-                            "border border-[var(--color-border)] px-3 py-2 font-sans text-xs transition-colors",
-                            viewMode === "cards"
-                                ? "ui-selected"
-                                : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
-                        )}
-                        aria-label={viewMode === "list" ? "Card view" : "List view"}
-                    >
-                        {viewMode === "list" ? "Cards" : "List"}
-                    </button>
-                    )}
-
-                    <Dropdown
-                        value={sortBy}
-                        onChange={(value) => setSortBy(value as typeof sortBy)}
-                        options={[
-                            { value: "newest", label: "Newest First" },
-                            { value: "oldest", label: "Oldest First" },
-                            { value: "book", label: "By Book" },
-                        ]}
-                    />
-                </div>
-            </div>
-
+        <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
             <EditNoteModal
                 isOpen={!!editingId}
                 content={editContent}
@@ -628,242 +600,279 @@ export function AnnotationsPage() {
                 onCancel={() => setDeleteAnnotationId(null)}
             />
 
-            {activeFilter === "vocabulary" ? (
-                filteredVocabularyTerms.length === 0 ? (
-                    <div className="text-center py-16">
-                        <p className="text-[color:var(--color-text-muted)]">
-                            No terms found{searchQuery ? " matching your search" : ""}.
-                        </p>
+            {isDailyReviewActive ? (
+                <>
+                    <PageHeader
+                        title="Daily Review"
+                        description={`${dailyCards.length} ${dailyCards.length === 1 ? "highlight" : "highlights"} selected for reflection today`}
+                    >
+                        <button
+                            type="button"
+                            onClick={handleDismissDailyReview}
+                            className="inline-flex items-center gap-1.5 text-xs text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors py-1.5 px-3 border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] touch-manipulation ui-btn"
+                            aria-label="Skip daily review to workbench"
+                            title="Skip to Workbench (Esc)"
+                        >
+                            <span>Skip to Workbench</span>
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </PageHeader>
+
+                    <div className="w-full max-w-[42rem] mx-auto my-2 sm:my-6">
+                        <ReviewCardStack
+                            cards={dailyCards}
+                            sources={sourceLookup}
+                            onComplete={handleCompleteDailyReview}
+                            onGoToSource={handleGoToSource}
+                            onClose={handleDismissDailyReview}
+                            completionTitle="Daily Review Complete"
+                            completionDescription={`You have reviewed all ${dailyCards.length} daily highlights. A fresh deck will be curated tomorrow.`}
+                            completionActionLabel="Back to Workbench"
+                            onCompletionAction={handleDismissDailyReview}
+                            onEdit={handleEdit}
+                            onDelete={handleDelete}
+                        />
                     </div>
-                ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {filteredVocabularyTerms.map((term) => (
-                            <div
-                                key={term.id}
-                                onClick={() => setSelectedVocabTerm(term)}
-                                className="border border-[var(--color-border)] bg-[var(--color-surface)] p-4 flex flex-col gap-2 cursor-pointer hover:border-[var(--color-text-muted)] transition-colors"
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedVocabTerm(term); }}
-                            >
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="text-sm text-[color:var(--color-text-primary)] truncate">{term.term}</span>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); deleteVocabularyTerm(term.id); setSelectedVocabTerm(null); }}
-                                        className="shrink-0 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors"
-                                        aria-label={`Delete ${term.term}`}
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                                {term.meanings[0]?.partOfSpeech && (
-                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.meanings[0].partOfSpeech}</span>
+                </>
+            ) : (
+                <>
+                    <PageHeader
+                        title="Workbench"
+                        actionsClassName="w-full sm:w-auto ml-0 sm:ml-auto justify-between sm:justify-end"
+                        description={
+                            <span>
+                                {workbenchSummary(activeFilter, filteredAnnotations, filteredVocabularyTerms.length)}
+                                {!dailyReviewStatus.completed && dailyCards.length > 0 && (
+                                    <>
+                                        <span className="text-[color:var(--color-border-strong)] mx-1.5 select-none">·</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowDailyReview(true)}
+                                            className="inline-flex items-center gap-1 font-medium text-[color:var(--color-accent)] hover:underline transition-colors"
+                                            aria-label="Open Daily Review"
+                                        >
+                                            Daily Review ({dailyCards.length})
+                                        </button>
+                                    </>
                                 )}
-                                <p className="text-xs leading-relaxed text-[color:var(--color-text-secondary)] line-clamp-2">
-                                    {(() => {
-                                        const def = getTermPrimaryDefinition(term);
-                                        return isHtml(def) ? (term.meanings[0]?.partOfSpeech || "Definition") : def;
-                                    })()}
-                                </p>
-                                {term.language && (
-                                    <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.language}</span>
-                                )}
+                            </span>
+                        }
+                    >
+                        <div className="flex items-center gap-2 shrink-0">
+                            <div role="group" aria-label="View mode" className="inline-flex h-8 shrink-0 items-center border border-[var(--color-border)] bg-[var(--color-surface)]">
+                                <button
+                                    type="button"
+                                    aria-pressed={viewMode === "list"}
+                                    onClick={() => setViewMode("list")}
+                                    className={cn(
+                                        "h-full px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
+                                        viewMode === "list"
+                                            ? "ui-selected"
+                                            : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                                    )}
+                                    aria-label="List view"
+                                >
+                                    List
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-pressed={viewMode === "cards"}
+                                    onClick={() => setViewMode("cards")}
+                                    className={cn(
+                                        "h-full border-l border-[var(--color-border)] px-2.5 sm:px-3 font-sans text-xs flex items-center transition-colors touch-manipulation",
+                                        viewMode === "cards"
+                                            ? "ui-selected"
+                                            : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                                    )}
+                                    aria-label="Cards view"
+                                >
+                                    Cards
+                                </button>
                             </div>
-                        ))}
+
+                            <Dropdown
+                                value={activeFilter === "vocabulary" ? vocabSortBy : sortBy}
+                                onChange={(value) => {
+                                    if (activeFilter === "vocabulary") {
+                                        setVocabSortBy(value as typeof vocabSortBy);
+                                    } else {
+                                        setSortBy(value as typeof sortBy);
+                                    }
+                                }}
+                                size="sm"
+                                className="h-8 shrink-0 !w-auto min-w-[100px] max-w-[140px] sm:max-w-none !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
+                                options={
+                                    activeFilter === "vocabulary"
+                                        ? [
+                                              { value: "alpha", label: "Alphabetical" },
+                                              { value: "newest", label: "Newest First" },
+                                              { value: "oldest", label: "Oldest First" },
+                                          ]
+                                        : [
+                                              { value: "newest", label: "Newest First" },
+                                              { value: "oldest", label: "Oldest First" },
+                                              { value: "book", label: "By Book" },
+                                          ]
+                                }
+                            />
+                        </div>
+                    </PageHeader>
+
+                    {currentBookId && (
+                        <div className="mb-6 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px]">
+                            <span className="text-[color:var(--color-text-secondary)]">
+                                Showing highlights and notes for:
+                            </span>
+                            <span className="text-[color:var(--color-text-primary)]">{selectedBookTitle}</span>
+                            <button
+                                onClick={() => setRoute("annotations")}
+                                className="ml-auto border border-[var(--color-border)] px-2 py-1 text-[11px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]"
+                            >
+                                Clear
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="mb-6">
+                        {tabs}
                     </div>
-                )
-            ) : filteredAnnotations.length === 0 ? (
+
+                    {activeFilter === "vocabulary" ? (
+                        filteredVocabularyTerms.length === 0 ? (
+                            <div className="text-center py-16">
+                                <p className="text-[color:var(--color-text-muted)]">
+                                    No terms found{searchQuery ? " matching your search" : ""}.
+                                </p>
+                            </div>
+                        ) : viewMode === "cards" ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {filteredVocabularyTerms.map((term) => (
+                                    <div
+                                        key={term.id}
+                                        onClick={() => setSelectedVocabTerm(term)}
+                                        className="border border-[var(--color-border)] bg-[var(--color-surface)] p-4 flex flex-col gap-2 cursor-pointer hover:border-[var(--color-text-muted)] transition-colors"
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedVocabTerm(term); }}
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-sm font-medium text-[color:var(--color-text-primary)] truncate">{term.term}</span>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); deleteVocabularyTerm(term.id); setSelectedVocabTerm(null); }}
+                                                className="shrink-0 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors"
+                                                aria-label={`Delete ${term.term}`}
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                        {term.meanings[0]?.partOfSpeech && (
+                                            <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.meanings[0].partOfSpeech}</span>
+                                        )}
+                                        <p className="text-xs leading-relaxed text-[color:var(--color-text-secondary)] line-clamp-2">
+                                            {(() => {
+                                                const def = getTermPrimaryDefinition(term);
+                                                return isHtml(def) ? (term.meanings[0]?.partOfSpeech || "Definition") : def;
+                                            })()}
+                                        </p>
+                                        {term.language && (
+                                            <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.language}</span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="border border-[var(--color-border)] bg-[var(--color-surface)] divide-y divide-[var(--color-border-subtle)]">
+                                {filteredVocabularyTerms.map((term) => (
+                                    <div
+                                        key={term.id}
+                                        onClick={() => setSelectedVocabTerm(term)}
+                                        className="px-4 py-3 flex items-center justify-between gap-4 cursor-pointer hover:bg-[var(--color-surface-muted)] transition-colors group"
+                                        role="button"
+                                        tabIndex={0}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedVocabTerm(term); }}
+                                    >
+                                        <div className="flex items-baseline gap-3 min-w-0 flex-1">
+                                            <span className="font-serif text-sm font-medium text-[color:var(--color-text-primary)] shrink-0">
+                                                {term.term}
+                                            </span>
+                                            {term.meanings[0]?.partOfSpeech && (
+                                                <span className="font-mono text-[10px] text-[color:var(--color-text-muted)] italic shrink-0">
+                                                    {term.meanings[0].partOfSpeech}
+                                                </span>
+                                            )}
+                                            <span className="text-xs text-[color:var(--color-text-secondary)] truncate">
+                                                {(() => {
+                                                    const def = getTermPrimaryDefinition(term);
+                                                    return isHtml(def) ? (term.meanings[0]?.partOfSpeech || "Definition") : def;
+                                                })()}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {term.language && (
+                                                <span className="font-mono text-[10px] text-[color:var(--color-text-muted)] uppercase hidden sm:inline">
+                                                    {term.language}
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    deleteVocabularyTerm(term.id);
+                                                    setSelectedVocabTerm(null);
+                                                }}
+                                                className="p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors opacity-70 group-hover:opacity-100"
+                                                aria-label={`Delete ${term.term}`}
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )
+                    ) : filteredAnnotations.length === 0 ? (
                 <div className="text-center py-16">
                     <p className="text-[color:var(--color-text-muted)]">
-                        No {activeFilter === "all" ? "" : activeFilter} found
+                        No {activeFilter} found
                         {searchQuery ? " matching your search" : ""}.
                     </p>
                 </div>
             ) : viewMode === "cards" ? (
-                <div className="flex flex-col items-center">
-                    <div className="w-full max-w-[42rem]">
-                        {annotationGroups.length === 0 ? (
-                            <div className="text-center py-16">
-                                <p className="text-[color:var(--color-text-muted)]">No annotations to display as cards.</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-1">
-                                    <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
-                                        <span className="text-[10px] text-[color:var(--color-text-muted)] whitespace-nowrap">
-                                            Deck {groupIndex + 1} of {annotationGroups.length}
-                                        </span>
-                                        <span className="text-[color:var(--color-border)] hidden sm:inline shrink-0">|</span>
-                                        <span className="text-[10px] text-[color:var(--color-text-muted)] truncate min-w-0">
-                                            {annotationGroups[groupIndex].title}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-1 self-end sm:self-auto">
-                                        <button
-                                            onClick={() => {
-                                                if (groupIndex > 0) {
-                                                    setGroupIndex(g => g - 1);
-                                                    setCardIndex(0);
-                                                }
-                                            }}
-                                            disabled={groupIndex === 0}
-                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] disabled:opacity-30 transition-colors touch-manipulation"
-                                            aria-label={annotationGroups[groupIndex].isArticle ? "Previous article" : "Previous book"}
-                                        >
-                                            <ChevronsLeft className="w-3.5 h-3.5 sm:hidden" />
-                                            <span className="hidden sm:inline">← Prev {annotationGroups[groupIndex].isArticle ? "Article" : "Book"}</span>
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                if (groupIndex < annotationGroups.length - 1) {
-                                                    setGroupIndex(g => g + 1);
-                                                    setCardIndex(0);
-                                                }
-                                            }}
-                                            disabled={groupIndex >= annotationGroups.length - 1}
-                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] disabled:opacity-30 transition-colors touch-manipulation"
-                                            aria-label={annotationGroups[groupIndex].isArticle ? "Next article" : "Next book"}
-                                        >
-                                            <span className="hidden sm:inline">Next {annotationGroups[groupIndex].isArticle ? "Article" : "Book"} →</span>
-                                            <ChevronsRight className="w-3.5 h-3.5 sm:hidden" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {(() => {
-                                    const group = annotationGroups[groupIndex];
-                                    const ann = group.annotations[cardIndex];
-                                    const source = group.source;
-                                    const isArticle = group.isArticle;
-
-                                    return (
-                                        <div
-                                            className="border border-[var(--color-border)] bg-[var(--color-surface)]"
-                                            onTouchStart={handleCardTouchStart}
-                                            onTouchEnd={handleCardTouchEnd}
-                                        >
-                                            <div className="px-4 sm:px-8 pt-4 sm:pt-8 pb-3 sm:pb-4 border-b border-[var(--color-border-subtle)] flex items-center justify-between min-h-0">
-                                                <div className="flex items-center gap-2 text-[11px] text-[color:var(--color-text-secondary)] min-w-0">
-                                                    {ann.color && (
-                                                        <span className="w-2.5 h-2.5 shrink-0 border border-[var(--color-border)]" style={{ backgroundColor: HIGHLIGHT_SOLID_COLORS[ann.color] }} />
-                                                    )}
-                                                    <span className="truncate">{source?.title || "Unknown source"}</span>
-                                                    {source?.author && <><span className="text-[color:var(--color-text-muted)] shrink-0">·</span><span className="truncate hidden sm:inline">{source.author}</span></>}
-                                                </div>
-                                            </div>
-
-                                            <div className="px-4 sm:px-8 py-6 sm:py-10">
-                                                {ann.selectedText && (
-                                                    <blockquote
-                                                        className="pl-4 sm:pl-5 leading-relaxed font-serif text-[1.05rem] sm:text-[1.25rem] text-[color:var(--color-text-primary)] border-l-[3px]"
-                                                        style={{ borderColor: ann.color ? HIGHLIGHT_SOLID_COLORS[ann.color] : 'var(--color-accent)' }}
-                                                    >
-                                                        {ann.selectedText}
-                                                    </blockquote>
-                                                )}
-
-                                                {ann.noteContent && (
-                                                    <>
-                                                        {ann.selectedText && <div className="my-4 sm:my-6 border-t border-[var(--color-border-subtle)]" />}
-                                                        <p className="font-sans text-[12px] sm:text-[13px] leading-relaxed text-[color:var(--color-text-secondary)] whitespace-pre-wrap">
-                                                            {ann.noteContent}
-                                                        </p>
-                                                    </>
-                                                )}
-                                            </div>
-
-                                            <div className="px-4 sm:px-8 py-2.5 sm:py-3 border-t border-[var(--color-border-subtle)] flex items-center justify-between gap-1">
-                                                <button
-                                                    onClick={() => {
-                                                        if (cardIndex > 0) {
-                                                            setCardIndex(i => i - 1);
-                                                        } else if (groupIndex > 0) {
-                                                            setGroupIndex(g => g - 1);
-                                                            setCardIndex(annotationGroups[groupIndex - 1].annotations.length - 1);
-                                                        }
-                                                    }}
-                                                    disabled={groupIndex === 0 && cardIndex === 0}
-                                                    className="inline-flex items-center gap-1 ui-btn text-[11px] disabled:opacity-30 touch-manipulation"
-                                                    aria-label="Previous card"
-                                                >
-                                                    <ChevronLeft className="w-4 h-4 sm:hidden" />
-                                                    <span className="hidden sm:inline">← Previous</span>
-                                                </button>
-
-                                                <div className="flex items-center gap-1 sm:gap-1.5 px-1 overflow-hidden">
-                                                    {group.annotations.slice(0, Math.min(group.annotations.length, 20)).map((_, i) => {
-                                                        const distance = Math.abs(i - cardIndex);
-                                                        if (distance > 4 && group.annotations.length > 9) return null;
-                                                        return (
-                                                            <button
-                                                                key={i}
-                                                                onClick={() => setCardIndex(i)}
-                                                                className="border-0 p-0 transition-[transform,background-color] duration-200 touch-manipulation"
-                                                                style={{
-                                                                    width: i === cardIndex ? '10px' : '6px',
-                                                                    height: i === cardIndex ? '10px' : '6px',
-                                                                    backgroundColor: i === cardIndex ? 'var(--color-accent)' : 'var(--color-border)',
-                                                                }}
-                                                                aria-label={`Go to card ${i + 1}`}
-                                                            />
-                                                        );
-                                                    })}
-                                                </div>
-
-                                                <button
-                                                    onClick={() => {
-                                                        if (cardIndex < group.annotations.length - 1) {
-                                                            setCardIndex(i => i + 1);
-                                                        } else if (groupIndex < annotationGroups.length - 1) {
-                                                            setGroupIndex(g => g + 1);
-                                                            setCardIndex(0);
-                                                        }
-                                                    }}
-                                                    disabled={groupIndex === annotationGroups.length - 1 && cardIndex >= group.annotations.length - 1}
-                                                    className="inline-flex items-center gap-1 ui-btn text-[11px] disabled:opacity-30 touch-manipulation"
-                                                    aria-label="Next card"
-                                                >
-                                                    <span className="hidden sm:inline">Next →</span>
-                                                    <ChevronRight className="w-4 h-4 sm:hidden" />
-                                                </button>
-                                            </div>
-
-                                            <div className="px-4 sm:px-8 py-2 border-t border-[var(--color-border-subtle)] flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-                                                <span className="text-[10px] text-[color:var(--color-text-muted)] whitespace-nowrap">
-                                                    {cardIndex + 1}/{group.annotations.length}
-                                                    <span className="hidden sm:inline"> in this {isArticle ? "article" : "book"}</span>
-                                                </span>
-                                                <button
-                                                    onClick={() => { handleEdit(ann.id); }}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation"
-                                                    aria-label="Edit"
-                                                >
-                                                    <Pencil className="w-3 h-3 sm:hidden" />
-                                                    <span className="hidden sm:inline">Edit</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleGoToSource(ann.bookId, ann.location)}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation"
-                                                    aria-label={isArticle ? "Open article" : "Open book"}
-                                                >
-                                                    {isArticle ? <BookOpenText className="w-3 h-3 sm:hidden" /> : <BookOpen className="w-3 h-3 sm:hidden" />}
-                                                    <span className="hidden sm:inline">{isArticle ? "Open Article" : "Open Book"}</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(ann.id)}
-                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-error)] hover:text-[color:var(--color-error)] transition-colors touch-manipulation"
-                                                    aria-label="Delete"
-                                                >
-                                                    <Trash2 className="w-3 h-3 sm:hidden" />
-                                                    <span className="hidden sm:inline">Delete</span>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
-                            </>
-                        )}
-                    </div>
+                <div className="w-full max-w-[42rem] mx-auto my-2 sm:my-6">
+                    {annotationGroups.length === 0 ? (
+                        <div className="text-center py-16">
+                            <p className="text-[color:var(--color-text-muted)]">No annotations to display as cards.</p>
+                        </div>
+                    ) : (
+                        <ReviewCardStack
+                            cards={annotationGroups[groupIndex].annotations}
+                            sources={sourceLookup}
+                            deckTitle={`Deck ${groupIndex + 1} of ${annotationGroups.length}: ${annotationGroups[groupIndex].title}`}
+                            deckSubtitle={annotationGroups[groupIndex].isArticle ? "Article Deck" : "Book Deck"}
+                            hasPrevDeck={groupIndex > 0}
+                            hasNextDeck={groupIndex < annotationGroups.length - 1}
+                            prevDeckLabel={annotationGroups[groupIndex].isArticle ? "Prev Article" : "Prev Book"}
+                            nextDeckLabel={annotationGroups[groupIndex].isArticle ? "Next Article" : "Next Book"}
+                            onPrevDeck={() => {
+                                if (groupIndex > 0) setGroupIndex((g) => g - 1);
+                            }}
+                            onNextDeck={() => {
+                                if (groupIndex < annotationGroups.length - 1) setGroupIndex((g) => g + 1);
+                            }}
+                            onGoToSource={handleGoToSource}
+                            onEdit={handleEdit}
+                            onDelete={handleDelete}
+                            completionTitle="Deck Completed"
+                            completionDescription={`You have reviewed all ${annotationGroups[groupIndex].annotations.length} highlights in this ${annotationGroups[groupIndex].isArticle ? "article" : "book"}.`}
+                            completionActionLabel={groupIndex < annotationGroups.length - 1 ? `Next ${annotationGroups[groupIndex].isArticle ? "Article" : "Book"} →` : "Back to First Deck"}
+                            onCompletionAction={() => {
+                                if (groupIndex < annotationGroups.length - 1) {
+                                    setGroupIndex((g) => g + 1);
+                                } else {
+                                    setGroupIndex(0);
+                                }
+                            }}
+                        />
+                    )}
                 </div>
             ) : (
                 <div ref={listRef} style={{ height: `${annotationsVirtualizer.getTotalSize()}px`, position: "relative" }}>
@@ -955,6 +964,9 @@ export function AnnotationsPage() {
                     </ModalBody>
                 </Modal>
             )}
+                </>
+            )}
+
         </div>
     );
 }

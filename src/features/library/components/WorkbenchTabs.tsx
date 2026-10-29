@@ -1,12 +1,11 @@
 import { memo, type ComponentType } from "react";
-import { Bookmark, BookOpenText, Highlighter, Layers, StickyNote } from "lucide-react";
+import { Bookmark, BookOpenText, Highlighter, StickyNote } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import type { WorkbenchFilter } from "../../../core/types";
 
 export type WorkbenchTab = WorkbenchFilter | "bookmarks";
 
 const TABS: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ComponentType<{ className?: string }> }> = [
-    { id: "all", label: "All", icon: Layers },
     { id: "highlights", label: "Highlights", icon: Highlighter },
     { id: "notes", label: "Notes", icon: StickyNote },
     { id: "vocabulary", label: "Words", icon: BookOpenText },
@@ -14,16 +13,10 @@ const TABS: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ComponentType
 ];
 
 /**
- * The one row of tabs shared by the Workbench and the Bookmarks page.
+ * The row of tabs shared by the Workbench and the Bookmarks page.
  *
- * Highlights, notes, words and bookmarks are the same thing to a reader — what they marked — so
- * they present as one place with five tabs. On a phone this is also what keeps Bookmarks
- * reachable: the bottom bar has room for one "Workbench" item and the rest lives here.
- *
- * Five text labels side by side need ~350px, more than a small phone has, and a row that scrolls
- * sideways would hide exactly the tab we are trying to expose. So below `sm` the five tabs share
- * the width equally, each with its icon over a small label (icon-only tabs had to be guessed);
- * from `sm` up it is the plain text row it always was.
+ * Highlights, notes, words and bookmarks are the four distinct workspaces of the Workbench.
+ * With 4 tabs, they divide evenly on mobile (grid-cols-4) with generous touch targets and no truncation.
  */
 export const WorkbenchTabs = memo(function WorkbenchTabs({
     active,
@@ -38,7 +31,7 @@ export const WorkbenchTabs = memo(function WorkbenchTabs({
         <div
             role="tablist"
             aria-label="Workbench sections"
-            className={cn("grid w-full max-w-full grid-cols-5 items-stretch gap-1 sm:flex sm:w-fit", className)}
+            className={cn("grid w-full max-w-full grid-cols-4 items-stretch gap-1 sm:flex sm:w-fit", className)}
         >
             {TABS.map(({ id, label, icon: Icon }) => {
                 const isActive = active === id;
