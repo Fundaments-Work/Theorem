@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
     ChevronLeft, ChevronRight,
-    RotateCcw, CheckCircle2, Pencil, Trash2, ChevronsLeft, ChevronsRight,
+    RotateCcw, CheckCircle2, ChevronsLeft, ChevronsRight,
     ArrowUpRight, Check, StickyNote
 } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
@@ -94,8 +94,8 @@ export function ReviewCardStack({
     nextDeckLabel,
     onPrevDeck,
     onNextDeck,
-    onEdit,
-    onDelete,
+    onEdit: _onEdit,
+    onDelete: _onDelete,
     completionTitle = "All Caught Up",
     completionDescription,
     completionActionLabel = "Done",
@@ -465,7 +465,7 @@ export function ReviewCardStack({
                                     )}
                                 </div>
 
-                                <div className="px-5 sm:px-8 py-2.5 border-t border-[var(--color-border-subtle)] opacity-40 bg-[var(--color-surface-muted)]/20">
+                                <div className="px-5 sm:px-8 pb-4 pt-1 flex items-center justify-center opacity-40 select-none">
                                     <span className="text-[10px] text-[color:var(--color-text-muted)] font-mono">Next in deck</span>
                                 </div>
                             </div>
@@ -499,7 +499,7 @@ export function ReviewCardStack({
                         >
                             <div className="h-1 w-full shrink-0" style={{ backgroundColor: topColor.border }} />
 
-                            {/* Card Header with Source Info and Progress */}
+                            {/* Card Header with Source Info, Open in Reader icon, and Stepper */}
                             <div className="px-5 sm:px-8 pt-4 sm:pt-5 pb-3 border-b border-[var(--color-border-subtle)] flex items-center justify-between gap-3 shrink-0 select-none">
                                 <div className="flex items-center gap-2 text-xs text-[color:var(--color-text-secondary)] min-w-0">
                                     <span className="truncate font-medium text-xs text-[color:var(--color-text-primary)]">
@@ -513,33 +513,52 @@ export function ReviewCardStack({
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-1 font-mono text-xs text-[color:var(--color-text-muted)] whitespace-nowrap ml-2 select-none">
+                                <div className="flex items-center gap-2 shrink-0 select-none">
                                     <button
                                         type="button"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            handlePrev();
+                                            onClose?.();
+                                            onGoToSource(topCard.bookId, topCard.location);
                                         }}
-                                        disabled={currentIndex === 0}
-                                        className="p-1 hover:text-[color:var(--color-text-primary)] disabled:opacity-20 transition-colors touch-manipulation"
-                                        aria-label="Previous card"
+                                        className="p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] hover:bg-[var(--color-surface-muted)] transition-colors touch-manipulation flex items-center justify-center cursor-pointer"
+                                        title="Open in Reader"
+                                        aria-label="Open in Reader"
                                     >
-                                        <ChevronLeft className="w-3.5 h-3.5" />
+                                        <ArrowUpRight className="w-4 h-4 text-[color:var(--color-accent)]" />
+                                        <span className="sr-only">Open in Reader</span>
                                     </button>
-                                    <span>
-                                        {currentIndex + 1} of {cards.length}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleNext();
-                                        }}
-                                        className="p-1 hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation"
-                                        aria-label="Next card"
-                                    >
-                                        <ChevronRight className="w-3.5 h-3.5" />
-                                    </button>
+
+                                    <div className="h-3 w-px bg-[var(--color-border-subtle)]" />
+
+                                    <div className="flex items-center gap-1 font-mono text-xs text-[color:var(--color-text-muted)] whitespace-nowrap select-none">
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handlePrev();
+                                            }}
+                                            disabled={currentIndex === 0}
+                                            className="p-1 hover:text-[color:var(--color-text-primary)] disabled:opacity-20 transition-colors touch-manipulation cursor-pointer"
+                                            aria-label="Previous card"
+                                        >
+                                            <ChevronLeft className="w-3.5 h-3.5" />
+                                        </button>
+                                        <span>
+                                            {currentIndex + 1} of {cards.length}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleNext();
+                                            }}
+                                            className="p-1 hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation cursor-pointer"
+                                            aria-label="Next card"
+                                        >
+                                            <ChevronRight className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -589,57 +608,11 @@ export function ReviewCardStack({
                                 )}
                             </div>
 
-                            {/* Actions row: Open in Reader, Tap hint, Edit, Delete */}
-                            <div className="px-5 sm:px-8 py-3 border-t border-[var(--color-border-subtle)] flex items-center justify-between gap-2 shrink-0 bg-[var(--color-surface-muted)]/20">
-                                <button
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onClose?.();
-                                        onGoToSource(topCard.bookId, topCard.location);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-[color:var(--color-text-primary)] hover:text-[color:var(--color-accent)] border border-[var(--color-border)] hover:border-[var(--color-accent)] bg-[var(--color-surface)] transition-colors touch-manipulation font-medium shadow-xs"
-                                    aria-label="Open in Reader"
-                                >
-                                    <span>Open in Reader</span>
-                                    <ArrowUpRight className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
-                                </button>
-
-                                <span className="text-[10px] font-mono text-[color:var(--color-text-muted)] hidden sm:inline select-none">
+                            {/* Card Footer: Subtle tap/swipe hint */}
+                            <div className="px-5 sm:px-8 pb-4 pt-1 flex items-center justify-center shrink-0 select-none">
+                                <span className="text-[10px] font-mono text-[color:var(--color-text-muted)]/70 select-none">
                                     Tap card or swipe to advance
                                 </span>
-
-                                <div className="flex items-center gap-1">
-                                    {onEdit && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onEdit(topCard.id);
-                                            }}
-                                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation"
-                                            aria-label="Edit note"
-                                        >
-                                            <Pencil className="w-3 h-3" />
-                                            <span className="hidden sm:inline">Edit</span>
-                                        </button>
-                                    )}
-
-                                    {onDelete && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onDelete(topCard.id);
-                                            }}
-                                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] text-[color:var(--color-error)] hover:text-[color:var(--color-error)] transition-colors touch-manipulation"
-                                            aria-label="Delete annotation"
-                                        >
-                                            <Trash2 className="w-3 h-3" />
-                                            <span className="hidden sm:inline">Delete</span>
-                                        </button>
-                                    )}
-                                </div>
                             </div>
                         </div>
                     </>
