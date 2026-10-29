@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
-- **RSS Feed Swipe Actions** — Added touch and pointer swipe gestures for feed articles: Swipe right to toggle read/unread, swipe left to delete with a Sonner undo toast.
-- **In-Page Daily Review & Unified Card View Deck** — Resurfaces 5 daily highlights in a physical 3D card deck directly within the Workbench. Features tap-to-advance, dynamic drag tilt and fling physics, background card depth preview, disabled card text selection for smooth unhindered gestures, and unifies the Workbench card view mode (`viewMode === "cards"`) with deck-by-deck navigation adhering to Theorem's Swiss design tokens.
+- **Daily Highlights Card Stack in Library** — Upgraded the static Daily Highlight banner into an interactive physical 3D card deck embedded at the top of the Library feed. Controlled by `settings.showDailyHighlight`, the deck resurfaces daily highlights with tap-to-advance, drag-tilt, fling gestures, source jumping, and session dismiss. Once reviewed or dismissed, it collapses cleanly to leave the book grid unencumbered.
+- **Refocused Workbench Workspace** — Workbench is refocused exclusively on deep search, filtering, and browsing across Highlights, Notes, Vocabulary, and Bookmarks without daily takeover interruptions, while retaining an on-demand deck Card View toggle (`viewMode === "cards"`).
 - **Library List View Details (#159)** — Enhanced the library list view row cards with dedicated format badges, series and volume index annotations, compact progress bar visualization, and relative date indicators for last read and added dates, maintaining a fixed 96px virtualized row height.
 - **CLI Scripting & Headless Follow-ups (#162)**:
   - Added `--data-dir <path>` global option and `THEOREM_DATA_DIR` environment variable support to run headless commands against arbitrary libraries, external drives, or testing sandboxes without modifying default application data paths.

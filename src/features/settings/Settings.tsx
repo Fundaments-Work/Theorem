@@ -893,8 +893,8 @@ export const SettingsPage = memo(function SettingsPage() {
                         </SettingRow>
 
                         <SettingRow
-                            label="Daily Highlight"
-                            description="Show a random past highlight on the Library page"
+                            label="Daily Highlights"
+                            description="Review a curated deck of daily highlights at the top of your library"
                         >
                             <Toggle
                                 checked={settings.showDailyHighlight}

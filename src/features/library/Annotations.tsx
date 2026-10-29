@@ -21,12 +21,10 @@ import {
     Highlighter,
     StickyNote,
     Trash2,
-    X,
     Layers,
     List,
 } from "lucide-react";
 import { ReviewCardStack } from "./components/ReviewCardStack";
-import { getDailyReviewStatus, selectDailyReviewCards, markDailyReviewCompleted } from "../../core/lib/daily-review";
 import { ShareMenu } from "./components/ShareMenu";
 import { AnnotationListCard } from "./components/AnnotationListCard";
 import { ANNOTATION_ROW_GAP_PX, annotationRowSize, computeCardLayout, type CardLayout } from "./components/annotation-card-layout";
@@ -248,32 +246,6 @@ export function AnnotationsPage() {
     const [cardIndex, setCardIndex] = useState(0);
     const [groupIndex, setGroupIndex] = useState(0);
     const [selectedVocabTerm, setSelectedVocabTerm] = useState<VocabularyTerm | null>(null);
-    const dailyCards = useMemo(() => selectDailyReviewCards(annotations), [annotations]);
-    const [showDailyReview, setShowDailyReview] = useState(() => {
-        try {
-            const dismissed = typeof window !== "undefined" ? window.sessionStorage.getItem("theorem:daily-review-dismissed-session") : null;
-            const status = getDailyReviewStatus();
-            return !status.completed && !dismissed;
-        } catch {
-            return false;
-        }
-    });
-    const dailyReviewStatus = useMemo(() => getDailyReviewStatus(), [showDailyReview]);
-
-    const handleDismissDailyReview = useCallback(() => {
-        try {
-            window.sessionStorage.setItem("theorem:daily-review-dismissed-session", "true");
-        } catch {
-            // best-effort
-        }
-        setShowDailyReview(false);
-    }, []);
-
-    const handleCompleteDailyReview = useCallback(() => {
-        markDailyReviewCompleted(undefined, dailyCards.map((c) => c.id));
-    }, [dailyCards]);
-
-    const isDailyReviewActive = showDailyReview && dailyCards.length > 0;
 
     // Derive source lookup from annotation bookIds only — avoids subscribing to
     // the entire books array (which re-renders on every progress tick). The
@@ -552,15 +524,7 @@ export function AnnotationsPage() {
     if (showBookmarks) {
         return (
             <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
-                <BookmarksPanel
-                    tabs={tabs}
-                    hasDailyReview={!dailyReviewStatus.completed && dailyCards.length > 0}
-                    dailyCardsCount={dailyCards.length}
-                    onOpenDailyReview={() => {
-                        setShowDailyReview(true);
-                        setRoute("annotations");
-                    }}
-                />
+                <BookmarksPanel tabs={tabs} />
             </div>
         );
     }
@@ -601,63 +565,10 @@ export function AnnotationsPage() {
                 onCancel={() => setDeleteAnnotationId(null)}
             />
 
-            {isDailyReviewActive ? (
-                <>
-                    <PageHeader
-                        title="Daily Review"
-                        description={`${dailyCards.length} ${dailyCards.length === 1 ? "highlight" : "highlights"} selected for reflection today`}
-                    >
-                        <button
-                            type="button"
-                            onClick={handleDismissDailyReview}
-                            className="inline-flex items-center gap-1.5 text-xs text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors py-1.5 px-3 border border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] touch-manipulation ui-btn"
-                            aria-label="Skip daily review to workbench"
-                            title="Skip to Workbench (Esc)"
-                        >
-                            <span>Skip to Workbench</span>
-                            <X className="w-3.5 h-3.5" />
-                        </button>
-                    </PageHeader>
-
-                    <div className="w-full max-w-[42rem] mx-auto my-2 sm:my-6">
-                        <ReviewCardStack
-                            cards={dailyCards}
-                            sources={sourceLookup}
-                            onComplete={handleCompleteDailyReview}
-                            onGoToSource={handleGoToSource}
-                            onClose={handleDismissDailyReview}
-                            completionTitle="Daily Review Complete"
-                            completionDescription={`You have reviewed all ${dailyCards.length} daily highlights. A fresh deck will be curated tomorrow.`}
-                            completionActionLabel="Back to Workbench"
-                            onCompletionAction={handleDismissDailyReview}
-                            onEdit={handleEdit}
-                            onDelete={handleDelete}
-                        />
-                    </div>
-                </>
-            ) : (
-                <>
-                    <PageHeader
-                        title="Workbench"
-                        description={
-                            <span>
-                                {workbenchSummary(activeFilter, filteredAnnotations, filteredVocabularyTerms.length)}
-                                {!dailyReviewStatus.completed && dailyCards.length > 0 && (
-                                    <>
-                                        <span className="text-[color:var(--color-border-strong)] mx-1.5 select-none">·</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowDailyReview(true)}
-                                            className="inline-flex items-center gap-1 font-medium text-[color:var(--color-accent)] hover:underline transition-colors"
-                                            aria-label="Open Daily Review"
-                                        >
-                                            Daily Review ({dailyCards.length})
-                                        </button>
-                                    </>
-                                )}
-                            </span>
-                        }
-                    />
+            <PageHeader
+                title="Workbench"
+                description={workbenchSummary(activeFilter, filteredAnnotations, filteredVocabularyTerms.length)}
+            />
 
                     {currentBookId && (
                         <div className="mb-6 flex flex-wrap items-center gap-2 border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-sans text-[11px]">
@@ -946,9 +857,6 @@ export function AnnotationsPage() {
                     </ModalBody>
                 </Modal>
             )}
-                </>
-            )}
-
         </div>
     );
 }

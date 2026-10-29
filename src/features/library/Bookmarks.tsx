@@ -100,14 +100,8 @@ function bookmarkBlocks(bookmark: Annotation) {
  */
 export function BookmarksPanel({
     tabs,
-    onOpenDailyReview,
-    hasDailyReview,
-    dailyCardsCount,
 }: {
     tabs: ReactNode;
-    onOpenDailyReview?: () => void;
-    hasDailyReview?: boolean;
-    dailyCardsCount?: number;
 }) {
     const annotations = useLibraryStore((state) => state.annotations);
     const getBook = useLibraryStore((state) => state.getBook);
@@ -259,24 +253,7 @@ export function BookmarksPanel({
             <>
                 <PageHeader
                     title="Workbench"
-                    description={
-                        <span>
-                            0 bookmarks across 0 sources
-                            {hasDailyReview && (
-                                <>
-                                    <span className="text-[color:var(--color-border-strong)] mx-1.5 select-none">·</span>
-                                    <button
-                                        type="button"
-                                        onClick={onOpenDailyReview}
-                                        className="inline-flex items-center gap-1 font-medium text-[color:var(--color-accent)] hover:underline transition-colors"
-                                        aria-label="Open Daily Review"
-                                    >
-                                        Daily Review ({dailyCardsCount})
-                                    </button>
-                                </>
-                            )}
-                        </span>
-                    }
+                    description="0 bookmarks across 0 sources"
                 />
                 <div className="mb-6">
                     {tabs}
@@ -292,24 +269,7 @@ export function BookmarksPanel({
         <>
             <PageHeader
                 title="Workbench"
-                description={
-                    <span>
-                        {filteredBookmarks.length} {filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across {bookTotal} {bookTotal === 1 ? "source" : "sources"}
-                        {hasDailyReview && (
-                            <>
-                                <span className="text-[color:var(--color-border-strong)] mx-1.5 select-none">·</span>
-                                <button
-                                    type="button"
-                                    onClick={onOpenDailyReview}
-                                    className="inline-flex items-center gap-1 font-medium text-[color:var(--color-accent)] hover:underline transition-colors"
-                                    aria-label="Open Daily Review"
-                                >
-                                    Daily Review ({dailyCardsCount})
-                                </button>
-                            </>
-                        )}
-                    </span>
-                }
+                description={`${filteredBookmarks.length} ${filteredBookmarks.length === 1 ? "bookmark" : "bookmarks"} across ${bookTotal} ${bookTotal === 1 ? "source" : "sources"}`}
             />
 
             <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

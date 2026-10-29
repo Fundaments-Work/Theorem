@@ -14,9 +14,9 @@ import { describeFolderImport, importFolder, type FolderImportDeps, type FolderI
 import { FolderImportStatus } from "./components/FolderImportStatus";
 import { isMobile, isTauri, isTauriDesktop } from "../../core/lib/env";
 import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
-import { useLibraryStore, useUIStore, useSettingsStore, useRssStore } from "../../core/store";
-import { resolveAnnotationSource, navigateToAnnotationSource } from "../../core/lib/annotation-source";
+import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
 import { LibraryFilterPanel } from "./LibraryFilterPanel";
+import { LibraryDailyReviewDeck } from "./components/LibraryDailyReviewDeck";
 import type { Book, BookAudioTrackFormat, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
@@ -37,7 +37,6 @@ import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { toast } from "sonner";
-import { localDateKey } from "../../core/lib/date-keys";
 import { useFilteredSelection } from "./useFilteredSelection";
 import { FolderImportModal } from "./components/modals/FolderImportModal";
 import { SourceFolderBrowser } from "./components/SourceFolderBrowser";
@@ -1164,80 +1163,6 @@ export function RenameBookModal({
         </Modal>
     );
 }
-
-const DailyHighlightBanner = memo(function DailyHighlightBanner({
-    showDailyHighlight,
-    selectedShelf,
-    showFavoritesOnly,
-    isSelecting,
-}: {
-    showDailyHighlight: boolean;
-    selectedShelf: unknown;
-    showFavoritesOnly: boolean;
-    isSelecting: boolean;
-}) {
-    const [dismissed, setDismissed] = useState(
-        () => sessionStorage.getItem("theorem-dismiss-highlight") === localDateKey()
-    );
-
-    const annotations = useLibraryStore((state) => (dismissed || !showDailyHighlight ? null : state.annotations));
-
-    if (dismissed || !showDailyHighlight || !annotations || selectedShelf || showFavoritesOnly || isSelecting) {
-        return null;
-    }
-
-    const nonBookmarks = annotations.filter((a) => a.type !== "bookmark" && a.selectedText);
-    if (nonBookmarks.length === 0) return null;
-    const daySeed = localDateKey().split("-").reduce((a, b) => a + parseInt(b), 0);
-    const hl = nonBookmarks[daySeed % nonBookmarks.length];
-    if (!hl) return null;
-
-    const getBook = useLibraryStore.getState().getBook;
-    const rssArticles = useRssStore.getState().articles;
-    const rssFeeds = useRssStore.getState().feeds;
-    const source = resolveAnnotationSource(hl.bookId, getBook, rssArticles, rssFeeds, hl.chapterTitle);
-    const hlBook = getBook(hl.bookId);
-    const title = source?.title || hlBook?.title || hl.chapterTitle || "Unknown source";
-    const author = source?.author || hlBook?.author;
-
-    const handleNavigate = () => {
-        navigateToAnnotationSource(hl.bookId, hl.location, {
-            setPendingReaderLocation: useUIStore.getState().setPendingReaderLocation,
-            setRoute: useUIStore.getState().setRoute,
-            openArticleInReader: useRssStore.getState().openArticleInReader,
-            getArticle: useRssStore.getState().getArticle,
-            loadArticle: useRssStore.getState().loadArticle,
-            hasBook: (id) => !!getBook(id),
-            fallbackTitle: hl.chapterTitle,
-        });
-    };
-
-    return (
-        <div className="mb-3 border-l-[3px] border-[var(--color-accent)] bg-[var(--color-surface)] pl-4 pr-4 py-3 flex items-start gap-3">
-            <div className="flex-1 min-w-0 cursor-pointer" onClick={handleNavigate} title="Click to view highlight in reader">
-                <div className="text-[10px] text-[color:var(--color-text-muted)] mb-1.5">
-                    From your highlights
-                </div>
-                <p className="font-serif text-[14px] leading-relaxed text-[color:var(--color-text-primary)] mb-1.5 hover:underline">
-                    &ldquo;{hl.selectedText}&rdquo;
-                </p>
-                <div className="text-[11px] text-[color:var(--color-text-secondary)]">
-                    — {title}{author && author !== "Unknown author" ? ` (${author})` : ""}
-                </div>
-            </div>
-            <button
-                onClick={() => {
-                    sessionStorage.setItem("theorem-dismiss-highlight", localDateKey());
-                    setDismissed(true);
-                }}
-                className="shrink-0 mt-0.5 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors"
-                aria-label="Dismiss highlight"
-            >
-                ✕
-            </button>
-        </div>
-    );
-});
 
 export function LibraryPage() {
     const books = useLibraryStore((state) => state.books);
@@ -2474,7 +2399,7 @@ export function LibraryPage() {
                     </div>
 
                     <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
-                        <DailyHighlightBanner
+                        <LibraryDailyReviewDeck
                             showDailyHighlight={!!settings.showDailyHighlight}
                             selectedShelf={selectedShelf}
                             showFavoritesOnly={showFavoritesOnly}
