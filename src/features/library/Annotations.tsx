@@ -682,11 +682,11 @@ export function AnnotationsPage() {
                         <button
                             type="button"
                             onClick={() => setViewMode((prev) => (prev === "list" ? "cards" : "list"))}
-                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation ui-btn"
+                            className="inline-flex h-8 w-8 !p-0 shrink-0 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation cursor-pointer"
                             title={viewMode === "list" ? "Cards view" : "List view"}
                             aria-label={viewMode === "list" ? "Cards view" : "List view"}
                         >
-                            {viewMode === "list" ? <Layers className="w-4 h-4" /> : <List className="w-4 h-4" />}
+                            {viewMode === "list" ? <Layers className="w-4 h-4 shrink-0" /> : <List className="w-4 h-4 shrink-0" />}
                         </button>
 
                         <div className="shrink-0">
