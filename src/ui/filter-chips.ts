@@ -12,9 +12,9 @@
  */
 export const FILTER_CHIP_SELECTED =
     "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] border-[var(--color-accent)]";
-/** Sits on the page background: transparent at rest, surfacing on hover. */
+/** Sits on the page background: styled with a visible border and surface so it feels like a real button. */
 export const FILTER_CHIP_UNSELECTED =
-    "text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]";
-/** Sits on a panel surface already, so it only outlines on hover. */
+    "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-border)] hover:bg-[var(--color-surface)] hover:text-[color:var(--color-text-primary)]";
+/** Sits on a panel surface already, with a defined border and surface fill. */
 export const FILTER_CHIP_UNSELECTED_ON_SURFACE =
-    "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-transparent hover:border-[var(--color-border)]";
+    "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-border)] hover:text-[color:var(--color-text-primary)]";

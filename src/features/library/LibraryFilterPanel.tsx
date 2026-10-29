@@ -65,7 +65,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
     const unselected = props.variant === "sheet" ? FILTER_CHIP_UNSELECTED : FILTER_CHIP_UNSELECTED_ON_SURFACE;
     const chip = (selected: boolean) =>
-        cn("px-1 py-2 text-xs whitespace-nowrap border transition-colors", selected ? FILTER_CHIP_SELECTED : unselected);
+        cn(
+            "h-8 w-full px-2 text-xs font-sans whitespace-nowrap border flex items-center justify-center text-center transition-colors touch-manipulation",
+            selected ? FILTER_CHIP_SELECTED : unselected
+        );
     const divider = props.variant === "sheet" ? "divide-y" : "divide-y-2";
 
     return (

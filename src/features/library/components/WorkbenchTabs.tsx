@@ -16,7 +16,7 @@ const TABS: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ComponentType
  * The row of tabs shared by the Workbench and the Bookmarks page.
  *
  * Highlights, notes, words and bookmarks are the four distinct workspaces of the Workbench.
- * With 4 tabs, they divide evenly on mobile (grid-cols-4) with generous touch targets and no truncation.
+ * With 4 tabs, they divide evenly across mobile (grid-cols-4) with clear icons, labels and touch targets.
  */
 export const WorkbenchTabs = memo(function WorkbenchTabs({
     active,
@@ -45,14 +45,13 @@ export const WorkbenchTabs = memo(function WorkbenchTabs({
                         title={label}
                         onClick={() => onSelect(id)}
                         className={cn(
-                            "flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap border border-[var(--color-border)] px-1 py-2 font-sans text-[10px] transition-colors",
-                            "sm:flex-row sm:gap-1.5 sm:px-3 sm:text-xs",
+                            "flex min-w-0 flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap border border-[var(--color-border)] px-1 py-1.5 sm:px-3.5 sm:py-2 font-sans text-[10px] sm:text-xs transition-colors touch-manipulation",
                             isActive
                                 ? "ui-selected"
                                 : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
                         )}
                     >
-                        <Icon className="h-4 w-4 shrink-0 sm:hidden" />
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
                         <span className="max-w-full truncate">{label}</span>
                     </button>
                 );

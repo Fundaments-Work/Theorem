@@ -37,7 +37,7 @@ export const Sidebar = memo(function Sidebar() {
                 onClick={onClick}
                 className={cn(
                     "group relative flex h-12 w-12 shrink-0 items-center justify-center",
-                    isActive ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-text-secondary)] ui-signal-hover",
+                    isActive ? "text-[color:var(--color-text-primary)]" : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
                 )}
                 aria-label={label}
                 aria-current={isActive ? "page" : undefined}

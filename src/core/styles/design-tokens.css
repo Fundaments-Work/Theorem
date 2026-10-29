@@ -641,13 +641,12 @@
 }
 
 .ui-bottom-nav-btn:active {
-    color: var(--color-accent);
+    color: var(--color-text-primary);
 }
 
-/* The open item is lime, with a 2px accent rule on its top edge like the desktop rail's
-   left edge: one signal, never a fill. */
+/* The open item is marked by high-contrast primary text and an accent indicator rule on its top edge */
 .ui-bottom-nav-btn[data-active="true"] {
-    color: var(--color-accent);
+    color: var(--color-text-primary);
 }
 
 .ui-bottom-nav-btn[data-active="true"]::before {

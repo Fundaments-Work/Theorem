@@ -768,7 +768,7 @@ function ImportButton({
         <button
             onClick={onImport}
             disabled={isLoading}
-            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 flex-1 justify-center px-3 py-2 sm:h-auto sm:flex-none sm:px-4")}
+            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 flex-1 justify-center px-3 sm:h-10 sm:flex-none sm:px-4")}
         >
             {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -2311,8 +2311,12 @@ export function LibraryPage() {
                         <button
                             onClick={() => setShowFolderImport(true)}
                             disabled={isScanning || isImporting}
-                            className={cn(TOOLBAR_BUTTON_BASE, "px-3 py-2 sm:px-4 border-2")}
+                            className={cn(
+                                TOOLBAR_BUTTON_BASE,
+                                "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors"
+                            )}
                             title="Scan Folder"
+                            aria-label="Scan Folder"
                         >
                             {isScanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
                             <span className="hidden sm:inline text-xs">Scan</span>
