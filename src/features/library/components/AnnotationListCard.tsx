@@ -56,7 +56,7 @@ function clampStyle(lines: number, lineHeightPx: number): CSSProperties {
 
 export const AnnotationListCard = memo(function AnnotationListCard({
     id,
-    typeLabel,
+    typeLabel: _typeLabel,
     dateLabel,
     sourceTitle,
     sourceAuthor,
@@ -115,21 +115,24 @@ export const AnnotationListCard = memo(function AnnotationListCard({
             }}
         >
             <div className="flex h-[44px] items-start justify-between mb-4">
-                <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                        <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            {typeLabel}
-                        </span>
-                        <span className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            {dateLabel}
-                        </span>
-                    </div>
+                <div className="min-w-0 flex flex-col justify-center">
                     <div
                         onClick={onOpen}
-                        className="mt-2 font-sans text-[11px] text-[color:var(--color-text-secondary)] truncate cursor-pointer hover:underline"
+                        className="font-sans text-xs font-medium text-[color:var(--color-text-primary)] truncate cursor-pointer hover:underline"
                         title={openTitle}
                     >
-                        <HighlightMatch text={sourceTitle} query={searchQuery} /> <span className="text-[color:var(--color-text-muted)]">|</span> <HighlightMatch text={sourceAuthor} query={searchQuery} />
+                        <HighlightMatch text={sourceTitle} query={searchQuery} />
+                        {sourceAuthor && (
+                            <>
+                                <span className="text-[color:var(--color-text-muted)] font-normal mx-1.5 select-none">·</span>
+                                <span className="text-[color:var(--color-text-secondary)] font-normal">
+                                    <HighlightMatch text={sourceAuthor} query={searchQuery} />
+                                </span>
+                            </>
+                        )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 font-mono text-[10px] text-[color:var(--color-text-muted)]">
+                        <span>{dateLabel}</span>
                     </div>
                 </div>
                 <div

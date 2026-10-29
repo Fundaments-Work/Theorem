@@ -674,48 +674,48 @@ export function AnnotationsPage() {
                         </div>
                     )}
 
-                    <div className="mb-4 sm:mb-6">
+                    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         {tabs}
-                    </div>
 
-                    <div className="mb-6 flex items-center justify-between gap-3">
-                        <button
-                            type="button"
-                            onClick={() => setViewMode((prev) => (prev === "list" ? "cards" : "list"))}
-                            className="inline-flex h-8 w-8 !p-0 shrink-0 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation cursor-pointer"
-                            title={viewMode === "list" ? "Cards view" : "List view"}
-                            aria-label={viewMode === "list" ? "Cards view" : "List view"}
-                        >
-                            {viewMode === "list" ? <Layers className="w-4 h-4 shrink-0" /> : <List className="w-4 h-4 shrink-0" />}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode((prev) => (prev === "list" ? "cards" : "list"))}
+                                className="inline-flex h-8 w-8 !p-0 shrink-0 items-center justify-center border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation cursor-pointer"
+                                title={viewMode === "list" ? "Cards view" : "List view"}
+                                aria-label={viewMode === "list" ? "Cards view" : "List view"}
+                            >
+                                {viewMode === "list" ? <Layers className="w-4 h-4 shrink-0" /> : <List className="w-4 h-4 shrink-0" />}
+                            </button>
 
-                        <div className="shrink-0">
-                            <Dropdown
-                                value={activeFilter === "vocabulary" ? vocabSortBy : sortBy}
-                                onChange={(value) => {
-                                    if (activeFilter === "vocabulary") {
-                                        setVocabSortBy(value as typeof vocabSortBy);
-                                    } else {
-                                        setSortBy(value as typeof sortBy);
+                            <div className="shrink-0">
+                                <Dropdown
+                                    value={activeFilter === "vocabulary" ? vocabSortBy : sortBy}
+                                    onChange={(value) => {
+                                        if (activeFilter === "vocabulary") {
+                                            setVocabSortBy(value as typeof vocabSortBy);
+                                        } else {
+                                            setSortBy(value as typeof sortBy);
+                                        }
+                                    }}
+                                    size="sm"
+                                    align="right"
+                                    className="h-8 !w-auto min-w-[115px] sm:min-w-[130px] !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
+                                    options={
+                                        activeFilter === "vocabulary"
+                                            ? [
+                                                  { value: "alpha", label: "Alphabetical" },
+                                                  { value: "newest", label: "Newest First" },
+                                                  { value: "oldest", label: "Oldest First" },
+                                              ]
+                                            : [
+                                                  { value: "newest", label: "Newest First" },
+                                                  { value: "oldest", label: "Oldest First" },
+                                                  { value: "book", label: "By Book" },
+                                              ]
                                     }
-                                }}
-                                size="sm"
-                                align="right"
-                                className="h-8 !w-auto min-w-[115px] sm:min-w-[130px] !border !border-[var(--color-border)] !text-xs !py-0 !px-2.5 font-sans"
-                                options={
-                                    activeFilter === "vocabulary"
-                                        ? [
-                                              { value: "alpha", label: "Alphabetical" },
-                                              { value: "newest", label: "Newest First" },
-                                              { value: "oldest", label: "Oldest First" },
-                                          ]
-                                        : [
-                                              { value: "newest", label: "Newest First" },
-                                              { value: "oldest", label: "Oldest First" },
-                                              { value: "book", label: "By Book" },
-                                          ]
-                                }
-                            />
+                                />
+                            </div>
                         </div>
                     </div>
 
