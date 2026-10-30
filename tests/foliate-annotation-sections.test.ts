@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { FoliateEngine } from "../src/features/reader/engines/foliate-engine";
 import type { Annotation } from "../src/core/types";

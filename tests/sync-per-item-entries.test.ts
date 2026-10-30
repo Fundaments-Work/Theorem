@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * One doc entry per item (sync protocol 2), deletions that never expire,
  * and conflicts found by the native merge.

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // A fake SQLite kv table shared by every fresh import of persist-storage, so a

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onRequestGet } from "../functions/api/gutenberg";
 import { browserCatalogUrl } from "../src/core/lib/catalog-fetch-url";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PRINT_ROOT_ID, clearPrintJob, printPdfDocument, printScale } from "../src/features/reader/engines/pdf-print";

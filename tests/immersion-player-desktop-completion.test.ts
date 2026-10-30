@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Desktop OS voices (`say`, `spd-say -w`, PowerShell) report the real end of

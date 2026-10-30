@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { applyAppTheme, resolveThemeColors } from "../src/core/lib/design-tokens";
 import { getCSS } from "../src/features/reader/foliate/reader";

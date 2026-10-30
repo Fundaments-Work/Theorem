@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import * as CFI from "../src/features/reader/foliate-js-runtime/epubcfi.js";
 import { useUIStore } from "../src/core/store";

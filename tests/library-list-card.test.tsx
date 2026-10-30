@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { createPortal } from "react-dom";

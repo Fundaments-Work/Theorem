@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComicStrip } from '../src/features/reader/engines/comic-strip';
 import '../src/features/reader/foliate-js-runtime/view.js';

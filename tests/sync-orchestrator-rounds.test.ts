@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Book } from "../src/core/types";
 import { mergeBooks } from "../src/core/lib/sync-import";

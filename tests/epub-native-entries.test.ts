@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * The desktop/Android EPUB loader inflates entries in Rust (`epub_read_entry`)
  * instead of zip.js. Rust is modelled here by fflate over the same fixture;

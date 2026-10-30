@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { resolvePdfTargetPage } from "../src/features/reader/Reader";
 
