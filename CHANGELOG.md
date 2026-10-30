@@ -17,9 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `theorem highlights export [--format md|json|csv] [--book <id>] [--since <date>] [--out <path>]` for scripted Obsidian markdown, JSON, or CSV highlights and notes extraction suitable for external cron jobs and PKM tools.
   - Added `theorem highlights card [<id>] [--book <id>] [--theme dark|sepia|tinted|light] [--format square|story] [--out <path>] [--out-dir <dir>] [--no-note]` for scripted headless Bauhaus highlight share card generation as standalone PNG or vector SVG images with automatic typography fallbacks and design tokens.
   - Added `theorem feeds import <file.opml>` and `theorem feeds export [--out <file.opml>]` for importing and exporting RSS/Atom subscriptions via standard OPML format.
+- **Connected Library Folders Management** — Added a dedicated Library Folders section in Settings (`Settings → Storage → Library Folders`) to connect, rescan, and manage external folder roots on desktop and mobile. Integrated folder filtering and book counts directly into the Library filter panel with safe folder disconnect workflows.
 
 ### Bug Fixes
 
+- **RSS Channel Title Deduplication** — Fixed an XML parsing bug in the RSS engine where an RSS 2.0 `<channel><image><title>` block duplicated or overwrote the parent feed title.
 - **EPUB Note Saving** — Fixed an issue where clicking "Add Note" from the highlight color picker triggered a delayed dismissal that cleared selection context, preventing the "Save" button from saving the note.
 - **Mobile Smart Shelf Modal Scrolling** — Restructured modal layout with an internal flex column container so the shelf form and conditions list scroll properly within the viewport on mobile devices.
 - **Workbench PDF Note Navigation** — Opening PDF documents from freehand notes and annotations in the Workbench now jumps directly to the target annotated page instead of defaulting to the first page.

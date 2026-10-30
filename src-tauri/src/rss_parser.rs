@@ -142,6 +142,7 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
 
     let mut in_channel = false;
     let mut in_item = false;
+    let mut in_image = false;
     let mut current_tag = Vec::new();
 
     let mut item_title = String::new();
@@ -160,6 +161,8 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
                 let name = e.local_name().as_ref().to_vec();
                 if name == b"channel" {
                     in_channel = true;
+                } else if name == b"image" {
+                    in_image = true;
                 } else if name == b"item" {
                     in_item = true;
                     item_title.clear();
@@ -218,12 +221,20 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
                         _ => {}
                     }
                 } else if in_channel {
-                    match current_tag.as_slice() {
-                        b"title" => feed_title.push_str(&text),
-                        b"description" => feed_desc.push_str(&text),
-                        b"link" => feed_link.push_str(&text),
-                        b"url" => feed_icon.push_str(&text),
-                        _ => {}
+                    if in_image {
+                        if current_tag.as_slice() == b"url" && feed_icon.is_empty() {
+                            feed_icon.push_str(&text);
+                        }
+                    } else {
+                        match current_tag.as_slice() {
+                            b"title" => feed_title.push_str(&text),
+                            b"description" => feed_desc.push_str(&text),
+                            b"link" => feed_link.push_str(&text),
+                            b"url" if feed_icon.is_empty() => {
+                                feed_icon.push_str(&text);
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }
@@ -237,7 +248,7 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
                         b"creator" | b"author" => item_author.push_str(&text),
                         _ => {}
                     }
-                } else if in_channel && current_tag.as_slice() == b"title" {
+                } else if in_channel && !in_image && current_tag.as_slice() == b"title" {
                     feed_title.push_str(&text);
                 }
             }
@@ -289,6 +300,8 @@ fn parse_rss_2(bytes: &[u8]) -> Result<ParsedFeed, String> {
                             None
                         },
                     });
+                } else if name.as_ref() == b"image" {
+                    in_image = false;
                 } else if name.as_ref() == b"channel" {
                     in_channel = false;
                 }
@@ -782,6 +795,38 @@ mod tests {
             html.content.contains("<p>Hi <b>there</b></p>"),
             "{}",
             html.content
+        );
+    }
+
+    #[test]
+    fn rss_channel_image_title_does_not_duplicate_feed_title() {
+        let feed = br#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>The Marginalian</title>
+    <link>https://www.themarginalian.org</link>
+    <description>Marginalia on life</description>
+    <image>
+      <url>https://www.themarginalian.org/icon.png</url>
+      <title>The Marginalian</title>
+      <link>https://www.themarginalian.org</link>
+    </image>
+    <item>
+      <title>Article 1</title>
+      <link>https://www.themarginalian.org/1</link>
+      <description>Sample</description>
+    </item>
+  </channel>
+</rss>"#;
+        let parsed = parse_feed_bytes(feed).unwrap();
+        assert_eq!(&*parsed.title, "The Marginalian");
+        assert_eq!(
+            parsed.site_url.as_deref(),
+            Some("https://www.themarginalian.org")
+        );
+        assert_eq!(
+            parsed.icon_url.as_deref(),
+            Some("https://www.themarginalian.org/icon.png")
         );
     }
 }
