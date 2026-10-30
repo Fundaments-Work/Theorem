@@ -4,7 +4,7 @@
  * every relevant settings change, when today's goal is met, and on return to the app. On a
  * phone the in-app timer must not run at all: it is what never reminded anyone.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ReminderConfig } from "../src/core/lib/daily-reminder";
@@ -71,6 +71,14 @@ function returnToApp() {
 
 let stop: (() => void) | null = null;
 
+// The planner loads these with dynamic import(); a cold first import under load can outlast
+// any fixed number of ticks, so load them once up front and wait on conditions, not time.
+beforeAll(async () => {
+    await import("../src/core/lib/daily-reminder");
+    await import("sonner");
+    await import("../src/core/lib/notifications");
+});
+
 beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 9, 21, 9, 0, 0));
@@ -94,8 +102,7 @@ afterEach(() => {
 describe("mobile reminder planner", () => {
     it("tells Android as soon as it starts", async () => {
         stop = startMobileReminderPlanner();
-        await settle();
-        expect(sent).toHaveLength(1);
+        await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 5000 });
         expect(last()).toMatchObject({ enabled: true, hour: 20, minute: 0, skipDate: null });
     });
 
@@ -111,8 +118,7 @@ describe("mobile reminder planner", () => {
         expect(sent).toHaveLength(0);
         hydrated.mockReturnValue(true);
         finish!();
-        await settle();
-        expect(sent).toHaveLength(1);
+        await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 5000 });
     });
 
     it("follows a new reminder time", async () => {
