@@ -98,6 +98,31 @@ describe("R7: Relational Library Store (SQLite Books & Metadata)", () => {
         expect(tauriPartial.books).toHaveLength(0);
     });
 
+    it("partialize strips locations and coverPath from persisted books", () => {
+        const persistOptions = (useLibraryStore as any).persist.getOptions();
+        const book: Book = {
+            ...sampleBook("b1"),
+            locations: JSON.stringify({ sections: { "1": { position: 42 } } }),
+            coverPath: "data:image/png;base64,xxx",
+        };
+
+        mockIsTauriEnv.value = false;
+        const partial = persistOptions.partialize({
+            books: [book],
+            collections: [],
+            annotations: [],
+            deletionTombstones: [],
+            recentBooksCache: [],
+        });
+
+        expect(partial.books).toHaveLength(1);
+        expect(partial.books[0].locations).toBeUndefined();
+        expect(partial.books[0].coverPath).toBeUndefined();
+        // The in-memory book is untouched.
+        expect(book.locations).toBeDefined();
+        expect(book.coverPath).toBeDefined();
+    });
+
     it("addBook and updateBook call sqliteSaveBookMetadata on Tauri", () => {
         mockIsTauriEnv.value = true;
         const b = sampleBook("b1");

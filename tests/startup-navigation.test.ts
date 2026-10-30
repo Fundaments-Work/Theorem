@@ -12,6 +12,9 @@ describe('launch navigation', () => {
         // The open book and reader route must not survive a launch.
         expect((useUIStore as unknown as { persist?: unknown }).persist).toBeUndefined();
     });
+    it('renders at once: the UI store starts hydrated, with no blocking gate', () => {
+        expect(useUIStore.getState().hasHydrated).toBe(true);
+    });
     it('keeps an explicit book-opening action', () => {
         useUIStore.getState().setRoute('reader', 'requested-book', false);
         expect(useUIStore.getState().currentRoute).toBe('reader');

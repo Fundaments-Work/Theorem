@@ -137,6 +137,7 @@ function makeRssArticle(
         fetchedAt: overrides.fetchedAt ?? new Date("2025-01-01"),
         isRead: overrides.isRead ?? false,
         isFavorite: overrides.isFavorite ?? false,
+        isSaved: overrides.isSaved ?? false,
     };
 }
 
@@ -149,6 +150,7 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
         scanFolders: [],
         cacheSize: 500,
         theme: "system",
+        accentColor: "#c6f135",
         readerSettings: {
             theme: "light",
             fontFamily: "serif",
@@ -175,8 +177,6 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
         },
         vocabulary: {
             vocabularyEnabled: true,
-            dictionaryMode: "auto",
-            preferredProviders: ["wiktionary"],
             showPronunciation: true,
             playPronunciationAudio: false,
         },
@@ -192,8 +192,18 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
             deviceName: "Test Device",
             pairedDevices: [],
             syncOnConnect: false,
+            autoSyncEnabled: false,
         },
+        tts: { enabled: true, voice: "af_bella", speed: 1 },
+        cli: { enabled: false },
         hasCompletedOnboarding: true,
+        showDailyHighlight: true,
+        speedReadEnabled: true,
+        goalNotifications: true,
+        dailyReminderTime: "20:00",
+        syncNotifications: true,
+        rssRetentionDays: 30,
+        rssKeepUnread: true,
         ...overrides,
     };
 }
@@ -654,7 +664,7 @@ describe("mergeVocabulary", () => {
         ];
 
         const result = mergeVocabulary(incoming, existing);
-        expect(result[0].tags.sort()).toEqual(["academic", "science"]);
+        expect([...(result[0].tags ?? [])].sort()).toEqual(["academic", "science"]);
     });
 
     it("treats different languages as different terms", () => {
@@ -821,12 +831,14 @@ describe("mergeSettings", () => {
             deviceName: "My Laptop",
             pairedDevices: [],
             syncOnConnect: true,
+            autoSyncEnabled: false,
         };
         const remoteDeviceSync = {
             deviceId: "remote-device-id",
             deviceName: "My Phone",
             pairedDevices: [],
             syncOnConnect: false,
+            autoSyncEnabled: false,
         };
 
         const local = makeSettings({ deviceSync: localDeviceSync });
@@ -1229,5 +1241,80 @@ describe("mergeCollections with tombstones", () => {
         const result = mergeCollections(incoming, existing, tombstones);
         expect(result).toHaveLength(1);
         expect(result[0].bookIds).toEqual(["book-1"]);
+    });
+});
+
+describe("mergeCollections with collection_book tombstones", () => {
+    it("removes a tombstoned membership from an existing collection", () => {
+        const existing = [
+            makeCollection({ id: "col-1", name: "Shelf", bookIds: ["book-a", "book-b"] }),
+        ];
+        const tombstones = [
+            makeTombstone({ entityId: "col-1:book-a", entityType: "collection_book" }),
+        ];
+
+        const result = mergeCollections([], existing, tombstones);
+        expect(result[0].bookIds).toEqual(["book-b"]);
+    });
+
+    it("applies a tombstoned membership to incoming and existing copies alike", () => {
+        const existing = [makeCollection({ id: "col-1", name: "Shelf", bookIds: ["book-b"] })];
+        const incoming = [makeCollection({ id: "col-1", name: "Shelf", bookIds: ["book-a", "book-c"] })];
+        const tombstones = [
+            makeTombstone({ entityId: "col-1:book-a", entityType: "collection_book" }),
+        ];
+
+        const result = mergeCollections(incoming, existing, tombstones);
+        expect([...result[0].bookIds].sort()).toEqual(["book-b", "book-c"]);
+    });
+});
+
+describe("mergeVocabulary with tombstones", () => {
+    it("drops an existing term that is tombstoned", () => {
+        const existing = [makeVocabTerm({ id: "vocab-1", term: "deleted" })];
+        const incoming = [makeVocabTerm({ id: "vocab-1", term: "resurrected" })];
+        const tombstones = [makeTombstone({ entityId: "vocab-1", entityType: "vocabulary" })];
+
+        expect(mergeVocabulary(incoming, existing, tombstones)).toHaveLength(0);
+    });
+
+    it("refuses an incoming term that is tombstoned", () => {
+        const incoming = [makeVocabTerm({ id: "new-term", term: "blocked" })];
+        const tombstones = [makeTombstone({ entityId: "new-term", entityType: "vocabulary" })];
+
+        expect(mergeVocabulary(incoming, [], tombstones)).toHaveLength(0);
+    });
+
+    it("ignores tombstones of other entity types", () => {
+        const existing = [makeVocabTerm({ id: "vocab-1", term: "ok" })];
+        const tombstones = [makeTombstone({ entityId: "vocab-1", entityType: "book" })];
+
+        expect(mergeVocabulary([], existing, tombstones)).toHaveLength(1);
+    });
+});
+
+describe("mergeAnnotations timestamp ties and content size", () => {
+    it("keeps the local annotation when both sides have the same updatedAt", () => {
+        const sameTime = new Date("2025-06-01T00:00:00Z");
+        const existing = [
+            makeAnnotation({ id: "a", bookId: "b", updatedAt: sameTime, selectedText: "local text" }),
+        ];
+        const incoming = [
+            makeAnnotation({ id: "a", bookId: "b", updatedAt: new Date(sameTime.getTime()), selectedText: "remote text" }),
+        ];
+
+        expect(mergeAnnotations(incoming, existing)[0].selectedText).toBe("local text");
+    });
+});
+
+describe("mergeRssArticles content", () => {
+    it("does not truncate article content (truncation happens upstream, when the manifest is built)", () => {
+        const articles = [
+            { id: "art-1", feedId: "feed-1", title: "t", url: "u", content: "x".repeat(60000) },
+        ] as unknown as RssArticle[];
+
+        const result = mergeRssArticles(articles, []);
+        expect(result).toHaveLength(1);
+        expect(result[0].content?.length).toBe(60000);
     });
 });

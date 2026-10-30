@@ -66,8 +66,7 @@ CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `
 
 ### Known-flaky tests
 
-- `tests/release-1.0.7-store-scale.test.ts` asserts a wall-clock budget (`expect(elapsed).toBeLessThan(25)`) and can exceed it under full-suite parallel load while passing in isolation. Treat a lone failure here as a perf-measurement flake: re-run the file alone (`pnpm test tests/release-1.0.7-store-scale.test.ts`) to confirm, but still verify no genuine O(n) scan was introduced.
-- `tests/library-virtualization.test.ts` ("Row height estimation") asserts `elapsed < 1` ms for a pure size calculation and can exceed it under full-suite load. Same rule: re-run the file alone to confirm.
+- `tests/library-virtualization.test.ts` ("Row height estimation") asserts `elapsed < 1` ms for a pure size calculation and can exceed it under full-suite load. Re-run the file alone to confirm a lone failure, but still verify no genuine O(n) scan was introduced.
 
 Do not add to this list casually. A new intermittent failure is a bug until shown otherwise: find what the test waits for versus what it should wait for, and wait on that condition (never a longer sleep or a looser assertion). If the flake shows a product bug, fix the product. Prove the fix with repeated runs and report the count (e.g. 20/20).
 
