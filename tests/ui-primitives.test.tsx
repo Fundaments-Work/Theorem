@@ -2,7 +2,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Button, Chip, IconButton, TextInput, ConfirmDialog } from "../src/ui";
+import {
+    Button,
+    Card,
+    Checkbox,
+    Chip,
+    ConfirmDialog,
+    IconButton,
+    Select,
+    Switch,
+    TabPanel,
+    Tabs,
+    TextInput,
+} from "../src/ui";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -125,5 +137,123 @@ describe("ConfirmDialog (built on Button)", () => {
         expect(onConfirm).toHaveBeenCalledTimes(1);
         act(() => cancel.click());
         expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("Select", () => {
+    it("renders its options and reports the chosen value", () => {
+        const onChange = vi.fn();
+        render(
+            <Select
+                aria-label="Sort"
+                value="title"
+                onChange={onChange}
+                options={[
+                    { value: "title", label: "Title" },
+                    { value: "author", label: "Author", disabled: true },
+                ]}
+            />,
+        );
+        const select = host.querySelector("select")!;
+        expect(select.className).toContain("ui-input");
+        expect([...select.options].map((o) => o.textContent)).toEqual(["Title", "Author"]);
+        expect(select.options[1].disabled).toBe(true);
+        act(() => {
+            select.value = "author";
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        expect(onChange).toHaveBeenCalledWith("author");
+    });
+});
+
+describe("Checkbox", () => {
+    it("labels the box and toggles through the label", () => {
+        const onChange = vi.fn();
+        render(<Checkbox label="Keep unread" onChange={onChange} />);
+        const box = host.querySelector('input[type="checkbox"]')!;
+        const label = host.querySelector("label")!;
+        expect(box.id).toBe("checkbox-keep-unread");
+        expect(label.getAttribute("for")).toBe("checkbox-keep-unread");
+        expect(label.textContent).toContain("Keep unread");
+        act(() => label.click());
+        expect(onChange).toHaveBeenCalled();
+    });
+});
+
+describe("Switch", () => {
+    it("is a named switch that reports its state and flips on click", () => {
+        const onChange = vi.fn();
+        render(<Switch checked={false} onChange={onChange} label="Auto sync" />);
+        const sw = host.querySelector('[role="switch"]')!;
+        expect(sw.getAttribute("aria-checked")).toBe("false");
+        expect(sw.getAttribute("aria-label")).toBe("Auto sync");
+        act(() => (sw as HTMLButtonElement).click());
+        expect(onChange).toHaveBeenCalledWith(true);
+    });
+
+    it("does nothing while disabled", () => {
+        const onChange = vi.fn();
+        render(<Switch checked onChange={onChange} label="Off limits" disabled />);
+        act(() => (host.querySelector('[role="switch"]') as HTMLButtonElement).click());
+        expect(onChange).not.toHaveBeenCalled();
+    });
+});
+
+describe("Tabs", () => {
+    const items = [
+        { id: "highlights", label: "Highlights" },
+        { id: "notes", label: "Notes", count: 3 },
+    ] as const;
+
+    it("marks the active tab and wires it to its panel", () => {
+        render(
+            <>
+                <Tabs label="Workbench" idBase="wb" items={items} value="highlights" onChange={() => {}} />
+                <TabPanel idBase="wb" tab="highlights" active><p>H</p></TabPanel>
+                <TabPanel idBase="wb" tab="notes" active={false}><p>N</p></TabPanel>
+            </>,
+        );
+        const [first, second] = [...host.querySelectorAll('[role="tab"]')];
+        expect(first.getAttribute("aria-selected")).toBe("true");
+        expect(second.getAttribute("aria-selected")).toBe("false");
+        expect(first.getAttribute("aria-controls")).toBe("wb-panel-highlights");
+        const panel = host.querySelector("#wb-panel-highlights")!;
+        expect(panel.getAttribute("aria-labelledby")).toBe("wb-tab-highlights");
+        expect(host.querySelector("#wb-panel-notes")!.hasAttribute("hidden")).toBe(true);
+        expect(second.textContent).toContain("3");
+    });
+
+    it("moves with the arrow keys, Home and End", () => {
+        const onChange = vi.fn();
+        render(<Tabs label="Workbench" idBase="wb" items={items} value="highlights" onChange={onChange} />);
+        const list = host.querySelector('[role="tablist"]')!;
+        act(() => {
+            list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        });
+        expect(onChange).toHaveBeenLastCalledWith("notes");
+        act(() => {
+            list.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+        });
+        expect(onChange).toHaveBeenLastCalledWith("highlights");
+        act(() => {
+            list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+        });
+        expect(onChange).toHaveBeenLastCalledWith("notes");
+    });
+});
+
+describe("Card", () => {
+    it("frames content as a section and can render as another element", () => {
+        render(
+            <>
+                <Card>one</Card>
+                <Card as="section" variant="plain" data-x="y">two</Card>
+            </>,
+        );
+        const [a, b] = [...host.children];
+        expect(a.className).toContain("ui-section");
+        expect(b.tagName).toBe("SECTION");
+        expect(b.className).not.toContain("ui-section");
+        expect(b.getAttribute("data-x")).toBe("y");
     });
 });

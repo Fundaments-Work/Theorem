@@ -14,6 +14,8 @@ import { applyAppTheme, DEFAULT_ACCENT_COLOR } from "../core/lib/design-tokens";
 import {
     AlertDialog,
     Button,
+    Card,
+    Checkbox,
     Chip,
     ConfirmDialog,
     Dropdown,
@@ -22,7 +24,11 @@ import {
     ModalBody,
     ModalFooter,
     ModalHeader,
+    Select,
     Spinner,
+    Switch,
+    TabPanel,
+    Tabs,
     TextInput,
     TheoremBookCover,
 } from "../ui";
@@ -58,6 +64,10 @@ function Gallery() {
     const [theme, setTheme] = useState<"dark" | "light">("dark");
     const [chip, setChip] = useState("all");
     const [sort, setSort] = useState("title");
+    const [formats, setFormats] = useState("epub");
+    const [unread, setUnread] = useState(true);
+    const [autoSync, setAutoSync] = useState(false);
+    const [tab, setTab] = useState("highlights");
     const [modal, setModal] = useState<"none" | "modal" | "confirm" | "alert">("none");
 
     useEffect(() => {
@@ -125,6 +135,58 @@ function Gallery() {
                         ]}
                     />
                 </div>
+            </Section>
+
+            <Section title="Select" note="A native picker with the input border; keep the platform list.">
+                <div className="w-56">
+                    <Select
+                        aria-label="Format"
+                        value={formats}
+                        onChange={setFormats}
+                        options={[
+                            { value: "epub", label: "EPUB" },
+                            { value: "pdf", label: "PDF" },
+                            { value: "cbz", label: "Comic (CBZ)" },
+                        ]}
+                    />
+                </div>
+            </Section>
+
+            <Section title="Checkbox and Switch" note="Both are named by their label; neither relies on colour alone.">
+                <Checkbox label="Keep unread articles" checked={unread} onChange={(e) => setUnread(e.currentTarget.checked)} />
+                <Checkbox label="Disabled" disabled />
+                <Switch label="Auto sync" checked={autoSync} onChange={setAutoSync} />
+                <Switch label="Disabled" checked={false} onChange={() => {}} disabled />
+            </Section>
+
+            <Section title="Tabs" note="ARIA tab pattern: arrow keys, Home and End move between tabs.">
+                <div className="w-full">
+                    <Tabs
+                        label="Workbench sections"
+                        idBase="gallery"
+                        value={tab}
+                        onChange={setTab}
+                        items={[
+                            { id: "highlights", label: "Highlights", count: 12 },
+                            { id: "notes", label: "Notes", count: 3 },
+                            { id: "words", label: "Words" },
+                        ]}
+                    />
+                    <TabPanel idBase="gallery" tab="highlights" active={tab === "highlights"}>
+                        <p className="pt-3 text-sm text-[color:var(--color-text-secondary)]">Highlights panel</p>
+                    </TabPanel>
+                    <TabPanel idBase="gallery" tab="notes" active={tab === "notes"}>
+                        <p className="pt-3 text-sm text-[color:var(--color-text-secondary)]">Notes panel</p>
+                    </TabPanel>
+                    <TabPanel idBase="gallery" tab="words" active={tab === "words"}>
+                        <p className="pt-3 text-sm text-[color:var(--color-text-secondary)]">Words panel</p>
+                    </TabPanel>
+                </div>
+            </Section>
+
+            <Section title="Card" note="The one shared framed container (the ui-section class).">
+                <Card className="p-4 text-sm">Section card</Card>
+                <Card variant="plain" className="p-4 text-sm text-[color:var(--color-text-secondary)]">Plain group</Card>
             </Section>
 
             <Section title="Dialogs">
