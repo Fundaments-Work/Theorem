@@ -91,7 +91,7 @@ The name and email come from your `git config user.name` and `user.email`, and m
 
 ### Before Submitting
 
-Run the quality gates (the same as CI, plus the build):
+While you work, `pnpm gates:fast` (typecheck, design-system rules, the whole Vitest suite) is the quick check. `pnpm gates` runs everything below in one go. Before opening a PR, run the quality gates (the same as CI, plus the build):
 
 ```bash
 cd src-tauri
@@ -101,6 +101,7 @@ cargo test --workspace --lib --tests
 cd ..
 pnpm install --frozen-lockfile                             # lockfile matches package.json
 pnpm typecheck                                             # zero errors
+pnpm check:design                                          # no new design-system violations (docs/design-system.md)
 pnpm test                                                  # the whole suite
 pnpm build                                                 # includes the startup bundle budget
 ```
@@ -159,12 +160,16 @@ Platform voices available depend on the user's system TTS configuration.
 ## Testing
 
 ```bash
-pnpm test          # Run all unit tests (Vitest + jsdom)
+pnpm test          # Run all unit tests (Vitest, Node environment)
 pnpm test:watch    # Watch mode
 pnpm test:coverage # With coverage report
 ```
 
-Tests live in `tests/**/*.test.ts` with setup in `tests/setup.ts`. We use Vitest with jsdom for DOM-based tests. New features should include tests.
+Tests live in `tests/**/*.test.ts(x)` with setup in `tests/setup.ts`. Tests run in the **Node** environment by default, which is much faster. A test that needs a DOM (anything that renders React or touches `document`/`window`) opts in with `// @vitest-environment jsdom` as its first line. Name a test file after the feature it covers, never after a release or a work phase. New features should include tests. `pnpm typecheck:tests` type-checks the test files too (see AGENTS.md for its current state).
+
+## UI and the design system
+
+Read [docs/design-system.md](docs/design-system.md) before a UI change. In short: open `pnpm dev` and `/ui-gallery.html` to see every shared component, use `Button`, `IconButton`, `Chip` and `TextInput` from `src/ui` instead of hand-written classes, take colours from `var(--color-...)` tokens, and keep corners square and weights at 300/400. `pnpm check:design` fails a PR that adds a violation.
 
 ## Getting Help
 

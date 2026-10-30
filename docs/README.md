@@ -19,6 +19,7 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 |----------|----------------|
 | [context.md](../context.md) | Project context, stack choices, design rationale |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, module relationships |
+| [design-system.md](design-system.md) | UI contributor guide: tokens, shared components, the rules `pnpm check:design` enforces, the component gallery |
 
 ## Features
 

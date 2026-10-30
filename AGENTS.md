@@ -27,8 +27,12 @@ The `foliate-js` submodule at `src/features/reader/foliate-js/` is vendored upst
 | Desktop dev | `pnpm dev:tauri` |
 | Build | `pnpm build` |
 | Typecheck | `pnpm typecheck` |
-| Tests | `pnpm test` |
+| Tests | `pnpm test` (Node environment by default; a DOM test starts with `// @vitest-environment jsdom`) |
 | Single test | `pnpm test tests/some.test.ts` |
+| Design-system rules | `pnpm check:design` (`--list`, `--update`; see `docs/design-system.md`) |
+| UI gallery | `pnpm dev`, then `/ui-gallery.html` |
+| Quick / full gates | `pnpm gates:fast` (typecheck, design rules, tests) / `pnpm gates` (every gate below, plus build) |
+| Type-check the tests | `pnpm typecheck:tests` (not clean yet: a known backlog, fix files as you touch them; not a gate) |
 | Rust fmt | `cd src-tauri && cargo fmt` |
 | Rust lint | `cd src-tauri && cargo clippy --all-features --all-targets -- -D warnings` |
 | Rust tests | `cd src-tauri && cargo test --workspace --lib --tests` |
@@ -48,7 +52,7 @@ All of these, in this order; each must be clean (this is what CI runs, plus the 
 2. `cargo clippy --all-features --all-targets -- -D warnings` — zero warnings, tests included
 3. `cargo test --workspace --lib --tests`
 4. `pnpm install --frozen-lockfile` — CI installs frozen; a dependency change must update `pnpm-lock.yaml`
-5. `pnpm typecheck`
+5. `pnpm typecheck` and `pnpm check:design` (no new design-system violation; a baseline entry may only shrink)
 6. `pnpm test` — the whole suite, not only the files you touched
 7. `pnpm build` — also enforces the startup bundle budget
 8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` and `--target armv7-linux-androideabi` (Android-only code or dependencies, and any size or offset constant: the release ships 32-bit APKs, where `usize` is 32 bits; set the NDK `CC_/CXX_/AR_<target>` compilers), `pnpm e2e` (user-visible flows)
@@ -59,6 +63,7 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 
 - Tests must rigorously cover edge cases, boundaries, and outliers (e.g. 0-length inputs, rapid concurrent interactions, missing elements, corrupted data, boundary navigation).
 - **NEVER weaken, delete, loosen assertions, or edit tests simply to make them pass.** If a test or outlier fails, investigate and fix the underlying implementation code. The test exists to defend correctness.
+- Name a test file after the feature it covers, never after a release or a work phase. Don't assert on the text of a source file when behaviour can be asserted instead; a source-text check belongs in `scripts/check-design-rules.mjs` or a lint rule.
 - Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
 - Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
@@ -213,7 +218,7 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 ## Anti-patterns (violations = bugs)
 
 - No React Router — use `useUIStore.currentRoute`
-- No `transition-all` — specify the exact property
+- No `transition-all` — specify the exact property (`pnpm check:design` enforces this and the rules in `docs/design-system.md`)
 - No `snap-x snap-mandatory` on scroll containers
 - No barrel imports from `src/core/index.ts`
 - No Zustand destructuring (`const { x } = useStore()`)
