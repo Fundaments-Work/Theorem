@@ -1,4 +1,12 @@
 export { Backdrop } from "./Backdrop";
+export { Button } from "./Button";
+export type { ButtonProps, ButtonVariant } from "./Button";
+export { Chip } from "./Chip";
+export type { ChipProps } from "./Chip";
+export { IconButton } from "./IconButton";
+export type { IconButtonProps } from "./IconButton";
+export { TextInput } from "./TextInput";
+export type { TextInputProps } from "./TextInput";
 export { ConfirmDialog, AlertDialog } from "./ConfirmDialog";
 export type { ConfirmDialogProps, AlertDialogProps } from "./ConfirmDialog";
 export { ContextMenu } from "./ContextMenu";

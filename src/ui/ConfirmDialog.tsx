@@ -1,6 +1,6 @@
 
 import { Modal, ModalHeader, ModalBody, ModalFooter } from "./Modal";
-import { cn } from "../core/lib/utils";
+import { Button } from "./Button";
 
 export interface ConfirmDialogProps {
     isOpen: boolean;
@@ -32,22 +32,12 @@ export function ConfirmDialog({
                 </p>
             </ModalBody>
             <ModalFooter>
-                <button
-                    type="button"
-                    onClick={onCancel}
-                    className="ui-btn-ghost"
-                >
+                <Button variant="ghost" onClick={onCancel}>
                     {cancelLabel}
-                </button>
-                <button
-                    type="button"
-                    onClick={onConfirm}
-                    className={cn(
-                        variant === "danger" ? "ui-btn-danger" : "ui-btn-primary",
-                    )}
-                >
+                </Button>
+                <Button variant={variant === "danger" ? "danger" : "primary"} onClick={onConfirm}>
                     {confirmLabel}
-                </button>
+                </Button>
             </ModalFooter>
         </Modal>
     );
@@ -77,13 +67,9 @@ export function AlertDialog({
                 </p>
             </ModalBody>
             <ModalFooter>
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className="ui-btn-primary"
-                >
+                <Button variant="primary" onClick={onClose}>
                     {okLabel}
-                </button>
+                </Button>
             </ModalFooter>
         </Modal>
     );
