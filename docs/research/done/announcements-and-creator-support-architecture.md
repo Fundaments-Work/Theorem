@@ -1,14 +1,14 @@
 # Technical Research & Architecture Specification: Buy Me Momo & Remote Announcement Engine
 
 **Date**: 2026-10-08  
-**Status**: Research & Architecture Specification  
-**Related Active Plan**: [`docs/plans/2026-10-06-buyme-momo-and-announcements-design.md`](../plans/done/2026-10-06-buyme-momo-and-announcements-design.md)  
+**Status**: ✅ Done — delivered; archived to `research/done/`. Original: Research & Architecture Specification  
+**Related Active Plan**: [`docs/plans/2026-10-06-buyme-momo-and-announcements-design.md`](../../plans/done/2026-10-06-buyme-momo-and-announcements-design.md)  
 **Authors**: Theorem Core Engineering  
 **Primary Code References**:
-- Shell & Layout: [`src/shell/layout/Sidebar.tsx`](../../src/shell/layout/Sidebar.tsx), [`src/shell/AppTitlebar.tsx`](../../src/shell/AppTitlebar.tsx), [`src/App.tsx`](../../src/App.tsx)
-- Settings & External Links: [`src/features/settings/Settings.tsx`](../../src/features/settings/Settings.tsx), [`src-tauri/capabilities/default.json`](../../src-tauri/capabilities/default.json)
-- Persistence & State Patterns: [`src/features/library/Library.tsx`](../../src/features/library/Library.tsx), [`src/core/lib/app-update.ts`](../../src/core/lib/app-update.ts)
-- Design Tokens & Theming: [`src/core/styles/design-tokens.css`](../../src/core/styles/design-tokens.css), [`src/index.css`](../../src/index.css)
+- Shell & Layout: [`src/shell/layout/Sidebar.tsx`](../../../src/shell/layout/Sidebar.tsx), [`src/shell/AppTitlebar.tsx`](../../../src/shell/AppTitlebar.tsx), [`src/App.tsx`](../../../src/App.tsx)
+- Settings & External Links: [`src/features/settings/Settings.tsx`](../../../src/features/settings/Settings.tsx), [`src-tauri/capabilities/default.json`](../../../src-tauri/capabilities/default.json)
+- Persistence & State Patterns: [`src/features/library/Library.tsx`](../../../src/features/library/Library.tsx), [`src/core/lib/app-update.ts`](../../../src/core/lib/app-update.ts)
+- Design Tokens & Theming: [`src/core/styles/design-tokens.css`](../../../src/core/styles/design-tokens.css), [`src/index.css`](../../../src/index.css)
 
 ---
 
@@ -61,7 +61,7 @@ flowchart TD
 
 ### 2.3 Shell Placement & DOM Traps
 
-#### Placement 1: Desktop Sidebar Footer ([`src/shell/layout/Sidebar.tsx`](../../src/shell/layout/Sidebar.tsx#L164-L238))
+#### Placement 1: Desktop Sidebar Footer ([`src/shell/layout/Sidebar.tsx`](../../../src/shell/layout/Sidebar.tsx#L164-L238))
 The Sidebar renders two distinct footer layouts based on width and collapsed state:
 - **Horizontal Row (`showDesktopFooterRow`)**: Used on wider expanded sidebars. Contains streak counter, Settings, and Collapse toggle. The Momo button is inserted beside Settings matching its exact typography:
   ```tsx
@@ -76,12 +76,12 @@ The Sidebar renders two distinct footer layouts based on width and collapsed sta
   ```
 - **Stacked Layout**: Used on narrow or collapsed sidebars. When collapsed, the button shrinks to the icon only with `title="Support Theorem"`, exactly mirroring the collapsed Settings icon.
 
-#### Placement 2: Mobile Titlebar ([`src/shell/AppTitlebar.tsx`](../../src/shell/AppTitlebar.tsx#L300-L345))
+#### Placement 2: Mobile Titlebar ([`src/shell/AppTitlebar.tsx`](../../../src/shell/AppTitlebar.tsx#L300-L345))
 - Located in the right-hand action cluster beside search and the P2P sync status dot.
 - Gated on `isMobile()` and `isEligible`.
 - **Drag Region Trap**: On Tauri desktop, elements inside titlebars inherit `-webkit-app-region: drag`. On mobile or touch devices, interactive buttons must explicitly enforce `data-tauri-drag-region={undefined}` or `no-drag` attributes to prevent gesture capture by the window manager.
 
-#### Placement 3: Settings → About Links ([`src/features/settings/Settings.tsx`](../../src/features/settings/Settings.tsx#L1417-L1490))
+#### Placement 3: Settings → About Links ([`src/features/settings/Settings.tsx`](../../../src/features/settings/Settings.tsx#L1417-L1490))
 - Located under the "Links" section alongside "GitHub Repository", "Download Latest Release", and "Report an Issue".
 - **Permanent Visibility**: Settings is the intentional home for project links. The Support row in Settings is **always visible**, completely independent of the 30-day shell cadence.
 
@@ -98,7 +98,7 @@ Because `lucide-react` does not provide a momo/dumpling icon, Theorem requires a
 ### 2.5 External URL Dispatch Helper (`openExternalUrl`)
 Existing external links in Theorem use inconsistent patterns (e.g. raw `target="_blank"`, `window.open`, or scattered dynamic imports of `@tauri-apps/plugin-opener`). In Tauri desktop webviews on Linux and Windows, `window.open` can be swallowed or fail silently.
 
-**Solution**: Centralize into [`src/core/lib/open-external-url.ts`](../../src/core/lib/open-external-url.ts):
+**Solution**: Centralize into [`src/core/lib/open-external-url.ts`](../../../src/core/lib/open-external-url.ts):
 ```ts
 export async function openExternalUrl(url: string): Promise<void> {
     try {
@@ -111,7 +111,7 @@ export async function openExternalUrl(url: string): Promise<void> {
     window.open(url, "_blank", "noopener,noreferrer");
 }
 ```
-*Audit*: `opener:default` capability is already pre-configured in [`src-tauri/capabilities/default.json:17`](../../src-tauri/capabilities/default.json#L17).
+*Audit*: `opener:default` capability is already pre-configured in [`src-tauri/capabilities/default.json:17`](../../../src-tauri/capabilities/default.json#L17).
 
 ---
 
@@ -119,8 +119,8 @@ export async function openExternalUrl(url: string): Promise<void> {
 
 ### 3.1 Architectural Constraint: Why P2P Sync Cannot Deliver Announcements
 Theorem's primary sync protocol (`theorem-sync-core`) relies on **Iroh** (Iroh Docs + Iroh Blobs + Iroh Gossip). An initial hypothesis might suggest broadcasting maintainer announcements through Iroh gossip. However, a deep primary-source audit confirms this is fundamentally impossible:
-1. **Pairing-Scoped Mesh**: In [`src-tauri/src/sync_commands.rs`](../../src-tauri/src/sync_commands.rs#L739-L751) and [`src-tauri/src/iroh_sync.rs`](../../src-tauri/src/iroh_sync.rs#L559-L647), sync document replicas dial only explicit paired nodes. There is no global rendezvous overlay or public topic.
-2. **Settings LWW Collisions**: User settings synchronize via Last-Write-Wins based on `_settingsUpdatedAt` ([`src/core/lib/sync-orchestrator.ts`](../../src/core/lib/sync-orchestrator.ts#L1636-L1641)). Injecting announcements into synced settings would be overwritten by subsequent user edits on paired devices.
+1. **Pairing-Scoped Mesh**: In [`src-tauri/src/sync_commands.rs`](../../../src-tauri/src/sync_commands.rs#L739-L751) and [`src-tauri/src/iroh_sync.rs`](../../../src-tauri/src/iroh_sync.rs#L559-L647), sync document replicas dial only explicit paired nodes. There is no global rendezvous overlay or public topic.
+2. **Settings LWW Collisions**: User settings synchronize via Last-Write-Wins based on `_settingsUpdatedAt` ([`src/core/lib/sync-orchestrator.ts`](../../../src/core/lib/sync-orchestrator.ts#L1636-L1641)). Injecting announcements into synced settings would be overwritten by subsequent user edits on paired devices.
 3. **Privacy Inversion**: Injecting maintainer data into local CRDT documents would cause that data to replicate onward to all other paired nodes in the user's private mesh.
 
 **Architectural Law**: Announcements must travel strictly over standard HTTPS from an external endpoint. The sync engine is never involved.
@@ -228,7 +228,7 @@ flowchart LR
 
 ### 3.5 App Integration & Immersion Isolation
 
-#### Placement ([`src/App.tsx`](../../src/App.tsx#L612-L616))
+#### Placement ([`src/App.tsx`](../../../src/App.tsx#L612-L616))
 The announcement bar mounts immediately beneath `<AppTitlebar />` and above `<main id="app-main">`:
 ```tsx
 <div className="relative flex-1 flex flex-col min-w-0">
@@ -251,7 +251,7 @@ For complete tracking across the repository's planning records:
 
 | Plan | Target | Current Status | Rationale |
 |---|---|---|---|
-| **Plugin Extensibility Architecture** ([`docs/plans/2026-08-30-plugin-extensibility-architecture.md`](../plans/2026-08-30-plugin-extensibility-architecture.md)) | v2.0.0+ | **Deferred** | Avoids premature API freeze while SQLite data layouts and reader geometry are actively optimized. User extensibility needs are fulfilled natively via Knap AST note templating. |
+| **Plugin Extensibility Architecture** ([`docs/plans/2026-08-30-plugin-extensibility-architecture.md`](../../plans/2026-08-30-plugin-extensibility-architecture.md)) | v2.0.0+ | **Deferred** | Avoids premature API freeze while SQLite data layouts and reader geometry are actively optimized. User extensibility needs are fulfilled natively via Knap AST note templating. |
 
 ---
 

@@ -28,10 +28,10 @@ Prior to introducing these modular systems, Theorem resolved critical architectu
 
 This master plan synthesizes all findings from:
 - [`docs/research/cross-page-highlighting.md`](../../research/cross-page-highlighting.md) (Geometric client rects & anchor stabilization)
-- [`docs/research/rust-performance-rewrite-candidates.md`](../../research/rust-performance-rewrite-candidates.md) (Targeted Rust modules)
-- [`docs/research/database-performance-and-memory-optimization.md`](../../research/database-performance-and-memory-optimization.md) (Database virtualization & scale)
-- [`docs/research/latest-rust-memory-techniques-and-rss-architecture.md`](../../research/latest-rust-memory-techniques-and-rss-architecture.md) (Cloudflare DNS memory layout lessons & RSS overhaul)
-- [`docs/research/whole-app-rust-capabilities-and-roadmap.md`](../../research/whole-app-rust-capabilities-and-roadmap.md) (Whole-app feature audit)
+- [`docs/research/rust-performance-rewrite-candidates.md`](../../research/done/rust-performance-rewrite-candidates.md) (Targeted Rust modules)
+- [`docs/research/database-performance-and-memory-optimization.md`](../../research/done/database-performance-and-memory-optimization.md) (Database virtualization & scale)
+- [`docs/research/latest-rust-memory-techniques-and-rss-architecture.md`](../../research/done/latest-rust-memory-techniques-and-rss-architecture.md) (Cloudflare DNS memory layout lessons & RSS overhaul)
+- [`docs/research/whole-app-rust-capabilities-and-roadmap.md`](../../research/done/whole-app-rust-capabilities-and-roadmap.md) (Whole-app feature audit)
 
 ---
 

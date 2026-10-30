@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-11  
 **Target**: Fundaments-Work/Theorem #76  
-**Status**: Approved & In Progress  
+**Status**: ✅ Implemented (shipped in v1.5.0, see [tts.md](../../tts.md) and [audiobook.md](../../audiobook.md))  
 
 ---
 

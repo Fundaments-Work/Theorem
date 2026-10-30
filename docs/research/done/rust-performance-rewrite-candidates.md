@@ -14,7 +14,7 @@ This research analyzes **small, targeted, high-leverage** candidates that can be
 
 ### 1. Vault Markdown & Lemma Flashcard Export Engine
 
-- **Current TS Location**: [`src/core/lib/vault-sync.ts:388-677`](../../src/core/lib/vault-sync.ts#L388-L677)
+- **Current TS Location**: [`src/core/lib/vault-sync.ts:388-677`](../../../src/core/lib/vault-sync.ts#L388-L677)
 - **Current Architecture & Bottlenecks**:
   - The frontend formats book notes (`buildBookPageMarkdown`) and Lemma flashcards (`buildVocabularyMarkdown`) via JavaScript string concatenation.
   - It writes individual `.md` files to the filesystem using `@tauri-apps/plugin-fs` in batches of 16 (`syncVaultMarkdownSnapshot`).
@@ -34,7 +34,7 @@ This research analyzes **small, targeted, high-leverage** candidates that can be
 
 ### 2. Audio Text Normalization for TTS & Audiobook Generation
 
-- **Current TS Location**: [`src/features/reader/audio/text-normalization.ts:1-297`](../../src/features/reader/audio/text-normalization.ts#L1-L297)
+- **Current TS Location**: [`src/features/reader/audio/text-normalization.ts:1-297`](../../../src/features/reader/audio/text-normalization.ts#L1-L297)
 - **Current Architecture & Bottlenecks**:
   - Normalizes text before feeding it to Text-to-Speech (Immersion Reading).
   - Handles number-to-words (`1984` $\rightarrow$ "nineteen eighty-four"), ordinals (`1st` $\rightarrow$ "first"), Roman numerals (`Chapter IV`), currency (`$12.50`), abbreviations (`Dr.`, `etc.`), and special symbols using chained regular expressions.
@@ -52,7 +52,7 @@ This research analyzes **small, targeted, high-leverage** candidates that can be
 
 ### 3. Book Cover Resizing & WebP Transcoding
 
-- **Current TS Location**: [`src/core/lib/storage.ts:365-419`](../../src/core/lib/storage.ts#L365-L419)
+- **Current TS Location**: [`src/core/lib/storage.ts:365-419`](../../../src/core/lib/storage.ts#L365-L419)
 - **Current Architecture & Bottlenecks**:
   - `downsampleCoverImage` uses the browser DOM: creates an off-screen `HTMLCanvasElement`, loads image bytes via `URL.createObjectURL`, draws the image, and encodes to WebP via `canvas.toBlob('image/webp', 0.75)`.
   - Decoding large book covers (e.g., 8–15 MB high-resolution cover art from EPUBs or PDFs) and drawing them onto a canvas blocks the main JavaScript thread, resulting in noticeable UI freezes during book import or cover editing.
@@ -69,7 +69,7 @@ This research analyzes **small, targeted, high-leverage** candidates that can be
 
 ### 4. RSS / Atom XML Feed Parsing & Sanitization
 
-- **Current TS Location**: [`src/core/services/RssService.ts:1-868`](../../src/core/services/RssService.ts#L1-L868)
+- **Current TS Location**: [`src/core/services/RssService.ts:1-868`](../../../src/core/services/RssService.ts#L1-L868)
 - **Current Architecture & Bottlenecks**:
   - The TypeScript service imports `fast-xml-parser` (73.36 KB bundled) and `markdown-it` (102.38 KB bundled) into the frontend chunk (`dist/assets/fxp-vPGIDiwM.js` and `dist/assets/markdown-it-BVcQdzKk.js`).
   - Parsing large, multi-megabyte XML feeds with deeply nested CDATA, HTML entities, and author structures causes noticeable GC spikes in V8.
@@ -87,7 +87,7 @@ This research analyzes **small, targeted, high-leverage** candidates that can be
 
 ### 5. Multi-Entity CRDT / LWW Sync Payload Merger
 
-- **Current TS Location**: [`src/core/lib/sync-import.ts:1-549`](../../src/core/lib/sync-import.ts#L1-L549)
+- **Current TS Location**: [`src/core/lib/sync-import.ts:1-549`](../../../src/core/lib/sync-import.ts#L1-L549)
 - **Current Architecture & Bottlenecks**:
   - All peer-to-peer sync data arrives natively in Rust via Iroh (`src-tauri/src/iroh_sync.rs` and `src-tauri/src/sync_commands.rs`).
   - **Current Roundtrip**: Rust receives Iroh document entries $\rightarrow$ serializes them as raw JSON strings $\rightarrow$ sends them over IPC to TypeScript $\rightarrow$ TypeScript parses the JSON into thousands of JS objects $\rightarrow$ TypeScript executes Last-Write-Wins (LWW) date comparisons and tombstone filtering across 8 entity types $\rightarrow$ TypeScript calls `sqlite_save_...` Tauri commands to write the merged entities *back* to SQLite.
@@ -105,7 +105,7 @@ This research analyzes **small, targeted, high-leverage** candidates that can be
 ### 6. EPUB CFI Range Splitting for Cross-Page Highlighting
 
 - **Current TS Location**: `src/features/reader/foliate-js-runtime/epubcfi.js`
-- **Rust Backend**: [`src-tauri/src/epubcfi.rs:1-360`](../../src-tauri/src/epubcfi.rs#L1-L360)
+- **Rust Backend**: [`src-tauri/src/epubcfi.rs:1-360`](../../../src-tauri/src/epubcfi.rs#L1-L360)
 - **Relevance to v1.5.2 Cross-Page Highlighting**:
   - Cross-page highlighting requires splitting a single logical annotation that spans from spine section $A$ (or page $N$) into spine section $B$ (or page $N+1$) into two sub-ranges, or computing the common parent anchor.
   - The Rust backend already implements an EPUB CFI parser (`epubcfi.rs`). Expanding `epubcfi.rs` with CFI range comparison (`compare(cfi1, cfi2)`) and CFI range division allows instant validation and sorting of cross-boundary CFI ranges.

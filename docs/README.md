@@ -62,6 +62,7 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 
 | Folder | What it covers |
 |--------|----------------|
-| [plans/](plans/) | Technical design plans & roadmaps (`plans/done/` holds shipped plans) |
+| [plans/](plans/) | Open design plans & roadmaps; shipped plans are in [plans/done/](plans/done/) |
 | [plans/2026-08-30-plugin-extensibility-architecture.md](plans/2026-08-30-plugin-extensibility-architecture.md) | Plugin extensibility architecture (designed, not implemented) |
-| [research/](research/) | Long-form research: Rust rewrite candidates, memory/SQLite tuning, announcements architecture |
+| [plans/2026-10-20-plugin-roadmap-1.6-to-2.0.md](plans/2026-10-20-plugin-roadmap-1.6-to-2.0.md) | Road to the plugin system, 1.6 → 2.0 (proposed) |
+| [research/](research/) | Open research: cross-page highlighting. Finished research (Rust rewrite candidates, memory/SQLite tuning, announcements architecture) is in [research/done/](research/done/) |

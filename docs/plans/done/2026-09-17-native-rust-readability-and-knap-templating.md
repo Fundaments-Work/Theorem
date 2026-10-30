@@ -1,7 +1,7 @@
 # Architecture Plan: Native Rust Readability Engine & Knap PKM Templating
 
 **Date**: 2026-09-17  
-**Status**: Approved Planning & Architectural Specification  
+**Status**: ✅ Implemented (native readability engine in `src-tauri/src/article_extractor.rs`, Knap templating in the vault export; shipped v1.5.7–v1.6.0, see CHANGELOG)  
 **Target Releases**: v1.5.7–v1.5.9 (Native Rust Readability Engine) $\rightarrow$ v1.6.0 (Knap Universal PKM Templating)  
 **Authors**: Theorem Core Engineering Team  
 

@@ -3,7 +3,7 @@
 **Target**: Ultra-fast performance and minimal memory consumption for large libraries (1,000 to 50,000+ books)  
 **Context**: Preparation for Theorem v1.5.2 $\rightarrow$ v1.5.3 $\rightarrow$ v1.5.5 $\rightarrow$ v1.6.0 (Native Modular Power Features) $\rightarrow$ v2.0.0 (Plugin Ecosystem)  
 **Date**: 2026-09-13  
-**Status**: Research & Architecture Specification  
+**Status**: ✅ Done — delivered; archived to `research/done/`. Original: Research & Architecture Specification  
 
 ---
 
@@ -49,7 +49,7 @@ By transitioning **SQLite in Rust into the canonical query engine and single sou
 
 ### 2.1 The Mechanics of SQLite Speed in Theorem
 
-Theorem's backend already configures the optimal PRAGMAs in [`src-tauri/src/database.rs:313-395`](../../src-tauri/src/database.rs#L313-L395):
+Theorem's backend already configures the optimal PRAGMAs in [`src-tauri/src/database.rs:313-395`](../../../src-tauri/src/database.rs#L313-L395):
 
 1. **WAL Mode (`PRAGMA journal_mode = WAL`)**:
    - In traditional rollback journals, readers block writers and writers block readers.
@@ -72,7 +72,7 @@ The performance barrier in Theorem is **not** SQLite. It is the **monolithic JSO
 
 ### The Monolithic Persist Loop (The Problem)
 
-Look at [`src/core/lib/persist-storage.ts:1-75`](../../src/core/lib/persist-storage.ts#L1-L75):
+Look at [`src/core/lib/persist-storage.ts:1-75`](../../../src/core/lib/persist-storage.ts#L1-L75):
 ```ts
 // Every time ANY annotation or book changes:
 const serialized = JSON.stringify(libraryStoreState); // 20-50MB string!
@@ -131,7 +131,7 @@ Instead of passing 5,000 books to the frontend and using `useVirtualizer` on a h
 
 ### Principle 2: Two-Tier Hybrid Search (`SQLite FTS5` + `nucleo-matcher`)
 
-In [`src/features/library/filtering.ts:50-75`](../../src/features/library/filtering.ts#L50-L75), `Fuse.js` is instantiated on all books in memory on every query, holding a 25MB search index in the V8 heap.
+In [`src/features/library/filtering.ts:50-75`](../../../src/features/library/filtering.ts#L50-L75), `Fuse.js` is instantiated on all books in memory on every query, holding a 25MB search index in the V8 heap.
 
 We replace `Fuse.js` with a **Two-Tier Hybrid Architecture**:
 
