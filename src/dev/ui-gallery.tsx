@@ -6,7 +6,7 @@
  * Add a section here whenever you add a component to `src/ui`; the page is also what a
  * reviewer opens to check a change against the design system in both themes.
  */
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useLayoutEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Search, Trash2 } from "lucide-react";
 import "../index.css";
@@ -70,12 +70,12 @@ export function Gallery() {
     const [tab, setTab] = useState("highlights");
     const [modal, setModal] = useState<"none" | "modal" | "confirm" | "alert">("none");
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         applyAppTheme(theme, DEFAULT_ACCENT_COLOR);
     }, [theme]);
 
     return (
-        <div className="mx-auto flex max-w-4xl flex-col gap-6 p-4 sm:p-8">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 sm:p-8">
             <header className="flex items-center justify-between gap-4">
                 <h1 className="ui-page-title">UI gallery</h1>
                 <Button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>

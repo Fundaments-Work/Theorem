@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="robots" content="noindex" />
   <title>Theorem UI gallery (dev only)</title>
+  <!-- The app shell is a fixed-height flex column; the gallery is a long document, so let it scroll. -->
+  <style>
+    html, body, #root { height: auto; min-height: 100%; overflow: visible; }
+  </style>
 </head>
 <body>
   <div id="root"></div>

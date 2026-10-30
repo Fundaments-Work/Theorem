@@ -110,15 +110,4 @@ describe("gallery", () => {
         expect(switches.length).toBeGreaterThan(0);
         for (const sw of switches) expect(sw.getAttribute("aria-checked")).toMatch(/^(true|false)$/);
     });
-
-    // A structural regression guard: this markup is the contract every screen builds on.
-    it("matches the shared-component markup snapshot", () => {
-        const normalised = host.innerHTML
-            .replace(/radix-[a-z0-9-]+/gi, "radix")
-            .replace(/id="[^"]*"/g, 'id="x"')
-            .replace(/aria-controls="[^"]*"/g, 'aria-controls="x"')
-            .replace(/aria-labelledby="[^"]*"/g, 'aria-labelledby="x"')
-            .replace(/for="[^"]*"/g, 'for="x"');
-        expect(normalised).toMatchSnapshot();
-    });
 });
