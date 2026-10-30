@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features & Enhancements
 
 - **Daily Review Card Stack in Library** — Upgraded the static Daily Highlight banner into an interactive physical 3D card deck embedded at the top of the Library feed. Controlled by `settings.showDailyHighlight` ("Daily Review"), the deck resurfaces daily reflections with stacked card layers, tap-to-advance, drag-tilt, fling gestures, source jumping, and session dismiss. Once reviewed or dismissed, it collapses cleanly to leave the book grid unencumbered.
+- **Swipe Actions on RSS Articles** — On touch screens, swiping an article row right marks it read and swiping left deletes it with an Undo toast (`SwipeableArticleItem`), for one-handed triage in Feeds.
+- **Bookmark Ribbon Cards and a Physical Card Deck** — Bookmarks in the Workbench are shown as ribbon cards with their page or position instead of empty quote blocks, and the review deck now looks like a physical card deck with visible layers underneath.
 - **Refocused Workbench Workspace** — Workbench is refocused exclusively on deep search, filtering, and browsing across Highlights, Notes, Vocabulary, and Bookmarks without daily takeover interruptions, while retaining an on-demand deck Card View toggle (`viewMode === "cards"`).
 - **Library List View Details (#159)** — Enhanced the library list view row cards with dedicated format badges, series and volume index annotations, compact progress bar visualization, and relative date indicators for last read and added dates, maintaining a fixed 96px virtualized row height.
 - **CLI Scripting & Headless Follow-ups (#162)**:

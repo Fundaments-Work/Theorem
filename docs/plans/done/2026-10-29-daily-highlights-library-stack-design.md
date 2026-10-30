@@ -1,7 +1,7 @@
 # Design: Upgrading Daily Highlights to Interactive Card Stack in Library
 
 **Date:** 2026-10-29  
-**Status:** Approved  
+**Status:** ✅ Implemented (`LibraryDailyReviewDeck.tsx`; shipping in 1.6.1)  
 **Author:** Pair programming with Antigravity  
 
 ## Context & Objectives

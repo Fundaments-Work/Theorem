@@ -1,7 +1,7 @@
 # Design: Physical Card Deck & Bookmark Ribbon Redesign
 
 **Date**: 2026-10-29  
-**Status**: Validated & Approved  
+**Status**: ✅ Implemented (`ReviewCardStack.tsx`, and the bookmark ribbon card inside `Bookmarks.tsx` rather than a separate `BookmarkRibbonCard.tsx`; shipping in 1.6.1)  
 **Inspiration**: Physical playing/tarot card deck (`media_1793275031006.png`) adhering to Theorem's Swiss editorial design system.
 
 ---

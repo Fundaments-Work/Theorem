@@ -1,7 +1,7 @@
 # RSS Feed Swipe Actions & Daily Review Deck Design
 
 **Date**: 2026-10-29  
-**Status**: Approved / In Progress  
+**Status**: ✅ Implemented (`SwipeableArticleItem.tsx` in `FeedsPage.tsx`, and the daily review deck, whose Library placement is in [2026-10-29-daily-highlights-library-stack-design.md](./2026-10-29-daily-highlights-library-stack-design.md); shipping in 1.6.1)  
 
 ---
 
