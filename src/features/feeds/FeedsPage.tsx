@@ -10,7 +10,7 @@ import {
     AlertCircle,
     LayoutTemplate, ArrowLeft,
     ExternalLink, BookOpen, CheckCheck, EyeOff, Link2,
-    Bookmark, BookmarkCheck, Heart,
+    Bookmark, Heart,
 } from "lucide-react";
 import { AddFeedModal } from "./AddFeedModal";
 import { SwipeableArticleItem } from "./components/SwipeableArticleItem";
@@ -19,6 +19,19 @@ import { ContextMenu } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
 import { sanitizeArticleHtml } from "../reader/article-reader/utils";
 import { sanitizeHtmlForDisplay } from "../../core/lib/sanitize";
+
+export function deduplicateFeedTitle(title: string): string {
+    const trimmed = title.trim();
+    const half = trimmed.length / 2;
+    if (trimmed.length >= 6 && Number.isInteger(half)) {
+        const first = trimmed.slice(0, half);
+        const second = trimmed.slice(half);
+        if (first === second) {
+            return first;
+        }
+    }
+    return trimmed;
+}
 
 const FEEDS_SELECTED_FEED_STORAGE_KEY = "theorem-feeds:selected-feed-id";
 const FEEDS_MOBILE_LIST_STORAGE_KEY = "theorem-feeds:show-mobile-list";
@@ -133,7 +146,7 @@ export function FeedListItem({
                 <p className={cn(
                     "text-sm truncate",
                 )}>
-                    {feed.title}
+                    {deduplicateFeedTitle(feed.title)}
                 </p>
             </div>
 
@@ -163,8 +176,8 @@ export function FeedListItem({
                             : "hidden group-hover:flex group-focus-within:flex",
                         "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] hover:bg-[var(--color-surface-muted)]"
                     )}
-                    title={`Refresh ${feed.title}`}
-                    aria-label={`Refresh ${feed.title}`}
+                    title={`Refresh ${deduplicateFeedTitle(feed.title)}`}
+                    aria-label={`Refresh ${deduplicateFeedTitle(feed.title)}`}
                 >
                     <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
                 </button>
@@ -183,7 +196,7 @@ export function FeedListItem({
                     "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] hover:bg-[var(--color-error)]/10"
                 )}
                 title="Remove feed"
-                aria-label={`Remove ${feed.title}`}
+                aria-label={`Remove ${deduplicateFeedTitle(feed.title)}`}
             >
                 <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -307,24 +320,6 @@ function ArticleCard({
                                     <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
                                     <span className="text-[10px] font-mono text-[color:var(--color-accent)]">
                                         {formatProgress(article.progress)} read
-                                    </span>
-                                </>
-                            )}
-                            {article.isSaved && (
-                                <>
-                                    <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] text-[color:var(--color-accent)] flex items-center gap-1">
-                                        <BookmarkCheck className="w-3 h-3" />
-                                        Saved
-                                    </span>
-                                </>
-                            )}
-                            {article.isFavorite && (
-                                <>
-                                    <span className="text-[color:var(--color-text-muted)] text-[10px]">•</span>
-                                    <span className="text-[10px] text-[color:var(--color-accent)] flex items-center gap-1">
-                                        <Heart className="w-3 h-3 fill-current" />
-                                        Favorite
                                     </span>
                                 </>
                             )}
@@ -594,15 +589,17 @@ export function FeedsPage() {
         if (selectedFeedId === "__saved__") return "Saved Offline";
         if (selectedFeedId === "__favorites__") return "Favorites";
         if (selectedFeedId === "__unread__") return "Unread Articles";
-        return selectedFeed ? selectedFeed.title : "All Articles";
+        return selectedFeed ? deduplicateFeedTitle(selectedFeed.title) : "All Articles";
     }, [selectedFeedId, selectedFeed]);
 
     const feedListRows = useMemo(
         () => [
+            { kind: "views-header" as const },
             { kind: "all" as const },
-            { kind: "saved" as const, count: savedCount },
-            { kind: "favorites" as const, count: favoriteCount },
             { kind: "unread" as const, count: unreadCount },
+            { kind: "favorites" as const, count: favoriteCount },
+            { kind: "saved" as const, count: savedCount },
+            { kind: "subscriptions-header" as const },
             ...feeds.map((feed) => ({ kind: "feed" as const, feed })),
         ],
         [feeds, savedCount, favoriteCount, unreadCount],
@@ -611,7 +608,14 @@ export function FeedsPage() {
     const feedVirtualizer = useVirtualizer({
         count: feedListRows.length,
         getScrollElement: () => feedListScrollRef.current,
-        estimateSize: () => 46,
+        estimateSize: (index) => {
+            const row = feedListRows[index];
+            if (!row) return 40;
+            if (row.kind === "views-header") return 30;
+            if (row.kind === "subscriptions-header") return 46;
+            if (row.kind === "feed") return 44;
+            return 38;
+        },
         overscan: 10,
         getItemKey: (index) => {
             const row = feedListRows[index];
@@ -648,7 +652,7 @@ export function FeedsPage() {
     const feedTitleById = useMemo(() => {
         const map = new Map<string, string>();
         for (const feed of feeds) {
-            map.set(feed.id, feed.title);
+            map.set(feed.id, deduplicateFeedTitle(feed.title));
         }
         return map;
     }, [feeds]);
@@ -744,21 +748,8 @@ export function FeedsPage() {
                 "md:flex md:w-64"
             )}>
                 
-                <div className="px-4 pt-8 pb-4 flex items-center justify-between">
-                    <h2 className="text-xs text-[color:var(--color-text-muted)]">
-                        Subscriptions
-                    </h2>
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="p-1.5 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
-                        title="Add Feed"
-                    >
-                        <Plus className="w-4 h-4" />
-                    </button>
-                </div>
-
                 <div ref={feedListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain">
-                    <div className="p-2">
+                    <div className="p-2 pt-4">
                         <div
                             className="relative w-full"
                             style={{ height: `${feedVirtualizer.getTotalSize()}px` }}
@@ -779,17 +770,23 @@ export function FeedsPage() {
                                             transform: `translateY(${virtualRow.start}px)`,
                                         }}
                                     >
-                                        {row.kind === "all" ? (
+                                        {row.kind === "views-header" ? (
+                                            <div className="px-3 pt-1 pb-1 flex items-center justify-between select-none">
+                                                <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                                                    Views
+                                                </h2>
+                                            </div>
+                                        ) : row.kind === "all" ? (
                                             <button
                                                 onClick={() => handleSelectFeed(null)}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === null && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === null && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className={cn(
-                                                        "w-6 h-6 flex items-center justify-center transition-colors",
+                                                        "w-5 h-5 flex items-center justify-center transition-colors",
                                                         selectedFeedId === null
                                                             ? "md:text-[color:var(--color-accent)] text-[color:var(--color-text-muted)]"
                                                             : "text-[color:var(--color-text-muted)]",
@@ -798,24 +795,24 @@ export function FeedsPage() {
                                                     </div>
                                                     <span className="text-sm">All Articles</span>
                                                 </div>
-                                                <span className="text-[10px] font-mono text-[color:var(--color-text-muted)]">{articles.length}</span>
+                                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">{articles.length}</span>
                                             </button>
-                                        ) : row.kind === "saved" ? (
+                                        ) : row.kind === "unread" ? (
                                             <button
-                                                onClick={() => handleSelectFeed("__saved__")}
+                                                onClick={() => handleSelectFeed("__unread__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === "__saved__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__unread__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-6 h-6 flex items-center justify-center">
-                                                        <Bookmark className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__saved__" && "md:fill-current md:text-[color:var(--color-accent)]")} />
+                                                    <div className="w-5 h-5 flex items-center justify-center">
+                                                        <EyeOff className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__unread__" && "md:text-[color:var(--color-accent)]")} />
                                                     </div>
-                                                    <span className="text-sm">Saved Offline</span>
+                                                    <span className="text-sm">Unread</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-accent)]/15 text-[color:var(--color-accent)] font-medium">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -824,42 +821,60 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed("__favorites__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === "__favorites__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__favorites__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-6 h-6 flex items-center justify-center">
+                                                    <div className="w-5 h-5 flex items-center justify-center">
                                                         <Heart className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__favorites__" && "md:text-[color:var(--color-accent)] md:fill-current")} />
                                                     </div>
                                                     <span className="text-sm">Favorites</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
                                             </button>
-                                        ) : row.kind === "unread" ? (
+                                        ) : row.kind === "saved" ? (
                                             <button
-                                                onClick={() => handleSelectFeed("__unread__")}
+                                                onClick={() => handleSelectFeed("__saved__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === "__unread__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
+                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__saved__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-6 h-6 flex items-center justify-center">
-                                                        <EyeOff className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__unread__" && "md:text-[color:var(--color-accent)]")} />
+                                                    <div className="w-5 h-5 flex items-center justify-center">
+                                                        <Bookmark className={cn("w-4 h-4 text-[color:var(--color-text-muted)]", selectedFeedId === "__saved__" && "md:fill-current md:text-[color:var(--color-accent)]")} />
                                                     </div>
-                                                    <span className="text-sm">Unread</span>
+                                                    <span className="text-sm">Saved Offline</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
                                             </button>
+                                        ) : row.kind === "subscriptions-header" ? (
+                                            <div className="pt-2 pb-1 select-none">
+                                                <div className="mx-2 mb-2.5 border-t border-[var(--color-border)]" />
+                                                <div className="px-3 flex items-center justify-between">
+                                                    <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                                                        Subscriptions
+                                                    </h2>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsAddModalOpen(true)}
+                                                        className="p-1 -mr-1 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] rounded-md hover:bg-[var(--color-surface-muted)] cursor-pointer"
+                                                        title="Add Feed"
+                                                        aria-label="Add Feed"
+                                                    >
+                                                        <Plus className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            </div>
                                         ) : (
                                             <FeedListItem
                                                 feed={row.feed}

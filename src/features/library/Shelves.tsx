@@ -34,6 +34,8 @@ import {
     BookMarked,
     RotateCcw,
     ListOrdered,
+    MoreHorizontal,
+    Check,
 } from "lucide-react";
 import type { Book, Collection, LibraryViewMode, SmartShelfDefinition } from "../../core/types";
 
@@ -416,6 +418,11 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
         setIsSelecting((prev) => !prev);
     }, [isSelecting, clearSelection]);
 
+    const handleStartSelect = useCallback((bookId: string) => {
+        setIsSelecting(true);
+        setSelectedBooks([bookId]);
+    }, [setSelectedBooks]);
+
     const handleRemoveSelectedFromShelf = useCallback(() => {
         removeBooksFromCollection(selectedBooks, shelf.id);
         clearSelection();
@@ -500,10 +507,9 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             if (w >= 640) return 4;
             return 3;
         }
-        if (w >= 1536) return 8;
-        if (w >= 1280) return 7;
-        if (w >= 1024) return 5;
-        if (w >= 768) return 4;
+        if (w >= 1440) return 6;
+        if (w >= 1150) return 5;
+        if (w >= 850) return 4;
         if (w >= 640) return 3;
         return 2;
     });
@@ -520,10 +526,9 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                 if (w >= 640) return 4;
                 return 3;
             }
-            if (w >= 1536) return 8;
-            if (w >= 1280) return 7;
-            if (w >= 1024) return 5;
-            if (w >= 768) return 4;
+            if (w >= 1440) return 6;
+            if (w >= 1150) return 5;
+            if (w >= 850) return 4;
             if (w >= 640) return 3;
             return 2;
         };
@@ -606,14 +611,42 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
         updateSettings({ libraryViewMode: nextMode });
     };
 
+    const childShelves = useMemo(() => collections.filter((c) => c.parentId === shelf.id), [collections, shelf.id]);
+
+    const [showShelfMenu, setShowShelfMenu] = useState(false);
+    const shelfMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!showShelfMenu) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            if (shelfMenuRef.current && !shelfMenuRef.current.contains(e.target as Node)) {
+                setShowShelfMenu(false);
+            }
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                setShowShelfMenu(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [showShelfMenu]);
+
     return (
         <div className="flex min-h-0 flex-1 flex-col animate-fade-in">
-            {!shelf.parentId && (
-                <nav aria-label="Sub-shelves" className="flex flex-wrap gap-2 mb-4">
-                    {collections.filter(c => c.parentId === shelf.id).map(child => (
-                        <button key={child.id} className="ui-btn" onClick={() => onNavigate(child.id)}>{child.name}</button>
+            {!shelf.parentId && childShelves.length > 0 && (
+                <nav aria-label="Sub-shelves" className="flex flex-wrap items-center gap-2 mb-4">
+                    {childShelves.map((child) => (
+                        <button key={child.id} className="ui-btn text-xs py-1" onClick={() => onNavigate(child.id)}>{child.name}</button>
                     ))}
-                    <button className="ui-btn-ghost" onClick={onCreateChild}><Plus className="w-4 h-4" />New sub-shelf</button>
+                    <button className="ui-btn-ghost text-xs py-1" onClick={onCreateChild} title="New sub-shelf">
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>New sub-shelf</span>
+                    </button>
                 </nav>
             )}
             <div className="-mb-4">
@@ -650,11 +683,11 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         </div>
                     </div>
 
-                    <div className="flex w-full items-center gap-2 sm:ml-0 sm:w-auto sm:gap-4 flex-wrap">
+                    <div className="flex w-full items-center gap-2 sm:ml-0 sm:w-auto sm:gap-3 flex-wrap">
                         <button
                             onClick={handleGoToLibrary}
                             disabled={!!shelf.smartRules}
-                            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 flex-1 justify-center px-3 py-2 sm:h-auto sm:flex-none sm:px-4")}
+                            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 px-3.5 py-2 sm:h-auto sm:px-4")}
                             title={shelf.smartRules ? "Membership is managed by this shelf's rules" : "Add books from library"}
                         >
                             <Plus className="w-4 h-4" />
@@ -669,7 +702,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             className={cn(
                                 TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
                                 shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
-                                isSelecting && "ui-selected"
+                                isSelecting ? "ui-selected" : "sr-only"
                             )}
                             title={isSelecting ? "Cancel Selection" : "Select Books"}
                         >
@@ -684,32 +717,92 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             {viewModeIcons[viewMode]}
                         </button>
 
-                        <div className="h-6 w-px bg-[var(--color-border)]" />
+                        <div className="relative" ref={shelfMenuRef}>
+                            <button
+                                onClick={() => setShowShelfMenu((prev) => !prev)}
+                                aria-label="More actions"
+                                aria-expanded={showShelfMenu}
+                                className={cn(
+                                    TOOLBAR_BUTTON_BASE,
+                                    TOOLBAR_ICON_BUTTON,
+                                    "border-2 transition-colors",
+                                    showShelfMenu ? "ui-selected" : ""
+                                )}
+                                title="More actions"
+                            >
+                                <MoreHorizontal className="w-4 h-4" />
+                            </button>
 
-                        <button
-                            onClick={() => updateCollection(shelf.id, { groupBySeries: !shelf.groupBySeries })}
-                            disabled={shelfBooks.length === 0}
-                            className={cn(
-                                TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
-                                shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
-                                shelf.groupBySeries && "ui-selected"
-                            )}
-                            title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
-                        >
-                            <ListOrdered className="w-4 h-4" />
-                        </button>
+                            <div
+                                className={cn(
+                                    "absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1.5 z-30 transition-all duration-150 origin-top-right",
+                                    showShelfMenu
+                                        ? "opacity-100 scale-100 pointer-events-auto"
+                                        : "opacity-0 scale-95 pointer-events-none"
+                                )}
+                            >
+                                <button
+                                    onClick={() => {
+                                        setShowShelfMenu(false);
+                                        updateCollection(shelf.id, { groupBySeries: !shelf.groupBySeries });
+                                    }}
+                                    disabled={shelfBooks.length === 0}
+                                    className="w-full flex items-center justify-between gap-3 px-3 py-2 text-xs text-left hover:bg-[var(--color-surface-hover,#0000000a)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-[color:var(--color-text-primary)] transition-colors"
+                                    title={shelf.groupBySeries ? "Ungroup Series" : "Group by Series"}
+                                >
+                                    <span className="flex items-center gap-2.5">
+                                        <ListOrdered className="w-4 h-4 text-[color:var(--color-text-secondary)] shrink-0" />
+                                        <span>Group by Series</span>
+                                    </span>
+                                    {shelf.groupBySeries && (
+                                        <Check className="w-3.5 h-3.5 text-[color:var(--color-accent)] shrink-0" />
+                                    )}
+                                </button>
 
-                        <button
-                            onClick={handleOpenSeriesModalForShelf}
-                            disabled={shelfBooks.length === 0}
-                            className={cn(
-                                TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
-                                shelfBooks.length === 0 && "opacity-50 cursor-not-allowed"
-                            )}
-                            title="Create / Manage Series from Shelf"
-                        >
-                            <BookOpen className="w-4 h-4 text-[color:var(--color-accent)]" />
-                        </button>
+                                <button
+                                    onClick={() => {
+                                        setShowShelfMenu(false);
+                                        handleOpenSeriesModalForShelf();
+                                    }}
+                                    disabled={shelfBooks.length === 0}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-[var(--color-surface-hover,#0000000a)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-[color:var(--color-text-primary)] transition-colors"
+                                    title="Create / Manage Series from Shelf"
+                                >
+                                    <BookOpen className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
+                                    <span>Manage Series…</span>
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        setShowShelfMenu(false);
+                                        handleToggleSelectMode();
+                                    }}
+                                    disabled={shelfBooks.length === 0}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-[var(--color-surface-hover,#0000000a)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-[color:var(--color-text-primary)] transition-colors"
+                                    title="Select Books"
+                                >
+                                    <CheckCheck className="w-4 h-4 text-[color:var(--color-text-secondary)] shrink-0" />
+                                    <span>Select Books</span>
+                                </button>
+
+                                {!shelf.parentId && (
+                                    <>
+                                        <div className="my-1 border-t border-[var(--color-border-subtle)]" />
+                                        <button
+                                            onClick={() => {
+                                                setShowShelfMenu(false);
+                                                onCreateChild();
+                                            }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-[var(--color-surface-hover,#0000000a)] cursor-pointer text-[color:var(--color-text-primary)] transition-colors"
+                                            title="New sub-shelf"
+                                        >
+                                            <Plus className="w-4 h-4 text-[color:var(--color-text-secondary)] shrink-0" />
+                                            <span>New sub-shelf…</span>
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -764,6 +857,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                             renameMenuLabel: "Rename",
                             onMarkAsRead: markBookCompleted,
                             onMarkAsUnread: markBookUnread,
+                            onStartSelect: handleStartSelect,
                         };
 
                         return (
@@ -854,6 +948,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                                 renameMenuLabel: "Rename",
                                 onMarkAsRead: markBookCompleted,
                                 onMarkAsUnread: markBookUnread,
+                                onStartSelect: handleStartSelect,
                             };
 
                             return (

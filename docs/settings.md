@@ -40,6 +40,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 
 ### Data & Storage (id: `storage`)
 - Storage statistics (Books, Highlights & Notes, RSS Articles, Offline Dictionaries)
+- Library Folders (`LibraryFoldersSection.tsx`): Connect external directory trees on desktop or mobile, view connected folder book counts, rescan folders for new/modified books, and safely disconnect folders.
 - Backup & Restore (`BackupSection.tsx`): Create Backup File (`.theorem-backup`, optional dictionaries), Restore from Backup (inspect, confirm, replace, reload), and the automatic database copies with Restore buttons. See [persistence.md](persistence.md#backups-snapshots-and-startup-safety)
 - Clear all data (with warning dialog)
 

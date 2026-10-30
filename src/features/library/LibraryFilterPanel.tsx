@@ -1,5 +1,7 @@
+import { Trash2 } from "lucide-react";
 import { cn } from "../../core/lib/utils";
 import type { LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
+import { type buildSourceFolderIndex, type SourceFolderSelection } from "../../core/lib/source-folders";
 import {
     FILTER_CHIP_SELECTED,
     FILTER_CHIP_UNSELECTED,
@@ -19,6 +21,10 @@ export interface LibraryFilterPanelProps {
     onStatusFilter: (status: LibraryStatusFilter) => void;
     onFavoritesOnly: (on: boolean) => void;
     onUnshelvedOnly: (on: boolean) => void;
+    sourceFolderIndex?: ReturnType<typeof buildSourceFolderIndex>;
+    selectedSourceFolder?: SourceFolderSelection | null;
+    onSelectSourceFolder?: (folder: SourceFolderSelection | null) => void;
+    onRemoveSourceFolder?: (root: string) => void;
 }
 
 const SORT_OPTIONS: ReadonlyArray<{ id: LibrarySortBy; label: string }> = [
@@ -64,10 +70,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  */
 export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
     const unselected = props.variant === "sheet" ? FILTER_CHIP_UNSELECTED : FILTER_CHIP_UNSELECTED_ON_SURFACE;
-    const chip = (selected: boolean) =>
+    const chip = (selected: boolean, extra?: string) =>
         cn(
             "h-8 w-full px-2 text-xs font-sans whitespace-nowrap border flex items-center justify-center text-center transition-colors touch-manipulation",
-            selected ? FILTER_CHIP_SELECTED : unselected
+            selected ? FILTER_CHIP_SELECTED : unselected,
+            extra
         );
     const divider = props.variant === "sheet" ? "divide-y" : "divide-y-2";
 
@@ -140,6 +147,66 @@ export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
                     </div>
                 </Section>
             </div>
+            {props.sourceFolderIndex && props.sourceFolderIndex.size > 0 && (
+                <Section title="Folder">
+                    <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto overflow-x-hidden">
+                        <button
+                            type="button"
+                            aria-pressed={!props.selectedSourceFolder}
+                            onClick={() => props.onSelectSourceFolder?.(null)}
+                            className={chip(!props.selectedSourceFolder)}
+                        >
+                            All library books
+                        </button>
+                        {Array.from(props.sourceFolderIndex.entries()).map(([root, { name, folders }]) => {
+                            const isSelected = props.selectedSourceFolder?.root === root;
+                            const displayName =
+                                name && name !== root
+                                    ? name
+                                    : root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || root;
+                            const bookCount = folders.get("")?.size ?? 0;
+                            return (
+                                <div key={root} className="flex items-center gap-1.5 min-w-0 w-full">
+                                    <button
+                                        key={root}
+                                        type="button"
+                                        aria-pressed={isSelected}
+                                        onClick={() =>
+                                            props.onSelectSourceFolder?.(
+                                                isSelected ? null : { root, path: "" }
+                                            )
+                                        }
+                                        className={chip(
+                                            isSelected,
+                                            "flex-1 min-w-0 text-left justify-between px-3 overflow-hidden cursor-pointer"
+                                        )}
+                                        title={root}
+                                    >
+                                        <span className="truncate font-medium">{displayName}</span>
+                                        <span className="text-[10px] opacity-75 shrink-0 ml-2">
+                                            {bookCount} {bookCount === 1 ? "book" : "books"}
+                                        </span>
+                                    </button>
+                                    {props.onRemoveSourceFolder && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                props.onRemoveSourceFolder?.(root);
+                                            }}
+                                            className="p-1.5 text-[color:var(--color-text-muted)] hover:text-red-500 rounded transition-colors cursor-pointer shrink-0"
+                                            title={`Remove ${displayName} folder`}
+                                            aria-label={`Remove ${displayName} folder`}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </Section>
+            )}
         </div>
     );
 }

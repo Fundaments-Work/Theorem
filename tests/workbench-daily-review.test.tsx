@@ -66,11 +66,11 @@ describe("Library Daily Highlights Deck & Refocused Workbench", () => {
                 />,
             );
 
-            expect(root.textContent).toContain("Daily Review");
-            expect(root.textContent).toContain("2 cards");
+            expect(root.textContent).not.toContain("Daily Review");
             expect(root.textContent).toContain("True happiness is to enjoy the present.");
             expect(root.textContent).toContain("Letters from a Stoic");
             expect(root.textContent).toContain("Seneca");
+            expect(root.querySelector('button[aria-label="Dismiss for today"]')).not.toBeNull();
         });
 
         it("dismisses deck when close button is clicked and saves session snooze", () => {
@@ -135,6 +135,30 @@ describe("Library Daily Highlights Deck & Refocused Workbench", () => {
 
             expect(root.textContent).toBe("");
             resetDailyReview();
+        });
+
+        it("renders as a centered overlay on top of the library with solid backdrop", () => {
+            useLibraryStore.setState({
+                books: [mockBook],
+                annotations: mockAnnotations,
+            });
+
+            const root = render(
+                <LibraryDailyReviewDeck
+                    showDailyHighlight={true}
+                    selectedShelf={null}
+                    showFavoritesOnly={false}
+                    isSelecting={false}
+                />,
+            );
+
+            const overlay = root.querySelector('[role="dialog"][aria-modal="true"]');
+            expect(overlay).not.toBeNull();
+            expect(overlay?.className).toContain("fixed");
+            expect(overlay?.className).toContain("inset-0");
+            expect(overlay?.className).toContain("bg-[var(--color-background)]");
+            expect(overlay?.className).toContain("items-center");
+            expect(overlay?.className).toContain("justify-center");
         });
     });
 

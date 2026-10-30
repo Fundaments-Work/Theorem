@@ -383,42 +383,40 @@ export function ReviewCardStack({
                 {isFinished ? (
                     /* Completion Card in Native Theorem Swiss Style */
                     <div
-                        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 sm:p-4 shadow-xl w-full min-h-[380px] flex flex-col justify-between"
+                        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 sm:p-12 shadow-xl dark:shadow-2xl w-full min-h-[380px] flex flex-col items-center justify-center text-center"
                     >
-                        <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)]/50 p-8 sm:p-12 flex flex-col items-center justify-center text-center flex-1">
-                            <div className="w-12 h-12 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center mb-4 text-[color:var(--color-accent)] shadow-xs">
-                                <Check className="w-6 h-6 stroke-[2]" />
-                            </div>
+                        <div className="w-12 h-12 rounded-2xl bg-[var(--color-surface-muted)] border border-[var(--color-border)] flex items-center justify-center mb-4 text-[color:var(--color-accent)] shadow-xs">
+                            <Check className="w-6 h-6 stroke-[2]" />
+                        </div>
 
-                            <h3 className="font-serif text-2xl sm:text-3xl text-[color:var(--color-text-primary)] mb-2 font-normal">
-                                {completionTitle}
-                            </h3>
+                        <h3 className="font-serif text-2xl sm:text-3xl text-[color:var(--color-text-primary)] mb-2 font-normal">
+                            {completionTitle}
+                        </h3>
 
-                            <p className="font-sans text-xs sm:text-sm text-[color:var(--color-text-secondary)] leading-relaxed max-w-[26rem] mx-auto mb-6">
-                                {completionDescription || `You have reviewed all ${cards.length} ${cards.length === 1 ? "highlight" : "highlights"}. A fresh deck will be curated tomorrow.`}
-                            </p>
+                        <p className="font-sans text-xs sm:text-sm text-[color:var(--color-text-secondary)] leading-relaxed max-w-[26rem] mx-auto mb-6">
+                            {completionDescription || `You have reviewed all ${cards.length} ${cards.length === 1 ? "highlight" : "highlights"}. A fresh deck will be curated tomorrow.`}
+                        </p>
 
-                            <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleRestart}
+                                className="ui-btn text-xs px-3.5 py-1.5 flex items-center gap-1.5"
+                            >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Review Again</span>
+                            </button>
+
+                            {(onCompletionAction || onClose) && (
                                 <button
                                     type="button"
-                                    onClick={handleRestart}
-                                    className="ui-btn text-xs px-3.5 py-1.5 flex items-center gap-1.5"
+                                    onClick={onCompletionAction || onClose}
+                                    className="ui-btn-primary text-xs px-4 py-1.5 flex items-center gap-1.5"
                                 >
-                                    <RotateCcw className="w-3.5 h-3.5" />
-                                    <span>Review Again</span>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>{completionActionLabel}</span>
                                 </button>
-
-                                {(onCompletionAction || onClose) && (
-                                    <button
-                                        type="button"
-                                        onClick={onCompletionAction || onClose}
-                                        className="ui-btn-primary text-xs px-4 py-1.5 flex items-center gap-1.5"
-                                    >
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>{completionActionLabel}</span>
-                                    </button>
-                                )}
-                            </div>
+                            )}
                         </div>
                     </div>
                 ) : cards.length === 0 ? (

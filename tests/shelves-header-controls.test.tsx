@@ -172,4 +172,71 @@ describe("Shelves Header and Controls Integration", () => {
         // No text label competing with the shelf heading.
         expect(backBtn.textContent?.trim()).toBe("");
     });
+
+    it("consolidates secondary actions into MoreHorizontal menu with toggle and keyboard dismissal", () => {
+        useLibraryStore.setState({
+            collections: [{
+                id: "shelf-menu-test",
+                name: "Sci-Fi Classics",
+                description: "Science fiction collection",
+                bookIds: ["b1"],
+                kind: "general" as const,
+                createdAt: new Date(),
+            }],
+            books: [{
+                id: "b1",
+                title: "Dune",
+                author: "Frank Herbert",
+                coverPath: "",
+                filePath: "dune.epub",
+                fileSize: 1000,
+                format: "epub",
+                dateAdded: new Date().toISOString(),
+                progress: 0,
+            } as any],
+        });
+
+        const container = render(<ShelvesPage />);
+        act(() => {
+            container.querySelector("button.block.w-full")
+                ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        });
+
+        const moreBtn = container.querySelector('button[aria-label="More actions"]') as HTMLButtonElement;
+        expect(moreBtn).not.toBeNull();
+        expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
+
+        // Open menu
+        act(() => {
+            moreBtn.click();
+        });
+        expect(moreBtn.getAttribute("aria-expanded")).toBe("true");
+
+        // Verify items inside menu
+        const groupBySeriesBtn = container.querySelector('button[title="Group by Series"]') as HTMLButtonElement;
+        expect(groupBySeriesBtn).not.toBeNull();
+        expect(groupBySeriesBtn.disabled).toBe(false);
+
+        // Click Group by Series toggles groupBySeries on collection
+        act(() => {
+            groupBySeriesBtn.click();
+        });
+        const updatedShelf = useLibraryStore.getState().collections.find((c) => c.id === "shelf-menu-test");
+        expect(updatedShelf?.groupBySeries).toBe(true);
+
+        // Menu closes on action
+        expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
+
+        // Reopen menu and dismiss with Escape
+        act(() => {
+            moreBtn.click();
+        });
+        expect(moreBtn.getAttribute("aria-expanded")).toBe("true");
+
+        act(() => {
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        });
+        expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
+    });
 });
+

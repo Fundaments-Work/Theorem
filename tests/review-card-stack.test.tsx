@@ -398,6 +398,36 @@ describe("ReviewCardStack", () => {
         // The text-8xl quote watermark illustration should be completely removed
         expect(root.querySelector(".text-8xl")).toBeNull();
     });
+
+    it("renders completion card as a single unified card without nested borders", () => {
+        vi.useFakeTimers();
+
+        const root = render(
+            <ReviewCardStack
+                cards={mockCards}
+                sources={mockSources}
+                onGoToSource={vi.fn()}
+                completionTitle="Daily Review Complete"
+            />
+        );
+
+        // Advance past all cards to trigger completion
+        act(() => {
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+            vi.advanceTimersByTime(250);
+            window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }));
+            vi.advanceTimersByTime(250);
+        });
+
+        expect(root.textContent).toContain("Daily Review Complete");
+
+        // Should not have nested card border wrappers inside the completion card
+        expect(root.querySelector(".rounded-xl.border")).toBeNull();
+        const completionCard = root.querySelector(".min-h-\\[380px\\]");
+        expect(completionCard).not.toBeNull();
+        expect(completionCard?.className).toContain("rounded-2xl");
+        expect(completionCard?.className).toContain("border");
+    });
 });
 
 

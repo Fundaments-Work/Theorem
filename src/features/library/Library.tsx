@@ -20,10 +20,10 @@ import { LibraryDailyReviewDeck } from "./components/LibraryDailyReviewDeck";
 import type { Book, BookAudioTrackFormat, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
-    Plus, Filter, BookOpen, Loader2, FolderOpen, RefreshCw,
+    Plus, BookOpen, Loader2, FolderOpen, RefreshCw,
     Heart, Trash2, BookMarked, Info, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw,
-    ChevronDown, Star, Check, Compass, CloudOff, Pencil, Download, ExternalLink, Headphones,
-    ListOrdered, MoreHorizontal, X, CheckSquare
+    Star, Check, Compass, CloudOff, Pencil, Download, ExternalLink, Headphones,
+    ListOrdered, MoreHorizontal, X, CheckSquare, Folder, SlidersHorizontal
 } from "lucide-react";
 import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
@@ -39,7 +39,6 @@ import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { toast } from "sonner";
 import { useFilteredSelection } from "./useFilteredSelection";
 import { FolderImportModal } from "./components/modals/FolderImportModal";
-import { SourceFolderBrowser } from "./components/SourceFolderBrowser";
 import { buildSourceFolderIndex } from "../../core/lib/source-folders";
 import type { SourceFolderSelection } from "../../core/lib/source-folders";
 
@@ -160,6 +159,7 @@ export const BookCard = memo(function BookCard({
     isSelecting,
     isSelected,
     onToggleSelect,
+    onStartSelect,
     titleHighlightIndices,
     authorHighlightIndices,
 }: {
@@ -178,6 +178,7 @@ export const BookCard = memo(function BookCard({
     isSelecting?: boolean;
     isSelected?: boolean;
     onToggleSelect?: (bookId: string, event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
+    onStartSelect?: (bookId: string) => void;
     titleHighlightIndices?: number[];
     authorHighlightIndices?: number[];
 }) {
@@ -197,6 +198,11 @@ export const BookCard = memo(function BookCard({
     const handleCardClick = (event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
         if (isSelecting && onToggleSelect) {
             onToggleSelect(book.id, event);
+            return;
+        }
+        if ((event?.ctrlKey || event?.metaKey) && (onStartSelect || onToggleSelect)) {
+            if (onStartSelect) onStartSelect(book.id);
+            else onToggleSelect?.(book.id);
             return;
         }
         clickCountRef.current += 1;
@@ -287,6 +293,19 @@ export const BookCard = memo(function BookCard({
     ];
 
     const contextMenuItems: ContextMenuItem[] = [
+        {
+            id: "select",
+            label: isSelecting && isSelected ? "Deselect" : "Select",
+            icon: <CheckSquare className="w-4 h-4" />,
+            onClick: () => {
+                if (!isSelecting) {
+                    if (onStartSelect) onStartSelect(book.id);
+                    else onToggleSelect?.(book.id);
+                } else {
+                    onToggleSelect?.(book.id);
+                }
+            },
+        },
         {
             id: "open",
             label: "Open Book",
@@ -767,7 +786,7 @@ function ImportButton({
         <button
             onClick={onImport}
             disabled={isLoading}
-            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 flex-1 justify-center px-3 sm:h-10 sm:flex-none sm:px-4")}
+            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 px-3.5 sm:h-10 sm:px-4")}
         >
             {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1173,6 +1192,7 @@ export function LibraryPage() {
     const removeBook = useLibraryStore((state) => state.removeBook);
     const removeBooks = useLibraryStore((state) => state.removeBooks);
     const updateBook = useLibraryStore((state) => state.updateBook);
+    const updateBooks = useLibraryStore((state) => state.updateBooks);
     const setLastScannedAt = useLibraryStore((state) => state.setLastScannedAt);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
     const markBookCompleted = useLibraryStore((state) => state.markBookCompleted);
@@ -1579,10 +1599,9 @@ export function LibraryPage() {
             if (w >= 640) return 4;
             return 3;
         }
-        if (w >= 1536) return 8;
-        if (w >= 1280) return 7;
-        if (w >= 1024) return 5;
-        if (w >= 768) return 4;
+        if (w >= 1440) return 6;
+        if (w >= 1150) return 5;
+        if (w >= 850) return 4;
         if (w >= 640) return 3;
         return 2;
     });
@@ -1599,10 +1618,9 @@ export function LibraryPage() {
                 if (w >= 640) return 4;
                 return 3;
             }
-            if (w >= 1536) return 8;
-            if (w >= 1280) return 7;
-            if (w >= 1024) return 5;
-            if (w >= 768) return 4;
+            if (w >= 1440) return 6;
+            if (w >= 1150) return 5;
+            if (w >= 850) return 4;
             if (w >= 640) return 3;
             return 2;
         };
@@ -2105,6 +2123,13 @@ export function LibraryPage() {
         }
     }, [addCollection, addToShelfBookId, isSelecting, selectedBooks, clearSelection]);
 
+    const handleStartSelect = useCallback((bookId: string) => {
+        setIsSelecting(true);
+        if (!selectedBookIds.has(bookId)) {
+            toggleBookSelection(bookId);
+        }
+    }, [selectedBookIds, toggleBookSelection]);
+
     const cardProps = useMemo(() => ({
         onOpenBook: handleOpenBook,
         onToggleFavorite: handleToggleFavorite,
@@ -2117,7 +2142,8 @@ export function LibraryPage() {
         onMarkAsUnread: handleMarkAsUnread,
         isSelecting,
         onToggleSelect: toggleBookSelection,
-    }), [handleOpenBook, handleToggleFavorite, handleDeleteBook, handleShowInfo, handleAddToShelf, handleRename, handleExport, handleMarkAsRead, handleMarkAsUnread, isSelecting, toggleBookSelection]);
+        onStartSelect: handleStartSelect,
+    }), [handleOpenBook, handleToggleFavorite, handleDeleteBook, handleShowInfo, handleAddToShelf, handleRename, handleExport, handleMarkAsRead, handleMarkAsUnread, isSelecting, toggleBookSelection, handleStartSelect]);
 
     const toggleViewMode = () => {
         const modes: LibraryViewMode[] = ["grid", "list", "compact"];
@@ -2129,6 +2155,51 @@ export function LibraryPage() {
     const folderImportModal = <FolderImportModal isOpen={showFolderImport}
         onClose={() => setShowFolderImport(false)}
         onContinue={(preserve) => { setShowFolderImport(false); void handleScanFolder(preserve); }} />;
+
+    const [folderToRemove, setFolderToRemove] = useState<{ root: string; name: string; count: number } | null>(null);
+    const [removeFolderDeleteBooks, setRemoveFolderDeleteBooks] = useState(false);
+
+    const handleInitiateRemoveFolder = useCallback((root: string) => {
+        const entry = sourceFolderIndex.get(root);
+        const displayName = entry?.name && entry.name !== root
+            ? entry.name
+            : root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || root;
+        const count = entry?.folders.get("")?.size ?? 0;
+        setRemoveFolderDeleteBooks(false);
+        setFolderToRemove({ root, name: displayName, count });
+    }, [sourceFolderIndex]);
+
+    const handleConfirmRemoveFolder = useCallback((root: string, deleteBooks: boolean) => {
+        const folderName = folderToRemove?.name || root;
+        if (deleteBooks) {
+            const bookIdsToDelete: string[] = [];
+            for (const book of books) {
+                if (book.sourceFolders?.some((sf) => sf.root === root)) {
+                    bookIdsToDelete.push(book.id);
+                }
+            }
+            if (bookIdsToDelete.length > 0) {
+                removeBooks(bookIdsToDelete);
+            }
+            toast.success(`Removed "${folderName}" and ${bookIdsToDelete.length} ${bookIdsToDelete.length === 1 ? "book" : "books"}`);
+        } else {
+            const updates: [string, Partial<Book>][] = [];
+            for (const book of books) {
+                if (book.sourceFolders?.some((sf) => sf.root === root)) {
+                    const nextFolders = book.sourceFolders.filter((sf) => sf.root !== root);
+                    updates.push([book.id, { sourceFolders: nextFolders }]);
+                }
+            }
+            if (updates.length > 0) {
+                updateBooks(updates);
+            }
+            toast.success(`Removed "${folderName}" from folders`);
+        }
+        if (selectedSourceFolder?.root === root) {
+            setSelectedSourceFolder(null);
+        }
+        setFolderToRemove(null);
+    }, [books, folderToRemove, removeBooks, updateBooks, selectedSourceFolder]);
 
     const filterPanelProps = {
         sortBy: settings.librarySortBy,
@@ -2148,7 +2219,21 @@ export function LibraryPage() {
             setShowUnshelvedOnly(on);
             if (on) setShowFavoritesOnly(false);
         },
+        sourceFolderIndex,
+        selectedSourceFolder,
+        onSelectSourceFolder: (folder: SourceFolderSelection | null) => {
+            setSelectedSourceFolder(folder);
+            clearSelection();
+        },
+        onRemoveSourceFolder: handleInitiateRemoveFolder,
     };
+
+    const hasActiveFilters = Boolean(
+        statusFilter !== "all" ||
+        showFavoritesOnly ||
+        showUnshelvedOnly ||
+        selectedSourceFolder !== null
+    );
 
     if (!smartShelvesReady && (selectedShelf?.smartRules || showUnshelvedOnly)) {
         return <div role={smartShelvesError ? "alert" : "status"} className="p-6">{smartShelvesError ?? "Updating smart shelves…"}</div>;
@@ -2179,6 +2264,12 @@ export function LibraryPage() {
         <div className="mx-auto flex h-full w-full max-w-[var(--layout-content-max-width)] flex-col px-4 py-3 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
             
             {folderImportModal}
+            <LibraryDailyReviewDeck
+                showDailyHighlight={!!settings.showDailyHighlight}
+                selectedShelf={selectedShelf}
+                showFavoritesOnly={showFavoritesOnly}
+                isSelecting={isSelecting}
+            />
             <div className="-mb-4">
             <PageHeader
                 title={selectedShelf ? selectedShelf.name : showFavoritesOnly ? "Favorites" : showUnshelvedOnly ? "Unshelved" : "Library"}
@@ -2212,7 +2303,7 @@ export function LibraryPage() {
                         }}
                         className={cn(
                             TOOLBAR_BUTTON_BASE, "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
-                            isSelecting && FILTER_CHIP_SELECTED
+                            isSelecting ? FILTER_CHIP_SELECTED : "sr-only"
                         )}
                         title={isSelecting ? "Exit selection mode (Esc)" : "Select books"}
                         aria-label={isSelecting ? "Exit selection mode" : "Select books"}
@@ -2230,43 +2321,47 @@ export function LibraryPage() {
                         {viewModeIcons[settings.libraryViewMode]}
                     </button>
 
-                    <div className="h-6 w-px bg-[var(--color-border)]" />
-
-                    {isTauri() && (
-                        <button
-                            onClick={() => setShowFolderImport(true)}
-                            disabled={isScanning || isImporting}
-                            className={cn(
-                                TOOLBAR_BUTTON_BASE,
-                                "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors"
-                            )}
-                            title="Scan Folder"
-                            aria-label="Scan Folder"
-                        >
-                            {isScanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
-                            <span className="hidden sm:inline text-xs">Scan</span>
-                        </button>
-                    )}
-
                     <button
                         onClick={() => setShowFilterDropdown(!showFilterDropdown)}
                         aria-label="Filter and sort"
                         aria-expanded={showFilterDropdown}
                         className={cn(
-                            "ui-btn h-11 px-3 sm:h-10 sm:px-5 transition-colors duration-200 border-2",
+                            TOOLBAR_BUTTON_BASE,
+                            TOOLBAR_ICON_BUTTON,
+                            "relative border-2 transition-colors",
                             showFilterDropdown
                                 ? FILTER_CHIP_SELECTED
+                                : hasActiveFilters
+                                ? "bg-[var(--color-surface)] text-[color:var(--color-accent)] border-[var(--color-accent)]"
                                 : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-primary)]"
                         )}
+                        title={hasActiveFilters ? "Filter and sort (active filters applied)" : "Filter and sort"}
                     >
-                        <Filter className="w-4 h-4" />
-                        <span className="hidden sm:inline text-xs">Filter</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-300", showFilterDropdown && "rotate-180")} />
+                        <SlidersHorizontal className="w-4 h-4" />
+                        {hasActiveFilters && (
+                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[var(--color-surface)]" />
+                        )}
                     </button>
                 </div>
             </PageHeader>
-            <SourceFolderBrowser index={sourceFolderIndex} selected={selectedSourceFolder}
-                onSelect={(folder) => { setSelectedSourceFolder(folder); clearSelection(); }} />
+            {selectedSourceFolder && (
+                <div className="flex items-center gap-2 my-3 animate-fade-in">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] max-w-full">
+                        <Folder className="w-3.5 h-3.5 text-[color:var(--color-text-secondary)] shrink-0" />
+                        <span className="truncate max-w-[200px] sm:max-w-[320px]" title={selectedSourceFolder.root}>
+                            {selectedSourceFolder.path || sourceFolderIndex.get(selectedSourceFolder.root)?.name || selectedSourceFolder.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || selectedSourceFolder.root}
+                        </span>
+                        <button
+                            onClick={() => setSelectedSourceFolder(null)}
+                            className="ml-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] cursor-pointer shrink-0"
+                            title="Clear folder filter"
+                            aria-label="Clear folder filter"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </span>
+                </div>
+            )}
             {folderImportStatus}
             </div>
 
@@ -2564,6 +2659,52 @@ export function LibraryPage() {
                 }}
                 onCancel={() => setDeleteConfirm(null)}
             />
+
+            {folderToRemove && (
+                <Modal isOpen={!!folderToRemove} onClose={() => setFolderToRemove(null)} size="sm" showCloseButton={true}>
+                    <ModalHeader title="Remove Folder" onClose={() => setFolderToRemove(null)} showCloseButton={true} />
+                    <ModalBody>
+                        <p className="text-sm leading-relaxed text-[color:var(--color-text-primary)] font-medium">
+                            Remove &ldquo;{folderToRemove.name}&rdquo; from your library?
+                        </p>
+                        <p className="text-xs text-[color:var(--color-text-muted)] mt-1 truncate" title={folderToRemove.root}>
+                            {folderToRemove.root}
+                        </p>
+                        <p className="text-xs text-[color:var(--color-text-muted)] mt-3">
+                            Your original book files on your device will never be deleted.
+                        </p>
+                        {folderToRemove.count > 0 && (
+                            <label className="flex items-center gap-2 mt-4 text-xs text-[color:var(--color-text-primary)] cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={removeFolderDeleteBooks}
+                                    onChange={(e) => setRemoveFolderDeleteBooks(e.target.checked)}
+                                    className="rounded border-[var(--color-border)] text-[color:var(--color-accent)]"
+                                />
+                                <span>Also remove {folderToRemove.count} {folderToRemove.count === 1 ? "book" : "books"} from Theorem library</span>
+                            </label>
+                        )}
+                    </ModalBody>
+                    <ModalFooter>
+                        <button
+                            type="button"
+                            onClick={() => setFolderToRemove(null)}
+                            className="ui-btn-ghost"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                handleConfirmRemoveFolder(folderToRemove.root, removeFolderDeleteBooks);
+                            }}
+                            className="ui-btn-danger"
+                        >
+                            Remove Folder
+                        </button>
+                    </ModalFooter>
+                </Modal>
+            )}
         </div>
     );
 }

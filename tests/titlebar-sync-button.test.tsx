@@ -85,4 +85,21 @@ describe("titlebar sync button", () => {
         expect(syncAll).toHaveBeenCalledWith(["a", "b"], true);
         expect(useUIStore.getState().currentRoute).toBe("library");
     });
+
+    it("applies compact right padding when empty and reserves space only when query exists", async () => {
+        await render();
+        const input = document.querySelector<HTMLInputElement>("#app-search");
+        expect(input).not.toBeNull();
+        expect(input?.className).toContain("pr-3");
+        expect(input?.className).not.toContain("pr-8");
+        expect(input?.className).not.toContain("pr-9");
+
+        await act(async () => {
+            useUIStore.getState().setSearchQuery("tolstoy");
+        });
+
+        expect(input?.className).toContain("pr-8");
+        const clearBtn = document.querySelector('button[aria-label="Clear search"]');
+        expect(clearBtn).not.toBeNull();
+    });
 });

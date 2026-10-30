@@ -31,8 +31,6 @@ const TITLEBAR_ICON_BUTTON =
 const TITLEBAR_WINDOW_BUTTON =
     "inline-flex h-9 w-11 items-center justify-center p-0 text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]";
 const TITLEBAR_CLOSE_BUTTON = `${TITLEBAR_WINDOW_BUTTON} hover:text-[color:var(--color-error)]`;
-const TITLEBAR_SEARCH_INPUT =
-    "ui-input bg-[var(--color-surface)] pl-[calc(var(--control-padding-x)+var(--icon-size-sm)+var(--spacing-md))]";
 
 export const AppTitlebar = memo(function AppTitlebar({
     title,
@@ -275,11 +273,12 @@ export const AppTitlebar = memo(function AppTitlebar({
 
                 {isSearchVisible && (
                     <div
-                        className="hidden lg:flex lg:flex-1 lg:min-w-[18rem] lg:max-w-3xl"
+                        className="hidden sm:flex flex-1 max-w-lg lg:max-w-xl xl:max-w-2xl mx-2 sm:mx-4 lg:mx-6 min-w-[14rem]"
                         data-tauri-drag-region={showDesktopWindowControls ? "true" : undefined}
                     >
                         <div className="relative w-full">
                             <label htmlFor="app-search" className="sr-only">Search</label>
+                            <Search className="w-4 h-4 text-[color:var(--color-text-muted)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <input
                                 id="app-search"
                                 type="text"
@@ -288,18 +287,18 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={handleSearchKeyDown}
                                 className={cn(
-                                    TITLEBAR_SEARCH_INPUT,
-                                    "pr-8"
+                                    "w-full h-9 pl-8 text-xs sm:text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-accent)] focus:outline-hidden transition-all shadow-xs",
+                                    searchQuery ? "pr-8" : "pr-3"
                                 )}
                             />
                             {searchQuery && (
                                 <button
                                     type="button"
                                     onClick={() => useUIStore.getState().clearSearch()}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-[var(--color-text-dim)] transition-colors hover:text-[color:var(--color-accent)]"
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-[var(--color-text-dim)] transition-colors hover:text-[color:var(--color-accent)] cursor-pointer"
                                     aria-label="Clear search"
                                 >
-                                    ×
+                                    <X className="w-3.5 h-3.5" />
                                 </button>
                             )}
                         </div>
@@ -452,8 +451,9 @@ export const AppTitlebar = memo(function AppTitlebar({
             </div>
 
             {isSearchVisible && isMobileSearchOpen && (
-                <div className="mt-1.5 sm:hidden">
+                <div className="mt-2 sm:hidden px-0.5">
                     <div className="relative w-full">
+                        <Search className="w-4 h-4 text-[color:var(--color-text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                             type="text"
                             placeholder={searchPlaceholder}
@@ -461,52 +461,18 @@ export const AppTitlebar = memo(function AppTitlebar({
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={handleSearchKeyDown}
                             autoFocus
-                            className={cn(
-                                TITLEBAR_SEARCH_INPUT,
-                                "pr-12"
-                            )}
+                            className="w-full h-10 pl-9 pr-10 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-hidden transition-all shadow-xs"
                         />
                         <button
                             onClick={() => {
                                 useUIStore.getState().clearSearch();
                                 setIsMobileSearchOpen(false);
                             }}
-                            className={cn(
-                                "absolute right-2 top-1/2 -translate-y-1/2 !h-7 !w-7",
-                                "ui-icon-btn"
-                            )}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors cursor-pointer"
                             title="Close search"
                         >
                             <X className="w-4 h-4" />
                         </button>
-                    </div>
-                </div>
-            )}
-
-            {isSearchVisible && (
-                <div className="mt-1.5 hidden sm:block lg:hidden">
-                    <div className="relative w-full">
-                        <input
-                            type="text"
-                            placeholder={searchPlaceholder}
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={handleSearchKeyDown}
-                            className={cn(
-                                TITLEBAR_SEARCH_INPUT,
-                                "pr-12"
-                            )}
-                        />
-                        {searchQuery && (
-                            <button
-                                type="button"
-                                onClick={() => useUIStore.getState().clearSearch()}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 !h-7 !w-7 ui-icon-btn"
-                                aria-label="Clear search"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        )}
                     </div>
                 </div>
             )}

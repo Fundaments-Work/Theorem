@@ -247,33 +247,35 @@ export function DiscoverHome({
     return (
         <div className={cn("space-y-10 transition-opacity", loading && "opacity-60")} aria-busy={loading} data-discover-home="">
             <header className="space-y-5">
-                <div className="flex items-start gap-3">
+                <div className="flex items-start justify-between gap-3 sm:gap-4">
                     <div className="min-w-0 flex-1">
                         <h1 className="text-3xl font-light text-[color:var(--color-text-primary)] sm:text-4xl">Discover</h1>
                         {feed.subtitle && <p className="mt-1.5 max-w-[36rem] text-sm text-[color:var(--color-text-muted)]">{feed.subtitle}</p>}
                     </div>
-                    <button
-                        type="button"
-                        onClick={onRefresh}
-                        disabled={loading}
-                        aria-label="Refresh"
-                        title="Refresh"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] disabled:opacity-50"
-                    >
-                        <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-                    </button>
-                    {addInHeader && onAddCatalog && (
+                    <div className="flex items-center gap-1.5 shrink-0 pt-1">
+                        {addInHeader && onAddCatalog && (
+                            <button
+                                type="button"
+                                onClick={onAddCatalog}
+                                aria-label="Add a catalog"
+                                title="Add a catalog"
+                                className="inline-flex items-center gap-1.5 px-2 py-1 text-xs text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] cursor-pointer"
+                            >
+                                <Plus className="h-4 w-4" />
+                                <span className="hidden sm:inline">Add a catalog</span>
+                            </button>
+                        )}
                         <button
                             type="button"
-                            onClick={onAddCatalog}
-                            aria-label="Add a catalog"
-                            title="Add a catalog"
-                            className="inline-flex h-9 shrink-0 items-center gap-1.5 px-2 text-xs text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
+                            onClick={onRefresh}
+                            disabled={loading}
+                            aria-label="Refresh"
+                            title="Refresh"
+                            className="inline-flex items-center justify-center p-1.5 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] disabled:opacity-50 cursor-pointer"
                         >
-                            <Plus className="h-4 w-4" />
-                            <span className="hidden sm:inline">Add a catalog</span>
+                            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
                         </button>
-                    )}
+                    </div>
                 </div>
 
                 {canSearch && (

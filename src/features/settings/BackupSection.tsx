@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Download, History, Upload } from "lucide-react";
+import { Download, History, Upload } from "lucide-react";
 import { cn, formatFileSize } from "../../core/lib/utils";
 import { ConfirmDialog, AlertDialog } from "../../ui/ConfirmDialog";
 import {
@@ -21,13 +21,6 @@ import type { DbSnapshotInfo } from "../../core/lib/db-health";
 type PendingRestore =
     | { kind: "file"; path: string; manifest: BackupManifest }
     | { kind: "snapshot"; snapshot: DbSnapshotInfo };
-
-const ROW_BUTTON = cn(
-    "w-full flex items-center gap-3 p-4 text-left",
-    "border border-[var(--color-border)]",
-    "text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-    "transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-);
 
 function errorText(error: unknown): string {
     if (error instanceof Error) return error.message;
@@ -141,68 +134,115 @@ export function BackupSection() {
         : "";
 
     return (
-        <div className="space-y-3">
-            <button type="button" onClick={handleCreate} disabled={busy !== null} className={ROW_BUTTON}>
-                <Download className="w-5 h-5" aria-hidden="true" />
-                <div className="flex-1">
-                    <p className="text-sm">Create Backup File</p>
-                    <p className="text-xs text-[color:var(--color-text-muted)]">
-                        One .theorem-backup file with your books, highlights, notes, vocabulary, feeds and settings
-                    </p>
-                </div>
-                <ChevronRight className="w-4 h-4" aria-hidden="true" />
-            </button>
-
-            <div className="flex items-center justify-between gap-3 px-4 py-2">
-                <span id="backup-include-dictionaries" className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                    Include offline dictionaries (larger file)
-                </span>
-                <div role="group" aria-labelledby="backup-include-dictionaries" className="inline-flex border border-[var(--color-border)] bg-[var(--color-surface)]">
-                    {[true, false].map((value) => (
+        <div className="space-y-4">
+            <div className="border border-[var(--color-border)] bg-[var(--color-surface)]">
+                {/* Create Backup */}
+                <div className="p-4 sm:p-5 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <div className="p-2 rounded bg-[var(--color-surface-muted)] text-[color:var(--color-accent)] shrink-0 mt-0.5">
+                                <Download className="w-4 h-4" aria-hidden="true" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                                    Create Backup File
+                                </h3>
+                                <p className="text-xs text-[color:var(--color-text-muted)] mt-0.5">
+                                    Export your books, highlights, notes, vocabulary, feeds, and settings into one file
+                                </p>
+                            </div>
+                        </div>
                         <button
-                            key={String(value)}
                             type="button"
-                            aria-pressed={includeDictionaries === value}
-                            onClick={() => setIncludeDictionaries(value)}
+                            onClick={handleCreate}
                             disabled={busy !== null}
-                            className={cn(
-                                "min-h-10 px-3 py-2 font-sans text-[11px] sm:min-h-0",
-                                !value && "border-l border-[var(--color-border)]",
-                                includeDictionaries === value ? "ui-selected" : "text-[color:var(--color-text-secondary)]",
-                            )}
+                            className="ui-btn-primary px-4 py-2 text-xs flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+                            aria-label="Create Backup File"
                         >
-                            {value ? "On" : "Off"}
+                            <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Create Backup File</span>
                         </button>
-                    ))}
+                    </div>
+
+                    {/* Dictionary option directly attached to Create Backup */}
+                    <div className="flex items-center justify-between gap-3 pt-3 mt-1 border-t border-[var(--color-border-subtle)] text-xs">
+                        <span id="backup-include-dictionaries" className="text-[color:var(--color-text-secondary)]">
+                            Include offline dictionaries (larger file)
+                        </span>
+                        <div role="group" aria-labelledby="backup-include-dictionaries" className="inline-flex border border-[var(--color-border)] bg-[var(--color-surface-muted)]">
+                            {[true, false].map((value) => (
+                                <button
+                                    key={String(value)}
+                                    type="button"
+                                    aria-pressed={includeDictionaries === value}
+                                    onClick={() => setIncludeDictionaries(value)}
+                                    disabled={busy !== null}
+                                    className={cn(
+                                        "min-h-8 px-3 py-1 font-sans text-xs transition-colors cursor-pointer",
+                                        !value && "border-l border-[var(--color-border)]",
+                                        includeDictionaries === value ? "ui-selected font-medium" : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
+                                    )}
+                                >
+                                    {value ? "On" : "Off"}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-[var(--color-border)]" />
+
+                {/* Restore Backup */}
+                <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="p-2 rounded bg-[var(--color-surface-muted)] text-[color:var(--color-accent)] shrink-0 mt-0.5">
+                            <Upload className="w-4 h-4" aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                                Restore from Backup
+                            </h3>
+                            <p className="text-xs text-[color:var(--color-text-muted)] mt-0.5">
+                                Replace the library on this device with one from a backup file
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handlePickBackup}
+                        disabled={busy !== null}
+                        className="ui-btn px-4 py-2 text-xs flex items-center justify-center gap-2 border shrink-0 cursor-pointer disabled:opacity-50 hover:bg-[var(--color-surface-muted)]"
+                        aria-label="Restore from Backup"
+                    >
+                        <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Restore from Backup…</span>
+                    </button>
                 </div>
             </div>
 
-            <button type="button" onClick={handlePickBackup} disabled={busy !== null} className={ROW_BUTTON}>
-                <Upload className="w-5 h-5" aria-hidden="true" />
-                <div className="flex-1">
-                    <p className="text-sm">Restore from Backup…</p>
-                    <p className="text-xs text-[color:var(--color-text-muted)]">
-                        Replace the library on this device with one from a backup file
-                    </p>
-                </div>
-                <ChevronRight className="w-4 h-4" aria-hidden="true" />
-            </button>
-
-            <p role="status" aria-live="polite" className="min-h-[1em] px-4 font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                {status}
-            </p>
+            {status && (
+                <p role="status" aria-live="polite" className="min-h-[1em] px-2 font-sans text-xs text-[color:var(--color-accent)] animate-pulse">
+                    {status}…
+                </p>
+            )}
 
             {snapshots.length > 0 && (
-                <div className="border border-[var(--color-border-subtle)]">
-                    <div className="flex items-center gap-2 border-b border-[var(--color-border-subtle)] px-4 py-2">
-                        <History className="w-4 h-4 text-[color:var(--color-text-muted)]" aria-hidden="true" />
-                        <p className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
-                            Automatic copies of the library database, made once a day and before each update
-                        </p>
+                <div className="border border-[var(--color-border)] bg-[var(--color-surface)]">
+                    <div className="flex items-center gap-2.5 border-b border-[var(--color-border)] px-4 py-3 bg-[var(--color-surface-muted)]">
+                        <History className="w-4 h-4 text-[color:var(--color-text-muted)] shrink-0" aria-hidden="true" />
+                        <div>
+                            <p className="text-xs font-medium text-[color:var(--color-text-primary)]">
+                                Automatic Copies
+                            </p>
+                            <p className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">
+                                Automatic copies of the library database, made once a day and before each update
+                            </p>
+                        </div>
                     </div>
-                    <ul>
+                    <ul className="divide-y divide-[var(--color-border-subtle)]">
                         {snapshots.map((snapshot) => (
-                            <li key={snapshot.name} className="flex items-center justify-between gap-3 px-4 py-2">
+                            <li key={snapshot.name} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--color-surface-muted)]/40 transition-colors">
                                 <span className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                                     {formatSnapshotDate(snapshot)}
                                     <span className="ml-2 text-[11px] text-[color:var(--color-text-muted)]">
@@ -213,7 +253,7 @@ export function BackupSection() {
                                     type="button"
                                     onClick={() => setPending({ kind: "snapshot", snapshot })}
                                     disabled={busy !== null}
-                                    className="ui-btn-ghost"
+                                    className="ui-btn-ghost px-3 py-1 text-xs border border-[var(--color-border)] cursor-pointer"
                                     aria-label={`Restore the copy from ${formatSnapshotDate(snapshot)}`}
                                 >
                                     Restore

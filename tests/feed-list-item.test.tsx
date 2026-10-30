@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { FeedListItem } from "../src/features/feeds/FeedsPage";
+import { FeedListItem, deduplicateFeedTitle } from "../src/features/feeds/FeedsPage";
 import type { RssFeed } from "../src/core/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,5 +62,31 @@ describe("feed list item", () => {
         act(() => document.querySelector<HTMLElement>('[aria-label="Remove The Public Domain Review"]')!.click());
         expect(props.onDelete).toHaveBeenCalledTimes(1);
         expect(props.onSelect).not.toHaveBeenCalled();
+    });
+
+    it("deduplicates doubled feed titles while leaving normal titles intact", () => {
+        expect(deduplicateFeedTitle("The MarginalianThe Marginalian")).toBe("The Marginalian");
+        expect(deduplicateFeedTitle("Quanta MagazineQuanta Magazine")).toBe("Quanta Magazine");
+        expect(deduplicateFeedTitle("The Public Domain Review")).toBe("The Public Domain Review");
+        expect(deduplicateFeedTitle("Short")).toBe("Short");
+    });
+
+    it("renders deduplicated title in FeedListItem", () => {
+        const doubledFeed = { id: "f2", title: "The MarginalianThe Marginalian", url: "https://x", unreadCount: 1 } as RssFeed;
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+        const customRoot = createRoot(host);
+        act(() => customRoot.render(
+            <FeedListItem
+                feed={doubledFeed}
+                isSelected={false}
+                onSelect={vi.fn()}
+                onDelete={vi.fn()}
+                showTouchActions={false}
+            />
+        ));
+        expect(host.querySelector("p")?.textContent?.trim()).toBe("The Marginalian");
+        act(() => customRoot.unmount());
+        host.remove();
     });
 });

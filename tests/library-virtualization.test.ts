@@ -47,10 +47,9 @@ function computeGridCols(
         return 3;
     }
     // grid
-    if (containerWidth >= 1536) return 8;
-    if (containerWidth >= 1280) return 7;
-    if (containerWidth >= 1024) return 5;
-    if (containerWidth >= 768) return 4;
+    if (containerWidth >= 1440) return 6;
+    if (containerWidth >= 1150) return 5;
+    if (containerWidth >= 850) return 4;
     if (containerWidth >= 640) return 3;
     return 2;
 }

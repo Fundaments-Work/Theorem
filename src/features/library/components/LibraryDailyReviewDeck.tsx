@@ -1,5 +1,5 @@
 import { memo, useState, useMemo, useCallback } from "react";
-import { X, Layers } from "lucide-react";
+import { X } from "lucide-react";
 import { useLibraryStore, useUIStore, useRssStore } from "../../../core/store";
 import { localDateKey } from "../../../core/lib/date-keys";
 import {
@@ -12,6 +12,7 @@ import {
     selectDailyReviewCards,
     markDailyReviewCompleted,
 } from "../../../core/lib/daily-review";
+import { useAndroidBackButton } from "../../../core/lib/env";
 import { ReviewCardStack } from "./ReviewCardStack";
 
 const SNOOZE_STORAGE_KEY = "theorem-dismiss-daily-deck";
@@ -97,6 +98,16 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
         });
     }, [annotations, setPendingReaderLocation, setRoute, openArticleInReader, getArticle, loadArticle, hasBook]);
 
+    useAndroidBackButton(
+        useCallback(() => {
+            if (!dismissed && showDailyHighlight && !dailyReviewStatus.completed && dailyCards.length > 0) {
+                handleDismiss();
+                return true;
+            }
+            return false;
+        }, [dismissed, showDailyHighlight, dailyReviewStatus.completed, dailyCards.length, handleDismiss])
+    );
+
     if (
         dismissed ||
         !showDailyHighlight ||
@@ -110,39 +121,36 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
     }
 
     return (
-        <div className="w-full max-w-[38rem] sm:max-w-[42rem] mx-auto mb-6 px-1 animate-fade-in">
-            <div className="flex items-center justify-between gap-3 mb-2 px-1 select-none">
-                <div className="flex items-center gap-2 min-w-0">
-                    <Layers className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />
-                    <span className="font-serif text-sm font-medium text-[color:var(--color-text-primary)]">
-                        Daily Review
-                    </span>
-                    <span className="text-[11px] text-[color:var(--color-text-muted)] font-mono">
-                        {dailyCards.length} {dailyCards.length === 1 ? "card" : "cards"}
-                    </span>
-                </div>
+        <div
+            className="fixed inset-0 z-50 bg-[var(--color-background)] flex flex-col items-center justify-center p-4 sm:p-6 overflow-y-auto animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Daily Review"
+        >
+            <div className="relative w-full max-w-[38rem] sm:max-w-[42rem] mx-auto my-auto px-1">
                 <button
                     type="button"
                     onClick={handleDismiss}
-                    className="p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors touch-manipulation cursor-pointer"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 p-2 rounded-full text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface)]/80 transition-colors touch-manipulation cursor-pointer shadow-xs"
                     title="Dismiss for today (Esc)"
                     aria-label="Dismiss for today"
                 >
                     <X className="w-4 h-4" />
                 </button>
-            </div>
 
-            <ReviewCardStack
-                cards={dailyCards}
-                sources={sources}
-                onComplete={handleComplete}
-                onGoToSource={handleGoToSource}
-                onClose={handleDismiss}
-                completionTitle="Daily Review Complete"
-                completionDescription={`You reviewed all ${dailyCards.length} daily highlights. A fresh deck will be curated tomorrow.`}
-                completionActionLabel="Done"
-                onCompletionAction={handleDismiss}
-            />
+                <ReviewCardStack
+                    cards={dailyCards}
+                    sources={sources}
+                    onComplete={handleComplete}
+                    onGoToSource={handleGoToSource}
+                    onClose={handleDismiss}
+                    completionTitle="Daily Review Complete"
+                    completionDescription={`You reviewed all ${dailyCards.length} daily highlights. A fresh deck will be curated tomorrow.`}
+                    completionActionLabel="Done"
+                    onCompletionAction={handleDismiss}
+                />
+            </div>
         </div>
     );
 });

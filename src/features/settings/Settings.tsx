@@ -26,6 +26,7 @@ import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
 import { KnapTemplateEditor } from "./KnapTemplateEditor";
 import { ExportLogsButton } from "./ExportLogsButton";
 import { BackupSection } from "./BackupSection";
+import { LibraryFoldersSection } from "./LibraryFoldersSection";
 import { MomoIcon } from "../../ui/MomoIcon";
 import { BUY_ME_MOMO_URL } from "../../core/lib/support-prompt";
 import { openExternalUrl } from "../../core/lib/open-external-url";
@@ -48,6 +49,7 @@ import {
     Keyboard,
     RefreshCw,
     Terminal,
+    FolderOpen,
 } from "lucide-react";
 
 type SettingsTab = "general" | "dictionary" | "integrations" | "storage" | "shortcuts" | "about";
@@ -273,6 +275,14 @@ const StorageTab = memo(function StorageTab({ onClearData }: { onClearData: () =
                         </span>
                     </div>
                 </div>
+            </Section>
+
+            <Section
+                title="Library Folders"
+                description="Folders connected to your library for books"
+                icon={<FolderOpen className="w-5 h-5" />}
+            >
+                <LibraryFoldersSection />
             </Section>
 
             <Section
