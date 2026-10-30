@@ -11,6 +11,7 @@ import { ShelfModal } from "./components/modals/ShelfModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { SeriesGroupHeader } from "./components/SeriesGroupHeader";
 import { SeriesGroupContinue } from "./components/SeriesGroupContinue";
+import { TOOLBAR_BUTTON_BASE, TOOLBAR_BUTTON_PRIMARY, TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
 import { ConfirmDialog, PageHeader } from "../../ui";
 import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal, LIBRARY_LIST_ROW_HEIGHT } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
@@ -45,10 +46,6 @@ const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     compact: <Grid3X3 className="w-4 h-4" />,
 };
 
-const TOOLBAR_BUTTON_BASE = "ui-btn disabled:opacity-50";
-const TOOLBAR_BUTTON_PRIMARY = "ui-btn-primary disabled:opacity-50";
-/** 44px on touch screens (the minimum comfortable target), 40px with a pointer. */
-const TOOLBAR_ICON_BUTTON = "h-11 w-11 px-0 sm:h-10 sm:w-10";
 
 function EmptyShelves({ onCreate }: { onCreate: () => void }) {
     return (
@@ -735,7 +732,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
 
                             <div
                                 className={cn(
-                                    "absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1.5 z-30 transition-all duration-150 origin-top-right",
+                                    "absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1.5 z-30 transition-[opacity,transform] duration-150 origin-top-right",
                                     showShelfMenu
                                         ? "opacity-100 scale-100 pointer-events-auto"
                                         : "opacity-0 scale-95 pointer-events-none"

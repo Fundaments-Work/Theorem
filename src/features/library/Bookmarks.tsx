@@ -82,12 +82,12 @@ const BookmarkCard = memo(function BookmarkCard({
     return (
         <div
             onClick={goTo}
-            className="group relative flex items-center justify-between gap-3 sm:gap-4 p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)] hover:shadow-xs transition-all overflow-hidden cursor-pointer h-[88px]"
+            className="group relative flex items-center justify-between gap-3 sm:gap-4 p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)] hover:shadow-xs transition-[border-color,box-shadow] overflow-hidden cursor-pointer h-[88px]"
             title={isArticle ? "Open article at this bookmark" : "Open in reader at this bookmark"}
         >
             {/* Bookmark ribbon tab fold on top-left edge */}
             <div
-                className="absolute top-0 left-3 sm:left-4 w-3.5 h-4.5 bg-[var(--color-accent)] shadow-xs pointer-events-none group-hover:h-5 transition-all"
+                className="absolute top-0 left-3 sm:left-4 w-3.5 h-4.5 bg-[var(--color-accent)] shadow-xs pointer-events-none group-hover:h-5 transition-[height]"
                 style={{
                     clipPath: "polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%)",
                 }}
@@ -147,7 +147,7 @@ const BookmarkCard = memo(function BookmarkCard({
                         e.stopPropagation();
                         goTo();
                     }}
-                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-medium text-[color:var(--color-accent)] bg-[var(--color-surface-muted)] hover:bg-[var(--color-accent)] hover:text-white rounded-lg border border-[var(--color-border)] hover:border-transparent transition-all shrink-0 cursor-pointer touch-manipulation shadow-2xs"
+                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-medium text-[color:var(--color-accent)] bg-[var(--color-surface-muted)] hover:bg-[var(--color-accent)] hover:text-white rounded-lg border border-[var(--color-border)] hover:border-transparent transition-colors shrink-0 cursor-pointer touch-manipulation shadow-2xs"
                 >
                     <span>Jump to Page</span>
                     <ArrowUpRight className="w-3.5 h-3.5" />

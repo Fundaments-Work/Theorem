@@ -287,7 +287,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={handleSearchKeyDown}
                                 className={cn(
-                                    "w-full h-9 pl-8 text-xs sm:text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-accent)] focus:outline-hidden transition-all shadow-xs",
+                                    "w-full h-9 pl-8 text-xs sm:text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-accent)] focus:outline-hidden transition-colors shadow-xs",
                                     searchQuery ? "pr-8" : "pr-3"
                                 )}
                             />
@@ -461,7 +461,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={handleSearchKeyDown}
                             autoFocus
-                            className="w-full h-10 pl-9 pr-10 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-hidden transition-all shadow-xs"
+                            className="w-full h-10 pl-9 pr-10 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-hidden transition-colors shadow-xs"
                         />
                         <button
                             onClick={() => {

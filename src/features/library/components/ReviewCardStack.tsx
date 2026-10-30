@@ -627,7 +627,7 @@ export function ReviewCardStack({
                                                 onClose?.();
                                                 onGoToSource(topCard.bookId, topCard.location);
                                             }}
-                                            className="ui-btn-primary mx-auto text-xs px-5 py-2 rounded-xl flex items-center gap-2 shadow-sm cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                                            className="ui-btn-primary mx-auto text-xs px-5 py-2 rounded-xl flex items-center gap-2 shadow-sm cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform"
                                         >
                                             <BookOpen className="w-4 h-4" />
                                             <span>Jump to Bookmark</span>

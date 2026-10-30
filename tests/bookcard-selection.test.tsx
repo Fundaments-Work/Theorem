@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
@@ -129,7 +130,7 @@ describe("BookCard selection interaction", () => {
                 isSelected: true,
                 onToggleSelect: noop,
             });
-            const selector = container.querySelector(".h-5.w-5.transition-all");
+            const selector = container.querySelector("[data-selection-indicator]");
             expect(selector).not.toBeNull();
         },
     );
@@ -142,6 +143,6 @@ describe("BookCard selection interaction", () => {
             isSelected: false,
             onToggleSelect: noop,
         });
-        expect(container.querySelector(".h-5.w-5.transition-all")).toBeNull();
+        expect(container.querySelector("[data-selection-indicator]")).toBeNull();
     });
 });

@@ -4,6 +4,7 @@ import { useSmartShelves } from "../../core/lib/useSmartShelves";
 import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
+import { TOOLBAR_BUTTON_BASE, TOOLBAR_BUTTON_PRIMARY, TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
 import { FILTER_CHIP_SELECTED } from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
 import { sanitizeHtml } from "../../core/lib/sanitize";
@@ -48,12 +49,6 @@ const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     compact: <Grid3X3 className="w-4 h-4" />,
 };
 
-const TOOLBAR_BUTTON_BASE =
-    "ui-btn disabled:opacity-50";
-const TOOLBAR_BUTTON_PRIMARY =
-    "ui-btn-primary disabled:opacity-50";
-/** 44px on touch screens (the minimum comfortable target), 40px with a pointer. */
-const TOOLBAR_ICON_BUTTON = "h-11 w-11 px-0 sm:h-10 sm:w-10";
 
 /**
  * Width at which a context-menu submenu has room to open beside its parent.
@@ -416,8 +411,8 @@ export const BookCard = memo(function BookCard({
                         />
 
                         {isSelecting && (
-                            <div aria-hidden="true" className={cn(
-                                "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center transition-all duration-200",
+                            <div aria-hidden="true" data-selection-indicator className={cn(
+                                "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center transition-[background-color,color,transform,box-shadow] duration-200",
                                 "ring-1",
                                 isSelected
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100"
@@ -505,8 +500,8 @@ export const BookCard = memo(function BookCard({
                             coverUrl={book.coverPath}
                         />
                         {isSelecting && (
-                            <div aria-hidden="true" className={cn(
-                                "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-all duration-200",
+                            <div aria-hidden="true" data-selection-indicator className={cn(
+                                "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-[background-color,color,transform,box-shadow] duration-200",
                                 "ring-1",
                                 isSelected
                                     ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100"
@@ -597,7 +592,7 @@ export const BookCard = memo(function BookCard({
                                 </span>
                                 <div className="w-16 sm:w-20 h-1 bg-[var(--color-surface-variant)] mt-1 overflow-hidden">
                                     <div
-                                        className="h-full bg-[var(--color-accent)] transition-all"
+                                        className="h-full bg-[var(--color-accent)] transition-[width]"
                                         style={{ width: `${Math.min(100, Math.max(0, Math.round(book.progress * 100)))}%` }}
                                     />
                                 </div>
@@ -651,8 +646,8 @@ export const BookCard = memo(function BookCard({
                 />
 
                 {isSelecting && (
-                    <div aria-hidden="true" className={cn(
-                        "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-all duration-200",
+                    <div aria-hidden="true" data-selection-indicator className={cn(
+                        "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-[background-color,color,transform,box-shadow] duration-200",
                         "ring-1",
                         isSelected
                             ? "bg-[var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[var(--color-accent)] scale-100"
