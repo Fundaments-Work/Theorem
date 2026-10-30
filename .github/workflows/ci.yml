@@ -40,6 +40,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Design-system rules
+        run: pnpm check:design
+
   test:
     name: Test
     runs-on: ubuntu-latest
