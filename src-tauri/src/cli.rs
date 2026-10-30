@@ -28,6 +28,7 @@ use rusqlite::OptionalExtension;
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
+mod card;
 mod dict;
 mod feeds;
 mod highlights;
@@ -42,6 +43,7 @@ mod storage;
 mod store;
 mod sync;
 
+pub(crate) use card::*;
 use dict::*;
 use feeds::*;
 use highlights::*;
@@ -346,7 +348,9 @@ fn command_writes(command: &Command) -> bool {
         Command::Shelf { command } => !matches!(command, ShelfCommand::List),
         Command::Highlights { command } => !matches!(
             command,
-            HighlightsCommand::List { .. } | HighlightsCommand::Export { .. }
+            HighlightsCommand::List { .. }
+                | HighlightsCommand::Export { .. }
+                | HighlightsCommand::Card { .. }
         ),
         Command::Feeds { command } => {
             !matches!(command, FeedsCommand::List | FeedsCommand::Export { .. })

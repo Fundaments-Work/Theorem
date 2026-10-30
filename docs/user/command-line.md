@@ -29,6 +29,7 @@ Every subcommand and its options, as printed by `theorem --help` and the help of
 | `theorem highlights add <book_id> --text <t> [--note <n>] [--type highlight\|note] [--color <c>]` | Adds an annotation. The color defaults to `yellow` |
 | `theorem highlights delete <annotation_id>` | Deletes an annotation |
 | `theorem highlights export [--format md\|json\|csv] [--book <id>] [--since <date>] [--out <path>]` | Exports highlights and notes to Markdown (Obsidian format), JSON, or CSV, optionally writing to disk |
+| `theorem highlights card [<id>] [--book <id>] [--theme dark\|sepia\|tinted\|light] [--format square\|story] [--out <path>] [--out-dir <dir>] [--no-note]` | Exports highlight share cards as PNG or SVG images for single annotations or batch across a book |
 | `theorem bookmarks list [--book <id>]` | Lists bookmarks |
 | `theorem feeds list`, `add <url>`, `remove <feed>`, `refresh` | Manages RSS and Atom feeds, the same ones the app shows. `add` refuses an address that is not a feed. A feed can be named by its id or its address |
 | `theorem feeds import <file.opml>` | Imports feeds from an OPML file |

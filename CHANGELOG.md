@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI Scripting & Headless Follow-ups (#162)**:
   - Added `--data-dir <path>` global option and `THEOREM_DATA_DIR` environment variable support to run headless commands against arbitrary libraries, external drives, or testing sandboxes without modifying default application data paths.
   - Added `theorem highlights export [--format md|json|csv] [--book <id>] [--since <date>] [--out <path>]` for scripted Obsidian markdown, JSON, or CSV highlights and notes extraction suitable for external cron jobs and PKM tools.
+  - Added `theorem highlights card [<id>] [--book <id>] [--theme dark|sepia|tinted|light] [--format square|story] [--out <path>] [--out-dir <dir>] [--no-note]` for scripted headless Bauhaus highlight share card generation as standalone PNG or vector SVG images with automatic typography fallbacks and design tokens.
   - Added `theorem feeds import <file.opml>` and `theorem feeds export [--out <file.opml>]` for importing and exporting RSS/Atom subscriptions via standard OPML format.
 
 ### Bug Fixes

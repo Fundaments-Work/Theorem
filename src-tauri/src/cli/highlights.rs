@@ -45,6 +45,38 @@ pub(super) enum HighlightsCommand {
     },
     /// Delete an annotation by id
     Delete { annotation_id: String },
+    /// Export share card images (PNG or SVG) for highlights
+    Card(CardArgs),
+}
+
+#[derive(clap::Args)]
+pub(super) struct CardArgs {
+    /// Annotation id (optional if --book is specified)
+    pub id: Option<String>,
+
+    /// Export cards for all highlights in this book
+    #[arg(long)]
+    pub book: Option<String>,
+
+    /// Card theme: dark | sepia | tinted | light
+    #[arg(long, default_value = "dark")]
+    pub theme: String,
+
+    /// Card format: square | story
+    #[arg(long, default_value = "square")]
+    pub format: String,
+
+    /// Output file (.png or .svg) for a single card, or output directory
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+
+    /// Output directory (for batch export with --book)
+    #[arg(long)]
+    pub out_dir: Option<PathBuf>,
+
+    /// Do not include user note even if present
+    #[arg(long)]
+    pub no_note: bool,
 }
 
 #[derive(Subcommand)]
@@ -83,6 +115,7 @@ pub(super) fn run_highlights(output: &Output, ctx: &Ctx, command: HighlightsComm
         HighlightsCommand::Delete { annotation_id } => {
             highlights_delete(output, ctx, &annotation_id)
         }
+        HighlightsCommand::Card(args) => highlights_card(output, ctx, args),
     }
 }
 
@@ -448,5 +481,220 @@ fn escape_csv(val: &str) -> String {
         format!("\"{}\"", val.replace('"', "\"\""))
     } else {
         val.to_string()
+    }
+}
+
+fn highlights_card(output: &Output, ctx: &Ctx, args: CardArgs) -> i32 {
+    let theme_clean = match args.theme.to_ascii_lowercase().as_str() {
+        "dark" | "sepia" | "tinted" | "light" => args.theme.to_ascii_lowercase(),
+        other => {
+            return output.usage(&format!(
+                "invalid --theme '{other}' (dark, sepia, tinted, or light)"
+            ));
+        }
+    };
+
+    let format_clean = match args.format.to_ascii_lowercase().as_str() {
+        "square" | "story" => args.format.to_ascii_lowercase(),
+        other => return output.usage(&format!("invalid --format '{other}' (square or story)")),
+    };
+
+    if args.id.is_none() && args.book.is_none() {
+        return output.usage("specify an annotation id or --book <id>");
+    }
+
+    if let Some(anno_id) = args.id.as_deref() {
+        let all_annos = match load_annotations(ctx, None) {
+            Ok(a) => a,
+            Err(e) => return output.error(&e),
+        };
+        let anno = match all_annos
+            .into_iter()
+            .find(|a| book_str(a, "id") == Some(anno_id))
+        {
+            Some(a) => a,
+            None => {
+                return output.error(AppError::not_found(format!(
+                    "annotation '{anno_id}' not found"
+                )));
+            }
+        };
+
+        let text = book_str(&anno, "selectedText")
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| book_str(&anno, "noteContent"))
+            .unwrap_or("");
+        if text.trim().is_empty() {
+            return output.error("annotation has no text to render");
+        }
+
+        let note = if args.no_note {
+            None
+        } else {
+            book_str(&anno, "noteContent")
+                .filter(|s| !s.trim().is_empty() && Some(*s) != book_str(&anno, "selectedText"))
+        };
+
+        let color = book_str(&anno, "color");
+        let date = book_str(&anno, "createdAt")
+            .or_else(|| book_str(&anno, "updatedAt"))
+            .map(|d| d.split('T').next().unwrap_or(d));
+
+        let b_id = book_str(&anno, "bookId").unwrap_or("");
+        let books = match load_books(ctx) {
+            Ok(b) => b,
+            Err(e) => return output.error(&e),
+        };
+        let b = books.iter().find(|b| book_str(b, "id") == Some(b_id));
+        let title = b.and_then(|b| book_str(b, "title")).unwrap_or("Untitled");
+        let author = b.and_then(|b| book_str(b, "author")).unwrap_or("");
+
+        let target_path = if let Some(path) = args.out {
+            if path.is_dir()
+                || path.to_string_lossy().ends_with('/')
+                || path.to_string_lossy().ends_with('\\')
+            {
+                path.join(format!("{anno_id}.png"))
+            } else {
+                path
+            }
+        } else if let Some(dir) = args.out_dir {
+            dir.join(format!("{anno_id}.png"))
+        } else {
+            PathBuf::from(format!("{anno_id}.png"))
+        };
+
+        let svg = render_highlight_card_svg(&CardRenderOptions {
+            text,
+            note,
+            book_title: title,
+            book_author: author,
+            date_str: date,
+            theme: &theme_clean,
+            highlight_color: color,
+            format: &format_clean,
+        });
+        if let Err(e) = render_card_to_file(&svg, &target_path) {
+            return output.error(e);
+        }
+
+        if output.json {
+            output.print_json(&serde_json::json!({
+                "id": anno_id,
+                "bookId": b_id,
+                "path": target_path.display().to_string(),
+                "format": format_clean,
+                "theme": theme_clean,
+            }))
+        } else {
+            println!(
+                "{} share card to {}",
+                output.green("exported"),
+                output.bold(&target_path.display().to_string())
+            );
+            0
+        }
+    } else if let Some(book_id) = args.book.as_deref() {
+        let exists = ctx.store.with_connection(|conn| {
+            Ok(crate::database::sqlite_get_book_metadata_inner(conn, book_id)?.is_some())
+        });
+        match exists {
+            Ok(false) => return output.error(book_not_found(book_id)),
+            Err(e) => return output.error(&e),
+            Ok(true) => {}
+        }
+
+        let books = match load_books(ctx) {
+            Ok(b) => b,
+            Err(e) => return output.error(&e),
+        };
+        let b = books.iter().find(|b| book_str(b, "id") == Some(book_id));
+        let title = b.and_then(|b| book_str(b, "title")).unwrap_or("Untitled");
+        let author = b.and_then(|b| book_str(b, "author")).unwrap_or("");
+
+        let annos = match load_annotations(ctx, Some(book_id)) {
+            Ok(a) => a,
+            Err(e) => return output.error(&e),
+        };
+
+        let highlights: Vec<_> = annos
+            .into_iter()
+            .filter(|a| book_str(a, "type") != Some("bookmark"))
+            .filter(|a| {
+                book_str(a, "selectedText").is_some_and(|s| !s.trim().is_empty())
+                    || book_str(a, "noteContent").is_some_and(|s| !s.trim().is_empty())
+            })
+            .collect();
+
+        if highlights.is_empty() {
+            return output.error("no highlights found for this book");
+        }
+
+        let target_dir = args
+            .out_dir
+            .or(args.out)
+            .unwrap_or_else(|| PathBuf::from(format!("cards-{book_id}")));
+        if let Err(e) = std::fs::create_dir_all(&target_dir) {
+            return output.error(format!(
+                "Failed to create directory {}: {e}",
+                target_dir.display()
+            ));
+        }
+
+        let mut exported_files = Vec::new();
+        for anno in &highlights {
+            let anno_id = book_str(anno, "id").unwrap_or("card");
+            let text = book_str(anno, "selectedText")
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| book_str(anno, "noteContent"))
+                .unwrap_or("");
+            let note = if args.no_note {
+                None
+            } else {
+                book_str(anno, "noteContent")
+                    .filter(|s| !s.trim().is_empty() && Some(*s) != book_str(anno, "selectedText"))
+            };
+            let color = book_str(anno, "color");
+            let date = book_str(anno, "createdAt")
+                .or_else(|| book_str(anno, "updatedAt"))
+                .map(|d| d.split('T').next().unwrap_or(d));
+
+            let target_file = target_dir.join(format!("{anno_id}.png"));
+            let svg = render_highlight_card_svg(&CardRenderOptions {
+                text,
+                note,
+                book_title: title,
+                book_author: author,
+                date_str: date,
+                theme: &theme_clean,
+                highlight_color: color,
+                format: &format_clean,
+            });
+            if let Err(e) = render_card_to_file(&svg, &target_file) {
+                return output.error(e);
+            }
+            exported_files.push(target_file.display().to_string());
+        }
+
+        if output.json {
+            output.print_json(&serde_json::json!({
+                "bookId": book_id,
+                "dir": target_dir.display().to_string(),
+                "exported": exported_files.len(),
+                "files": exported_files,
+                "format": format_clean,
+                "theme": theme_clean,
+            }))
+        } else {
+            println!(
+                "{} {} share cards to {}",
+                output.green("exported"),
+                exported_files.len(),
+                output.bold(&target_dir.display().to_string())
+            );
+            0
+        }
+    } else {
+        unreachable!()
     }
 }

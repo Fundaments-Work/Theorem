@@ -1316,3 +1316,109 @@ fn feeds_import_and_export_opml() {
     let saved_xml = std::fs::read_to_string(&export_file).unwrap();
     assert!(saved_xml.contains("https://blog.rust-lang.org/feed.xml"));
 }
+
+#[test]
+fn highlights_card_exports_png_and_batch_cards() {
+    let sb = Sandbox::new();
+    seed_app_library(&sb);
+
+    // Add another highlight with a note
+    let add_out = sb.run(&[
+        "highlights",
+        "add",
+        APP_BOOK,
+        "--text",
+        "Beauty in simplicity is the highest form of sophistication.",
+        "--note",
+        "Design principle notes.",
+        "--color",
+        "green",
+    ]);
+    assert_ok(&add_out);
+
+    // 1. Single card PNG export with custom theme
+    let single_png = sb.path().join("card1.png");
+    let out = sb.run(&[
+        "highlights",
+        "card",
+        APP_ANNOTATION,
+        "--theme",
+        "sepia",
+        "--out",
+        single_png.to_str().unwrap(),
+    ]);
+    assert_ok(&out);
+    assert!(single_png.exists());
+    let bytes = std::fs::read(&single_png).unwrap();
+    assert!(bytes.len() > 100);
+    // Verify PNG magic header: 0x89 'P' 'N' 'G'
+    assert_eq!(&bytes[0..4], &[0x89, 0x50, 0x4e, 0x47]);
+
+    // 2. Single card SVG export with story format
+    let single_svg = sb.path().join("card1.svg");
+    let out_svg = sb.run(&[
+        "highlights",
+        "card",
+        APP_ANNOTATION,
+        "--format",
+        "story",
+        "--theme",
+        "dark",
+        "--out",
+        single_svg.to_str().unwrap(),
+    ]);
+    assert_ok(&out_svg);
+    assert!(single_svg.exists());
+    let svg_content = std::fs::read_to_string(&single_svg).unwrap();
+    assert!(svg_content.contains("<svg"));
+    assert!(svg_content.contains("height=\"1920\""));
+    assert!(svg_content.contains("Theorem Reader"));
+    assert!(svg_content.contains("Sample Field Guide"));
+
+    // 3. Batch export for book with --book and --out-dir
+    let batch_dir = sb.path().join("exported-cards");
+    let batch_out = sb.run(&[
+        "highlights",
+        "card",
+        "--book",
+        APP_BOOK,
+        "--theme",
+        "tinted",
+        "--out-dir",
+        batch_dir.to_str().unwrap(),
+    ]);
+    assert_ok(&batch_out);
+    assert!(batch_dir.is_dir());
+    let entries: Vec<_> = std::fs::read_dir(&batch_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(entries.len(), 2);
+    for entry in &entries {
+        assert!(entry.path().extension().is_some_and(|e| e == "png"));
+        let b = std::fs::read(entry.path()).unwrap();
+        assert_eq!(&b[0..4], &[0x89, 0x50, 0x4e, 0x47]);
+    }
+
+    // 4. JSON output verification
+    let json_png = sb.path().join("json-card.png");
+    let json_out = sb.run(&[
+        "--json",
+        "highlights",
+        "card",
+        APP_ANNOTATION,
+        "--out",
+        json_png.to_str().unwrap(),
+    ]);
+    assert_ok(&json_out);
+    let card_json = json(&json_out);
+    assert_eq!(card_json["id"], APP_ANNOTATION);
+    assert_eq!(card_json["path"], json_png.to_str().unwrap());
+    assert_eq!(card_json["theme"], "dark");
+    assert_eq!(card_json["format"], "square");
+
+    // 5. Error case: non-existent annotation
+    let err_out = sb.run(&["highlights", "card", "non-existent-id"]);
+    assert!(!err_out.status.success());
+    assert_eq!(err_out.status.code(), Some(3));
+}
