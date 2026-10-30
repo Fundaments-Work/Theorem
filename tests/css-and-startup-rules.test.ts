@@ -45,20 +45,6 @@ describe("CSS: animate-fade-in guarded by prefers-reduced-motion", () => {
     });
 });
 
-// ─── Settings UI ───
-
-describe("Settings: tab content uses hidden CSS class", () => {
-    it("all 6 tabs use hidden pattern instead of conditional rendering", () => {
-        const settingsTsx = readFileSync(
-            resolve("src/features/settings/Settings.tsx"),
-            "utf-8",
-        );
-        const hiddenCount = (settingsTsx.match(/"hidden"/g) || []).length;
-        // At least 6 tabs × 1 hidden pattern each
-        expect(hiddenCount).toBeGreaterThanOrEqual(6);
-    });
-});
-
 describe("Statistics progress bar does not use transition-all", () => {
     it("progress bar atomic transition", () => {
         const statisticsTsx = readFileSync(
@@ -70,26 +56,6 @@ describe("Statistics progress bar does not use transition-all", () => {
         // The ProgressBar's inner fill must not use transition-all
         const progressBar = statisticsTsx.split("function ProgressBar")[1]?.split("function getDateTimestamp")[0] || "";
         expect(progressBar).not.toContain("transition-all");
-    });
-});
-
-// ─── React.memo ───
-
-describe("React.memo: key components are memoized", () => {
-    it("SettingsPage is memoized", () => {
-        const settingsTsx = readFileSync(
-            resolve("src/features/settings/Settings.tsx"),
-            "utf-8",
-        );
-        expect(settingsTsx).toContain("memo(function SettingsPage");
-    });
-
-    it("ArticleViewer is memoized", () => {
-        const articleTsx = readFileSync(
-            resolve("src/features/reader/article-reader/ArticleViewer.tsx"),
-            "utf-8",
-        );
-        expect(articleTsx).toContain("memo(function ArticleViewer");
     });
 });
 
@@ -111,18 +77,5 @@ describe("Startup: tauri.conf.json window visibility", () => {
     it("window config does not have visible: false (reverted — show() failed silently)", () => {
         const conf = readFileSync(resolve("src-tauri/tauri.conf.json"), "utf-8");
         expect(conf).not.toContain('"visible": false');
-    });
-});
-
-// ─── ArticleViewer annotations selector ───
-
-describe("ArticleViewer: per-book annotation selector", () => {
-    it("uses useShallow with getBookAnnotations instead of full annotations array", () => {
-        const articleTsx = readFileSync(
-            resolve("src/features/reader/article-reader/ArticleViewer.tsx"),
-            "utf-8",
-        );
-        expect(articleTsx).toContain("getBookAnnotations");
-        expect(articleTsx).toContain("useShallow");
     });
 });

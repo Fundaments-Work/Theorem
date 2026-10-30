@@ -460,3 +460,22 @@ describe("last-read sort", () => {
         expect(ids).toEqual(["read", "bad-added", "bad"]);
     });
 });
+
+describe("retired series sort", () => {
+    it("title sort ignores series metadata", () => {
+        const books = [
+            { ...makeBook({ id: "a", title: "Zeta" }), series: "Beta", seriesIndex: 1 },
+            { ...makeBook({ id: "b", title: "Alpha" }), series: "Alpha", seriesIndex: 2 },
+        ];
+        expect(runFilter({ books, sortBy: "title", sortOrder: "asc" }).map((b) => b.id)).toEqual(["b", "a"]);
+    });
+
+    it("a stale persisted series value still returns every book instead of throwing", () => {
+        const books = [
+            makeBook({ id: "a", title: "Bravo" }),
+            makeBook({ id: "b", title: "Alpha" }),
+        ];
+        const result = runFilter({ books, sortBy: "series" as unknown as LibrarySortBy, sortOrder: "asc" });
+        expect(new Set(result.map((b) => b.id))).toEqual(new Set(["a", "b"]));
+    });
+});

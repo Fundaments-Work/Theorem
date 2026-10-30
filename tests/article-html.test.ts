@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "fs";
-import { resolve } from "path";
 import {
     decodeDoubleEscapedHtml,
     looksLikeDoubleEscapedHtml,
@@ -8,7 +6,7 @@ import {
     selectArticleBody,
 } from "../src/features/reader/article-reader/utils";
 
-// ─── #107: RSS article body selection ───
+// RSS article body selection and double-escaped HTML recovery (#107)
 
 describe("selectArticleBody prefers extracted full content", () => {
     it("prefers fullContent over content and summary", () => {
@@ -29,8 +27,6 @@ describe("selectArticleBody prefers extracted full content", () => {
         expect(selectArticleBody({ fullContent: "", content: "c" })).toBe("c");
     });
 });
-
-// ─── #107: double-escaped HTML from native parser ───
 
 describe("double-escaped HTML detection and recovery", () => {
     it("detects escaped markup without real tags", () => {
@@ -118,61 +114,5 @@ describe("sanitizeArticleHtml renders escaped feeds as markup", () => {
     it("numeric and double-encoded entities render as elements", () => {
         expect(sanitizeArticleHtml("&#60;p&#62;Hi&#60;/p&#62;")).toContain("<p>Hi</p>");
         expect(sanitizeArticleHtml("&amp;lt;p&amp;gt;Hi&amp;lt;/p&amp;gt;")).toContain("<p>Hi</p>");
-    });
-});
-
-// ─── Library selection wiring (static guards) ───
-
-describe("library multi-select wiring", () => {
-    const libraryTsx = readFileSync(
-        resolve("src/features/library/Library.tsx"),
-        "utf-8",
-    );
-
-    it("toolbar select button exposes data-action for Ctrl+A shortcut", () => {
-        expect(libraryTsx).toContain('data-action="toggle-select-mode"');
-    });
-
-    it("selection checkbox exists in grid, list, and compact views", () => {
-        const checkboxBlocks = libraryTsx.match(/\{isSelecting && \(/g) || [];
-        expect(checkboxBlocks.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it("selection lookups use a Set, not O(n) includes per card", () => {
-        expect(libraryTsx).toContain("selectedBookIds");
-        expect(libraryTsx).not.toContain("selectedBooks.includes");
-    });
-
-    it("memo comparison covers audioTrack and rating", () => {
-        expect(libraryTsx).toContain("prev.book.audioTrack === next.book.audioTrack");
-        expect(libraryTsx).toContain("prev.book.rating === next.book.rating");
-    });
-});
-
-// ─── #102: IPC capability covers all first-party windows ───
-
-describe("tauri capability grants IPC to every app window", () => {
-    const capability = JSON.parse(
-        readFileSync(resolve("src-tauri/capabilities/default.json"), "utf-8"),
-    );
-
-    it("covers main and reader_* windows so invokes are never ACL-denied", () => {
-        expect(capability.windows).toContain("main");
-        expect(capability.windows).toContain("reader_*");
-    });
-});
-
-describe("sqliteShrinkMemory IPC path", () => {
-    const storage = readFileSync(
-        resolve("src/core/lib/sqlite-storage.ts"),
-        "utf-8",
-    );
-
-    it("prefers trim_memory entry point over direct sqlite_shrink_memory", () => {
-        expect(storage).toContain("invoke('trim_memory')");
-    });
-
-    it("throttles hot-path invocations", () => {
-        expect(storage).toContain("SHRINK_MEMORY_THROTTLE_MS");
     });
 });

@@ -22,13 +22,18 @@ import { resolve } from "path";
  */
 const capability = JSON.parse(
     readFileSync(resolve("src-tauri/capabilities/default.json"), "utf-8"),
-) as { permissions: Array<string | { identifier: string }> };
+) as { windows: string[]; permissions: Array<string | { identifier: string }> };
 
 function permissions(): string[] {
     return capability.permissions.map((p) => (typeof p === "string" ? p : p.identifier));
 }
 
 describe("window capability", () => {
+    it("covers main and reader_* windows so invokes are never ACL-denied (#102)", () => {
+        expect(capability.windows).toContain("main");
+        expect(capability.windows).toContain("reader_*");
+    });
+
     it("grants the window commands the close path actually uses", () => {
         const granted = permissions();
         expect(granted).toContain("core:window:allow-close");
