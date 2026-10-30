@@ -108,7 +108,7 @@ describe("ContextMenu stays inside the viewport", () => {
 });
 
 describe("phones drill down inside the same menu", () => {
-    const src = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
+    const src = readFileSync(resolve("src/features/library/components/BookCard.tsx"), "utf-8");
 
     it("gates drilldown on viewport width", () => {
         // A flyout cannot fit ~390px: the menu is 180-280px and the submenu needs

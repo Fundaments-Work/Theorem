@@ -8,8 +8,9 @@
         "features/library/Annotations.tsx": 2,
         "features/library/Bookmarks.tsx": 2,
         "features/library/components/AnnotationListCard.tsx": 1,
+        "features/library/components/BookCard.tsx": 1,
         "features/library/components/ReviewCardStack.tsx": 3,
-        "features/library/Library.tsx": 2,
+        "features/library/Library.tsx": 1,
         "features/library/LibraryFilterPanel.tsx": 1,
         "features/settings/BackupSection.tsx": 4,
         "features/settings/LibraryFoldersSection.tsx": 2

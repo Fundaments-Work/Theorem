@@ -178,8 +178,9 @@ describe("bulk selection actions and undo safety", () => {
         expect(libraryCode).toContain("allSelectedCompleted ? (");
         expect(libraryCode).not.toContain("<span>Mark Read</span>\n                        <button");
 
-        // Defend right-click context menu consistency
-        expect(libraryCode).toContain('isCompleted ? "Mark Unread" : "Mark Read"');
+        // Defend right-click context menu consistency (the card's menu lives in BookCard now).
+        const bookCardCode = readFileSync(resolve("src/features/library/components/BookCard.tsx"), "utf-8");
+        expect(bookCardCode).toContain('isCompleted ? "Mark Unread" : "Mark Read"');
         expect(libraryCode).not.toContain('"Mark Finish"');
         expect(libraryCode).not.toContain('"Mark Unfinish"');
 

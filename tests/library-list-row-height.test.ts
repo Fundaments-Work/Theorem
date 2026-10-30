@@ -32,12 +32,12 @@ describe("list row height matches the virtualizer estimate", () => {
             /const getEstimateSize = useCallback\(\(\) => \{[\s\S]*?if \(isListView\) return LIBRARY_LIST_ROW_HEIGHT;/,
         );
         expect(src).not.toMatch(/if \(isListView\) return 70;/);
-        // Imported from Library so the two estimates cannot drift apart.
-        expect(src).toContain("LIBRARY_LIST_ROW_HEIGHT } from \"./Library\"");
+        // One shared constant, imported from its own module so both pages cannot drift apart.
+        expect(src).toContain("LIBRARY_LIST_ROW_HEIGHT } from \"./row-height\"");
     });
 
     it("renders the row at exactly that height", () => {
-        const src = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
+        const src = readFileSync(resolve("src/features/library/components/BookCard.tsx"), "utf-8");
         expect(src).toMatch(
             /style=\{\{ height: `\$\{LIBRARY_LIST_ROW_HEIGHT\}px` \}\}/,
         );
@@ -45,7 +45,7 @@ describe("list row height matches the virtualizer estimate", () => {
 });
 
 describe("list rows are the same height at every breakpoint", () => {
-    const src = readFileSync(resolve("src/features/library/Library.tsx"), "utf-8");
+    const src = readFileSync(resolve("src/features/library/components/BookCard.tsx"), "utf-8");
 
     it("renders progress in one column, not a second mobile-only line", () => {
         // The `sm:hidden` progress line under the title made phone rows taller
