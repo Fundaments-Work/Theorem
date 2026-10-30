@@ -238,9 +238,10 @@ export function StatisticsPage() {
             return !!book.completedAt || book.progress >= 0.99;
         });
 
-        const currentlyReading = [...books]
-            .filter((b) => b.lastReadAt && b.progress > 0 && b.progress < 0.99 && b.manualCompletionState !== "read")
-            .sort((a, b) => getDateTimestamp(b.lastReadAt) - getDateTimestamp(a.lastReadAt))[0];
+        const topRecent = [...books]
+            .filter((b) => b.lastReadAt)
+            .sort((a, b) => getDateTimestamp(b.lastReadAt) - getDateTimestamp(a.lastReadAt))
+            .slice(0, 3);
 
         return {
             totalBooks: books.length,
@@ -251,15 +252,16 @@ export function StatisticsPage() {
             booksReadThisYear,
             yearlyBookGoal: stats.yearlyBookGoal,
             totalHighlights: annotations.filter((a) => a.type === "highlight").length,
-            recentlyReading: currentlyReading
-                ? {
-                      title: currentlyReading.title,
-                      author: currentlyReading.author || "",
-                      progress: currentlyReading.progress,
-                  }
-                : undefined,
+            dailyActivity: stats.dailyActivity,
+            recentlyReading: topRecent.map((b) => ({
+                title: b.title,
+                author: b.author || "",
+                progress: b.progress,
+                coverUrl: b.coverPath,
+                isCompleted: isBookCompleted(b),
+            })),
         };
-    }, [books, stats, annotations]);
+    }, [books, stats, annotations, booksReadThisYear]);
 
     const totalBooks = books.length;
     const completedBooks = useMemo(() => books.filter((book) => isBookCompleted(book)).length, [books]);

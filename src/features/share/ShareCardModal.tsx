@@ -168,7 +168,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
                                 position: "absolute",
                                 top: 0,
                                 left: 0,
-                                borderRadius: 16,
+                                borderRadius: 0,
                                 overflow: "hidden",
                                 boxShadow: "0 16px 48px -8px rgba(0, 0, 0, 0.2)",
                             }}
