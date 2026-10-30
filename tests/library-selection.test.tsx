@@ -167,8 +167,9 @@ describe("bulk selection actions and undo safety", () => {
         expect(libraryCode).toContain("<span>Delete</span>");
         expect(libraryCode).toContain("<span>Done</span>");
 
-        // Defend danger styling for Delete action
-        expect(libraryCode).toContain("ui-btn-danger");
+        // Defend danger styling for Delete action. The buttons are shared `Button`s now, so the
+        // danger look is expressed as `variant="danger"` (mapped to ui-btn-danger by Button).
+        expect(libraryCode).toContain('variant="danger"');
 
         // Defend Escape key handling for accessibility
         expect(libraryCode).toContain('e.key === "Escape"');

@@ -4,7 +4,6 @@ import { useSmartShelves } from "../../core/lib/useSmartShelves";
 import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
-import { TOOLBAR_BUTTON_BASE, TOOLBAR_BUTTON_PRIMARY, TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
 import { FILTER_CHIP_SELECTED } from "../../ui/filter-chips";
 import { saveCoverImage, getBookData } from "../../core/lib/storage";
 import { sanitizeHtml } from "../../core/lib/sanitize";
@@ -26,7 +25,8 @@ import {
     Star, Check, Compass, CloudOff, Pencil, Download, ExternalLink, Headphones,
     ListOrdered, MoreHorizontal, X, CheckSquare, Folder, SlidersHorizontal
 } from "lucide-react";
-import { ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
+import { Button, ContextMenu, PageHeader, TheoremBookCover, HighlightMatch } from "../../ui";
+import { TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
 import type { ContextMenuItem } from "../../ui";
 import { Modal, ModalHeader, ModalBody, ModalFooter, ConfirmDialog, AlertDialog } from "../../ui";
 import { useMediaQuery } from "../../core/lib/use-media-query";
@@ -730,10 +730,10 @@ export function EmptyLibrary({
                 Add EPUB, PDF, MOBI, FB2 or comic files from this device, or find free books in Discover.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
-                <button
+                <Button variant="primary"
                     onClick={onAddBooks}
                     disabled={isImporting}
-                    className={cn(TOOLBAR_BUTTON_PRIMARY, "min-w-[10.5rem] whitespace-nowrap px-6 py-2.5")}
+                     className={cn("min-w-[10.5rem] whitespace-nowrap px-6 py-2.5")}
                 >
                     {isImporting ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -741,13 +741,13 @@ export function EmptyLibrary({
                         <Plus className="w-4 h-4" />
                     )}
                     <span>{isImporting ? "Importing..." : "Import Books"}</span>
-                </button>
+                </Button>
 
                 {onScanFolder && (
-                    <button
+                    <Button
                         onClick={onScanFolder}
                         disabled={isScanning}
-                        className={cn(TOOLBAR_BUTTON_BASE, "min-w-[10.5rem] whitespace-nowrap px-6 py-2.5")}
+                         className={cn("min-w-[10.5rem] whitespace-nowrap px-6 py-2.5")}
                     >
                         {isScanning ? (
                             <RefreshCw className="w-4 h-4 animate-spin" />
@@ -755,7 +755,7 @@ export function EmptyLibrary({
                             <FolderOpen className="w-4 h-4" />
                         )}
                         <span>{isScanning ? "Scanning..." : "Scan Folder"}</span>
-                    </button>
+                    </Button>
                 )}
             </div>
             <button
@@ -778,10 +778,10 @@ function ImportButton({
     isLoading: boolean;
 }) {
     return (
-        <button
+        <Button variant="primary"
             onClick={onImport}
             disabled={isLoading}
-            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 px-3.5 sm:h-10 sm:px-4")}
+             className={cn("h-11 px-3.5 sm:h-10 sm:px-4")}
         >
             {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -790,7 +790,7 @@ function ImportButton({
             )}
             <span className="hidden sm:inline">Add Books</span>
             <span className="sm:hidden">Add</span>
-        </button>
+        </Button>
     );
 }
 
@@ -921,23 +921,23 @@ export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | 
             </ModalBody>
             <ModalFooter>
                 {onEdit && (
-                    <button
+                    <Button
                         onClick={() => {
                             onClose();
                             onEdit(book);
                         }}
-                        className="ui-btn px-3 py-1.5 text-xs"
+                         className="px-3 py-1.5 text-xs"
                     >
                         <Pencil className="w-3.5 h-3.5" />
                         Edit
-                    </button>
+                    </Button>
                 )}
-                <button
+                <Button variant="ghost"
                     onClick={onClose}
-                    className="ui-btn-ghost"
+                    
                 >
                     Close
-                </button>
+                </Button>
             </ModalFooter>
         </Modal>
     );
@@ -1075,24 +1075,24 @@ export function AddToShelfModal({
                                     if (e.key === "Enter") handleCreateShelf();
                                 }}
                             />
-                            <button
+                            <Button variant="primary"
                                 onClick={handleCreateShelf}
                                 disabled={!newShelfName.trim()}
-                                className="ui-btn-primary text-xs px-3"
+                                 className="text-xs px-3"
                             >
                                 Create
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
             </ModalBody>
             <ModalFooter>
-                <button
+                <Button variant="ghost"
                     onClick={onClose}
-                    className="ui-btn-ghost"
+                    
                 >
                     Cancel
-                </button>
+                </Button>
             </ModalFooter>
         </Modal>
     );
@@ -1158,20 +1158,20 @@ export function RenameBookModal({
                     </div>
                 </ModalBody>
                 <ModalFooter>
-                    <button
-                        type="button"
+                    <Button variant="ghost"
+                        
                         onClick={onClose}
-                        className="ui-btn-ghost"
+                        
                     >
                         Cancel
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="primary"
                         type="submit"
                         disabled={!title.trim() || title.trim() === book.title}
-                        className="ui-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                         className="disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         Save
-                    </button>
+                    </Button>
                 </ModalFooter>
             </form>
         </Modal>
@@ -2288,7 +2288,7 @@ export function LibraryPage() {
                 <ImportButton onImport={handleAddBooks} isLoading={isImporting || isScanning} />
 
                 <div className="flex items-center gap-2 sm:gap-4 ml-auto">
-                    <button
+                    <Button
                         data-action="toggle-select-mode"
                         onClick={() => {
                             if (isSelecting) {
@@ -2296,8 +2296,8 @@ export function LibraryPage() {
                             }
                             setIsSelecting((prev) => !prev);
                         }}
-                        className={cn(
-                            TOOLBAR_BUTTON_BASE, "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
+                         className={cn(
+                            "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
                             isSelecting ? FILTER_CHIP_SELECTED : "sr-only"
                         )}
                         title={isSelecting ? "Exit selection mode (Esc)" : "Select books"}
@@ -2305,23 +2305,22 @@ export function LibraryPage() {
                     >
                         {isSelecting ? <X className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
                         <span className="hidden sm:inline text-xs">{isSelecting ? "Done" : "Select"}</span>
-                    </button>
+                    </Button>
 
-                    <button
+                    <Button
                         onClick={toggleViewMode}
-                        className={cn(TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2")}
+                         className={cn(TOOLBAR_ICON_BUTTON, "border-2")}
                         title={`View: ${settings.libraryViewMode}`}
                         aria-label={`Change view (now ${settings.libraryViewMode})`}
                     >
                         {viewModeIcons[settings.libraryViewMode]}
-                    </button>
+                    </Button>
 
-                    <button
+                    <Button
                         onClick={() => setShowFilterDropdown(!showFilterDropdown)}
                         aria-label="Filter and sort"
                         aria-expanded={showFilterDropdown}
-                        className={cn(
-                            TOOLBAR_BUTTON_BASE,
+                         className={cn(
                             TOOLBAR_ICON_BUTTON,
                             "relative border-2 transition-colors",
                             showFilterDropdown
@@ -2336,7 +2335,7 @@ export function LibraryPage() {
                         {hasActiveFilters && (
                             <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[var(--color-surface)]" />
                         )}
-                    </button>
+                    </Button>
                 </div>
             </PageHeader>
             {selectedSourceFolder && (
@@ -2371,30 +2370,30 @@ export function LibraryPage() {
                         <span className="text-sm text-[color:var(--color-text-primary)] shrink-0 mr-1">
                             {selectedBooks.length} of {sortedBooks.length} selected
                         </span>
-                        <button
-                            className="ui-btn px-2.5 py-1 text-xs whitespace-nowrap shrink-0"
+                        <Button
+                             className="px-2.5 py-1 text-xs whitespace-nowrap shrink-0"
                             onClick={selectAll}
                             disabled={!selectionReady || sortedBooks.length === 0 || allSelected}
                             title="Select all filtered books"
                         >
                             {allSelected ? "All selected" : `Select all (${sortedBooks.length})`}
-                        </button>
+                        </Button>
                         {selectedBooks.length > 0 && (
-                            <button
-                                className="ui-btn-ghost px-2.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] whitespace-nowrap shrink-0"
+                            <Button variant="ghost"
+                                 className="px-2.5 py-1 text-xs text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] whitespace-nowrap shrink-0"
                                 onClick={clearSelection}
                                 title="Clear selection"
                             >
                                 Clear
-                            </button>
+                            </Button>
                         )}
                         {!selectionReady && (
                             <span role="status" className="text-xs text-[color:var(--color-text-muted)] animate-pulse shrink-0">
                                 Updating search results…
                             </span>
                         )}
-                        <button
-                            className="ui-btn-primary px-3 py-1 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                        <Button variant="primary"
+                             className="px-3 py-1 text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
                             onClick={() => {
                                 clearSelection();
                                 setIsSelecting(false);
@@ -2404,71 +2403,71 @@ export function LibraryPage() {
                         >
                             <X className="w-3.5 h-3.5" />
                             <span>Done</span>
-                        </button>
+                        </Button>
                     </div>
 
                     {/* Bottom Row: Actions with full icons + full text labels in horizontal scrollable strip */}
                     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
                         {allSelectedCompleted ? (
-                            <button
+                            <Button
                                 onClick={handleBatchMarkUnread}
                                 aria-label="Mark selected as unread"
                                 disabled={!selectionReady || selectedBooks.length === 0}
-                                className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                                 className="px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                             >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Mark Unread</span>
-                            </button>
+                            </Button>
                         ) : (
-                            <button
+                            <Button
                                 onClick={handleBatchMarkRead}
                                 aria-label="Mark selected as read"
                                 disabled={!selectionReady || selectedBooks.length === 0}
-                                className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                                 className="px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                             >
                                 <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
                                 <span>Mark Read</span>
-                            </button>
+                            </Button>
                         )}
-                        <button
+                        <Button
                             onClick={handleBatchAddToShelf}
                             aria-label="Add selected to shelf"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                             className="px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <BookMarked className="w-3.5 h-3.5" />
                             <span>Add to Shelf</span>
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                             onClick={() => setIsSeriesModalOpen(true)}
                             aria-label="Assign series"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                             className="px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <ListOrdered className="w-3.5 h-3.5" />
                             <span>Series</span>
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                             onClick={handleBatchExport}
                             aria-label="Export selected books"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                             className="px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <Download className="w-3.5 h-3.5" />
                             <span>Export</span>
-                        </button>
+                        </Button>
 
                         <div className="h-5 w-px bg-[var(--color-border)] shrink-0 mx-1" />
 
-                        <button
+                        <Button variant="danger"
                             onClick={handleBatchDelete}
                             aria-label="Delete selected books"
                             disabled={!selectionReady || selectedBooks.length === 0}
-                            className="ui-btn-danger px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
+                             className="px-3 py-1.5 text-xs border-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Delete</span>
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}
@@ -2681,22 +2680,22 @@ export function LibraryPage() {
                         )}
                     </ModalBody>
                     <ModalFooter>
-                        <button
-                            type="button"
+                        <Button variant="ghost"
+                            
                             onClick={() => setFolderToRemove(null)}
-                            className="ui-btn-ghost"
+                            
                         >
                             Cancel
-                        </button>
-                        <button
-                            type="button"
+                        </Button>
+                        <Button variant="danger"
+                            
                             onClick={() => {
                                 handleConfirmRemoveFolder(folderToRemove.root, removeFolderDeleteBooks);
                             }}
-                            className="ui-btn-danger"
+                            
                         >
                             Remove Folder
-                        </button>
+                        </Button>
                     </ModalFooter>
                 </Modal>
             )}

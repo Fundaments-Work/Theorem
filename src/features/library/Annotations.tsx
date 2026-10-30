@@ -14,7 +14,7 @@ import {
     type ResolvedAnnotationSource,
 } from "../../core/lib/annotation-source";
 import { EditNoteModal } from "./components/modals/EditNoteModal";
-import { PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
+import { Button, PageHeader, Dropdown, ConfirmDialog, Modal, ModalHeader, ModalBody } from "../../ui";
 import { WorkbenchTabs, type WorkbenchTab } from "./components/WorkbenchTabs";
 import { BookmarksPanel } from "./Bookmarks";
 import {
@@ -846,13 +846,13 @@ export function AnnotationsPage() {
                                 </div>
                             ))}
                             <hr className="border-[var(--color-border-subtle)]" />
-                            <button
+                            <Button variant="danger"
                                 onClick={() => { deleteVocabularyTerm(selectedVocabTerm.id); setSelectedVocabTerm(null); }}
-                                className="ui-btn-danger py-2.5 px-5 text-[11px]"
+                                 className="py-2.5 px-5 text-[11px]"
                             >
                                 <Trash2 className="w-4 h-4" />
                                 Delete this term
-                            </button>
+                            </Button>
                         </div>
                     </ModalBody>
                 </Modal>

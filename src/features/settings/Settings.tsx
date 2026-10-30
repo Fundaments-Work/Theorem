@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { PageHeader } from "../../ui";
+import { Button, PageHeader } from "../../ui";
 import { cn, formatFileSize } from "../../core/lib/utils";
 import { isMobile, isTauri, isTauriDesktop, isTauriMobile } from "../../core/lib/env";
 import { requestNotificationPermission } from "../../core/lib/notifications";
@@ -1033,18 +1033,18 @@ export const SettingsPage = memo(function SettingsPage() {
                                     className="hidden"
                                     accept=".ifo,.idx,.index,.dict,.dict.dz,.dz,.syn"
                                 />
-                                <button
+                                <Button variant="primary"
                                     onClick={() => dictionaryFileInputRef.current?.click()}
-                                    className="ui-btn-primary text-[11px] whitespace-nowrap"
+                                     className="text-[11px] whitespace-nowrap"
                                 >
                                     <Download className="w-4 h-4" /> Import Files
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                     onClick={() => setShowDictDownloadModal(true)}
-                                    className="ui-btn text-[11px] whitespace-nowrap"
+                                     className="text-[11px] whitespace-nowrap"
                                 >
                                     <Download className="w-4 h-4" /> Download Dictionary
-                                </button>
+                                </Button>
                                 <span className="text-xs text-[color:var(--color-text-muted)]">
                                     {installedDictionaries.length} installed
                                 </span>
@@ -1068,12 +1068,12 @@ export const SettingsPage = memo(function SettingsPage() {
                                 label={dictionary.name}
                                 description={`${dictionary.language.toUpperCase()} • ${dictionary.format === "mdx" || dictionary.name.toLowerCase().includes("mdx") ? "MDict (.mdx)" : "StarDict"} • ${formatFileSize(dictionary.sizeBytes)}`}
                             >
-                                <button
+                                <Button variant="danger"
                                     onClick={() => setRemoveDictionaryInfo({ id: dictionary.id, name: dictionary.name })}
-                                    className="ui-btn-danger"
+                                    
                                 >
                                     Remove
-                                </button>
+                                </Button>
                             </SettingRow>
                         ))}
 
@@ -1122,15 +1122,15 @@ export const SettingsPage = memo(function SettingsPage() {
                                     label="Symlink Missing"
                                     description={`The symlink at ${cliStatus.linkPath} is gone — it can be recreated now, or automatically at the next app start.`}
                                 >
-                                    <button
+                                    <Button
                                         onClick={() => {
                                             void handleRepairCli();
                                         }}
                                         disabled={cliBusy}
-                                        className={cn("ui-btn", cliBusy && "pointer-events-none opacity-50")}
+                                         className={cn("ui-btn", cliBusy && "pointer-events-none opacity-50")}
                                     >
                                         Repair now
-                                    </button>
+                                    </Button>
                                 </SettingRow>
                             )}
                         </Section>
@@ -1160,24 +1160,24 @@ export const SettingsPage = memo(function SettingsPage() {
                                             "min-w-[20rem] sm:w-[28rem]"
                                         )}
                                     />
-                                    <button
+                                    <Button
                                         onClick={() => {
                                             void handlePickVaultDirectory();
                                         }}
-                                        className="ui-btn"
+                                        
                                     >
                                         Pick folder
-                                    </button>
+                                    </Button>
                                     {settings.vault.vaultPath.trim() && (
-                                        <button
+                                        <Button
                                             onClick={() => updateVaultSettings({
                                                 vaultPath: "",
                                                 enabled: false,
                                             })}
-                                            className="ui-btn"
+                                            
                                         >
                                             Clear
-                                        </button>
+                                        </Button>
                                     )}
                                 </div>
                             </SettingRow>
@@ -1230,18 +1230,18 @@ export const SettingsPage = memo(function SettingsPage() {
                                 label="Export Markdown Now"
                                 description="Write latest highlights, RSS highlights, and vocabulary markdown files now"
                             >
-                                <button
+                                <Button
                                     onClick={() => {
                                         void handleExportMarkdownNow();
                                     }}
                                     disabled={vaultSyncStatus === "syncing"}
-                                    className={cn(
+                                     className={cn(
                                         "ui-btn",
                                         vaultSyncStatus === "syncing" && "pointer-events-none opacity-60",
                                     )}
                                 >
                                     {vaultSyncStatus === "syncing" ? "Exporting..." : "Export now"}
-                                </button>
+                                </Button>
                             </SettingRow>
 
                             <SettingRow

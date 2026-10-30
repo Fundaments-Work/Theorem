@@ -11,8 +11,8 @@ import { ShelfModal } from "./components/modals/ShelfModal";
 import { AssignSeriesModal } from "./components/modals/AssignSeriesModal";
 import { SeriesGroupHeader } from "./components/SeriesGroupHeader";
 import { SeriesGroupContinue } from "./components/SeriesGroupContinue";
-import { TOOLBAR_BUTTON_BASE, TOOLBAR_BUTTON_PRIMARY, TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
-import { ConfirmDialog, PageHeader } from "../../ui";
+import { TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
+import { Button, ConfirmDialog, PageHeader } from "../../ui";
 import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal, LIBRARY_LIST_ROW_HEIGHT } from "./Library";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
@@ -59,16 +59,15 @@ function EmptyShelves({ onCreate }: { onCreate: () => void }) {
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
                 Create shelves to organize your books your way.
             </p>
-            <button
+            <Button variant="primary"
                 onClick={onCreate}
-                className={cn(
-                    TOOLBAR_BUTTON_PRIMARY,
+                 className={cn(
                     "min-w-[10.5rem] whitespace-nowrap px-6 py-2.5"
                 )}
             >
                 <Plus className="w-4 h-4" />
                 <span>Create Shelf</span>
-            </button>
+            </Button>
         </div>
     );
 }
@@ -85,16 +84,15 @@ function EmptyShelfDetail({ shelfName, onAddBooks }: { shelfName: string; onAddB
             <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
                 Add books from your library to this shelf.
             </p>
-            <button
+            <Button variant="primary"
                 onClick={onAddBooks}
-                className={cn(
-                    TOOLBAR_BUTTON_PRIMARY,
+                 className={cn(
                     "min-w-[10.5rem] whitespace-nowrap px-6 py-2.5"
                 )}
             >
                 <BookOpen className="w-4 h-4" />
                 <span>Go to Library</span>
-            </button>
+            </Button>
         </div>
     );
 }
@@ -638,12 +636,12 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             {!shelf.parentId && childShelves.length > 0 && (
                 <nav aria-label="Sub-shelves" className="flex flex-wrap items-center gap-2 mb-4">
                     {childShelves.map((child) => (
-                        <button key={child.id} className="ui-btn text-xs py-1" onClick={() => onNavigate(child.id)}>{child.name}</button>
+                        <Button key={child.id}  className="text-xs py-1" onClick={() => onNavigate(child.id)}>{child.name}</Button>
                     ))}
-                    <button className="ui-btn-ghost text-xs py-1" onClick={onCreateChild} title="New sub-shelf">
+                    <Button variant="ghost"  className="text-xs py-1" onClick={onCreateChild} title="New sub-shelf">
                         <Plus className="w-3.5 h-3.5" />
                         <span>New sub-shelf</span>
-                    </button>
+                    </Button>
                 </nav>
             )}
             <div className="-mb-4">
@@ -681,46 +679,45 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     </div>
 
                     <div className="flex w-full items-center gap-2 sm:ml-0 sm:w-auto sm:gap-3 flex-wrap">
-                        <button
+                        <Button variant="primary"
                             onClick={handleGoToLibrary}
                             disabled={!!shelf.smartRules}
-                            className={cn(TOOLBAR_BUTTON_PRIMARY, "h-11 px-3.5 py-2 sm:h-auto sm:px-4")}
+                             className={cn("h-11 px-3.5 py-2 sm:h-auto sm:px-4")}
                             title={shelf.smartRules ? "Membership is managed by this shelf's rules" : "Add books from library"}
                         >
                             <Plus className="w-4 h-4" />
                             <span className="hidden sm:inline">Add Books</span>
                             <span className="sm:hidden">Add</span>
-                        </button>
+                        </Button>
 
-                        <button
+                        <Button
                             data-action="toggle-select-mode"
                             onClick={handleToggleSelectMode}
                             disabled={shelfBooks.length === 0}
-                            className={cn(
-                                TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2",
+                             className={cn(
+                                TOOLBAR_ICON_BUTTON, "border-2",
                                 shelfBooks.length === 0 && "opacity-50 cursor-not-allowed",
                                 isSelecting ? "ui-selected" : "sr-only"
                             )}
                             title={isSelecting ? "Cancel Selection" : "Select Books"}
                         >
                             <CheckCheck className="w-4 h-4" />
-                        </button>
+                        </Button>
 
-                        <button
+                        <Button
                             onClick={cycleViewMode}
-                            className={cn(TOOLBAR_BUTTON_BASE, TOOLBAR_ICON_BUTTON, "border-2")}
+                             className={cn(TOOLBAR_ICON_BUTTON, "border-2")}
                             title={`View: ${viewMode}`}
                         >
                             {viewModeIcons[viewMode]}
-                        </button>
+                        </Button>
 
                         <div className="relative" ref={shelfMenuRef}>
-                            <button
+                            <Button
                                 onClick={() => setShowShelfMenu((prev) => !prev)}
                                 aria-label="More actions"
                                 aria-expanded={showShelfMenu}
-                                className={cn(
-                                    TOOLBAR_BUTTON_BASE,
+                                 className={cn(
                                     TOOLBAR_ICON_BUTTON,
                                     "border-2 transition-colors",
                                     showShelfMenu ? "ui-selected" : ""
@@ -728,7 +725,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                                 title="More actions"
                             >
                                 <MoreHorizontal className="w-4 h-4" />
-                            </button>
+                            </Button>
 
                             <div
                                 className={cn(
@@ -1000,71 +997,71 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                     <span className="text-sm text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>
-                    <button
+                    <Button
                         onClick={handleSelectAll}
-                        className="ui-btn px-3 py-1.5 text-xs border-2"
+                         className="px-3 py-1.5 text-xs border-2"
                     >
                         <CheckCheck className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Select All</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         disabled={!!shelf.smartRules}
                         title={shelf.smartRules ? "Membership is managed by this shelf's rules" : undefined}
                         onClick={handleRemoveSelectedFromShelf}
-                        className="ui-btn px-3 py-1.5 text-xs border-2"
+                         className="px-3 py-1.5 text-xs border-2"
                     >
                         <BookMarked className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Remove from Shelf</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         onClick={() => { setAddToShelfBookId(null); setIsAddToShelfModalOpen(true); }}
-                        className="ui-btn px-3 py-1.5 text-xs border-2"
+                         className="px-3 py-1.5 text-xs border-2"
                     >
                         <Plus className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Add to Shelf</span>
-                    </button>
+                    </Button>
                     {allSelectedCompleted ? (
-                        <button
+                        <Button
                             onClick={handleBatchMarkUnread}
-                            className="ui-btn px-3 py-1.5 text-xs border-2"
+                             className="px-3 py-1.5 text-xs border-2"
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">Mark Unread</span>
-                        </button>
+                        </Button>
                     ) : (
-                        <button
+                        <Button
                             onClick={handleBatchMarkRead}
-                            className="ui-btn px-3 py-1.5 text-xs border-2"
+                             className="px-3 py-1.5 text-xs border-2"
                         >
                             <CheckCheck className="w-3.5 h-3.5 text-[color:var(--color-accent)]" />
                             <span className="hidden sm:inline">Mark Read</span>
-                        </button>
+                        </Button>
                     )}
-                    <button
+                    <Button
                         onClick={handleOpenSeriesModalForSelection}
-                        className="ui-btn px-3 py-1.5 text-xs border-2"
+                         className="px-3 py-1.5 text-xs border-2"
                     >
                         <ListOrdered className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Set Series</span>
-                    </button>
+                    </Button>
                     <div className="h-5 w-px bg-[var(--color-border)]" />
-                    <button
+                    <Button
                         onClick={() => setBatchDeleteIds([...selectedBooks])}
-                        className="ui-btn px-3 py-1.5 text-xs border-2 bg-[var(--color-error)]/10 text-[color:var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
+                         className="px-3 py-1.5 text-xs border-2 bg-[var(--color-error)]/10 text-[color:var(--color-error)] border-[var(--color-error)]/30 hover:bg-[var(--color-error)]/20"
                     >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Delete</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="primary"
                         onClick={() => {
                             clearSelection();
                             setIsSelecting(false);
                         }}
-                        className="ui-btn-primary px-3 py-1.5 text-xs border-2 ml-auto"
+                         className="px-3 py-1.5 text-xs border-2 ml-auto"
                         title="Done selecting"
                     >
                         <span>Done</span>
-                    </button>
+                    </Button>
                 </div>
             )}
             <BookInfoModal
@@ -1271,14 +1268,14 @@ export function ShelvesPage() {
                     title="Shelves"
                     description={`${generalCollections.length} ${generalCollections.length === 1 ? "shelf" : "shelves"} • ${generalCollections.reduce((acc, s) => acc + getActualBookCount(s.bookIds), 0)} books`}
                 >
-                    <button
+                    <Button variant="primary"
                         onClick={handleCreateShelf}
-                        className={cn(TOOLBAR_BUTTON_PRIMARY, "px-3 py-2 sm:px-4")}
+                         className={cn("px-3 py-2 sm:px-4")}
                     >
                         <Plus className="w-4 h-4" />
                         <span className="hidden sm:inline">New Shelf</span>
                         <span className="sm:hidden">New</span>
-                    </button>
+                    </Button>
                 </PageHeader>
             </div>
 
