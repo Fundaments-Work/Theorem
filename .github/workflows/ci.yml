@@ -5,6 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,11 +16,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  typecheck:
-    name: Typecheck
+  # Decide which jobs have anything to check. A skipped job counts as passing, so this is safe
+  # with required checks (unlike `paths-ignore`, which leaves a required check pending forever).
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.f.outputs.web }}
+      rust: ${{ steps.f.outputs.rust }}
+      android: ${{ steps.f.outputs.android }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          all() { echo "web=true" >> "$GITHUB_OUTPUT"; echo "rust=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; }
+          # Manual runs, new branches and unreachable bases check everything.
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then all; exit 0; fi
+          files="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
+          has() { echo "$files" | grep -qE "$1" && echo true || echo false; }
+          # Docs, issue templates and the like need no build at all.
+          shared='^(\.github/workflows/ci\.yml|package\.json|pnpm-lock\.yaml|scripts/|tsconfig.*\.json)'
+          echo "web=$(has "$shared|^(src/|tests/|index\.html|ui-gallery\.html|public/|vite\.config|vitest\.config|src-tauri/crates/theorem-core/)")" >> "$GITHUB_OUTPUT"
+          echo "rust=$(has "^(\.github/workflows/ci\.yml|src-tauri/|pnpm-lock\.yaml)")" >> "$GITHUB_OUTPUT"
+          echo "android=$(has "^(\.github/workflows/ci\.yml|src-tauri/(src|crates|plugins|gen|Cargo|tauri\.conf|capabilities)|pnpm-lock\.yaml)")" >> "$GITHUB_OUTPUT"
+
+  web:
+    name: Web (typecheck, design, tests, build)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # The foliate-js submodule is needed by `foliate:check` and the build only.
       - uses: actions/checkout@v7
         with:
           submodules: recursive
@@ -43,62 +78,22 @@ jobs:
       - name: Design-system rules
         run: pnpm check:design
 
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      # pnpm must be on PATH before setup-node so its built-in pnpm store cache works.
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run tests
+      - name: Test
         run: pnpm test
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
+      # Fails if the committed foliate runtime differs from the submodule plus our patches.
+      # It replaces a plain sync: a passing check means a sync would change nothing.
+      - name: Foliate runtime matches the submodule and patches
+        run: pnpm foliate:check
 
-      # pnpm must be on PATH before setup-node so its built-in pnpm store cache works.
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Sync foliate-js submodule
-        run: bash scripts/sync-foliate-js.sh
-
-      # `pnpm build` re-runs typecheck, which already has its own job.
+      # `pnpm build` re-runs typecheck, which already ran above.
       - name: Build
         run: pnpm exec vite build && node scripts/verify-pdfjs-assets.mjs && node scripts/check-startup-bundle.mjs
 
   rust-check:
     name: Rust Check
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
@@ -108,8 +103,6 @@ jobs:
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       # pnpm must be on PATH before setup-node so its built-in pnpm store cache works.
       - name: Install pnpm
@@ -123,12 +116,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Verify PDF.js resources
-        run: |
-          test -f node_modules/pdfjs-dist/build/pdf.worker.mjs
-          test -d node_modules/pdfjs-dist/cmaps
-          test -d node_modules/pdfjs-dist/standard_fonts
 
       - name: Install dependencies (Ubuntu)
         run: |
@@ -151,9 +138,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-check-cargo-
 
-      - name: Fetch dependencies
-        run: cargo fetch --manifest-path src-tauri/Cargo.toml
-
+      # clippy --all-targets already type-checks everything, so no separate `cargo check`.
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
@@ -164,9 +149,6 @@ jobs:
           mkdir -p dist
           cargo clippy --manifest-path src-tauri/Cargo.toml --all-features --all-targets -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
 
-      - name: Check
-        run: cargo check --manifest-path src-tauri/Cargo.toml --all-features
-
       # Unit and integration tests of the app and every workspace crate.
       # `#[ignore]`d tests hit live catalogs and stay out of CI.
       - name: Test
@@ -176,6 +158,8 @@ jobs:
     # Desktop CI does not compile the `cfg(target_os = "android")` code; the
     # jni 0.22 bump once broke Android while every desktop check passed.
     name: Rust Check (Android)
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
@@ -185,8 +169,6 @@ jobs:
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -253,9 +235,10 @@ jobs:
   e2e:
     # End-to-end suite (docs/testing-e2e.md): the real app built with
     # `--features e2e`, driven through tauri-driver + WebKitWebDriver under Xvfb.
-    # Non-blocking while it proves itself on hosted runners; make it blocking
-    # once it has been green for a while.
+    # Non-blocking while it proves itself on hosted runners, and it compiles the whole app a
+    # second time, so it runs after a merge to main (or by hand), not on every pull request.
     name: E2E (Linux, non-blocking)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     continue-on-error: true
