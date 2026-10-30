@@ -19,6 +19,9 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 |----------|----------------|
 | [context.md](../context.md) | Project context, stack choices, design rationale |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, module relationships |
+| [modules.md](modules.md) | Module map, Tauri command surface, persistence and typed errors |
+| [release.md](release.md) | Versioning, the tagging checklist, CI troubleshooting |
+| [project-management.md](project-management.md) | Board, labels, issue templates, PR lifecycle |
 | [design-system.md](design-system.md) | UI contributor guide: tokens, shared components, the rules `pnpm check:design` enforces, the component gallery |
 
 ## Features

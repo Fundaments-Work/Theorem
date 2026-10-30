@@ -60,7 +60,7 @@ function Section({ title, note, children }: { title: string; note?: string; chil
     );
 }
 
-function Gallery() {
+export function Gallery() {
     const [theme, setTheme] = useState<"dark" | "light">("dark");
     const [chip, setChip] = useState("all");
     const [sort, setSort] = useState("title");
@@ -234,8 +234,12 @@ function Gallery() {
     );
 }
 
-createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-        <Gallery />
-    </StrictMode>,
-);
+// Mount only when the entry page provides a root (tests render <Gallery /> directly).
+const host = document.getElementById("root");
+if (host) {
+    createRoot(host).render(
+        <StrictMode>
+            <Gallery />
+        </StrictMode>,
+    );
+}
