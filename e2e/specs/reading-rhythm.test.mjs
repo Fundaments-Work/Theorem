@@ -56,6 +56,7 @@ test("Statistics is read-only and weekly goals are editable only in Settings",as
     await app.click(goal);
     await app.click({role:"menuitem",name:"5 days"});
     await app.waitFor(async()=>(await app.session.execute("return arguments[0].textContent",await app.find(goal))).includes("5 days"),{what:"updated weekly reading goal"});
+    await app.waitForText("This week: 4 days. Next Monday: 5 days.");
     await app.screenshot("reading-rhythm-settings");
 });
 test("the Settings goal survives restart while Library stays clean",async()=>{

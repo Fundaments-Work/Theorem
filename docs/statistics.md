@@ -82,8 +82,10 @@ weekly bonus. The store retains up to 365 days of legacy activity. Weekly target
 Reading Goals, using the shared Dropdown (Off or one through seven days).
 Statistics is read-only: a numbered shield, lifetime XP, segmented next-level
 track, next-level shield of the same size, and a weekly flag/count when a goal
-is enabled. The count can exceed the target ("6 days · goal 4" means six
-reading days against a four-day goal). The current and next level numbers come from calculated XP.
+is enabled. The flag shows reading days, with a completion check when the weekly
+goal has been met. Statistics labels the calculated current level explicitly.
+When Settings has a pending goal change, its helper separates this week’s target
+from the target that takes effect Monday. The shield numbers come from calculated XP.
 Icons retain accessible names and tooltips. Library shows no rhythm panel.
 XP progress appears inline; it does not open a celebration over the reader.
 The legacy `hideReadingMotivation` field remains readable for older peers but

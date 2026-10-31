@@ -1,4 +1,4 @@
-import { Flag, RefreshCw, Shield, Zap } from "lucide-react";
+import { CheckCircle2, Flag, RefreshCw, Shield, Zap } from "lucide-react";
 import { IconButton } from "../../ui/IconButton";
 import { useReadingRhythmProgress } from "./hooks/useReadingRhythmProgress";
 
@@ -11,18 +11,19 @@ export function ReadingRhythm() {
     </section>;
     if (!progress) return <div role="status" aria-label="Loading reading journey" className="mb-6 h-20" />;
     const earned = progress.xp % 100;
+    const goalMet = progress.targetDays > 0 && progress.qualifyingDays >= progress.targetDays;
     return <section aria-label="Reading journey" className="mb-6 flex items-center gap-4 border border-[var(--color-border)] px-4 py-3">
         <div role="img" aria-label={`Level ${progress.level}`} title={`Level ${progress.level}`} className="relative flex h-12 w-10 shrink-0 items-center justify-center text-[color:var(--color-accent)]">
             <Shield aria-hidden="true" className="absolute inset-0 h-full w-full" strokeWidth={1} />
             <span aria-hidden="true" className="pb-0.5 font-mono text-base">{progress.level}</span>
         </div>
         <div className="min-w-0 flex-1">
-            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[color:var(--color-text-secondary)]">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-[color:var(--color-text-secondary)]">
                 <span aria-label={`${progress.xp} lifetime XP`} title={`${earned} / 100 XP to level ${progress.level + 1}`} className="inline-flex items-center gap-1.5">
-                    <Zap aria-hidden="true" className="h-3.5 w-3.5" />{progress.xp} XP
+                    <span>Level {progress.level}</span><Zap aria-hidden="true" className="h-3.5 w-3.5" />{progress.xp} XP
                 </span>
-                {progress.targetDays > 0 && <span aria-label={`${progress.qualifyingDays} of ${progress.targetDays} reading days this week`} title={`Read on ${progress.qualifyingDays} days this week · Goal: ${progress.targetDays} days`} className="inline-flex items-center gap-1.5">
-                    <Flag aria-hidden="true" className="h-3.5 w-3.5" />{progress.qualifyingDays} {progress.qualifyingDays === 1 ? "day" : "days"} · goal {progress.targetDays}
+                {progress.targetDays > 0 && <span aria-label={`${progress.qualifyingDays} of ${progress.targetDays} reading days this week`} title={`Read on ${progress.qualifyingDays} days this week · Goal: ${progress.targetDays} days`} className="ml-auto inline-flex items-center gap-1.5">
+                    <Flag aria-hidden="true" className="h-3.5 w-3.5" />{progress.qualifyingDays} {progress.qualifyingDays === 1 ? "day" : "days"} {goalMet && <CheckCircle2 aria-label="Weekly goal met" className="h-3.5 w-3.5 text-[color:var(--color-accent)]" />}
                 </span>}
             </div>
             <div role="progressbar" aria-label={`XP to level ${progress.level + 1}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={earned} aria-valuetext={`${earned} of 100 XP`} className="flex gap-1">

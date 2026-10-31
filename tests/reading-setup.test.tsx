@@ -98,6 +98,17 @@ describe("reading rhythm presentation", () => {
         expect(host.querySelector("select, input")).toBeNull();
         expect(host.querySelector('[aria-label="0 of 3 reading days this week"]')).not.toBeNull();
     });
+    it("distinguishes this week's goal from the change scheduled for Monday", async () => {
+        await rhythmEngine.setWeeklyReadingGoal(4);
+        await rhythmEngine.setWeeklyReadingGoal(5);
+        await act(async () => root.render(<WeeklyReadingGoal />));
+        expect(host.querySelector("#weekly-reading-days")?.textContent).toContain("5 days");
+        expect(host.textContent).toContain("This week: 4 days. Next Monday: 5 days.");
+        await act(async () => root.render(<ReadingRhythm />));
+        expect(host.textContent).toContain("Level 1");
+        expect(host.textContent).not.toContain("goal 4");
+        expect(host.querySelector('[aria-label="0 of 4 reading days this week"]')).not.toBeNull();
+    });
     it("advances the level emblem and resets the next-level track at 100 XP", async () => {
         await rhythmEngine.setWeeklyReadingGoal(0);
         await act(async () => root.render(<ReadingRhythm />));

@@ -23,7 +23,9 @@ export function WeeklyReadingGoal() {
                 ...[1, 2, 3, 4, 5, 6, 7].map(days => ({ value: String(days), label: `${days} ${days === 1 ? "day" : "days"}` })),
             ]} />
         </div>
-        <p className="mt-1 text-xs text-[color:var(--color-text-muted)]">5 min counts as a day. Goal changes start next Monday.</p>
+        <p className="mt-1 text-xs text-[color:var(--color-text-muted)]">{progress && progress.targetDays !== progress.nextTargetDays
+                ? `This week: ${progress.targetDays === 0 ? "Off" : `${progress.targetDays} ${progress.targetDays === 1 ? "day" : "days"}`}. Next Monday: ${progress.nextTargetDays === 0 ? "Off" : `${progress.nextTargetDays} ${progress.nextTargetDays === 1 ? "day" : "days"}`}.`
+                : "5 min counts as a day. Goal changes start next Monday."}</p>
         {(error || saveError) && <div className="mt-2 flex items-center gap-2"><p role="alert" className="text-xs text-[color:var(--color-error)]">Reading goal unavailable.</p><IconButton label="Retry reading goal" icon={<RefreshCw aria-hidden="true" className="h-4 w-4" />} onClick={() => { setSaveError(false); retry(); }} /></div>}
     </div>;
 }
