@@ -90,8 +90,10 @@ Your daily-minute goal and daily streak are separate.
 A qualifying day earns 10 XP. Meeting a weekly goal earns another 20 XP. Every
 100 lifetime XP advances a level, starting at level 1. Missing a week never takes
 XP away. Extra minutes and app opens do not earn extra XP, and no reading feature
-is locked behind a level. Awards begin when you choose a rhythm; older reading
-stays in your existing statistics.
+is locked behind a level. Existing reading history earns daily XP too: each retained date with at least
+five minutes counts once. The app retains up to one year of daily history.
+Older weeks without a weekly goal do not receive goal bonuses. Choosing a
+weekly rhythm is optional for daily XP.
 
 Statistics shows a numbered level shield, lifetime XP, and a segmented track
 toward the next level. Goals are edited in Settings; Statistics is read-only.

@@ -28,7 +28,7 @@
         "features/library/Bookmarks.tsx": 5,
         "features/library/components/LibraryDailyReviewDeck.tsx": 1,
         "features/library/components/ReviewCardStack.tsx": 12,
-        "features/library/Library.tsx": 3,
+        "features/library/Library.tsx": 2,
         "features/library/LibraryFilterPanel.tsx": 1,
         "features/library/Shelves.tsx": 1,
         "features/settings/BackupSection.tsx": 2,

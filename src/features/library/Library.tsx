@@ -20,10 +20,10 @@ import { LibraryDailyReviewDeck } from "./components/LibraryDailyReviewDeck";
 import type { Book, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
 import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
-    Plus, BookOpen, Loader2, FolderOpen, RefreshCw, Trash2, BookMarked, LayoutGrid, List, Grid3X3, CheckCheck, RotateCcw, Star, Check, Compass, Pencil, Download, ListOrdered, X, CheckSquare, Folder, SlidersHorizontal
+    Plus, BookOpen, Loader2, FolderOpen, RefreshCw, Trash2, BookMarked, LayoutGrid, Rows3, Grid3X3, CheckCheck, RotateCcw, Star, Check, Compass, Pencil, Download, ListOrdered, X, CheckSquare, Folder, Funnel
 } from "lucide-react";
+import { IconButton } from "../../ui/IconButton";
 import { Button, PageHeader, TheoremBookCover } from "../../ui";
-import { TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
 import { Modal, ModalHeader, ModalBody, ModalFooter, ConfirmDialog, AlertDialog } from "../../ui";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
@@ -39,9 +39,9 @@ import { buildSourceFolderIndex } from "../../core/lib/source-folders";
 import type { SourceFolderSelection } from "../../core/lib/source-folders";
 
 const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
-    grid: <LayoutGrid className="w-4 h-4" />,
-    list: <List className="w-4 h-4" />,
-    compact: <Grid3X3 className="w-4 h-4" />,
+    grid: <LayoutGrid className="h-6 w-6" />,
+    list: <Rows3 className="h-6 w-6" />,
+    compact: <Grid3X3 className="h-6 w-6" />,
 };
 
 
@@ -1706,35 +1706,25 @@ export function LibraryPage() {
                         <span className="hidden sm:inline text-xs">{isSelecting ? "Done" : "Select"}</span>
                     </Button>
 
-                    <Button
+                    <IconButton
                         onClick={toggleViewMode}
-                         className={cn(TOOLBAR_ICON_BUTTON, "border-2")}
+                        className="h-11 w-11 sm:h-10 sm:w-10"
                         title={`View: ${settings.libraryViewMode}`}
-                        aria-label={`Change view (now ${settings.libraryViewMode})`}
-                    >
-                        {viewModeIcons[settings.libraryViewMode]}
-                    </Button>
-
-                    <Button
+                        label={`Change view (now ${settings.libraryViewMode})`}
+                        icon={viewModeIcons[settings.libraryViewMode]}
+                    />
+                    <IconButton
                         onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                        aria-label="Filter and sort"
+                        label="Filter and sort"
                         aria-expanded={showFilterDropdown}
-                         className={cn(
-                            TOOLBAR_ICON_BUTTON,
-                            "relative border-2 transition-colors",
-                            showFilterDropdown
-                                ? FILTER_CHIP_SELECTED
-                                : hasActiveFilters
-                                ? "bg-[var(--color-surface)] text-[color:var(--color-accent)] border-[var(--color-accent)]"
-                                : "bg-[var(--color-surface)] text-[color:var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-primary)]"
-                        )}
+                        data-active={showFilterDropdown || hasActiveFilters}
+                        className="relative h-11 w-11 sm:h-10 sm:w-10"
                         title={hasActiveFilters ? "Filter and sort (active filters applied)" : "Filter and sort"}
-                    >
-                        <SlidersHorizontal className="w-4 h-4" />
-                        {hasActiveFilters && (
-                            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[var(--color-surface)]" />
-                        )}
-                    </Button>
+                        icon={<>
+                            <Funnel className="h-6 w-6" />
+                            {hasActiveFilters && <span className="absolute top-1 right-1 h-1.5 w-1.5 bg-[color:var(--color-accent)]" />}
+                        </>}
+                    />
                 </div>
             </PageHeader>
             {selectedSourceFolder && (

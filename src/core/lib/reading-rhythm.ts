@@ -22,6 +22,7 @@ type Request = {
     incoming?: RhythmState;
     goal?: { days: number; stamp: string; id: string };
     reading?: { date: string; source: string; seconds: number };
+    legacyActivity?: { date: string; minutes: number }[];
 };
 let evaluate: ((request: Request) => RhythmProgress | Promise<RhythmProgress>) | undefined;
 let loading: Promise<void> | undefined;
@@ -43,7 +44,9 @@ export function prepareReadingRhythm(): Promise<void> {
 
 export async function readingRhythmProgress(): Promise<RhythmProgress> {
     await prepareReadingRhythm();
-    return evaluate!({ today: localDateKey(), state: useSettingsStore.getState().stats.rhythm });
+    const stats = useSettingsStore.getState().stats;
+    return evaluate!({ today: localDateKey(), state: stats.rhythm,
+        legacyActivity: stats.dailyActivity });
 }
 
 function change(updates: Omit<Request, "today" | "state">, apply?: (state: RhythmState) => void): Promise<void> {
@@ -52,7 +55,8 @@ function change(updates: Omit<Request, "today" | "state">, apply?: (state: Rhyth
         while (true) {
             if (isPersistenceSuspended()) throw new Error("Reading progress is temporarily unavailable");
             const before = useSettingsStore.getState().stats.rhythm;
-            const result = await evaluate!({ today: localDateKey(), state: before, ...updates });
+            const result = await evaluate!({ today: localDateKey(), state: before,
+                legacyActivity: useSettingsStore.getState().stats.dailyActivity, ...updates });
             if (isPersistenceSuspended()) throw new Error("Reading progress is temporarily unavailable");
             // A restore or another store writer may run while native IPC is pending.
             if (useSettingsStore.getState().stats.rhythm !== before) continue;
@@ -95,6 +99,8 @@ export function recordReadingRhythm(date: string, source: string, seconds: numbe
 }
 
 export async function flushReadingRhythmOutbox(): Promise<void> {
+    // Persist historical day credit at startup, including existing rhythm profiles.
+    await change({});
     for (const [id, reading] of Object.entries(useSettingsStore.getState().rhythmOutbox)) {
         await applyPending(id, reading);
     }

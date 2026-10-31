@@ -23,6 +23,13 @@ test("choose a rhythm, import a book, and continue from its own card",async()=>{
     await app.find({role:"heading",name:"No Books Yet"});
     await importBooks(app,[files.harbour],{expectTitles:[BOOKS.harbour.title]});
     await cleanLibrary();
+    for (const name of ["Change view (now grid)", "Filter and sort"]) {
+        const control = await app.find({role:"button",name});
+        const style = await app.session.execute("const b=arguments[0],s=getComputedStyle(b),i=b.querySelector('svg').getBoundingClientRect();return {border:s.borderTopWidth,background:s.backgroundColor,size:i.width}",control);
+        assert.equal(style.border,"0px");
+        assert.equal(style.background,"rgba(0, 0, 0, 0)");
+        assert.ok(style.size >= 24, `Toolbar icon width was ${style.size}`);
+    }
     await openBook(app,BOOKS.harbour.title);
     await app.find({role:"main",name:"Reader"});
     await backToLibrary(app);
@@ -35,7 +42,10 @@ test("Statistics is read-only and weekly goals are editable only in Settings",as
     await box.quit();app=await box.launch();
     await cleanLibrary();
     await goTo(app,"Statistics");
-    await app.find({role:"img",name:"Level 1"});
+    const currentLevel = await app.find({role:"img",name:"Level 1"});
+    const nextLevel = await app.find({role:"img",name:"Next level 2"});
+    const sizes = await app.session.execute("return Array.from(arguments,el=>{const r=el.getBoundingClientRect();return {width:r.width,height:r.height}})",currentLevel,nextLevel);
+    assert.deepEqual(sizes[0], sizes[1]);
     await app.find({role:"progressbar",name:"XP to level 2"});
     assert.equal(await app.exists({role:"button",name:"Reading days per week"}),false);
     assert.equal(await app.exists({role:"checkbox",name:"Hide motivational progress in Library"}),false);

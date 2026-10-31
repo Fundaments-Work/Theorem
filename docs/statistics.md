@@ -72,12 +72,18 @@ following Monday. Initial setup applies to the current week.
 Qualifying days earn 10 XP, once per date. Reaching the effective weekly target
 earns another 20 XP, once per week. Level starts at 1 and advances every 100 XP.
 Extra minutes, imports, highlights, page turns and review-card swipes earn no XP.
-Missing a day or week does not remove XP. Earlier activity remains in Statistics
-but is not converted into historical awards. Collection starts when the reader
-first chooses a rhythm. Weekly targets are edited only in Settings → General →
+Missing a day or week does not remove XP. For both existing rhythm profiles and readers without rhythm state,
+the evaluator credits qualifying days from retained legacy daily activity.
+Fractional minutes are accepted; book metadata is ignored. Existing awards and goals are preserved. A stable legacy source credits each
+qualifying date once, using a five-minute lower bound instead of adding
+overlapping minutes. Startup persists this backfill, and progress refreshes
+when daily activity changes. Historical weeks without an established target earn no
+weekly bonus. The store retains up to 365 days of legacy activity. Weekly targets are edited only in Settings → General →
 Reading Goals, using the shared Dropdown (Off or one through seven days).
 Statistics is read-only: a numbered shield, lifetime XP, segmented next-level
-track, next-level shield, and a weekly flag/count when a goal is enabled.
+track, next-level shield of the same size, and a weekly flag/count when a goal
+is enabled. The count can exceed the target ("6 days · goal 4" means six
+reading days against a four-day goal). The current and next level numbers come from calculated XP.
 Icons retain accessible names and tooltips. Library shows no rhythm panel.
 XP progress appears inline; it does not open a celebration over the reader.
 The legacy `hideReadingMotivation` field remains readable for older peers but
@@ -114,10 +120,14 @@ Durations render as `<1m` below a minute or completed whole minutes/hours; remai
 minutes round upward for display without changing stored time or goal thresholds.
 Day keys already recorded are never reassigned after travel. A newly recorded
 earlier local day after travel or clock correction is accepted without
-backfilling any legacy activity. Visible time remains
+duplicating retained legacy day credit. Visible time remains
 a proxy for reading, not proof of attention or comprehension.
 
 Native backups include both the ledger and retry outbox in the settings snapshot.
 Restoring the same backup repeatedly does not add awards. A deliberate full
 restore replaces local history with the snapshot's history, including XP;
 subsequent peer sync unions any additional awards that peers still hold.
+
+Statistics uses Lucide icons throughout, including goal-completion checks.
+Earned achievements use an accent edge and an accent tile with contrast-colored
+icons; they are shown only after their existing unlock condition is met.

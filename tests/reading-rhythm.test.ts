@@ -7,14 +7,14 @@ import { splitReadingInterval } from "../src/features/reader/lib/reading-interva
 beforeEach(async () => {
     await initTheoremCoreWasm();
     await prepareReadingRhythm();
-    useSettingsStore.setState(state => ({ rhythmOutbox: {}, stats: { ...state.stats, rhythm: undefined } }));
+    useSettingsStore.setState(state => ({ rhythmOutbox: {}, stats: { ...state.stats, rhythm: undefined, dailyActivity: [] } }));
 });
 
 describe("Rust reading rhythm through the browser bridge", () => {
-    it("does not backfill awards from legacy activity", async () => {
+    it("backfills daily awards from retained legacy activity", async () => {
         useSettingsStore.getState().updateStats({ dailyActivity: [{date:"2026-10-01", minutes: 60, booksRead: ["b"]}] });
         await setWeeklyReadingGoal(4);
-        expect(useSettingsStore.getState().stats.rhythm?.awards).toEqual({});
+        expect(useSettingsStore.getState().stats.rhythm?.awards).toEqual({"day:2026-10-01":10});
     });
 
     it("combines independent sessions once and preserves XP through a legacy peer merge", async () => {

@@ -55,6 +55,13 @@ pub struct ReadingCounter {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyReadingDay {
+    pub date: Box<str>,
+    pub minutes: f64,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RhythmRequest {
     pub today: Box<str>,
@@ -62,6 +69,8 @@ pub struct RhythmRequest {
     pub incoming: Option<RhythmState>,
     pub goal: Option<Goal>,
     pub reading: Option<ReadingCounter>,
+    #[serde(default)]
+    pub legacy_activity: Vec<LegacyReadingDay>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,9 +113,13 @@ fn target(state: &RhythmState, start: &str) -> u8 {
 }
 
 fn seconds(sources: &BTreeMap<Box<str>, u32>) -> u32 {
-    sources
-        .values()
-        .fold(0_u32, |total, value| total.saturating_add(*value))
+    // The legacy marker is a lower bound, not another independent reader.
+    let recorded = sources
+        .iter()
+        .filter(|(source, _)| source.as_ref() != "legacy-daily-activity")
+        .fold(0_u32, |total, (_, value)| total.saturating_add(*value));
+    recorded
+        .max(sources.get("legacy-daily-activity").copied().unwrap_or(0))
         .min(86_400)
 }
 
@@ -177,6 +190,38 @@ pub fn evaluate(request: RhythmRequest) -> Result<RhythmProgress, RhythmError> {
         activated_on: request.today.clone(),
         ..Default::default()
     });
+    validate(&state)?;
+    if !request.legacy_activity.is_empty() {
+        let oldest = request
+            .legacy_activity
+            .iter()
+            .map(|day| day.date.as_ref())
+            .min();
+        if let Some(oldest) = oldest {
+            date(oldest)?;
+            state.activated_on = state.activated_on.min(oldest.to_owned().into_boxed_str());
+        }
+        for activity in request.legacy_activity {
+            date(&activity.date)?;
+            if activity.date < state.activated_on
+                || !activity.minutes.is_finite()
+                || activity.minutes > 1440.0
+                || activity.minutes < 0.0
+            {
+                return Err(RhythmError::InvalidCounter);
+            }
+            // Legacy time can overlap native source counters. Only import a
+            // qualifying-day marker: it cannot manufacture a threshold crossing
+            // from two overlapping sub-threshold histories on different peers.
+            if activity.minutes >= 5.0 && activity.date.as_ref() <= request.today.as_ref() {
+                state
+                    .days
+                    .entry(activity.date)
+                    .or_default()
+                    .insert("legacy-daily-activity".into(), 300);
+            }
+        }
+    }
     validate(&state)?;
     if let Some(incoming) = request.incoming {
         validate(&incoming)?;
@@ -273,6 +318,51 @@ mod tests {
     }
     fn goal() -> serde_json::Value {
         serde_json::json!({"stamp":"2026-10-26T00:00:00.000Z", "id":"a", "days":4})
+    }
+
+    #[test]
+    fn legacy_activity_accepts_fractional_minutes_and_book_metadata() {
+        let activity: Vec<_> = (26..=31)
+            .map(|day| {
+                serde_json::json!({
+                    "date":format!("2026-10-{day}"),"minutes":5.5,"booksRead":["book"]
+                })
+            })
+            .collect();
+        let progress = evaluate(request(serde_json::json!({
+            "today":"2026-10-31", "legacyActivity":activity
+        })))
+        .unwrap();
+        assert_eq!(progress.xp, 60);
+        assert_eq!(progress.qualifying_days, 6);
+        assert_eq!(progress.state.activated_on.as_ref(), "2026-10-26");
+    }
+
+    #[test]
+    fn legacy_days_backfill_existing_rhythm_without_duplicate_awards() {
+        let initial = evaluate(request(
+            serde_json::json!({"today":"2026-10-31","goal":goal()}),
+        ))
+        .unwrap();
+        let activity: Vec<_> = (26..=31)
+            .map(|day| {
+                serde_json::json!({
+                    "date":format!("2026-10-{day}"),"minutes":5.5,"booksRead":["book"]
+                })
+            })
+            .collect();
+        let migrated = evaluate(request(serde_json::json!({
+            "today":"2026-10-31","state":initial.state,"legacyActivity":activity,
+            "reading":{"date":"2026-10-31","source":"reader","seconds":300}
+        })))
+        .unwrap();
+        assert_eq!(migrated.xp, 80);
+        assert_eq!(migrated.today_seconds, 300);
+        let replay = evaluate(request(serde_json::json!({
+            "today":"2026-10-31","state":migrated.state,"incoming":migrated.state,"legacyActivity":activity
+        }))).unwrap();
+        assert_eq!(replay.xp, 80);
+        assert_eq!(replay.today_seconds, 300);
     }
 
     #[test]

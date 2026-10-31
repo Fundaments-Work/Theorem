@@ -1,4 +1,4 @@
-import { Flag, RefreshCw, Shield, Sparkles } from "lucide-react";
+import { Flag, RefreshCw, Shield, Zap } from "lucide-react";
 import { IconButton } from "../../ui/IconButton";
 import { useReadingRhythmProgress } from "./hooks/useReadingRhythmProgress";
 
@@ -12,17 +12,17 @@ export function ReadingRhythm() {
     if (!progress) return <div role="status" aria-label="Loading reading journey" className="mb-6 h-20" />;
     const earned = progress.xp % 100;
     return <section aria-label="Reading journey" className="mb-6 flex items-center gap-4 border border-[var(--color-border)] px-4 py-3">
-        <div role="img" aria-label={`Level ${progress.level}`} title={`Level ${progress.level}`} className="relative flex h-14 w-12 shrink-0 items-center justify-center text-[color:var(--color-accent)]">
+        <div role="img" aria-label={`Level ${progress.level}`} title={`Level ${progress.level}`} className="relative flex h-12 w-10 shrink-0 items-center justify-center text-[color:var(--color-accent)]">
             <Shield aria-hidden="true" className="absolute inset-0 h-full w-full" strokeWidth={1} />
-            <span aria-hidden="true" className="pb-1 font-mono text-lg">{progress.level}</span>
+            <span aria-hidden="true" className="pb-0.5 font-mono text-base">{progress.level}</span>
         </div>
         <div className="min-w-0 flex-1">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[color:var(--color-text-secondary)]">
                 <span aria-label={`${progress.xp} lifetime XP`} title={`${earned} / 100 XP to level ${progress.level + 1}`} className="inline-flex items-center gap-1.5">
-                    <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />{progress.xp} XP
+                    <Zap aria-hidden="true" className="h-3.5 w-3.5" />{progress.xp} XP
                 </span>
-                {progress.targetDays > 0 && <span aria-label={`${progress.qualifyingDays} of ${progress.targetDays} reading days this week`} title="Reading days this week" className="inline-flex items-center gap-1.5">
-                    <Flag aria-hidden="true" className="h-3.5 w-3.5" />{progress.qualifyingDays}/{progress.targetDays}
+                {progress.targetDays > 0 && <span aria-label={`${progress.qualifyingDays} of ${progress.targetDays} reading days this week`} title={`Read on ${progress.qualifyingDays} days this week · Goal: ${progress.targetDays} days`} className="inline-flex items-center gap-1.5">
+                    <Flag aria-hidden="true" className="h-3.5 w-3.5" />{progress.qualifyingDays} {progress.qualifyingDays === 1 ? "day" : "days"} · goal {progress.targetDays}
                 </span>}
             </div>
             <div role="progressbar" aria-label={`XP to level ${progress.level + 1}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={earned} aria-valuetext={`${earned} of 100 XP`} className="flex gap-1">
@@ -31,9 +31,9 @@ export function ReadingRhythm() {
                 </span>)}
             </div>
         </div>
-        <div role="img" aria-label={`Next level ${progress.level + 1}`} title={`Next level ${progress.level + 1}`} className="relative flex h-9 w-8 shrink-0 items-center justify-center text-[color:var(--color-text-muted)]">
+        <div role="img" aria-label={`Next level ${progress.level + 1}`} title={`Next level ${progress.level + 1}`} className="relative flex h-12 w-10 shrink-0 items-center justify-center text-[color:var(--color-text-muted)]">
             <Shield aria-hidden="true" className="absolute inset-0 h-full w-full" strokeWidth={1} />
-            <span aria-hidden="true" className="pb-0.5 font-mono text-xs">{progress.level + 1}</span>
+            <span aria-hidden="true" className="pb-0.5 font-mono text-base">{progress.level + 1}</span>
         </div>
     </section>;
 }

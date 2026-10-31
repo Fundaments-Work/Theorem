@@ -8,6 +8,7 @@ import { useLibraryStore, useSettingsStore, useUIStore } from "../../core/store"
 import { countBooksReadThisYear, isBookCompleted } from "../../core/lib/statistics";
 import type { DailyReadingActivity } from "../../core/types";
 import {
+    CheckCircle2,
     BookOpen,
     Clock,
     Target,
@@ -27,7 +28,7 @@ interface StatCardProps {
     icon: React.ReactNode;
     label: string;
     value: string | number;
-    subtext?: string;
+    subtext?: React.ReactNode;
     trend?: "up" | "down" | "neutral";
 }
 
@@ -321,7 +322,7 @@ export function StatisticsPage() {
                     icon={<Target className="w-5 h-5" />}
                     label="Today's Reading"
                     value={`${formatReadingTime(todayMinutes)} / ${stats.dailyGoal}m`}
-                    subtext={todayMinutes >= stats.dailyGoal ? "Daily goal achieved! 🎉" : `${Math.ceil(Math.max(0, stats.dailyGoal - todayMinutes))} min remaining today`}
+                    subtext={todayMinutes >= stats.dailyGoal ? <span className="inline-flex items-center gap-1 text-[color:var(--color-accent)]"><CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />Daily goal achieved</span> : `${Math.ceil(Math.max(0, stats.dailyGoal - todayMinutes))} min remaining today`}
                 />
                 <StatCard
                     icon={<Flame className="w-5 h-5" />}
@@ -393,7 +394,7 @@ export function StatisticsPage() {
                                 <div className="flex items-center justify-between text-xs text-[color:var(--color-text-muted)] mt-1.5">
                                     <span>
                                         {todayMinutes >= stats.dailyGoal
-                                            ? "Daily goal completed! 🎉"
+                                            ? <span className="inline-flex items-center gap-1 text-[color:var(--color-accent)]"><CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />Daily goal completed</span>
                                             : `${Math.ceil(Math.max(0, stats.dailyGoal - todayMinutes))} min to reach daily goal`}
                                     </span>
                                     <span className="text-[color:var(--color-text-primary)]">
@@ -544,9 +545,9 @@ export function StatisticsPage() {
                         </div>
                         <div className="space-y-3">
                             {completedBooks >= 1 && (
-                                <div className="flex items-center gap-3 p-3 bg-[var(--color-accent-light)]">
-                                    <div className="w-8 h-8 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
-                                        <BookOpen className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
+                                <div className="flex items-center gap-3 border-l-2 border-[var(--color-accent)] bg-[var(--color-surface-muted)] p-3">
+                                    <div className="h-10 w-10 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
+                                        <BookOpen className="h-5 w-5 text-[color:var(--color-accent-contrast)]" />
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm text-[color:var(--color-text-primary)]">First Book</p>
@@ -555,9 +556,9 @@ export function StatisticsPage() {
                                 </div>
                             )}
                             {completedBooks >= 5 && (
-                                <div className="flex items-center gap-3 p-3 bg-[var(--color-accent-light)]">
-                                    <div className="w-8 h-8 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
-                                        <TrendingUp className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
+                                <div className="flex items-center gap-3 border-l-2 border-[var(--color-accent)] bg-[var(--color-surface-muted)] p-3">
+                                    <div className="h-10 w-10 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
+                                        <TrendingUp className="h-5 w-5 text-[color:var(--color-accent-contrast)]" />
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm text-[color:var(--color-text-primary)]">Bookworm</p>
@@ -566,9 +567,9 @@ export function StatisticsPage() {
                                 </div>
                             )}
                             {stats.currentStreak >= 7 && (
-                                <div className="flex items-center gap-3 p-3 bg-[var(--color-accent-light)]">
-                                    <div className="w-8 h-8 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
-                                        <Flame className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
+                                <div className="flex items-center gap-3 border-l-2 border-[var(--color-accent)] bg-[var(--color-surface-muted)] p-3">
+                                    <div className="h-10 w-10 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
+                                        <Flame className="h-5 w-5 text-[color:var(--color-accent-contrast)]" />
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm text-[color:var(--color-text-primary)]">On Fire</p>
@@ -577,9 +578,9 @@ export function StatisticsPage() {
                                 </div>
                             )}
                             {totalHighlights >= 10 && (
-                                <div className="flex items-center gap-3 p-3 bg-[var(--color-accent-light)]">
-                                    <div className="w-8 h-8 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
-                                        <Highlighter className="w-4 h-4 text-[color:var(--color-text-inverse)]" />
+                                <div className="flex items-center gap-3 border-l-2 border-[var(--color-accent)] bg-[var(--color-surface-muted)] p-3">
+                                    <div className="h-10 w-10 bg-[var(--color-accent)] flex items-center justify-center shrink-0">
+                                        <Highlighter className="h-5 w-5 text-[color:var(--color-accent-contrast)]" />
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm text-[color:var(--color-text-primary)]">Highlighter</p>

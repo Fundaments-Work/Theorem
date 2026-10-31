@@ -2120,6 +2120,7 @@ fn combine_doc_values(
                                 incoming: Some(incoming),
                                 goal: None,
                                 reading: None,
+                                legacy_activity: Vec::new(),
                             };
                             if let Ok(progress) = theorem_core::reading_rhythm::evaluate(request) {
                                 rhythm = Some(progress.state);

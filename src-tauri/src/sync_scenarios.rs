@@ -1892,6 +1892,7 @@ async fn reading_rhythm_converges_after_offline_reading_and_legacy_statistics() 
             state,
             incoming,
             goal: None,
+            legacy_activity: Vec::new(),
             reading: None,
         })
         .unwrap()

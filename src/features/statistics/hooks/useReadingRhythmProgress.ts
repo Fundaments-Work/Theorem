@@ -4,6 +4,7 @@ import { readingRhythmProgress, type RhythmProgress } from "../../../core/lib/re
 
 /** Presentation only: evaluating progress never changes a goal or awards data. */
 export function useReadingRhythmProgress() {
+    const dailyActivity = useSettingsStore(state => state.stats.dailyActivity);
     const rhythm = useSettingsStore(state => state.stats.rhythm);
     const [progress, setProgress] = useState<RhythmProgress>();
     const [error, setError] = useState(false);
@@ -21,6 +22,6 @@ export function useReadingRhythmProgress() {
             if (!cancelled) { setProgress(value); setError(false); }
         }).catch(() => { if (!cancelled) setError(true); });
         return () => { cancelled = true; };
-    }, [rhythm, today, attempt]);
+    }, [rhythm, dailyActivity, today, attempt]);
     return { progress, error, retry: () => setAttempt(value => value + 1) };
 }
