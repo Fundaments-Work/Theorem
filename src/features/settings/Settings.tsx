@@ -1,3 +1,4 @@
+import { ReadingRhythm } from "../statistics/ReadingRhythm";
 import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, PageHeader } from "../../ui";
@@ -736,9 +737,10 @@ export const SettingsPage = memo(function SettingsPage() {
             {(activeTab === "general" || visitedTabs.has("general")) && <div className={activeTab === "general" ? "space-y-8" : "hidden"}>
                     <Section
                         title="Reading Goals"
-                        description="Set your daily and yearly reading targets"
+                        description="Choose a weekly rhythm and daily or yearly targets"
                         icon={<Target className="w-5 h-5" />}
                     >
+                        <ReadingRhythm />
                         <SettingRow
                             label="Daily Reading Goal"
                             description="Minutes to read each day"

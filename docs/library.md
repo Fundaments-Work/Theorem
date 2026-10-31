@@ -77,3 +77,26 @@ The `useLibraryStore` has result caches (`WeakMap`-based) for search results, re
 `scan_library_folder_desktop(path)` recursively walks a directory and collects all supported files. On Android, `scan_library_folder_mobile(uri)` uses the SAF (Storage Access Framework) via a custom Tauri plugin.
 
 The scan returns file paths; importing them is a separate step (`importBooksIncremental`) to avoid blocking the UI during long scans on network drives.
+
+## Resume and reading rhythm
+
+On the unfiltered Library home, Continue reading uses the existing bounded
+recent-book cache and the store's ID lookup. Successful EPUB/comic/other document
+and PDF load callbacks record the open without altering progress or location, so
+Resume is available even before the first page turn. It opens through the normal reader
+handler, including on-demand downloads for synced books. Weekly progress appears
+below it, with a link to Statistics. Both precede daily review; the duplicate
+review deck above the page header has been removed. Navigation retains the shared
+five-destination order and mobile labels.
+
+The scroll header is measured with a ResizeObserver. TanStack Virtual's source
+starts measurements at `paddingStart + scrollMargin` and subtracts `scrollMargin`
+from `getTotalSize()`. The Library therefore supplies the header height as
+`scrollMargin` and normalizes each measurement's start to the grid's coordinates
+before applying the absolute-row transform. Dynamic goal/review height must not
+be treated as book-row height or estimated using a delayed navigation frame.
+
+The populated Library keeps Select and native Scan actions visible in its toolbar.
+Select must not be `sr-only` when inactive: that leaves an exposed but
+non-interactable control. Scan opens the existing folder organization chooser
+before the native folder picker, even when books are already present.

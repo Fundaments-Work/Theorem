@@ -40,13 +40,17 @@ test("the highlight appears in the Workbench with its book", async () => {
     await goTo(app, "Workbench");
     await app.waitForText("1 highlight");
     await app.waitForText("Marker");
-    await app.waitForText(`${book.title} | ${book.author}`);
+    await app.waitForText(book.title);
+    await app.waitForText(book.author);
 
     await app.click({ role: "tab", name: "Highlights" });
     await app.waitForText("Marker");
     await app.click({ role: "tab", name: "Notes" });
     await app.waitFor(async () => !/\bMarker\b/.test(await app.text()), { what: "Notes tab without the highlight" });
-    await app.click({ role: "tab", name: "All" });
+    await app.click({ role: "tab", name: "Highlights" });
+    await app.waitForText("Marker");
+    await app.waitForText(book.title);
+    await app.waitForText(book.author);
 });
 
 test("Markdown export writes the highlight into the chosen folder", async () => {

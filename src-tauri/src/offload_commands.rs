@@ -666,3 +666,15 @@ pub async fn import_book_path(
 ) -> Result<crate::book_import::ImportedBinary, AppError> {
     offload(move || crate::book_import::import_book_path(app, id, path, format)).await
 }
+
+/// Pure Rust goal evaluation; never execute WebAssembly in the native webview.
+#[tauri::command]
+pub async fn evaluate_reading_rhythm(
+    request: theorem_core::reading_rhythm::RhythmRequest,
+) -> Result<theorem_core::reading_rhythm::RhythmProgress, AppError> {
+    offload(move || {
+        theorem_core::reading_rhythm::evaluate(request)
+            .map_err(|error| AppError::invalid_input(error.to_string()))
+    })
+    .await
+}

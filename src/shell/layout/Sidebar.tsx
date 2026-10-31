@@ -56,7 +56,7 @@ export const Sidebar = memo(function Sidebar() {
 
     return (
         <aside
-            aria-label="Workbench views"
+            aria-label="Application sidebar"
             className="relative z-30 flex h-full w-[var(--layout-sidebar-width)] shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)]"
         >
             <div className="flex h-[var(--layout-sidebar-header-height)] items-center justify-center border-b border-[var(--color-border)]">
@@ -64,7 +64,7 @@ export const Sidebar = memo(function Sidebar() {
             </div>
             <nav aria-label="Main navigation"className="flex flex-1 flex-col min-h-0">
                 {PRIMARY_DESTINATIONS.map((item) =>
-                    railButton(item.id, item.label, <item.Icon className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" />, () => select(item.id), item.alsoActiveOn),
+                    railButton(item.id, item.label, <item.Icon aria-hidden="true" className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" />, () => select(item.id), item.alsoActiveOn),
                 )}
             </nav>
             <div className="mt-auto flex flex-col">

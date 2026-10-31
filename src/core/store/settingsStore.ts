@@ -111,6 +111,9 @@ const defaultReadingStats: ReadingStats = {
 };
 
 interface SettingsStore {
+    readingSetupStep: number;
+    rhythmOutbox: Record<string, {date: string; source: string; seconds: number}>;
+    readingOutbox: Record<string, { date: string; minutes: number; bookId: string }>;
     settings: AppSettings;
     stats: ReadingStats;
     
@@ -128,6 +131,9 @@ interface SettingsStore {
 export const useSettingsStore = create<SettingsStore>()(
     persist(
         (set, get) => ({
+            readingSetupStep: 0,
+            rhythmOutbox: {},
+            readingOutbox: {},
             settings: defaultAppSettings,
             stats: defaultReadingStats,
             settingsLastModifiedAt: new Date(0).toISOString(),
@@ -217,11 +223,14 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: "theorem-settings",
-            version: 13,
+            version: 14,
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
-                (state) => [state.settings, state.stats, state.settingsLastModifiedAt],
+                (state) => [state.settings, state.stats, state.settingsLastModifiedAt, state.readingSetupStep, state.readingOutbox, state.rhythmOutbox],
                 (state) => ({
+                    readingSetupStep: state.readingSetupStep,
+                    rhythmOutbox: state.rhythmOutbox,
+                    readingOutbox: state.readingOutbox,
                     settings: state.settings,
                     stats: state.stats,
                     settingsLastModifiedAt: state.settingsLastModifiedAt,
@@ -233,6 +242,11 @@ export const useSettingsStore = create<SettingsStore>()(
                         ? persistedState
                         : {}
                 ) as any;
+
+                if (version < 14) { state.readingSetupStep = 0; state.readingOutbox = {}; state.rhythmOutbox = {}; }
+                if (version < 14 && state.settings) {
+                    state.settings.hideReadingMotivation ??= false;
+                }
 
                 if (version === 0 || !version) {
                     if (state.settings && state.settings.learning && !state.settings.vocabulary) {

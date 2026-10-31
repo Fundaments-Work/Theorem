@@ -1,3 +1,4 @@
+import { formatReadingTime } from "../../core/lib/utils";
 import { useMemo } from "react";
 import type { Annotation, HighlightColor } from "../../core/types";
 import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
@@ -47,12 +48,6 @@ interface ShareCardProps {
 const CARD_WIDTH_PX = 1080;
 const CARD_HEIGHTS = { square: 1080, story: 1920 };
 
-function formatTime(minutes: number): string {
-    if (minutes < 60) return `${minutes}m`;
-    const h = Math.floor(minutes / 60);
-    const m = Math.round(minutes % 60);
-    return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
 
 function getThemeStyles(
     theme: CardTheme,
@@ -309,7 +304,7 @@ export function ShareCard({ kind, annotation, book, statsData, format, theme, sh
                     lineHeight: 0.95,
                     letterSpacing: "-0.03em",
                 }}>
-                    {statsData.totalReadingTime > 0 ? formatTime(statsData.totalReadingTime) : "0m"}
+                    {statsData.totalReadingTime > 0 ? formatReadingTime(statsData.totalReadingTime) : "0m"}
                 </div>
             </div>
 

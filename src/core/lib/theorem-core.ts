@@ -16,6 +16,7 @@ import init, {
     wasm_safe_vault_filename,
     wasm_number_to_words,
     wasm_opds_parse,
+    wasm_reading_rhythm,
     wasm_opds_expand_search,
 } from "../wasm/theorem_core.js";
 
@@ -238,4 +239,10 @@ export function buildFrontmatter(title: string, author?: string, tags: string[] 
 const envProcess = (globalThis as Record<string, any>).process;
 if (typeof window !== "undefined" && !envProcess?.versions?.node && !wasmReady) {
     initTheoremCoreWasm().catch(() => {});
+}
+
+/** Shared Rust goal/XP rules. Initialization is owned by the lazy rhythm bridge. */
+export function evaluateReadingRhythm(request: unknown): import("./reading-rhythm").RhythmProgress {
+    if (!wasmReady) throw new Error("Reading progress is not ready");
+    return JSON.parse(wasm_reading_rhythm(JSON.stringify(request)));
 }

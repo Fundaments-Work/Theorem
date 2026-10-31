@@ -176,6 +176,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const activeDocId = currentBookId || (currentArticle ? `rss:${currentArticle.id}` : null);
 
     const getBook = useLibraryStore((state) => state.getBook);
+    const recordBookOpened = useLibraryStore(state => state.recordBookOpened);
     const updateBook = useLibraryStore((state) => state.updateBook);
     const updateProgress = useLibraryStore((state) => state.updateProgress);
     const updatePdfReadingState = useLibraryStore((state) => state.updatePdfReadingState);
@@ -465,6 +466,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const handlePdfLoad = useCallback((info: import('./engines/pdfjs-engine').PDFDocumentInfo) => {
         // Get current book data for fallback
         const currentBookData = currentBookId ? getBook(currentBookId) : null;
+        if (currentBookData) recordBookOpened(currentBookData.id);
 
         const displayTitle = resolvePdfDisplayTitle({
             pdfTitle: info.title,
@@ -498,7 +500,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
         // Background cover extraction for PDF books
         void extractBookCover(currentBookId ?? null);
-    }, [currentBookId, getBook]);
+    }, [currentBookId, getBook, recordBookOpened]);
 
     // Shared cover extraction helper — runs when any book opens in the reader.
     // Accepts the bytes already loaded for reading (Blob or Uint8Array) so we
@@ -1096,6 +1098,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const handleReady = useCallback((meta: DocMetadata, tocItems: TocItem[]) => {
         const loadedBook = currentBookId ? getBook(currentBookId) : null;
+        if (loadedBook) recordBookOpened(loadedBook.id);
         const mergedMetadata: DocMetadata = {
             ...meta,
             // Comics take their title straight off the archive file name, and
@@ -1120,7 +1123,7 @@ const BookReaderPage = memo(function BookReaderPage() {
 
         // A range file would have to be read whole; let cover extraction load it itself (only runs when a cover is missing).
         void extractBookCover(currentBookId ?? null, (file && !isNativeRangeFile(file) ? file : undefined) ?? pdfData ?? undefined);
-    }, [currentBookId, getBook, extractBookCover, file, pdfData]);
+    }, [currentBookId, getBook, extractBookCover, file, pdfData, recordBookOpened]);
 
     const lastClickFractionRef = useRef<number | null>(null);
     const handleBookCompletionProgress = useCallback((bookId: string, progress: number) => {

@@ -22,6 +22,11 @@ export function wasm_opds_parse(body: Uint8Array, content_type: string, base_url
 
 export function wasm_ordinal_to_words(n: bigint): string;
 
+/**
+ * Evaluate reading goals and merge progress using the same rules on every platform.
+ */
+export function wasm_reading_rhythm(request_json: string): string;
+
 export function wasm_safe_vault_filename(title: string): string;
 
 export function wasm_year_to_words(year: number): string | undefined;
@@ -37,6 +42,7 @@ export interface InitOutput {
     readonly wasm_opds_expand_search: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly wasm_opds_parse: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly wasm_ordinal_to_words: (a: number, b: bigint) => void;
+    readonly wasm_reading_rhythm: (a: number, b: number, c: number) => void;
     readonly wasm_safe_vault_filename: (a: number, b: number, c: number) => void;
     readonly wasm_year_to_words: (a: number, b: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

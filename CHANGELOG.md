@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Reading rhythm and levels** — Choose a flexible weekly reading goal, see progress beside Continue reading, and earn lasting XP and numbered levels. Goals start with a suggested four days per week; five reading minutes qualify a day. Daily goals and streaks stay separate. Upgraded devices merge reading contributions and awards without duplication; older statistics remain compatible.
+- **Reading-first setup** — A short optional-goal setup leads to Library or Discover, with the full feature guide available on demand. Completed steps survive restart. Mobile navigation keeps its labels and shared destination order. Library selection and folder scanning stay visible in the populated-library toolbar.
+- **Accurate reading intervals** — Short sessions retain fractional minutes, midnight sessions count toward the correct local dates, hidden readers do not start a timer, and clock corrections no longer change elapsed reading time. Failed native records persist for safe retry. Fractional durations display without long decimals, and successfully opening a book makes Resume available before a page turn.
 - **Replay-safe reading records** — Added an immutable native reading-chunk API so retrying a recorded interval cannot add its minutes twice. The legacy additive session command remains supported.
 
 - **Daily Review Card Stack in Library** — Upgraded the static Daily Highlight banner into an interactive physical 3D card deck embedded at the top of the Library feed. Controlled by `settings.showDailyHighlight` ("Daily Review"), the deck resurfaces daily reflections with stacked card layers, tap-to-advance, drag-tilt, fling gestures, source jumping, and session dismiss. Once reviewed or dismissed, it collapses cleanly to leave the book grid unencumbered.

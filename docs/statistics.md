@@ -32,7 +32,8 @@ For performance, `dailyActivity` is pruned to the most recent 84 entries in memo
 
 ## Goals
 
-Two goals are user-configurable in Settings:
+Reading targets are user-configurable in Settings:
+- **Weekly reading days**: Optional one-to-seven-day rhythm (four recommended when setting it up)
 - **Daily minutes**: Target minutes per day (default: 30)
 - **Yearly books**: Target books per year (default: 24)
 
@@ -59,3 +60,59 @@ returns the number of changed/inserted/deleted rows and delegates to the prepare
 statement's `execute`. A successful zero-row `ON CONFLICT DO NOTHING` is not a
 failed write. The chunk path reads back the immutable row to distinguish a safe
 replay from an identity conflict. No duplicate is updated or incremented.
+
+## Weekly reading rhythm and XP
+
+The Library offers an optional weekly reading rhythm (recommended: four days).
+Five recorded minutes, accumulated across sessions and books on the same local
+calendar date, qualify as one reading day. Weeks run Monday–Sunday, with their
+date range displayed. Daily-minute goals and strict daily streaks remain separate.
+Changing an established weekly goal, including turning it off, takes effect the
+following Monday. Initial setup applies to the current week.
+
+Qualifying days earn 10 XP, once per date. Reaching the effective weekly target
+earns another 20 XP, once per week. Level starts at 1 and advances every 100 XP.
+Extra minutes, imports, highlights, page turns and review-card swipes earn no XP.
+Missing a day or week does not remove XP. Earlier activity remains in Statistics
+but is not converted into historical awards. Collection starts when the reader
+first chooses a rhythm. Settings and Statistics expose the weekly target and a
+preference to hide motivational progress in Library; Statistics remains available.
+XP progress appears inline; it does not open a celebration over the reader.
+
+The Rust rules live in `theorem-core::reading_rhythm`, called through the offloaded `evaluate_reading_rhythm` command on desktop and
+mobile. The browser loads the same crate's bundled WebAssembly module lazily via
+`core/lib/reading-rhythm.ts`. Native sync uses the same rules. `ReadingStats.rhythm` is version 1:
+activation date, local-date/source cumulative-second counters, effective-week
+goal history, and awards keyed by date or week. Reader-instance source IDs are
+stable across flushes and unique across mounts. Source counters merge by maximum;
+independent sources add, capped at 24 hours per date. Overlapping reading on two
+devices is additive, but still yields at most one daily award. Award maps merge
+by union. Goal conflicts compare their ISO timestamp, unique ID, then target.
+Earned awards survive later goal conflicts and library deletions.
+
+The counter and award maps are saved together in the existing settings snapshot,
+not separate mutable XP totals. Each SQLite snapshot replaces one KV row
+atomically; web persistence uses the existing IndexedDB adapter. Settings store
+version 14 migrates existing preferences and introduces device-local setup progress
+and device-local retry outboxes for native chunks and cumulative reading counters.
+Neither outbox is part of statistics sync. Counter mutations are serialized across
+native IPC and re-read current state if another writer changes it while pending.
+Native chunks retry on another flush or app start with their original identity.
+Pending rhythm counters replay at startup, including when the reader closed
+before its native evaluation finished.
+The existing persistence failure reporting applies to this snapshot as well.
+
+Visible reading intervals use monotonic elapsed time; wall-clock corrections
+change the date assignment, not the duration. Flushes split at local midnight,
+retain fractional minutes when leaving a book, and do not start while hidden.
+Durations render as `<1m` below a minute or completed whole minutes/hours; remaining
+minutes round upward for display without changing stored time or goal thresholds.
+Day keys already recorded are never reassigned after travel. A newly recorded
+earlier local day after travel or clock correction is accepted without
+backfilling any legacy activity. Visible time remains
+a proxy for reading, not proof of attention or comprehension.
+
+Native backups include both the ledger and retry outbox in the settings snapshot.
+Restoring the same backup repeatedly does not add awards. A deliberate full
+restore replaces local history with the snapshot's history, including XP;
+subsequent peer sync unions any additional awards that peers still hold.

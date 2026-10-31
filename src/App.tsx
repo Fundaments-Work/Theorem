@@ -22,9 +22,10 @@ import { pruneExpiredTombstones } from "./core/lib/tombstone-pruner";
 import { subscribeUntilCleanup } from "./core/lib/async-subscription";
 import { bootstrapAutoSync } from "./core/lib/sync-bootstrap";
 import { restoreReaderSession, startReaderSessionTracking } from "./core/lib/reader-session";
-import { OnboardingFlow } from "./features/onboarding";
 import { useDailyGoalReminder } from "./features/reader/hooks/useDailyGoalReminder";
 import { Toaster, toast } from "sonner";
+
+const ReadingSetup = lazy(() => import("./features/onboarding/ReadingSetup").then(module => ({ default: module.ReadingSetup })));
 
 // Closed at startup and built on Radix: load on first use, not with the app shell.
 const KeyboardShortcutsHelp = lazy(() =>
@@ -203,12 +204,13 @@ function App() {
         ]);
     }, [setRoute]);
 
-    const handleOnboardingComplete = useCallback(() => {
+    const handleOnboardingComplete = useCallback((destination: "library" | "opds" = "library") => {
         updateSettings({ hasCompletedOnboarding: true });
+        setRoute(destination);
         if (typeof localStorage !== "undefined") {
             localStorage.setItem("theorem-onboarding-complete", "true");
         }
-    }, [updateSettings]);
+    }, [updateSettings, setRoute]);
 
     useEffect(() => {
         if (currentRoute === "vocabulary") {
@@ -615,6 +617,14 @@ function App() {
         };
     }, []);
 
+    useEffect(() => {
+        if (!storesHydrated) return;
+        void import("./core/lib/reading-records").then(({ flushReadingOutbox }) => flushReadingOutbox())
+            .catch(error => console.error("[reading] Pending reading time will be retried", error));
+        void import("./core/lib/reading-rhythm").then(({ flushReadingRhythmOutbox }) => flushReadingRhythmOutbox())
+            .catch(error => console.error("[reading] Pending reading progress will be retried", error));
+    }, [storesHydrated]);
+
     const isReaderMode = currentRoute === "reader";
 
     // Route keep-alive (#103): non-reader pages stay mounted across
@@ -645,7 +655,7 @@ function App() {
     }
 
     if (!hasCompletedOnboarding) {
-        return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+        return <Suspense fallback={<PageLoader message="Preparing reading setup…" />}><ReadingSetup onComplete={handleOnboardingComplete} /></Suspense>;
     }
 
     if (isReaderMode) {

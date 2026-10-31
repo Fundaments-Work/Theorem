@@ -6,7 +6,7 @@ import { localDateKey } from "../../../core/lib/date-keys";
 async function sendReminder(shortfall: number, totalGoal: number) {
     const msg = shortfall >= totalGoal
         ? `Time for your daily reading! Your goal is ${totalGoal} minutes today.`
-        : `You're ${shortfall} min short of your daily reading goal — keep going!`;
+        : `You're ${Math.ceil(shortfall)} min short of your daily reading goal — keep going!`;
     const isVisible = typeof document !== "undefined" && !document.hidden;
     if (isVisible) {
         const { toast } = await import("sonner");

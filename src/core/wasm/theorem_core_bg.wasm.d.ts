@@ -8,6 +8,7 @@ export const wasm_number_to_words: (a: number, b: bigint) => void;
 export const wasm_opds_expand_search: (a: number, b: number, c: number, d: number, e: number) => void;
 export const wasm_opds_parse: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const wasm_ordinal_to_words: (a: number, b: bigint) => void;
+export const wasm_reading_rhythm: (a: number, b: number, c: number) => void;
 export const wasm_safe_vault_filename: (a: number, b: number, c: number) => void;
 export const wasm_year_to_words: (a: number, b: number) => void;
 export const __wbindgen_add_to_stack_pointer: (a: number) => number;

@@ -267,6 +267,7 @@ export interface AppSettings {
     cli: CliSettings;
     hasCompletedOnboarding: boolean;
     showDailyHighlight: boolean;
+    hideReadingMotivation?: boolean;
     speedReadEnabled: boolean;
     goalNotifications: boolean;
     dailyReminderTime: string;
@@ -419,7 +420,16 @@ export interface DailyReadingActivity {
     booksRead: string[]; 
 }
 
+export interface RhythmState {
+    version: 1;
+    activatedOn: string;
+    days: Record<string, Record<string, number>>;
+    goals: Record<string, { stamp: string; id: string; days: number }>;
+    awards: Record<string, number>;
+}
+
 export interface ReadingStats {
+    rhythm?: RhythmState;
     totalReadingTime: number; 
     booksCompleted: number;
     averageReadingSpeed: number; 

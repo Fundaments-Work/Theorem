@@ -17,6 +17,7 @@ export const BottomNav = memo(function BottomNav() {
                     return (
                         <li key={item.id} className="flex-1">
                             <button
+                                type="button"
                                 onClick={() => {
                                     if (!isActive) {
                                         setRoute(item.id);
@@ -30,7 +31,7 @@ export const BottomNav = memo(function BottomNav() {
                                 aria-current={isActive ? "page" : undefined}
                             >
                                 <span className="ui-bottom-nav-pill">
-                                    <item.Icon className="h-[var(--icon-size-lg)] w-[var(--icon-size-lg)]" />
+                                    <item.Icon aria-hidden="true" className="h-[var(--icon-size-lg)] w-[var(--icon-size-lg)]" />
                                 </span>
                                 <span className="ui-bottom-nav-label">{item.label}</span>
                             </button>

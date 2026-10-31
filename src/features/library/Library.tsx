@@ -1,3 +1,4 @@
+import { ReadingRhythm } from "../statistics/ReadingRhythm";
 import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
@@ -154,13 +155,15 @@ export function EmptyLibrary({
 
 function ImportButton({
     onImport,
-    isLoading
+    isLoading,
+    primary = true,
 }: {
+    primary?: boolean;
     onImport: () => void;
     isLoading: boolean;
 }) {
     return (
-        <Button variant="primary"
+        <Button variant={primary ? "primary" : "default"}
             onClick={onImport}
             disabled={isLoading}
              className={cn("h-11 px-3.5 sm:h-10 sm:px-4")}
@@ -562,6 +565,9 @@ export function RenameBookModal({
 
 export function LibraryPage() {
     const books = useLibraryStore((state) => state.books);
+    const recentBooksCache = useLibraryStore(state => state.recentBooksCache);
+    const getBook = useLibraryStore(state => state.getBook);
+    const resumeBook = recentBooksCache[0] ? getBook(recentBooksCache[0].id) : undefined;
     const shelfDefinitions = useLibraryStore((state) => state.collections);
     const { collections, ready: smartShelvesReady, error: smartShelvesError } = useSmartShelves(books, shelfDefinitions);
     const coversHydrated = useLibraryStore((state) => state.coversHydrated);
@@ -959,6 +965,15 @@ export function LibraryPage() {
     }, [isSelecting, clearSelection]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [scrollHeaderHeight, setScrollHeaderHeight] = useState(0);
+    const scrollHeaderRef = useCallback((element: HTMLDivElement | null) => {
+        if (!element) return;
+        const update = () => setScrollHeaderHeight(element.getBoundingClientRect().height);
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, []);
 
     const isListView = settings.libraryViewMode === "list";
     const isCompactView = settings.libraryViewMode === "compact";
@@ -1042,6 +1057,7 @@ export function LibraryPage() {
         count: rowCount,
         getScrollElement: useCallback(() => scrollRef.current, []),
         estimateSize: getEstimateSize,
+        scrollMargin: scrollHeaderHeight,
         getItemKey,
         overscan: 3,
     });
@@ -1612,6 +1628,8 @@ export function LibraryPage() {
         selectedSourceFolder !== null
     );
 
+    const showReadingHome = !selectedShelf && !hasActiveFilters && !isSelecting && !searchQuery;
+
     if (!smartShelvesReady && (selectedShelf?.smartRules || showUnshelvedOnly)) {
         return <div role={smartShelvesError ? "alert" : "status"} className="p-6">{smartShelvesError ?? "Updating smart shelves…"}</div>;
     }
@@ -1641,12 +1659,6 @@ export function LibraryPage() {
         <div className="mx-auto flex h-full w-full max-w-[var(--layout-content-max-width)] flex-col px-4 py-3 pb-0 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
             
             {folderImportModal}
-            <LibraryDailyReviewDeck
-                showDailyHighlight={!!settings.showDailyHighlight}
-                selectedShelf={selectedShelf}
-                showFavoritesOnly={showFavoritesOnly}
-                isSelecting={isSelecting}
-            />
             <div className="-mb-4">
             <PageHeader
                 title={selectedShelf ? selectedShelf.name : showFavoritesOnly ? "Favorites" : showUnshelvedOnly ? "Unshelved" : "Library"}
@@ -1667,7 +1679,17 @@ export function LibraryPage() {
                         Clear filter
                     </button>
                 )}
-                <ImportButton onImport={handleAddBooks} isLoading={isImporting || isScanning} />
+                <ImportButton primary={!(showReadingHome && resumeBook)} onImport={handleAddBooks} isLoading={isImporting || isScanning} />
+                {isTauri() && <Button
+                    onClick={() => setShowFolderImport(true)}
+                    disabled={isImporting || isScanning}
+                    aria-label="Scan"
+                    title="Import books from a folder"
+                    className="h-11 px-3 sm:h-10"
+                >
+                    <FolderOpen aria-hidden="true" className="h-4 w-4" />
+                    <span>Scan</span>
+                </Button>}
 
                 <div className="flex items-center gap-2 sm:gap-4 ml-auto">
                     <Button
@@ -1680,7 +1702,7 @@ export function LibraryPage() {
                         }}
                          className={cn(
                             "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
-                            isSelecting ? FILTER_CHIP_SELECTED : "sr-only"
+                            isSelecting ? FILTER_CHIP_SELECTED : ""
                         )}
                         title={isSelecting ? "Exit selection mode (Esc)" : "Select books"}
                         aria-label={isSelecting ? "Exit selection mode" : "Select books"}
@@ -1869,13 +1891,25 @@ export function LibraryPage() {
                         </div>
                     </div>
 
-                    <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
+                    <section aria-label="Library books" ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid [content-visibility:auto] pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
+                        <div ref={scrollHeaderRef} className="flow-root">
+                        {showReadingHome && <>
+                            {resumeBook && <div className="mb-4 flex items-center justify-between gap-4 border border-[var(--color-border)] p-4">
+                                <div className="min-w-0">
+                                    <p className="text-xs text-[color:var(--color-text-muted)]">Continue reading</p>
+                                    <p className="mt-1 truncate text-sm text-[color:var(--color-text-primary)]">{resumeBook.title}</p>
+                                </div>
+                                <Button variant="primary" className="min-h-11" onClick={() => handleOpenBook(resumeBook)}>Resume</Button>
+                            </div>}
+                            <ReadingRhythm compact />
+                        </>}
                         <LibraryDailyReviewDeck
                             showDailyHighlight={!!settings.showDailyHighlight}
                             selectedShelf={selectedShelf}
                             showFavoritesOnly={showFavoritesOnly}
                             isSelecting={isSelecting}
                         />
+                        </div>
                         {sortedBooks.length === 0 ? (
                             <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                                 <p className="text-[color:var(--color-text-muted)] text-xs">No documents match criteria</p>
@@ -1887,7 +1921,9 @@ export function LibraryPage() {
                             </div>
                         ) : (
                             <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                                    {rowVirtualizer.getVirtualItems().map((measurement) => {
+                                        // Scroller measurements include the header; rows render within the grid.
+                                        const virtualRow = { ...measurement, start: measurement.start - scrollHeaderHeight };
                                         const rowStart = virtualRow.index * (isListView ? 1 : effectiveCols);
                                         const itemsInRow = isListView
                                             ? 1

@@ -77,3 +77,28 @@ The Achievements section lists four badges:
 ## Statistics and sync
 
 Reading statistics are included in [device sync](device-sync.md). When two devices have different totals, Theorem keeps the larger value, combines the daily activity from both, and recalculates your streaks.
+
+## Weekly rhythm, XP, and levels
+
+Choose a weekly reading rhythm in Statistics or Settings → Reading Goals. Four
+days is the suggested starting point; you can choose one through seven or turn
+the weekly goal off. Five minutes accumulated across books and sessions qualifies
+a reading day. Library shows your progress for the current Monday–Sunday week,
+with **View reading progress** opening Statistics. Goal edits begin next Monday.
+Your daily-minute goal and daily streak are separate.
+
+A qualifying day earns 10 XP. Meeting a weekly goal earns another 20 XP. Every
+100 lifetime XP advances a level, starting at level 1. Missing a week never takes
+XP away. Extra minutes and app opens do not earn extra XP, and no reading feature
+is locked behind a level. Awards begin when you choose a rhythm; older reading
+stays in your existing statistics.
+
+To keep Library quiet, turn on **Hide motivational progress in Library** in
+Statistics or Reading Goals. Statistics still shows your progress. XP and level changes appear inline in Statistics without opening a celebration
+over the reader.
+
+Reading-rhythm data syncs between upgraded devices. Older app versions keep
+working with their existing statistics but cannot record these new counters or
+reliably pass the extension between upgraded devices. Pair upgraded readers
+directly when using a mixed-version group. Backups include your XP; a full restore
+returns it to the backup's state, and syncing unions awards peers still hold.

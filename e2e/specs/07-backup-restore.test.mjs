@@ -73,7 +73,7 @@ test("a restored book opens", async () => {
 async function goToLibraryAfterReload(app) {
     await app.waitFor(
         async () => {
-            if (await app.exists({ role: "button", name: "Skip" })) await app.click({ role: "button", name: "Skip" });
+            if (await app.exists({ role: "button", name: "Skip setup" })) await app.click({ role: "button", name: "Skip setup" });
             return app.exists({ role: "heading", name: "Library" });
         },
         { timeout: 30000, what: "the app to come back after the restore" },

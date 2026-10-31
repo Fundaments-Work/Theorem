@@ -4,13 +4,16 @@ Open Theorem for the first time, add your first book, and learn how the sidebar,
 
 ## First launch
 
-The first time you start Theorem, a short welcome flow explains the main ideas in five screens: Welcome, Read Anything, Highlight and Annotate, Organize Your Library, and Sync Across Devices.
+First launch helps you start reading:
 
-1. Click Next to move through the screens, or click Back to return to the previous one. You can also click the dots at the bottom to jump to a screen.
-2. Click Skip in the top-right corner to leave the flow at any time.
-3. On the last screen, click Get Started.
+1. Choose **Start reading**, or **Explore features** for the optional guide.
+2. Choose how many days a week you want to read, or select **Skip goal**. Five
+   minutes of reading counts as a reading day; four days a week is recommended.
+3. Open Library to add a book, or choose **Browse Discover** for free books.
 
-The flow appears only once. Your library is empty until you add books.
+**Skip setup** opens Library immediately. Saved setup steps survive a restart.
+Once completed or skipped, setup does not appear again. Weekly goals can be
+changed later in Statistics or Settings → Reading Goals.
 
 ## Add your first book
 

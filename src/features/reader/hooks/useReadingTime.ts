@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import { isTauri } from "../../../core/lib/env";
-import { sqliteRecordReadingSession } from "../../../core/lib/sqlite-storage";
+import { queueReadingChunk } from "../../../core/lib/reading-records";
+import { prepareReadingRhythm, recordReadingRhythm } from "../../../core/lib/reading-rhythm";
+import { splitReadingInterval } from "../lib/reading-interval";
 import { registerPrePersistFlush } from "../../../core/lib/persist-storage";
-import { useSettingsStore } from "../../../core/store";
+import { useSettingsStore, useLibraryStore } from "../../../core/store";
 import type { DailyReadingActivity, ReadingStats } from "../../../core/types";
 import { calculateWpm, computeExponentialMovingAverage } from "../lib/reading-time";
 import { addLocalDays, localDateKey } from "../../../core/lib/date-keys";
@@ -28,13 +30,14 @@ async function notifyGoalMet(minutes: number) {
 
 export function useReadingTime({
     currentBookId,
-    addReadingTime,
+    addReadingTime = useLibraryStore.getState().addReadingTime,
     stats: propStats,
     updateStats: propUpdateStats,
     isTtsActive,
 }: UseReadingTimeOptions) {
     const startedAtRef = useRef<number | null>(null);
-    const accumulatedMsRef = useRef(0);
+    const accumulatedMsRef = useRef(new Map<string, number>());
+    const startedMonotonicRef = useRef<number | null>(null);
     const readingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const updateStats = propUpdateStats ?? useSettingsStore.getState().updateStats;
     const statsRef = useRef(propStats ?? useSettingsStore.getState().stats);
@@ -94,11 +97,15 @@ export function useReadingTime({
     useEffect(() => {
         if (!currentBookId) return;
 
-        const commitMinutes = (elapsedMinutes: number, silent = false) => {
+        const source = crypto.randomUUID();
+        const sourceSeconds = new Map<string, number>();
+        if (useSettingsStore.getState().stats.rhythm) {
+            void prepareReadingRhythm().catch(error => console.error("[reading] Progress engine unavailable", error));
+        }
+        const commitMinutes = (elapsedMinutes: number, today: string, silent = false) => {
             addReadingTime(currentBookId, elapsedMinutes);
 
             const currentStats = useSettingsStore.getState().stats;
-            const today = localDateKey();
             const existingActivity = currentStats.dailyActivity.find(a => a.date === today);
             const previousTodayMinutes = existingActivity?.minutes ?? 0;
 
@@ -149,24 +156,20 @@ export function useReadingTime({
                 dailyActivity: newDailyActivity,
                 currentStreak,
                 longestStreak: Math.max(currentStats.longestStreak, currentStreak),
-                lastReadDate: today,
+                lastReadDate: [currentStats.lastReadDate ?? "", today].sort().pop(),
             });
 
-            if (isTauri()) {
-                sqliteRecordReadingSession(
-                    `session:${today}`,
-                    today,
-                    elapsedMinutes,
-                    currentBookId,
-                    JSON.stringify([currentBookId]),
-                );
-            }
+            queueReadingChunk(today, elapsedMinutes, currentBookId);
+            const seconds = (sourceSeconds.get(today) ?? 0) + elapsedMinutes * 60;
+            sourceSeconds.set(today, seconds);
+            void recordReadingRhythm(today, source, Math.min(86400, Math.floor(seconds)))
+                .catch(error => console.error("[reading] Could not update reading rhythm", error));
 
             const todayActivity = newDailyActivity.find(a => a.date === today);
             const todayMinutes = todayActivity?.minutes ?? 0;
             // Only celebrate at the exact moment the threshold is crossed during active reading.
             // Exiting the reader or backgrounding must be completely silent, and never re-notify if goal was already met.
-            const justCrossedGoal = previousTodayMinutes < currentStats.dailyGoal && todayMinutes >= currentStats.dailyGoal;
+            const justCrossedGoal = today === localDateKey() && previousTodayMinutes < currentStats.dailyGoal && todayMinutes >= currentStats.dailyGoal;
             if (
                 !silent &&
                 justCrossedGoal &&
@@ -181,13 +184,21 @@ export function useReadingTime({
         const flushReadingTime = (silent = false) => {
             if (startedAtRef.current !== null) {
                 const now = Date.now();
-                accumulatedMsRef.current += now - startedAtRef.current;
+                const elapsed = Math.max(0, performance.now() - (startedMonotonicRef.current ?? performance.now()));
+                // A manual clock correction changes date assignment, never elapsed reading time.
+                const intervalStart = Math.abs(now - startedAtRef.current - elapsed) <= 1000 ? startedAtRef.current : now - elapsed;
+                for (const part of splitReadingInterval(intervalStart, now)) {
+                    accumulatedMsRef.current.set(part.date, (accumulatedMsRef.current.get(part.date) ?? 0) + part.milliseconds);
+                }
                 startedAtRef.current = now;
+                startedMonotonicRef.current = performance.now();
             }
-            const elapsedMinutes = Math.floor(accumulatedMsRef.current / 60000);
-            if (elapsedMinutes > 0) {
-                accumulatedMsRef.current -= elapsedMinutes * 60000;
-                commitMinutes(elapsedMinutes, silent);
+            for (const [day, milliseconds] of accumulatedMsRef.current) {
+                const elapsedMinutes = milliseconds / 60000;
+                if (elapsedMinutes > 0) {
+                    accumulatedMsRef.current.delete(day);
+                    commitMinutes(elapsedMinutes, day, silent);
+                }
             }
         };
 
@@ -198,12 +209,14 @@ export function useReadingTime({
                 readingIntervalRef.current = null;
             }
             startedAtRef.current = null;
+            startedMonotonicRef.current = null;
             lastPageTurnTimeRef.current = null;
         };
 
         const resumeReadingTime = () => {
             if (startedAtRef.current === null) {
                 startedAtRef.current = Date.now();
+                startedMonotonicRef.current = performance.now();
             }
             if (lastPageTurnTimeRef.current === null) {
                 lastPageTurnTimeRef.current = Date.now();
@@ -213,7 +226,7 @@ export function useReadingTime({
             }
         };
 
-        resumeReadingTime();
+        if (!document.hidden) resumeReadingTime();
 
         const handleVisibilityChange = () => {
             if (document.hidden) {

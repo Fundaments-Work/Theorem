@@ -22,3 +22,5 @@ pub use text_normalizer::{
 pub use vault::{build_frontmatter, safe_vault_filename};
 
 pub mod smart_shelves;
+
+pub mod reading_rhythm;

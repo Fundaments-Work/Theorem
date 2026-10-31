@@ -113,6 +113,9 @@ The standard every change is held to, whether a person or an agent writes it.
 - One git worktree per agent or task, each with its own `CARGO_TARGET_DIR`. A shared target dir has linked stale crates into another checkout's build.
 - Cap heavy builds and tests so several can run at once without exhausting memory.
 - Never `pkill -f` by pattern: stop only the PIDs you started.
+- Never overlap gate scripts in one worktree. A normal Cargo build/test can replace
+  `target/debug/theorem` while E2E is launching it; use a fixed copy of the e2e
+  feature binary when another Cargo command could run.
 - Never use bare `git stash` / `git stash pop`: the stash is shared across worktrees. Use a WIP commit instead.
 - On the maintainer's machine the tools for this live in the private `fundaments-agent-harness` repo, documented in the Fundaments handbook (`Engineering/Agent harness.md`):
   - `resources/capped.sh <mem> <cpu%> cmd` runs a command inside the shared memory slice;
@@ -139,6 +142,9 @@ that must not be broken:
   `sanitizeHtml`. Never hand-roll a scheme check.
 - **Sync**: follow the rules in [docs/sync.md](docs/sync.md); every change gets a scenario in
   `sync_scenarios.rs`.
+- **Reading rhythm**: Rust `theorem-core::reading_rhythm` owns goal/XP rules and merging;
+  Tauri calls the native evaluator and browser UI uses its lazy WASM bridge. Keep counter and award identities stable; never
+  sum synced XP totals. The device-local reading-chunk outbox must never be synced.
 - **Errors**: return `Result<T, AppError>` and branch on `kind()`, never on message text.
 - **SQLite**: always `with_connection()`; migrations bump the version and keep a
   `migrate` path.

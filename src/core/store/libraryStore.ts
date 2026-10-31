@@ -609,6 +609,7 @@ interface LibraryStore {
     updateBook: (bookId: string, updates: Partial<Book>) => void;
     /** Many `updateBook`s in one store change (a folder rescan can touch thousands). */
     updateBooks: (updates: ReadonlyArray<readonly [string, Partial<Book>]>) => void;
+    recordBookOpened: (bookId: string) => void;
     updateProgress: (bookId: string, progress: number, location: string, lastClickFraction?: number, pageProgress?: { currentPage: number; endPage?: number; totalPages: number; range: string }) => void;
     updatePdfReadingState: (bookId: string, state: PdfViewState) => void;
     toggleFavorite: (bookId: string) => void;
@@ -934,6 +935,18 @@ export const useLibraryStore = create<LibraryStore>()(
                         : { books, recentBooksCache };
                 });
             },
+
+            recordBookOpened: (bookId) => set((state) => {
+                if (!state.getBook(bookId)) return state;
+                const { books, updatedBook } = updateBookById(state.books, bookId,
+                    book => ({ ...book, lastReadAt: new Date() }));
+                if (!updatedBook) return state;
+                persistBookToSqlite(updatedBook);
+                const recentBooksCache = [createCacheEntry(updatedBook),
+                    ...state.recentBooksCache.filter(entry => entry.id !== bookId)].slice(0, 20);
+                scheduleMutationSync("reading");
+                return { books, recentBooksCache };
+            }),
 
             updateProgress: (bookId, progress, location, lastClickFraction, pageProgress) =>
                 set((state) => {

@@ -99,7 +99,7 @@ contain it.
 | 1 | `01-first-launch` | onboarding shown on first launch, Skip → empty library; not shown again after a restart |
 | 2 | `02-library-import-search` | Import Books (file picker) → 3 books listed; re-import is not duplicated; search by title, author, no match; clear |
 | 3 | `03-reader-position` | open → page 1; Next/Previous page; back and reopen → same page; same page after restart |
-| 4 | `04-highlight-workbench-export` | double-click a word, pick a colour → highlight; Workbench shows it (All/Highlights, not Notes); Settings → Markdown Export → Pick folder → Export now writes a `.md` with the highlight, title and author |
+| 4 | `04-highlight-workbench-export` | double-click a word, pick a colour → highlight; Workbench shows the highlight, book and author in Highlights, excludes it from Notes, and restores it when returning to Highlights; Settings → Markdown Export → Pick folder → Export now writes a `.md` with the highlight, title and author |
 | 5 | `05-shelves` | Shelves empty; select a book → Add to shelf → new shelf; the shelf lists only that book; survives restart |
 | 6 | `06-folder-scan` | Scan → Import a folder → choose folder with nested books, a book already in the library, an identical copy, a broken `.epub` and a `.txt`: "2 imported, 1 already in your library, 1 could not be imported" naming the broken file; rescanning imports nothing |
 | 7 | `07-backup-restore` | Create Backup File (save dialog, default name `theorem-YYYY-MM-DD.theorem-backup`) → wipe data dir → empty app → Restore from Backup → Replace Library → books and highlight back; a restored book opens |
@@ -134,3 +134,15 @@ contain it.
 `webkit2gtk-driver`, `tauri-driver`). It is `continue-on-error: true` until it
 has been reliably green on hosted runners; screenshots of timeouts are
 uploaded as the `e2e-artifacts` artifact.
+
+
+The reading-rhythm scenario chooses a goal, imports and opens a book, checks the
+Resume action, and verifies the goal after restart. Run E2E against a fixed copy
+of the `e2e` feature binary when other Cargo checks could rebuild the default
+binary at the same output path. Never run two gate scripts against that path.
+
+The Workbench scenario asserts book title and author independently because the
+current card presents them as separate labels. It returns to Highlights after
+checking Notes; the current section tabs are Highlights, Notes, Words, and
+Bookmarks. These checks preserve the original content/filtering coverage without
+requiring the retired All tab or a particular separator character.

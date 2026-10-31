@@ -2104,6 +2104,35 @@ fn combine_doc_values(
                     merged.insert(k.clone(), val.clone());
                 }
             }
+            // A shallow replacement would discard another author's offline reading.
+            // Merge the optional extension independently; old peers still send legacy stats.
+            if key == "reading_stats" {
+                let mut rhythm = None;
+                for value in &parsed {
+                    if let Some(raw) = value.get("rhythm").filter(|v| !v.is_null()) {
+                        if let Ok(incoming) = serde_json::from_value(raw.clone()) {
+                            let request = theorem_core::reading_rhythm::RhythmRequest {
+                                today: chrono::Local::now()
+                                    .format("%Y-%m-%d")
+                                    .to_string()
+                                    .into_boxed_str(),
+                                state: rhythm.clone(),
+                                incoming: Some(incoming),
+                                goal: None,
+                                reading: None,
+                            };
+                            if let Ok(progress) = theorem_core::reading_rhythm::evaluate(request) {
+                                rhythm = Some(progress.state);
+                            }
+                        }
+                    }
+                }
+                if let Some(rhythm) = rhythm {
+                    if let Ok(value) = serde_json::to_value(rhythm) {
+                        merged.insert("rhythm".into(), value);
+                    }
+                }
+            }
             serde_json::to_string(&merged).ok()
         } else if all_arrays {
             let merged: Vec<serde_json::Value> = parsed

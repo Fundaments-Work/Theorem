@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 /// as one entry per book (`annos:{bookId}`) instead of one per annotation.
 /// Devices that never said (0) are older versions and still get the whole
 /// lists; devices below 3 still get one entry per annotation as well.
-pub const SYNC_PROTOCOL: u8 = 3;
+/// 4: optional versioned reading-rhythm counters and awards in `reading_stats`.
+/// Legacy statistics remain present for peers that do not understand the extension.
+pub const SYNC_PROTOCOL: u8 = 4;
 
 /// The longest device name shown or sent.
 pub const MAX_DEVICE_NAME_CHARS: usize = 64;

@@ -1,3 +1,4 @@
+import { ReadingRhythm } from "./ReadingRhythm";
 
 import { useState, useMemo, memo } from "react";
 import { cn, normalizeAuthor, formatReadingTime } from "../../core/lib/utils";
@@ -67,7 +68,7 @@ function ProgressBar({
             <div className="flex items-center justify-between text-sm gap-2">
                 <span className="text-[color:var(--color-text-secondary)] truncate">{label}</span>
                 <span className="text-[color:var(--color-text-primary)] shrink-0">
-                    {current} / {target}{unit ? ` ${unit}` : ""}
+                    {unit === "min" ? `${formatReadingTime(current)} / ${target}m` : `${current} / ${target}${unit ? ` ${unit}` : ""}`}
                 </span>
             </div>
             <div className="h-2 bg-[var(--color-surface-muted)] overflow-hidden">
@@ -211,7 +212,7 @@ function ActivityHeatmap({ dailyActivity }: { dailyActivity: DailyReadingActivit
                 <span>More</span>
             </div>
             <p className="text-xs text-[color:var(--color-text-muted)]">
-                Today: {todayMinutes} minute{todayMinutes === 1 ? '' : 's'} read
+                Today: {formatReadingTime(todayMinutes)} read
             </p>
         </div>
     );
@@ -301,6 +302,8 @@ export function StatisticsPage() {
                 </button>
             </PageHeader>
 
+            <ReadingRhythm />
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-8 sm:mb-10">
                 <StatCard
                     icon={<BookOpen className="w-5 h-5" />}
@@ -312,18 +315,18 @@ export function StatisticsPage() {
                     icon={<Clock className="w-5 h-5" />}
                     label="Reading Time"
                     value={formatReadingTime(stats.totalReadingTime)}
-                    subtext="Total hours spent reading"
+                    subtext="Time spent reading"
                 />
                 <StatCard
                     icon={<Target className="w-5 h-5" />}
                     label="Today's Reading"
-                    value={`${todayMinutes} / ${stats.dailyGoal} min`}
-                    subtext={todayMinutes >= stats.dailyGoal ? "Daily goal achieved! 🎉" : `${Math.max(0, stats.dailyGoal - todayMinutes)} min remaining today`}
+                    value={`${formatReadingTime(todayMinutes)} / ${stats.dailyGoal}m`}
+                    subtext={todayMinutes >= stats.dailyGoal ? "Daily goal achieved! 🎉" : `${Math.ceil(Math.max(0, stats.dailyGoal - todayMinutes))} min remaining today`}
                 />
                 <StatCard
                     icon={<Flame className="w-5 h-5" />}
                     label="Streak"
-                    value={`${stats.currentStreak} days`}
+                    value={`${stats.currentStreak} ${stats.currentStreak === 1 ? "day" : "days"}`}
                     subtext={`Best: ${stats.longestStreak} days`}
                 />
             </div>
@@ -391,7 +394,7 @@ export function StatisticsPage() {
                                     <span>
                                         {todayMinutes >= stats.dailyGoal
                                             ? "Daily goal completed! 🎉"
-                                            : `${Math.max(0, stats.dailyGoal - todayMinutes)} min to reach daily goal`}
+                                            : `${Math.ceil(Math.max(0, stats.dailyGoal - todayMinutes))} min to reach daily goal`}
                                     </span>
                                     <span className="text-[color:var(--color-text-primary)]">
                                         {Math.round((todayMinutes / Math.max(1, stats.dailyGoal)) * 100)}%

@@ -4,7 +4,7 @@
 import { sleep } from "./app.mjs";
 
 export async function skipOnboarding(app) {
-    await app.click({ role: "button", name: "Skip" }, { timeout: 20000 });
+    await app.click({ role: "button", name: "Skip setup" }, { timeout: 20000 });
     await app.find({ role: "heading", name: "Library" });
 }
 

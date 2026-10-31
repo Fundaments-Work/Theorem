@@ -199,3 +199,28 @@ Large library, 2026-10-25 (`a_large_library`, release build, two devices in one 
 
 Through a local relay with no direct addresses (`devices_sync_through_a_relay_alone`, `pairing_works_through_a_relay_alone`): pairing 1.0 s, exchanges 2.3–2.8 s; both inside the 6 s probe. A relay over the internet adds its round trips; that needs a real network test: two devices on different networks (say a phone on mobile data and a desktop on Wi-Fi, mDNS off with `THEOREM_DISABLE_MDNS=1`), then pairing, a round, and Settings → Device Sync's Online label.
 | Unpaired stranger fetching `../theorem.db`, `../iroh-key`, the docs protocol | refused at the handshake, never reaches a handler |
+
+## Reading rhythm extension (protocol 4)
+
+Protocol 4 adds optional `reading_stats.rhythm` version 1 alongside the existing
+statistics fields. Old fields continue to be written and read for older peers.
+The Rust `reading_rhythm` rules combine counters by local date and unique reader
+source, taking the maximum for repeated copies of each source, then adding
+independent sources. Awards are a union of stable day/week identities, never a
+sum of a peer's XP total. Effective-week goal conflicts have deterministic
+ordering. Every native doc copy is merged before delivery: generic shallow
+object merging would otherwise discard another author's counters.
+
+Frontend merge evaluates the extension before replacing the statistics snapshot,
+inside the existing remote-apply path, so it does not echo an unchanged received
+state. Missing extensions from older peers retain local rhythm data; malformed
+or unsupported versions cannot overwrite valid local progress. An old peer
+cannot record new reading counters or reliably forward unknown extensions, so
+upgraded devices should pair directly rather than rely on an old intermediary.
+No book ownership/path is carried by rhythm counters; deleting a book neither
+removes earned awards nor recreates the book through sync.
+
+The real-node `reading_rhythm_converges_after_offline_reading_and_legacy_statistics`
+scenario covers three nodes, contributions accumulated without exchange, both
+exchange orders, replay, and a later legacy statistics payload. Pure Rust and
+browser-bridge tests cover goal conflicts, replay, invalid data and thresholds.

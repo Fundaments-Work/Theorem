@@ -353,6 +353,7 @@ pub fn run() {
             offload_commands::sqlite_cleanup_old_rss_articles,
             offload_commands::sqlite_record_reading_session,
             offload_commands::sqlite_record_reading_chunk,
+            offload_commands::evaluate_reading_rhythm,
             offload_commands::sqlite_get_reading_sessions,
             offload_commands::sqlite_get_vocabulary_terms,
             offload_commands::sqlite_save_vocabulary_term,

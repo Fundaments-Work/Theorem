@@ -1880,3 +1880,92 @@ async fn an_older_copy_of_a_deleted_entry_never_brings_it_back_after_another_dev
         deletion_against_an_older_copy(b_starts, true).await;
     }
 }
+
+/// An optional extension must survive the real transport, legacy statistics,
+/// independent reading while disconnected, and both exchange orders.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reading_rhythm_converges_after_offline_reading_and_legacy_statistics() {
+    use theorem_core::reading_rhythm::{evaluate, RhythmRequest, RhythmState};
+    fn progress(state: Option<RhythmState>, incoming: Option<RhythmState>) -> RhythmState {
+        evaluate(RhythmRequest {
+            today: "2026-10-31".into(),
+            state,
+            incoming,
+            goal: None,
+            reading: None,
+        })
+        .unwrap()
+        .state
+    }
+    fn initial(source: &str, seconds: u32) -> RhythmState {
+        evaluate(serde_json::from_value(serde_json::json!({
+            "today":"2026-10-31", "goal":{"days":1,"stamp":"2026-10-31T00:00:00.000Z","id":"initial"},
+            "reading":{"date":"2026-10-31","source":source,"seconds":seconds}
+        })).unwrap()).unwrap().state
+    }
+    async fn publish(device: &Device, state: Option<&RhythmState>) {
+        let mut value = serde_json::json!({"dailyActivity":[]});
+        if let Some(state) = state {
+            value["rhythm"] = serde_json::to_value(state).unwrap();
+        }
+        for p in &device.pairings {
+            let (_, _, error) = device
+                .write(
+                    &p.doc,
+                    p.protocol,
+                    &[("reading_stats".into(), value.to_string())],
+                    true,
+                )
+                .await;
+            assert_eq!(error, None);
+        }
+    }
+    async fn receive(device: &Device, existing: RhythmState) -> RhythmState {
+        let read = read_docs(&device.doc_list(), &device.blobs, None, Some(&device.own)).await;
+        let incoming = read
+            .entries
+            .get("reading_stats")
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .and_then(|value| value.get("rhythm").cloned())
+            .map(|value| serde_json::from_value(value).unwrap());
+        progress(Some(existing), incoming)
+    }
+    for reverse in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (a, b, c) = three_devices(root.path()).await;
+        let mut sa = initial("A", 120);
+        let mut sb = initial("B", 120);
+        let mut sc = initial("C", 60);
+        publish(&a, Some(&sa)).await;
+        publish(&b, Some(&sb)).await;
+        publish(&c, Some(&sc)).await;
+        // C contributes its offline reading when it rejoins the exchanges below.
+        assert!(exchange(&a, &b, true).await.synced);
+        sa = receive(&a, sa).await;
+        sb = receive(&b, sb).await;
+        assert!(sa.awards.is_empty());
+        assert!(sb.awards.is_empty());
+        for _ in 0..3 {
+            publish(&a, Some(&sa)).await;
+            publish(&b, Some(&sb)).await;
+            publish(&c, Some(&sc)).await;
+            let pairs = if reverse {
+                [(&b, &c), (&a, &b)]
+            } else {
+                [(&a, &b), (&b, &c)]
+            };
+            for (from, to) in pairs {
+                assert!(exchange(from, to, true).await.synced);
+            }
+            sa = receive(&a, sa).await;
+            sb = receive(&b, sb).await;
+            sc = receive(&c, sc).await;
+        }
+        assert_eq!(sa, sb);
+        assert_eq!(sb, sc);
+        assert_eq!(sa.awards.values().sum::<u32>(), 30);
+        publish(&b, None).await;
+        assert!(exchange(&a, &b, true).await.synced);
+        assert_eq!(receive(&a, sa.clone()).await, sa);
+    }
+}

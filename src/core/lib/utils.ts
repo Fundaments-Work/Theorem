@@ -6,11 +6,12 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatReadingTime(minutes: number): string {
-    if (minutes < 60) {
-        return `${minutes}m`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    if (!Number.isFinite(minutes) || minutes <= 0) return "0m";
+    if (minutes < 1) return "<1m";
+    const wholeMinutes = Math.floor(minutes);
+    if (wholeMinutes < 60) return `${wholeMinutes}m`;
+    const hours = Math.floor(wholeMinutes / 60);
+    const mins = wholeMinutes % 60;
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 

@@ -778,12 +778,16 @@ async function mergeIncomingDataLocked(
         try {
             const incoming = JSON.parse(safeMap["reading_stats"]);
             if (incoming && typeof incoming === "object") {
-                const current = useSettingsStore.getState().stats;
-                const merged = mergeReadingStats(incoming, current);
-                if (JSON.stringify(merged) !== JSON.stringify(current)) {
-                    applyRemote(() => useSettingsStore.setState({ stats: merged }));
-                    markUpdated("reading_stats");
-                }
+                const { mergeReadingRhythm } = await import("./reading-rhythm");
+                await mergeReadingRhythm(incoming.rhythm, rhythm => {
+                    const current = useSettingsStore.getState().stats;
+                    const merged = mergeReadingStats(incoming, current);
+                    merged.rhythm = rhythm;
+                    if (JSON.stringify(merged) !== JSON.stringify(current)) {
+                        applyRemote(() => useSettingsStore.setState({ stats: merged }));
+                        markUpdated("reading_stats");
+                    }
+                });
             }
         } catch (e) {
             warnMergeFailure("reading_stats", e);

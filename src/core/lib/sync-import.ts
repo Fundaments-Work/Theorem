@@ -553,6 +553,7 @@ export function mergeReadingStats(
         .pop();
 
     return {
+        rhythm: existing.rhythm,
         totalReadingTime: Math.max(existing.totalReadingTime, incoming.totalReadingTime),
         booksCompleted: Math.max(existing.booksCompleted, incoming.booksCompleted),
         averageReadingSpeed: Math.max(existing.averageReadingSpeed, incoming.averageReadingSpeed),

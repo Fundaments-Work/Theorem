@@ -66,3 +66,14 @@ pub fn wasm_opds_parse(body: &[u8], content_type: &str, base_url: &str) -> Resul
 pub fn wasm_opds_expand_search(template: &str, query: &str) -> String {
     crate::opds::search::expand(template, query)
 }
+
+/// Evaluate reading goals and merge progress using the same rules on every platform.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub fn wasm_reading_rhythm(request_json: &str) -> Result<String, JsValue> {
+    let request = serde_json::from_str(request_json)
+        .map_err(|e| JsValue::from_str(&format!("Invalid rhythm request: {e}")))?;
+    let result = crate::reading_rhythm::evaluate(request)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+}

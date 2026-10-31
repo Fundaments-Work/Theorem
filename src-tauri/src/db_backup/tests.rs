@@ -1078,3 +1078,52 @@ fn restore_repairs_a_damaged_database_that_the_pool_holds_open() {
     quick_check(&pool_conn).unwrap();
     assert_eq!(titles(&pool_conn).len(), 40);
 }
+
+#[test]
+fn reading_rhythm_and_pending_chunks_survive_repeated_backup_restore() {
+    let tmp = tempfile::tempdir().unwrap();
+    let a = tmp.path().join("a");
+    let live_a = make_device(&a, 0, "a", "");
+    let state = theorem_core::reading_rhythm::evaluate(
+        serde_json::from_value(serde_json::json!({
+            "today":"2026-10-31", "reading":{"date":"2026-10-31","source":"reader","seconds":300}
+        }))
+        .unwrap(),
+    )
+    .unwrap()
+    .state;
+    let saved = serde_json::json!({"version":14,"state":{
+        "settings":{},"readingSetupStep":2,
+        "rhythmOutbox":{"2026-10-31:pending":{"date":"2026-10-31","source":"pending","seconds":150}},
+        "readingOutbox":{"chunk:pending":{"date":"2026-10-31","minutes":0.5,"bookId":"book"}},
+        "stats":{"rhythm":state}
+    }});
+    let conn = Connection::open(live_a).unwrap();
+    conn.execute(
+        "UPDATE kv_store SET value=?1 WHERE key=?2",
+        params![saved.to_string(), SETTINGS_KV_KEY],
+    )
+    .unwrap();
+    drop(conn);
+    let out = tmp.path().join("reading.theorem-backup");
+    backup_of(&a, &out, false);
+    let b = tmp.path().join("b");
+    let live_b = make_device(&b, 0, "b", "");
+    for _ in 0..2 {
+        let staged = stage_backup(&out, &b.join(STAGING_DIR), VERSION, &mut no_progress()).unwrap();
+        replace_live_database(&staged.db_path, &live_b, true, false).unwrap();
+        let conn = Connection::open(&live_b).unwrap();
+        let restored: serde_json::Value =
+            serde_json::from_str(&kv(&conn, SETTINGS_KV_KEY).unwrap()).unwrap();
+        assert_eq!(restored["state"]["stats"], saved["state"]["stats"]);
+        assert_eq!(
+            restored["state"]["readingOutbox"],
+            saved["state"]["readingOutbox"]
+        );
+        assert_eq!(
+            restored["state"]["rhythmOutbox"],
+            saved["state"]["rhythmOutbox"]
+        );
+        assert_eq!(restored["state"]["readingSetupStep"], 2);
+    }
+}
