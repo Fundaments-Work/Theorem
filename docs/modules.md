@@ -88,3 +88,10 @@ SQLite via `rusqlite` + `r2d2` pool. All connections use `with_connection()` —
 - **New commands**: return `Result<T, AppError>`; construct with `AppError::not_found(..)`, `::invalid_input(..)`, `::network(..)`, `::io(..)`, or `?` a rusqlite error through `with_connection`. A `String` error converts to `Internal`; an `AppError` converts to `String` (`?` works in either direction), so old `Result<_, String>` code needs no change. Never match on message text to decide behaviour: match on `kind()`.
 - **CLI**: `Output::error` takes anything `Into<AppError>` and picks the exit code from the kind (`exit_code_for`: NotFound 3, Network 4, else 1); `--json` errors carry `"kind"`. A not-found error must be built as `AppError::not_found`, or it exits 1.
 
+
+### Reading chunk command
+
+`sqlite_record_reading_chunk` is an offloaded native command returning typed
+`AppError`. It uses `with_connection()` and the existing session table; its
+immutable chunk IDs allow safe retries while the legacy additive session command
+remains supported. See [statistics](statistics.md#native-recording-contract).

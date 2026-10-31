@@ -508,6 +508,20 @@ pub async fn sqlite_record_reading_session(
 }
 
 #[tauri::command]
+pub async fn sqlite_record_reading_chunk(
+    app: AppHandle,
+    chunk_id: String,
+    date: String,
+    minutes: f64,
+    book_id: String,
+) -> Result<(), AppError> {
+    offload(move || {
+        crate::database::sqlite_record_reading_chunk(app, chunk_id, date, minutes, book_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn sqlite_get_reading_sessions(
     app: AppHandle,
     start_date: Option<String>,

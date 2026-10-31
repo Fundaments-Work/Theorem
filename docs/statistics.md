@@ -45,3 +45,17 @@ The `ShareCardModal` generates a shareable image of the user's reading stats usi
 - Shared via Web Share API (mobile browsers)
 
 The share card renders `ShareCard` inline in the modal's React tree and captures the node with `html-to-image`'s `toBlob`.
+
+## Native recording contract
+
+`sqlite_record_reading_chunk` records an immutable `chunk:<id>` in the existing
+`reading_sessions` table. Repeating the same ID and payload is a no-op; reusing
+an ID with different date, book, or duration returns an InvalidInput error.
+Durations must be finite, positive, and at most one day. The older
+`sqlite_record_reading_session` command remains additive for existing callers.
+
+The dependency rule used here is rusqlite's `Connection::execute` contract: it
+returns the number of changed/inserted/deleted rows and delegates to the prepared
+statement's `execute`. A successful zero-row `ON CONFLICT DO NOTHING` is not a
+failed write. The chunk path reads back the immutable row to distinguish a safe
+replay from an identity conflict. No duplicate is updated or incremented.

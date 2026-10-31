@@ -598,6 +598,13 @@ export async function sqliteRecordReadingSession(
     }
 }
 
+/** Immutable chunk IDs make retries safe; callers own the durable retry queue. */
+export async function sqliteRecordReadingChunk(chunkId: string, date: string, minutes: number, bookId: string): Promise<void> {
+    if (!isTauri()) return;
+    const invoke = await getInvoke();
+    await invoke("sqlite_record_reading_chunk", { chunkId, date, minutes, bookId });
+}
+
 export async function sqliteGetReadingSessions(
     startDate?: string,
     endDate?: string,

@@ -101,6 +101,56 @@ pub fn sqlite_record_reading_session_inner(
     Ok(())
 }
 
+/// Records an immutable reading chunk. Replaying a chunk must not add its time twice.
+pub fn sqlite_record_reading_chunk_inner(
+    connection: &Connection,
+    chunk_id: &str,
+    date: &str,
+    minutes: f64,
+    book_id: &str,
+) -> rusqlite::Result<()> {
+    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok();
+    if !chunk_id.starts_with("chunk:")
+        || chunk_id.len() > 128
+        || book_id.is_empty()
+        || !minutes.is_finite()
+        || minutes <= 0.0
+        || minutes > 1440.0
+        || parsed.is_none_or(|day| day.format("%Y-%m-%d").to_string() != date)
+    {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "Invalid reading chunk".into(),
+        ));
+    }
+    connection.execute(
+        "INSERT INTO reading_sessions (id, book_id, session_date, minutes, created_at)
+         VALUES (?1, ?2, ?3, ?4, unixepoch()) ON CONFLICT(id) DO NOTHING",
+        params![chunk_id, book_id, date, minutes],
+    )?;
+    let matches: bool = connection.query_row(
+        "SELECT book_id = ?2 AND session_date = ?3 AND minutes = ?4 FROM reading_sessions WHERE id = ?1",
+        params![chunk_id, book_id, date, minutes], |row| row.get(0),
+    )?;
+    if !matches {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "Reading chunk identity conflict".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn sqlite_record_reading_chunk(
+    app: AppHandle,
+    chunk_id: String,
+    date: String,
+    minutes: f64,
+    book_id: String,
+) -> Result<(), AppError> {
+    with_connection(&app, |connection| {
+        sqlite_record_reading_chunk_inner(connection, &chunk_id, &date, minutes, &book_id)
+    })
+}
+
 pub fn sqlite_record_reading_session(
     app: AppHandle,
     session_id: String,
@@ -181,6 +231,42 @@ pub fn sqlite_get_reading_sessions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reading_chunk_replay_does_not_add_minutes() {
+        let conn = crate::database::test_support::setup_db();
+        for _ in 0..3 {
+            sqlite_record_reading_chunk_inner(&conn, "chunk:one", "2026-10-31", 5.0, "book")
+                .unwrap();
+        }
+        let sessions = sqlite_get_reading_sessions_inner(&conn, None, None).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].minutes, 5.0);
+    }
+
+    #[test]
+    fn conflicting_and_invalid_chunks_leave_recorded_time_unchanged() {
+        let conn = crate::database::test_support::setup_db();
+        sqlite_record_reading_chunk_inner(&conn, "chunk:a", "2026-10-31", 5.0, "book").unwrap();
+        for (id, day, minutes, book) in [
+            ("chunk:a", "2026-10-31", 6.0, "book"),
+            ("chunk:a", "2026-11-01", 5.0, "book"),
+            ("chunk:a", "2026-10-31", 5.0, "other"),
+            ("session:legacy", "2026-10-31", 5.0, "book"),
+            ("chunk:b", "2026-02-30", 5.0, "book"),
+            ("chunk:b", "2026-10-31", 0.0, "book"),
+            ("chunk:b", "2026-10-31", -1.0, "book"),
+            ("chunk:b", "2026-10-31", f64::NAN, "book"),
+            ("chunk:b", "2026-10-31", f64::INFINITY, "book"),
+            ("chunk:b", "2026-10-31", 1441.0, "book"),
+            ("chunk:b", "2026-10-31", 1.0, ""),
+        ] {
+            assert!(sqlite_record_reading_chunk_inner(&conn, id, day, minutes, book).is_err());
+        }
+        let sessions = sqlite_get_reading_sessions_inner(&conn, None, None).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].minutes, 5.0);
+    }
 
     #[test]
     fn local_date_key_uses_the_local_offset_not_utc() {
