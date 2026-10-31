@@ -156,6 +156,7 @@ export function markDailyReviewCompleted(
             reviewedCardIds,
         };
         window.localStorage.setItem(DAILY_REVIEW_STORAGE_KEY, JSON.stringify(status));
+        window.dispatchEvent(new Event("theorem:daily-review-changed"));
     } catch {
         // Storage unavailable or quota exceeded
     }
@@ -171,7 +172,27 @@ export function resetDailyReview(dateStr: string = getLocalDateString()): void {
             reviewedCardIds: [],
         };
         window.localStorage.setItem(DAILY_REVIEW_STORAGE_KEY, JSON.stringify(status));
+        window.dispatchEvent(new Event("theorem:daily-review-changed"));
     } catch {
         // Storage unavailable
     }
+}
+
+export const DAILY_REVIEW_DISMISSAL_KEY = "theorem-dismiss-daily-deck";
+export const DAILY_REVIEW_CHANGED_EVENT = "theorem:daily-review-changed";
+
+export function getDailyReviewDismissal(): string | null {
+    try {
+        const saved = window.localStorage.getItem(DAILY_REVIEW_DISMISSAL_KEY);
+        if (saved) return saved;
+        // Keep dismissals made by older versions in the current session.
+        const previous = window.sessionStorage.getItem(DAILY_REVIEW_DISMISSAL_KEY);
+        if (previous) window.localStorage.setItem(DAILY_REVIEW_DISMISSAL_KEY, previous);
+        return previous;
+    } catch { return null; }
+}
+
+export function dismissDailyReview(date: string): void {
+    window.localStorage.setItem(DAILY_REVIEW_DISMISSAL_KEY, date);
+    window.dispatchEvent(new Event(DAILY_REVIEW_CHANGED_EVENT));
 }

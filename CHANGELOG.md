@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Daily Review stays dismissed** — Dismissal now survives app restarts for the local day; completion updates immediately and remains complete after annotation changes. The fullscreen overlay renders outside Library scrolling/containment, preventing clipping and stray scrollbar tracks, and a fresh day resets it while the app stays open.
+
 - **Existing reading history and XP** — Existing readers receive daily XP from retained reading activity, including profiles that already enabled a rhythm. Fractional minutes are supported and repeated backfills preserve awards. Library view and filter icons are larger and use bare icon controls, with rows and funnel glyphs. Statistics has equal-sized level badges, a weekly completion check and explicit scheduled goal changes, brighter earned achievements, and icons in place of emoji.
 
 - **Reading rhythm and levels** — Choose a flexible weekly reading goal, see a compact read-only level journey in Statistics, and earn lasting XP and numbered levels. Weekly goals are edited in Settings. Goals start with a suggested four days per week; five reading minutes qualify a day. Daily goals and streaks stay separate. Upgraded devices merge reading contributions and awards without duplication; older statistics remain compatible.

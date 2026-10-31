@@ -99,6 +99,20 @@ cancel the pending request.
 Folder connection and rescanning are in Settings → Data & Storage → Library
 Folders. The empty-library folder import entry remains available.
 
-The existing daily review deck remains in the scroll feed. Its measured height
-is supplied as TanStack Virtual's `scrollMargin`, and row starts are normalized
-to the grid coordinates so the deck does not overlap virtualized books.
+## Daily Review persistence and viewport
+
+Daily Review is a fullscreen overlay portaled to `document.body`, outside the
+Library's `content-visibility: auto` scroll container. CSS layout/paint
+containment makes descendants' fixed positioning relative to that container;
+portaling prevents a constrained overlay and stray scrollbars. Horizontal
+fling overflow is clipped while short viewports can scroll vertically.
+The deck is visible only on the Library route, even while routes stay mounted.
+
+Dismiss for today stores the local date in `localStorage` under
+`theorem-dismiss-daily-deck`, so it survives restart. A session-only dismissal
+from an older version is copied over on first read. Completion retains the
+existing `theorem:daily-review-state` format and stores the reviewed card IDs.
+Same-window review events, storage events, focus, and a minute timer refresh
+status and local date. Completion closes the overlay and stays completed when
+annotations update; a new local day can show a fresh deck without restarting.
+A failed dismissal write is reported rather than silently claiming persistence.

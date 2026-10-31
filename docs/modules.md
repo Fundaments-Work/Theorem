@@ -113,3 +113,7 @@ Both use `useReadingRhythmProgress` for read-only progress queries;
 Successful document/PDF load callbacks call `libraryStore.recordBookOpened` to
 persist last-read time and update the bounded recent cache. This changes neither
 saved location nor progress and does not award XP. Missing IDs are ignored.
+
+**Daily Review**: `LibraryDailyReviewDeck` portals outside the virtualized scroll
+container and subscribes to local-date/status changes. `daily-review.ts` keeps
+dismissal across sessions and the existing completion record.

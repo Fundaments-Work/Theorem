@@ -1,4 +1,6 @@
-import { memo, useState, useMemo, useCallback } from "react";
+import { memo, useState, useMemo, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { toast } from "sonner";
 import { X } from "lucide-react";
 import { useLibraryStore, useUIStore, useRssStore } from "../../../core/store";
 import { localDateKey } from "../../../core/lib/date-keys";
@@ -9,13 +11,15 @@ import {
 } from "../../../core/lib/annotation-source";
 import {
     getDailyReviewStatus,
+    getDailyReviewDismissal,
+    dismissDailyReview,
+    DAILY_REVIEW_CHANGED_EVENT,
     selectDailyReviewCards,
     markDailyReviewCompleted,
 } from "../../../core/lib/daily-review";
 import { useAndroidBackButton } from "../../../core/lib/env";
 import { ReviewCardStack } from "./ReviewCardStack";
 
-const SNOOZE_STORAGE_KEY = "theorem-dismiss-daily-deck";
 
 export interface LibraryDailyReviewDeckProps {
     showDailyHighlight: boolean;
@@ -30,10 +34,29 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
     showFavoritesOnly,
     isSelecting,
 }: LibraryDailyReviewDeckProps) {
-    const today = localDateKey();
-    const [dismissed, setDismissed] = useState(
-        () => typeof window !== "undefined" && window.sessionStorage?.getItem(SNOOZE_STORAGE_KEY) === today
-    );
+    const isLibraryRoute = useUIStore(state => state.currentRoute === "library");
+    const [today, setToday] = useState(localDateKey);
+    const [dismissedDate, setDismissedDate] = useState(getDailyReviewDismissal);
+    const dismissed = dismissedDate === today;
+    const [dailyReviewStatus, setDailyReviewStatus] = useState(() => getDailyReviewStatus(today));
+    useEffect(() => {
+        const refresh = () => {
+            const date = localDateKey();
+            setToday(date);
+            setDismissedDate(getDailyReviewDismissal());
+            setDailyReviewStatus(getDailyReviewStatus(date));
+        };
+        window.addEventListener("storage", refresh);
+        window.addEventListener("focus", refresh);
+        window.addEventListener(DAILY_REVIEW_CHANGED_EVENT, refresh);
+        const timer = window.setInterval(refresh, 60_000);
+        return () => {
+            window.removeEventListener("storage", refresh);
+            window.removeEventListener("focus", refresh);
+            window.removeEventListener(DAILY_REVIEW_CHANGED_EVENT, refresh);
+            window.clearInterval(timer);
+        };
+    }, []);
 
     const annotations = useLibraryStore((state) =>
         dismissed || !showDailyHighlight ? null : state.annotations
@@ -50,7 +73,6 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
     const loadArticle = useRssStore((state) => state.loadArticle);
     const hasBook = useCallback((id: string) => !!useLibraryStore.getState().getBook(id), []);
 
-    const dailyReviewStatus = useMemo(() => getDailyReviewStatus(), [today]);
 
     const dailyCards = useMemo(() => {
         if (!annotations || annotations.length === 0 || dailyReviewStatus.completed) {
@@ -72,16 +94,17 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
 
     const handleDismiss = useCallback(() => {
         try {
-            window.sessionStorage?.setItem(SNOOZE_STORAGE_KEY, today);
+            dismissDailyReview(today);
         } catch {
-            // Ignore sessionStorage unavailable
+            toast.error("Could not save dismissal. Daily Review may return after restarting.");
         }
-        setDismissed(true);
+        setDismissedDate(today);
     }, [today]);
 
     const handleComplete = useCallback(() => {
-        markDailyReviewCompleted();
-    }, []);
+        markDailyReviewCompleted(today, dailyCards.map(card => card.id));
+        setDailyReviewStatus({ date: today, completed: true, reviewedCardIds: dailyCards.map(card => card.id) });
+    }, [today, dailyCards]);
 
     const handleGoToSource = useCallback((sourceId: string, location?: string) => {
         const ann = annotations?.find(
@@ -100,15 +123,16 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
 
     useAndroidBackButton(
         useCallback(() => {
-            if (!dismissed && showDailyHighlight && !dailyReviewStatus.completed && dailyCards.length > 0) {
+            if (isLibraryRoute && !dismissed && showDailyHighlight && !dailyReviewStatus.completed && dailyCards.length > 0) {
                 handleDismiss();
                 return true;
             }
             return false;
-        }, [dismissed, showDailyHighlight, dailyReviewStatus.completed, dailyCards.length, handleDismiss])
+        }, [isLibraryRoute, dismissed, showDailyHighlight, dailyReviewStatus.completed, dailyCards.length, handleDismiss])
     );
 
     if (
+        !isLibraryRoute ||
         dismissed ||
         !showDailyHighlight ||
         dailyReviewStatus.completed ||
@@ -120,14 +144,14 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
         return null;
     }
 
-    return (
+    return createPortal(
         <div
-            className="fixed inset-0 z-50 bg-[var(--color-background)] flex flex-col items-center justify-center p-4 sm:p-6 overflow-y-auto animate-fade-in"
+            className="fixed inset-0 z-[var(--z-modal)] bg-[var(--color-background)] flex flex-col items-center justify-start p-4 sm:p-6 overflow-x-hidden overflow-y-auto overscroll-contain [content-visibility:auto] motion-safe:animate-fade-in"
             role="dialog"
             aria-modal="true"
             aria-label="Daily Review"
         >
-            <div className="relative w-full max-w-[38rem] sm:max-w-[42rem] mx-auto my-auto px-1">
+            <div className="relative w-full shrink-0 max-w-[38rem] sm:max-w-[42rem] mx-auto my-auto px-1">
                 <button
                     type="button"
                     onClick={handleDismiss}
@@ -151,6 +175,7 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
                     onCompletionAction={handleDismiss}
                 />
             </div>
-        </div>
+        </div>,
+        document.body
     );
 });

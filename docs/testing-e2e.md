@@ -154,3 +154,6 @@ Uppercase Latin text uses explicit Shift key actions in the WebKit driver helper
 the element send-keys path under the headless compositor was observed to turn
 “Evening Reading” into lowercase. The shelf flow checks the textbox value before
 creating the shelf and still requires the exact name after restart.
+
+Daily Review regressions cover persisted dismissal/completion across navigation
+and restart, plus actual viewport and overflow geometry.
