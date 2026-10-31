@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Statistics share footer** — Share cards are branded “Theorem”; recently read covers stay within a three-column footprint so the footer remains visible with fewer books.
+
 - **Daily Review stays dismissed** — Dismissal now survives app restarts for the local day; completion updates immediately and remains complete after annotation changes. The fullscreen overlay renders outside Library scrolling/containment, preventing clipping and stray scrollbar tracks, and a fresh day resets it while the app stays open.
 - **Cover images from URLs** — Desktop and mobile download and validate cover images in Rust, avoiding WebView CORS restrictions. The editor blocks Save while loading, ignores stale results, and preserves the previous cover after failure.
 - **Readable one-time onboarding** — Reading setup and the optional guide share a responsive layout with explicit page-width tokens, app illustrations, and persistent footer actions. Sidebar and Library control icons share 16px Lucide glyphs and bare-button styling.

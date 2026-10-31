@@ -477,7 +477,7 @@ export function ShareCard({ kind, annotation, book, statsData, format, theme, sh
                     </div>
                     <div style={{
                         display: "grid",
-                        gridTemplateColumns: `repeat(${Math.min(3, recentBooks.length)}, 1fr)`,
+                        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
                         gap: isStory ? 24 : 18,
                     }}>
                         {recentBooks.map((book, idx) => {
@@ -589,7 +589,7 @@ export function ShareCard({ kind, annotation, book, statsData, format, theme, sh
                         color: colors.fg,
                         letterSpacing: "-0.01em",
                     }}>
-                        Theorem Reader
+                        Theorem
                     </span>
                 </div>
                 <span style={{ fontSize: isStory ? 18 : 14, color: colors.subtext, fontWeight: 500 }}>

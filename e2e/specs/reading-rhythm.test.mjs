@@ -63,6 +63,13 @@ test("Statistics is read-only and weekly goals are editable only in Settings",as
     assert.equal(await app.exists({role:"button",name:"Reading days per week"}),false);
     assert.equal(await app.exists({role:"checkbox",name:"Hide motivational progress in Library"}),false);
     await app.screenshot("reading-rhythm-statistics");
+    await app.click({role:"button",name:"Share Stats"});
+    const share=await app.find({role:"dialog",name:"Share Reading Stats"});
+    const watermark=await app.find({text:/^Theorem$/,within:share});
+    const watermarkFits=await app.session.execute("const card=Array.from(arguments[0].querySelectorAll('div')).find(el=>el.style.width==='1080px'&&el.style.height==='1080px'&&el.style.overflow==='hidden');const c=card.getBoundingClientRect(),w=arguments[1].getBoundingClientRect();return w.left>=c.left&&w.right<=c.right&&w.top>=c.top&&w.bottom<=c.bottom",share,watermark);
+    assert.equal(watermarkFits,true,"Statistics footer must be visible inside the exported square card");
+    await app.screenshot("statistics-share-theorem-footer");
+    await app.click({role:"button",name:"Cancel",within:share});
     await openSettingsTab(app,"General");
     const goal={role:"button",name:"Reading days per week"};
     await app.waitFor(async()=>(await app.session.execute("return arguments[0].textContent",await app.find(goal))).includes("4 days"),{what:"saved weekly reading goal"});

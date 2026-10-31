@@ -93,7 +93,8 @@ describe("ShareCard Component", () => {
         expect(host?.textContent).not.toContain("CURRENT");
 
         // Footer
-        expect(host?.textContent).toContain("Theorem Reader");
+        expect(host?.textContent).toContain("Theorem");
+        expect(host?.textContent).not.toContain("Theorem Reader");
         expect(host?.textContent).toContain("theorem.fundaments.work");
     });
 
@@ -118,7 +119,8 @@ describe("ShareCard Component", () => {
         expect(host?.textContent).not.toContain("Reading Report");
         expect(host?.textContent).toContain("60h 53m");
         expect(host?.textContent).toContain("A Mind at Play");
-        expect(host?.textContent).toContain("Theorem Reader");
+        expect(host?.textContent).toContain("Theorem");
+        expect(host?.textContent).not.toContain("Theorem Reader");
 
         // Asserts TheoremLogo SVG is rendered in footer
         const svgs = host?.querySelectorAll("svg");
@@ -155,10 +157,11 @@ describe("ShareCard Component", () => {
                     annotation={{
                         id: "anno-1",
                         bookId: "book-1",
-                        cfi: "epubcfi(/6/2[chap1]!/4/2)",
+                        location: "epubcfi(/6/2[chap1]!/4/2)",
+                        type: "highlight",
                         selectedText: "The essence of information is surprise.",
                         color: "yellow",
-                        createdAt: 1700000000000,
+                        createdAt: new Date(1700000000000),
                     }}
                     book={{
                         title: "The Information",

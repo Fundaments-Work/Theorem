@@ -41,7 +41,9 @@ Progress bars show completion percentage for both.
 
 ## Sharing Stats
 
-The `ShareCardModal` generates a shareable image of the user's reading stats using `html-to-image` (dynamically imported). The image can be:
+The `ShareCardModal` generates a shareable image of the user's reading stats using `html-to-image` (dynamically imported). Statistics cards use “Theorem” as their footer watermark. Recent covers keep
+a three-column footprint even with one or two books, so a cover cannot grow
+past the card and clip the footer. The image can be:
 - Downloaded as PNG via `downloadImage` (desktop Downloads / Android MediaStore) or browser download (web)
 - Shared via Web Share API (mobile browsers)
 
