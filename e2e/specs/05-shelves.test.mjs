@@ -23,8 +23,10 @@ test("Shelves starts empty", async () => {
 
 test("select a book and add it to a new shelf", async () => {
     await goTo(app, "Library");
-    await app.click({ role: "button", name: "Select books" });
-    await app.click({ role: "checkbox", name: `Select ${BOOKS.harbour.title}` });
+    const card = await app.find(bookButton(BOOKS.harbour.title));
+    const point = await app.session.execute("arguments[0].scrollIntoView({block:'center'}); const r=arguments[0].getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}", card);
+    await app.session.pointer([{type:"move", ...point}, {type:"down",button:2}, {type:"up",button:2}]);
+    await app.click({ role: "menuitem", name: "Select" });
     await app.find({ role: "checkbox", name: `Select ${BOOKS.harbour.title}`, checked: true });
     await app.click({ role: "button", name: "Add selected to shelf" });
 
@@ -33,6 +35,7 @@ test("select a book and add it to a new shelf", async () => {
     const create = await app.find({ role: "button", name: "Create" });
     assert.equal(await app.session.execute("return arguments[0].disabled", create), true);
     await app.fill({ role: "textbox", name: "New shelf name" }, SHELF);
+    assert.equal(await app.value({ role: "textbox", name: "New shelf name" }), SHELF);
     await app.click({ role: "button", name: "Create" });
     await app.waitGone({ role: "dialog", name: "Add to Shelf" });
     if (await app.exists({ role: "button", name: /^Done/ })) await app.click({ role: "button", name: /^Done/ });

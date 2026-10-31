@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { Sandbox } from "../lib/app.mjs";
 import { BOOKS, writeStandardBooks } from "../lib/fixtures.mjs";
-import { bookButton, importBooks, launchFresh } from "../lib/flows.mjs";
+import { bookButton, importBooks, launchFresh, openSettingsTab, goTo } from "../lib/flows.mjs";
 
 const box = new Sandbox("folder-scan");
 const files = writeStandardBooks(box.files);
@@ -26,24 +26,25 @@ before(async () => {
 });
 after(() => box.dispose());
 
-test("Scan asks how to import, then which folder", async () => {
-    await app.click({ role: "button", name: "Scan" });
+test("connect a Library Folder through Settings and choose its organization", async () => {
+    await openSettingsTab(app, "Data & Storage");
+    app.queueDialog("open", scan);
+    await app.click({ role: "button", name: /^Add Library Folder/ });
     await app.find({ role: "dialog", name: "Import a folder" });
     assert.ok(await app.exists({ role: "radio", name: /^Preserve folder structure/ }));
     assert.ok(await app.exists({ role: "radio", name: /^Import as a flat library/ }));
-    app.queueDialog("open", scan);
     await app.click({ role: "button", name: "Choose folder" });
 });
 
 test("new books are imported, the duplicate and the broken file are reported", async () => {
-    await app.find({ role: "dialog", name: "Import Errors" }, { timeout: 30000 });
+    await app.waitForText("Import Errors", { timeout: 30000 });
     const report = await app.text();
     assert.match(report, /2 imported/);
     assert.match(report, /already in your library/);
     assert.match(report, /1 could not be imported/);
     assert.match(report, /broken\.epub/);
     assert.doesNotMatch(report, /notes\.txt/);
-    await app.click({ role: "button", name: "OK" });
+    await goTo(app, "Library");
 
     await app.waitForText("3 books");
     for (const b of Object.values(BOOKS)) {
@@ -53,14 +54,14 @@ test("new books are imported, the duplicate and the broken file are reported", a
 });
 
 test("scanning the same folder again imports nothing new", async () => {
-    await app.click({ role: "button", name: "Scan" });
-    await app.find({ role: "dialog", name: "Import a folder" });
-    app.queueDialog("open", scan);
-    await app.click({ role: "button", name: "Choose folder" });
-    await app.find({ role: "dialog", name: "Import Errors" }, { timeout: 30000 });
+    await openSettingsTab(app, "Data & Storage");
+    await app.click({ role: "button", name: "Rescan scan" });
+    await app.waitForText("Import Errors", { timeout: 30000 });
+    await app.waitForText("0 imported", { timeout: 30000 });
     const report = await app.text();
-    assert.match(report, /0 imported|already in your library/);
+    assert.match(report, /0 imported/);
+    assert.match(report, /already in your library/);
     assert.match(report, /broken\.epub/);
-    await app.click({ role: "button", name: "OK" });
+    await goTo(app, "Library");
     await app.waitForText("3 books");
 });

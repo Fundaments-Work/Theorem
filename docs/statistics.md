@@ -63,10 +63,9 @@ replay from an identity conflict. No duplicate is updated or incremented.
 
 ## Weekly reading rhythm and XP
 
-The Library offers an optional weekly reading rhythm (recommended: four days).
+Onboarding and Settings offer an optional weekly reading rhythm (suggested: four days).
 Five recorded minutes, accumulated across sessions and books on the same local
-calendar date, qualify as one reading day. Weeks run Monday–Sunday, with their
-date range displayed. Daily-minute goals and strict daily streaks remain separate.
+calendar date, qualify as one reading day. Weeks run Monday–Sunday. Daily-minute goals and strict daily streaks remain separate.
 Changing an established weekly goal, including turning it off, takes effect the
 following Monday. Initial setup applies to the current week.
 
@@ -75,9 +74,15 @@ earns another 20 XP, once per week. Level starts at 1 and advances every 100 XP.
 Extra minutes, imports, highlights, page turns and review-card swipes earn no XP.
 Missing a day or week does not remove XP. Earlier activity remains in Statistics
 but is not converted into historical awards. Collection starts when the reader
-first chooses a rhythm. Settings and Statistics expose the weekly target and a
-preference to hide motivational progress in Library; Statistics remains available.
+first chooses a rhythm. Weekly targets are edited only in Settings → General →
+Reading Goals, using the shared Dropdown (Off or one through seven days).
+Statistics is read-only: a numbered shield, lifetime XP, segmented next-level
+track, next-level shield, and a weekly flag/count when a goal is enabled.
+Icons retain accessible names and tooltips. Library shows no rhythm panel.
 XP progress appears inline; it does not open a celebration over the reader.
+The legacy `hideReadingMotivation` field remains readable for older peers but
+has no UI. `useReadingRhythmProgress` shares read-only queries between the
+Statistics display and Settings control; only the latter changes goals.
 
 The Rust rules live in `theorem-core::reading_rhythm`, called through the offloaded `evaluate_reading_rhythm` command on desktop and
 mobile. The browser loads the same crate's bundled WebAssembly module lazily via

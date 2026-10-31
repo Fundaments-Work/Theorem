@@ -105,7 +105,9 @@ rules in the browser; native `combine_doc_values` uses the same crate when
 combining peer copies of `reading_stats`. `core/lib/reading-records.ts` owns the
 device-local retry outbox. State lives in settings-store persistence version 14;
 `stats.rhythm` has its own version 1. No new primary route or tab is introduced.
-`ReadingRhythm.tsx` presents progress in Library, Statistics, and Settings;
+`ReadingRhythm.tsx` presents read-only XP and levels in Statistics;
+`WeeklyReadingGoal.tsx` configures the target in Settings with the shared Dropdown.
+Both use `useReadingRhythmProgress` for read-only progress queries;
 `ReadingSetup.tsx` owns first-run setup and links to the optional feature guide.
 
 Successful document/PDF load callbacks call `libraryStore.recordBookOpened` to

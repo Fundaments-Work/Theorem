@@ -1,4 +1,4 @@
-import { ReadingRhythm } from "../statistics/ReadingRhythm";
+import { WeeklyReadingGoal } from "./WeeklyReadingGoal";
 import { useRef, useState, useEffect, memo, lazy, Suspense, type ChangeEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button, PageHeader } from "../../ui";
@@ -740,7 +740,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         description="Choose a weekly rhythm and daily or yearly targets"
                         icon={<Target className="w-5 h-5" />}
                     >
-                        <ReadingRhythm />
+                        <WeeklyReadingGoal />
                         <SettingRow
                             label="Daily Reading Goal"
                             description="Minutes to read each day"

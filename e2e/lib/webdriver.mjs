@@ -47,7 +47,22 @@ export class Session {
     }
 
     async type(el, text) {
-        await this.cmd("POST", `/element/${elementId(el)}/value`, { text });
+        // WebKit's element send-keys path can lose the Shift modifier on
+        // uppercase letters under the headless compositor. Send those with an
+        // explicit modifier so the typed value matches the requested text.
+        for (const part of text.split(/([A-Z])/).filter(Boolean)) {
+            if (!/^[A-Z]$/.test(part)) {
+                await this.cmd("POST", `/element/${elementId(el)}/value`, { text: part });
+                continue;
+            }
+            const value = part.toLowerCase();
+            await this.cmd("POST", "/actions", { actions: [{ type: "key", id: "kbd", actions: [
+                { type: "keyDown", value: "\uE008" },
+                { type: "keyDown", value }, { type: "keyUp", value },
+                { type: "keyUp", value: "\uE008" },
+            ] }] });
+            await this.cmd("DELETE", "/actions");
+        }
     }
 
     async clear(el) {
@@ -68,8 +83,8 @@ export class Session {
     async pointer(steps) {
         const actions = steps.map((s) => {
             if (s.type === "move") return { type: "pointerMove", origin: "viewport", x: Math.round(s.x), y: Math.round(s.y), duration: s.duration ?? 50 };
-            if (s.type === "down") return { type: "pointerDown", button: 0 };
-            if (s.type === "up") return { type: "pointerUp", button: 0 };
+            if (s.type === "down") return { type: "pointerDown", button: s.button ?? 0 };
+            if (s.type === "up") return { type: "pointerUp", button: s.button ?? 0 };
             return { type: "pause", duration: s.ms ?? 50 };
         });
         await this.cmd("POST", "/actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });

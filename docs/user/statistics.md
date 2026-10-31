@@ -80,11 +80,11 @@ Reading statistics are included in [device sync](device-sync.md). When two devic
 
 ## Weekly rhythm, XP, and levels
 
-Choose a weekly reading rhythm in Statistics or Settings → Reading Goals. Four
+Choose a weekly reading rhythm in Settings → General → Reading Goals. Four
 days is the suggested starting point; you can choose one through seven or turn
 the weekly goal off. Five minutes accumulated across books and sessions qualifies
-a reading day. Library shows your progress for the current Monday–Sunday week,
-with **View reading progress** opening Statistics. Goal edits begin next Monday.
+a reading day. Statistics shows this week’s reading-day count beside a flag.
+Goal edits begin next Monday.
 Your daily-minute goal and daily streak are separate.
 
 A qualifying day earns 10 XP. Meeting a weekly goal earns another 20 XP. Every
@@ -93,9 +93,10 @@ XP away. Extra minutes and app opens do not earn extra XP, and no reading featur
 is locked behind a level. Awards begin when you choose a rhythm; older reading
 stays in your existing statistics.
 
-To keep Library quiet, turn on **Hide motivational progress in Library** in
-Statistics or Reading Goals. Statistics still shows your progress. XP and level changes appear inline in Statistics without opening a celebration
-over the reader.
+Statistics shows a numbered level shield, lifetime XP, and a segmented track
+toward the next level. Goals are edited in Settings; Statistics is read-only.
+Library keeps Continue reading inside the existing book card. Level changes
+never open a celebration over the reader.
 
 Reading-rhythm data syncs between upgraded devices. Older app versions keep
 working with their existing statistics but cannot record these new counters or

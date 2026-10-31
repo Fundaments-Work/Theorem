@@ -11,6 +11,8 @@ export interface DropdownOption<T = string> {
 }
 
 export interface DropdownProps<T = string> {
+    id?: string;
+    "aria-label"?: string;
     options: DropdownOption<T>[];
     value?: T;
     defaultValue?: T;
@@ -39,6 +41,8 @@ const variantClasses: Record<string, string> = {
 };
 
 export function Dropdown<T extends string = string>({
+    id,
+    "aria-label": ariaLabel,
     options,
     value,
     defaultValue,
@@ -61,6 +65,8 @@ export function Dropdown<T extends string = string>({
         <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild disabled={disabled}>
                 <button
+                    id={id}
+                    aria-label={ariaLabel}
                     type="button"
                     className={cn(
                         "flex items-center justify-between gap-2 w-full cursor-pointer",

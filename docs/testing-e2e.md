@@ -101,7 +101,7 @@ contain it.
 | 3 | `03-reader-position` | open → page 1; Next/Previous page; back and reopen → same page; same page after restart |
 | 4 | `04-highlight-workbench-export` | double-click a word, pick a colour → highlight; Workbench shows the highlight, book and author in Highlights, excludes it from Notes, and restores it when returning to Highlights; Settings → Markdown Export → Pick folder → Export now writes a `.md` with the highlight, title and author |
 | 5 | `05-shelves` | Shelves empty; select a book → Add to shelf → new shelf; the shelf lists only that book; survives restart |
-| 6 | `06-folder-scan` | Scan → Import a folder → choose folder with nested books, a book already in the library, an identical copy, a broken `.epub` and a `.txt`: "2 imported, 1 already in your library, 1 could not be imported" naming the broken file; rescanning imports nothing |
+| 6 | `06-folder-scan` | Settings → Data & Storage → Add Library Folder → choose folder → organization chooser; scan with nested books, a book already in the library, an identical copy, a broken `.epub` and a `.txt`: "2 imported, 1 already in your library, 1 could not be imported" naming the broken file; rescanning imports nothing |
 | 7 | `07-backup-restore` | Create Backup File (save dialog, default name `theorem-YYYY-MM-DD.theorem-backup`) → wipe data dir → empty app → Restore from Backup → Replace Library → books and highlight back; a restored book opens |
 | 8 | `08-settings-persist` | theme, daily reading goal and article retention survive a restart |
 
@@ -137,7 +137,10 @@ uploaded as the `e2e-artifacts` artifact.
 
 
 The reading-rhythm scenario chooses a goal, imports and opens a book, checks the
-Resume action, and verifies the goal after restart. Run E2E against a fixed copy
+continue-reading icon inside its existing card, read-only Statistics, and the
+Settings dropdown goal after restart. The shelf flow starts selection through a
+real right-click context menu, and the folder flow connects and rescans through
+Settings. Neither requires added toolbar actions. Run E2E against a fixed copy
 of the `e2e` feature binary when other Cargo checks could rebuild the default
 binary at the same output path. Never run two gate scripts against that path.
 
@@ -146,3 +149,8 @@ current card presents them as separate labels. It returns to Highlights after
 checking Notes; the current section tabs are Highlights, Notes, Words, and
 Bookmarks. These checks preserve the original content/filtering coverage without
 requiring the retired All tab or a particular separator character.
+
+Uppercase Latin text uses explicit Shift key actions in the WebKit driver helper:
+the element send-keys path under the headless compositor was observed to turn
+“Evening Reading” into lowercase. The shelf flow checks the textbox value before
+creating the shelf and still requires the exact name after restart.

@@ -13,7 +13,7 @@ First launch helps you start reading:
 
 **Skip setup** opens Library immediately. Saved setup steps survive a restart.
 Once completed or skipped, setup does not appear again. Weekly goals can be
-changed later in Statistics or Settings → Reading Goals.
+changed later in Settings → General → Reading Goals.
 
 ## Add your first book
 

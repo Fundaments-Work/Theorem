@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSettingsStore } from "../../core/store";
 import { setWeeklyReadingGoal } from "../../core/lib/reading-rhythm";
+import { Dropdown } from "../../ui/Dropdown";
 import { Button } from "../../ui/Button";
 import { TheoremLogo } from "../../shell/TheoremLogo";
 import { OnboardingFlow } from "./OnboardingFlow";
@@ -43,9 +44,9 @@ export function ReadingSetup({ onComplete }: { onComplete: (destination?: Destin
             {step === 1 && <>
                 <p className="mt-4 text-sm text-[color:var(--color-text-secondary)]">Read for 5 minutes to count a day. Aim for a few days each week, with room for busy days.</p>
                 <label className="mt-6 text-sm text-[color:var(--color-text-primary)]" htmlFor="setup-reading-days">Reading days per week</label>
-                <select id="setup-reading-days" className="ui-input mt-2 min-h-11" value={days} onChange={e => setDays(Number(e.target.value))}>
-                    {[1,2,3,4,5,6,7].map(value => <option key={value} value={value}>{value} days{value === 4 ? " — recommended" : ""}</option>)}
-                </select>
+                <Dropdown dropdownClassName="z-[calc(var(--z-modal)+1)]" id="setup-reading-days" aria-label="Reading days per week" className="mt-2 min-h-11" value={String(days)} onChange={value => setDays(Number(value))} options={
+                    [1,2,3,4,5,6,7].map(value => ({ value: String(value), label: `${value} ${value === 1 ? "day" : "days"}${value === 4 ? " — recommended" : ""}` }))
+                } />
                 <div className="mt-8 flex flex-wrap gap-3">
                     <Button className="min-h-11" onClick={() => go(0)} disabled={busy}>Back</Button>
                     <Button variant="primary" className="min-h-11" onClick={() => void saveGoal()} disabled={busy}>Save rhythm</Button>
@@ -53,7 +54,7 @@ export function ReadingSetup({ onComplete }: { onComplete: (destination?: Destin
                 </div>
             </>}
             {step === 2 && <>
-                <p className="mt-4 text-sm text-[color:var(--color-text-secondary)]">Add a book from this device in Library, or find a free book in Discover. You can change your reading goal in Statistics.</p>
+                <p className="mt-4 text-sm text-[color:var(--color-text-secondary)]">Add a book from this device in Library, or find a free book in Discover. You can change your reading goal in Settings.</p>
                 <div className="mt-8 flex flex-wrap gap-3">
                     <Button className="min-h-11" onClick={() => go(1)}>Back</Button>
                     <Button variant="primary" className="min-h-11" onClick={() => onComplete("library")}>Open Library to add a book</Button>

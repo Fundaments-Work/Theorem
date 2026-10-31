@@ -267,6 +267,7 @@ export interface AppSettings {
     cli: CliSettings;
     hasCompletedOnboarding: boolean;
     showDailyHighlight: boolean;
+    /** Legacy preference retained for older peers; Library no longer shows progress panels. */
     hideReadingMotivation?: boolean;
     speedReadEnabled: boolean;
     goalNotifications: boolean;

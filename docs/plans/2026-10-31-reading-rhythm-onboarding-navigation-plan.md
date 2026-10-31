@@ -229,3 +229,13 @@ current section labels.
 
 Android device interaction and the proposed human/multi-week usability studies
 have not been performed. Automated checks do not establish motivational efficacy.
+
+## Maintainer UI refinement (2026-10-31)
+
+The Library stays clean: no extra resume row or progress panels. Continue reading
+appears on the existing book card. Restore the earlier action toolbar and test
+selection through the context menu and folder management through Settings.
+Statistics is read-only, with compact icon-led level/XP progress. Reading-day
+configuration belongs in Settings and uses the shared app Dropdown, also used
+during onboarding. These decisions supersede the earlier Library panels and
+Statistics configuration controls in this plan.

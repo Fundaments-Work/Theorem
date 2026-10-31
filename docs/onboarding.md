@@ -4,14 +4,16 @@
 
 After store hydration, `App.tsx` renders `ReadingSetup` until
 `settings.hasCompletedOnboarding` is true. Existing users are not forced through
-setup again. A dismissible-by-preference Library invitation offers a weekly goal.
+setup again. Weekly goals remain available in Settings → General → Reading Goals;
+Library does not show a goal invitation.
 
 The setup has three steps:
 
 1. **Make room for reading** — local-first introduction, Start reading, or an
    optional Explore features guide.
 2. **Choose your reading rhythm** — select one to seven reading days per week
-   (four recommended). Five minutes qualifies a day. Save rhythm or Skip goal.
+   (four recommended) with the shared app Dropdown. Its menu layers above the
+   setup overlay. Five minutes qualifies a day. Save rhythm or Skip goal.
 3. **Bring your first book** — Open Library to add a book, or Browse Discover.
    Library uses the existing file picker and import flow; canceled or failed
    imports leave the normal app available.
@@ -23,8 +25,8 @@ or sync permission is requested by setup.
 
 Completion writes `settings.hasCompletedOnboarding` and the existing
 `localStorage.theorem-onboarding-complete` marker, then routes to Library or
-Discover. The overlay is gone before importing or browsing. The primary Library
-resume action uses existing reader navigation and saved-position behavior.
+Discover. The overlay is gone before importing or browsing. The continue-reading cue lives inside the existing Library book card and uses
+the normal reader navigation and saved-position behavior.
 
 ## Optional feature guide
 

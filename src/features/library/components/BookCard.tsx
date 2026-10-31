@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import {
-    Heart, Trash2, Star, Check, Headphones, MoreHorizontal, Info, BookMarked, BookOpen,
+    Play, Heart, Trash2, Star, Check, Headphones, MoreHorizontal, Info, BookMarked, BookOpen,
     Download, CheckSquare, CheckCheck, RotateCcw, CloudOff, Pencil, ExternalLink,
 } from "lucide-react";
 import { cn, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../../core/lib/utils";
@@ -42,6 +42,7 @@ export const BookCard = memo(function BookCard({
     onMarkAsUnread,
     isSelecting,
     isSelected,
+    isResume,
     onToggleSelect,
     onStartSelect,
     titleHighlightIndices,
@@ -61,6 +62,7 @@ export const BookCard = memo(function BookCard({
     onMarkAsUnread: (bookId: string) => void;
     isSelecting?: boolean;
     isSelected?: boolean;
+    isResume?: boolean;
     onToggleSelect?: (bookId: string, event?: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => void;
     onStartSelect?: (bookId: string) => void;
     titleHighlightIndices?: number[];
@@ -112,6 +114,12 @@ export const BookCard = memo(function BookCard({
         clickCountRef.current = 0;
         return () => { if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current); };
     }, [isSelecting]);
+
+    const resumeIndicator = isResume && !isSelecting ? (
+        <span role="img" aria-label="Continue reading" title="Continue reading" className="absolute bottom-1 left-1 flex h-7 w-7 items-center justify-center bg-[var(--color-background)] text-[color:var(--color-accent)]">
+            <Play aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
+        </span>
+    ) : null;
 
     const selectionIndicator = isSelecting ? (
         <span aria-hidden="true" className={cn("flex h-6 w-6 shrink-0 items-center justify-center border border-[var(--color-border)]",
@@ -273,6 +281,7 @@ export const BookCard = memo(function BookCard({
                     aria-checked={isSelecting ? !!isSelected : undefined}
                     tabIndex={0}
                     aria-label={`${isSelecting ? "Select" : "Open"} ${book.title}`}
+                    aria-description={isResume && !isSelecting ? "Continue reading" : undefined}
                     onClick={handleCardClick}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -299,6 +308,7 @@ export const BookCard = memo(function BookCard({
                             coverUrl={book.coverPath}
                         />
 
+                        {resumeIndicator}
                         {isSelecting && (
                             <div aria-hidden="true" data-selection-indicator className={cn(
                                 "absolute top-2 left-2 z-10 flex h-5 w-5 items-center justify-center transition-[background-color,color,transform,box-shadow] duration-200",
@@ -365,6 +375,7 @@ export const BookCard = memo(function BookCard({
                     aria-checked={isSelecting ? !!isSelected : undefined}
                     tabIndex={0}
                     aria-label={`${isSelecting ? "Select" : "Open"} ${book.title}`}
+                    aria-description={isResume && !isSelecting ? "Continue reading" : undefined}
                     onClick={handleCardClick}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -388,6 +399,7 @@ export const BookCard = memo(function BookCard({
                             author={book.author}
                             coverUrl={book.coverPath}
                         />
+                        {resumeIndicator}
                         {isSelecting && (
                             <div aria-hidden="true" data-selection-indicator className={cn(
                                 "absolute top-1 left-1 z-10 flex h-5 w-5 items-center justify-center transition-[background-color,color,transform,box-shadow] duration-200",
@@ -519,6 +531,7 @@ export const BookCard = memo(function BookCard({
                 aria-checked={isSelecting ? !!isSelected : undefined}
                 tabIndex={0}
                 aria-label={`${isSelecting ? "Select" : "Open"} ${book.title}`}
+                    aria-description={isResume && !isSelecting ? "Continue reading" : undefined}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
@@ -527,6 +540,7 @@ export const BookCard = memo(function BookCard({
                     }
                 }}
             >
+                {resumeIndicator}
                 {isSelecting && <span className="absolute top-1 left-1 z-20">{selectionIndicator}</span>}
                 <TheoremBookCover
                     title={book.title}
@@ -591,6 +605,7 @@ export const MemoizedBookCard = memo(BookCard, (prev, next) => {
         prev.viewMode === next.viewMode &&
         prev.isSelecting === next.isSelecting &&
         prev.isSelected === next.isSelected &&
+        prev.isResume === next.isResume &&
         prev.titleHighlightIndices === next.titleHighlightIndices &&
         prev.authorHighlightIndices === next.authorHighlightIndices;
 });

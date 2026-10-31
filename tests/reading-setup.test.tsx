@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { ReadingSetup } from "../src/features/onboarding/ReadingSetup";
+import { WeeklyReadingGoal } from "../src/features/settings/WeeklyReadingGoal";
+import { localDateKey, addLocalDays } from "../src/core/lib/date-keys";
 import { ReadingRhythm } from "../src/features/statistics/ReadingRhythm";
 import { useSettingsStore } from "../src/core/store";
 import * as rhythmEngine from "../src/core/lib/reading-rhythm";
@@ -13,7 +15,7 @@ let root: Root;
 let host: HTMLDivElement;
 const completed = vi.fn();
 function click(name: string) {
-    const button = [...host.querySelectorAll("button")].find(b => b.textContent?.trim() === name);
+    const button = [...host.querySelectorAll("button")].find(b => (b.getAttribute("aria-label") ?? b.textContent?.trim()) === name);
     if (!button) throw new Error(`Missing button: ${name}`);
     button.click();
 }
@@ -31,7 +33,7 @@ describe("reading setup", () => {
     it("saves a rhythm and hands discovery to the app without a blocking tour", async () => {
         await act(async () => root.render(<ReadingSetup onComplete={completed} />));
         await act(async () => click("Start reading"));
-        expect(host.querySelector("select")?.value).toBe("4");
+        expect(host.querySelector("#setup-reading-days")?.textContent).toContain("4 days");
         await act(async () => click("Save rhythm"));
         expect(useSettingsStore.getState().stats.rhythm).toBeDefined();
         expect(useSettingsStore.getState().readingSetupStep).toBe(2);
@@ -70,16 +72,44 @@ describe("reading rhythm presentation", () => {
         vi.spyOn(rhythmEngine,"readingRhythmProgress").mockRejectedValueOnce(new Error("unavailable"));
         await act(async () => root.render(<ReadingRhythm />));
         expect(host.querySelector('[role="alert"]')?.textContent).toContain("could not load");
-        await act(async () => click("Retry"));
+        await act(async () => click("Retry reading progress"));
         expect(host.querySelector('[role="alert"]')).toBeNull();
-        expect(host.textContent).toContain("0 of 4 reading days");
+        expect(host.querySelector('[aria-label="0 of 4 reading days this week"]')).not.toBeNull();
     });
-    it("hides compact motivational content while keeping goal controls available", async () => {
-        useSettingsStore.getState().updateSettings({hideReadingMotivation:true});
-        await act(async () => root.render(<ReadingRhythm compact />));
-        expect(host.textContent).toBe("");
+    it("keeps Statistics read-only even before a goal is configured", async () => {
         await act(async () => root.render(<ReadingRhythm />));
-        expect(host.textContent).toContain("Set a weekly goal");
-        expect(host.querySelector('input[type="checkbox"]')).not.toBeNull();
+        expect(host.querySelector('[aria-label="Level 1"]')).not.toBeNull();
+        expect(host.querySelector("select, input")).toBeNull();
+        expect(host.querySelector("button")).toBeNull();
+        expect(useSettingsStore.getState().stats.rhythm).toBeUndefined();
+    });
+    it("edits weekly goals in Settings and shows only their progress in Statistics", async () => {
+        await act(async () => root.render(<WeeklyReadingGoal />));
+        expect(host.querySelector("#weekly-reading-days")?.textContent).toContain("Off");
+        await act(async () => { host.querySelector<HTMLButtonElement>("#weekly-reading-days")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})); });
+        await act(async () => {
+            const option=[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item=>item.textContent==="3 days");
+            expect(option).toBeDefined();
+            option!.click();
+        });
+        expect(useSettingsStore.getState().stats.rhythm).toBeDefined();
+        expect(host.querySelector("#weekly-reading-days")?.textContent).toContain("3 days");
+        await act(async () => root.render(<ReadingRhythm />));
+        expect(host.querySelector("select, input")).toBeNull();
+        expect(host.querySelector('[aria-label="0 of 3 reading days this week"]')).not.toBeNull();
+    });
+    it("advances the level emblem and resets the next-level track at 100 XP", async () => {
+        await rhythmEngine.setWeeklyReadingGoal(0);
+        await act(async () => root.render(<ReadingRhythm />));
+        expect(host.querySelector('[aria-label="Level 1"]')).not.toBeNull();
+        await act(async () => {
+            for (let days=9;days>=0;days--) {
+                await rhythmEngine.recordReadingRhythm(localDateKey(addLocalDays(new Date(),-days)),`day-${days}`,300);
+            }
+        });
+        expect(host.querySelector('[aria-label="Level 2"]')).not.toBeNull();
+        expect(host.querySelector('[aria-label="Next level 3"]')).not.toBeNull();
+        expect(host.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("0");
+        expect(host.textContent).toContain("100 XP");
     });
 });

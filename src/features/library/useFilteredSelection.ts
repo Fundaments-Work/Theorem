@@ -30,9 +30,11 @@ export function useFilteredSelection(books: Book[], scope: string, enabled: bool
         return true;
     }, [canSelect, visibleIds, setSelectedBooks]);
     const toggleBookSelection = useCallback((id: string) => {
-        if (!canSelect || !visibleIds.has(id)) return;
+        if (!canSelect) return false;
+        if (!visibleIds.has(id)) return true;
         const current = useUIStore.getState().selectedBooks.filter((value) => visibleIds.has(value));
         setSelectedBooks(current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+        return true;
     }, [canSelect, visibleIds, setSelectedBooks]);
 
     return { selectedBooks, selectedBookIds, selectAll, clearSelection, toggleBookSelection,

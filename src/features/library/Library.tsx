@@ -1,4 +1,3 @@
-import { ReadingRhythm } from "../statistics/ReadingRhythm";
 import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
@@ -156,14 +155,12 @@ export function EmptyLibrary({
 function ImportButton({
     onImport,
     isLoading,
-    primary = true,
 }: {
-    primary?: boolean;
     onImport: () => void;
     isLoading: boolean;
 }) {
     return (
-        <Button variant={primary ? "primary" : "default"}
+        <Button variant="primary"
             onClick={onImport}
             disabled={isLoading}
              className={cn("h-11 px-3.5 sm:h-10 sm:px-4")}
@@ -566,8 +563,7 @@ export function RenameBookModal({
 export function LibraryPage() {
     const books = useLibraryStore((state) => state.books);
     const recentBooksCache = useLibraryStore(state => state.recentBooksCache);
-    const getBook = useLibraryStore(state => state.getBook);
-    const resumeBook = recentBooksCache[0] ? getBook(recentBooksCache[0].id) : undefined;
+    const resumeBookId = recentBooksCache[0]?.id;
     const shelfDefinitions = useLibraryStore((state) => state.collections);
     const { collections, ready: smartShelvesReady, error: smartShelvesError } = useSmartShelves(books, shelfDefinitions);
     const coversHydrated = useLibraryStore((state) => state.coversHydrated);
@@ -1516,12 +1512,23 @@ export function LibraryPage() {
         }
     }, [addCollection, addToShelfBookId, isSelecting, selectedBooks, clearSelection]);
 
+    // Selection guards reject the old callback during the render that enters
+    // the mode. Keep the requested book until the new filtered scope is ready.
+    const [startSelectionPending, setStartSelectionPending] = useState<{ id: string; scope: string } | null>(null);
+    useEffect(() => {
+        if (!startSelectionPending) return;
+        if (!isSelecting || startSelectionPending.scope !== selectionScope) {
+            setStartSelectionPending(null);
+            return;
+        }
+        if (selectedBookIds.has(startSelectionPending.id) || toggleBookSelection(startSelectionPending.id)) {
+            setStartSelectionPending(null);
+        }
+    }, [startSelectionPending, isSelecting, selectionScope, selectedBookIds, toggleBookSelection]);
     const handleStartSelect = useCallback((bookId: string) => {
         setIsSelecting(true);
-        if (!selectedBookIds.has(bookId)) {
-            toggleBookSelection(bookId);
-        }
-    }, [selectedBookIds, toggleBookSelection]);
+        setStartSelectionPending({ id: bookId, scope: selectionScope });
+    }, [selectionScope]);
 
     const cardProps = useMemo(() => ({
         onOpenBook: handleOpenBook,
@@ -1628,8 +1635,6 @@ export function LibraryPage() {
         selectedSourceFolder !== null
     );
 
-    const showReadingHome = !selectedShelf && !hasActiveFilters && !isSelecting && !searchQuery;
-
     if (!smartShelvesReady && (selectedShelf?.smartRules || showUnshelvedOnly)) {
         return <div role={smartShelvesError ? "alert" : "status"} className="p-6">{smartShelvesError ?? "Updating smart shelves…"}</div>;
     }
@@ -1679,17 +1684,7 @@ export function LibraryPage() {
                         Clear filter
                     </button>
                 )}
-                <ImportButton primary={!(showReadingHome && resumeBook)} onImport={handleAddBooks} isLoading={isImporting || isScanning} />
-                {isTauri() && <Button
-                    onClick={() => setShowFolderImport(true)}
-                    disabled={isImporting || isScanning}
-                    aria-label="Scan"
-                    title="Import books from a folder"
-                    className="h-11 px-3 sm:h-10"
-                >
-                    <FolderOpen aria-hidden="true" className="h-4 w-4" />
-                    <span>Scan</span>
-                </Button>}
+                <ImportButton onImport={handleAddBooks} isLoading={isImporting || isScanning} />
 
                 <div className="flex items-center gap-2 sm:gap-4 ml-auto">
                     <Button
@@ -1702,7 +1697,7 @@ export function LibraryPage() {
                         }}
                          className={cn(
                             "h-11 w-11 px-0 sm:h-10 sm:w-auto sm:px-4 border-2 flex items-center justify-center sm:gap-2 transition-colors",
-                            isSelecting ? FILTER_CHIP_SELECTED : ""
+                            isSelecting ? FILTER_CHIP_SELECTED : "sr-only"
                         )}
                         title={isSelecting ? "Exit selection mode (Esc)" : "Select books"}
                         aria-label={isSelecting ? "Exit selection mode" : "Select books"}
@@ -1893,16 +1888,6 @@ export function LibraryPage() {
 
                     <section aria-label="Library books" ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid [content-visibility:auto] pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                         <div ref={scrollHeaderRef} className="flow-root">
-                        {showReadingHome && <>
-                            {resumeBook && <div className="mb-4 flex items-center justify-between gap-4 border border-[var(--color-border)] p-4">
-                                <div className="min-w-0">
-                                    <p className="text-xs text-[color:var(--color-text-muted)]">Continue reading</p>
-                                    <p className="mt-1 truncate text-sm text-[color:var(--color-text-primary)]">{resumeBook.title}</p>
-                                </div>
-                                <Button variant="primary" className="min-h-11" onClick={() => handleOpenBook(resumeBook)}>Resume</Button>
-                            </div>}
-                            <ReadingRhythm compact />
-                        </>}
                         <LibraryDailyReviewDeck
                             showDailyHighlight={!!settings.showDailyHighlight}
                             selectedShelf={selectedShelf}
@@ -1949,6 +1934,7 @@ export function LibraryPage() {
                                                         <MemoizedBookCard
                                                             key={rowItems[0].id}
                                                             book={rowItems[0]}
+                                                            isResume={rowItems[0].id === resumeBookId}
                                                             viewMode={settings.libraryViewMode}
                                                             isSelected={selectedBookIds.has(rowItems[0].id)}
                                                             titleHighlightIndices={matchHighlights.get(rowItems[0].id)?.titleIndices}
@@ -1969,6 +1955,7 @@ export function LibraryPage() {
                                                             <MemoizedBookCard
                                                                 key={book.id}
                                                                 book={book}
+                                                                isResume={book.id === resumeBookId}
                                                                 viewMode={settings.libraryViewMode}
                                                                 isSelected={selectedBookIds.has(book.id)}
                                                                 titleHighlightIndices={matchHighlights.get(book.id)?.titleIndices}

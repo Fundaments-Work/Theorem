@@ -78,25 +78,23 @@ The `useLibraryStore` has result caches (`WeakMap`-based) for search results, re
 
 The scan returns file paths; importing them is a separate step (`importBooksIncremental`) to avoid blocking the UI during long scans on network drives.
 
-## Resume and reading rhythm
+## Continue reading and action toolbar
 
-On the unfiltered Library home, Continue reading uses the existing bounded
-recent-book cache and the store's ID lookup. Successful EPUB/comic/other document
-and PDF load callbacks record the open without altering progress or location, so
-Resume is available even before the first page turn. It opens through the normal reader
-handler, including on-demand downloads for synced books. Weekly progress appears
-below it, with a link to Statistics. Both precede daily review; the duplicate
-review deck above the page header has been removed. Navigation retains the shared
-five-destination order and mobile labels.
+The most recently opened book carries a small play icon inside its existing card
+in grid, compact, and list views. Opening that card follows the normal reader
+handler and saved location, including on-demand downloads for synced books.
+Successful document/PDF loads record the open without altering progress or
+location, so the cue appears before a page turn. Selection mode hides the cue.
+Library adds no separate resume row, weekly progress panel, or Statistics link.
 
-The scroll header is measured with a ResizeObserver. TanStack Virtual's source
-starts measurements at `paddingStart + scrollMargin` and subtracts `scrollMargin`
-from `getTotalSize()`. The Library therefore supplies the header height as
-`scrollMargin` and normalizes each measurement's start to the grid's coordinates
-before applying the absolute-row transform. Dynamic goal/review height must not
-be treated as book-row height or estimated using a delayed navigation frame.
+The action toolbar retains its earlier layout: Add Books, view, sort, and filters.
+Start selection from a book's context menu; the toolbar then offers Done.
+The initial book request waits until selection mode and its filtered scope are
+ready, so entering the mode cannot discard the requested book. Scope changes
+cancel the pending request.
+Folder connection and rescanning are in Settings → Data & Storage → Library
+Folders. The empty-library folder import entry remains available.
 
-The populated Library keeps Select and native Scan actions visible in its toolbar.
-Select must not be `sr-only` when inactive: that leaves an exposed but
-non-interactable control. Scan opens the existing folder organization chooser
-before the native folder picker, even when books are already present.
+The existing daily review deck remains in the scroll feed. Its measured height
+is supplied as TanStack Virtual's `scrollMargin`, and row starts are normalized
+to the grid coordinates so the deck does not overlap virtualized books.
