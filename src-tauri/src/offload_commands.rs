@@ -678,3 +678,8 @@ pub async fn evaluate_reading_rhythm(
     })
     .await
 }
+
+#[tauri::command]
+pub async fn fetch_cover_image(url: String) -> Result<Box<str>, AppError> {
+    offload(move || crate::web_fetch::fetch_cover_image(url)).await
+}

@@ -116,3 +116,17 @@ Same-window review events, storage events, focus, and a minute timer refresh
 status and local date. Completion closes the overlay and stays completed when
 annotations update; a new local day can show a fresh deck without restarting.
 A failed dismissal write is reported rather than silently claiming persistence.
+
+## Cover from URL
+
+Edit Info → From URL → Load previews an image; Save persists it through the
+normal `applyBookEdits` path, including EPUB cover write-back. HTTP(S) image URLs
+are validated by `url-safety.ts`. Tauri uses the offloaded `fetch_cover_image`
+command to avoid WebView CORS restrictions. Rust caps downloads at 8 MB and
+uses the existing bounded native cover decoder/downsampler to return a JPEG
+data URL. Invalid images and HTTP failures leave the previous cover intact.
+The browser build uses fetch and therefore requires the host to allow CORS.
+
+Save is blocked while downloading. Closing the editor, changing books, or
+choosing another image invalidates pending results. Blob preview URLs are
+revoked on replacement/close/unmount. No new persisted book format is required.

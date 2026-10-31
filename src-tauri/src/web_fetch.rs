@@ -157,3 +157,102 @@ pub(crate) fn fetch_binary_content(url: String) -> Result<Response, AppError> {
         .map_err(|e| AppError::network(format!("Failed to read binary response: {}", e)))?;
     Ok(Response::new(bytes.to_vec()))
 }
+
+/// Fetch cover bytes outside WebView CORS, then validate and normalize in Rust.
+pub(crate) fn fetch_cover_image(url: String) -> Result<Box<str>, AppError> {
+    use std::io::Read;
+    let parsed = reqwest::Url::parse(&url)
+        .map_err(|_| AppError::invalid_input("Enter a complete HTTP or HTTPS image URL"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::invalid_input(
+            "Only HTTP and HTTPS image URLs are supported",
+        ));
+    }
+    let referer = format!("{}/", parsed.origin().ascii_serialization());
+    let response = shared_http_client()?
+        .get(parsed)
+        .timeout(std::time::Duration::from_secs(30))
+        .header("User-Agent", crate::http::BROWSER_USER_AGENT)
+        .header("Referer", referer)
+        .header("Accept", "image/*")
+        .send()
+        .map_err(|e| AppError::network(format!("Could not download cover: {e}")))?;
+    if !response.status().is_success() {
+        return Err(AppError::network(format!(
+            "Cover download returned HTTP {}",
+            response.status()
+        )));
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(8 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| AppError::network(format!("Could not read cover: {e}")))?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err(AppError::invalid_input("Cover image must be at most 8 MB"));
+    }
+    crate::batch_ingest::downsample_cover_to_data_url(&bytes)
+        .map(String::into_boxed_str)
+        .ok_or_else(|| AppError::invalid_input("URL did not return a supported image"))
+}
+
+#[cfg(test)]
+mod cover_download_tests {
+    use super::*;
+    use crate::error::ErrorKind;
+    use std::io::{Read, Write};
+
+    fn serve(status: u16, body: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = server.local_addr().unwrap();
+        let task = std::thread::spawn(move || {
+            let (mut socket, _) = server.accept().unwrap();
+            let mut request = [0; 4096];
+            let _ = socket.read(&mut request);
+            let header = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = socket.write_all(header.as_bytes());
+            let _ = socket.write_all(&body);
+        });
+        (format!("http://{address}/cover"), task)
+    }
+
+    #[test]
+    fn downloads_and_decodes_image_without_cors_or_image_content_type() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 3)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let (url, task) = serve(200, png.into_inner());
+        let cover = fetch_cover_image(url).unwrap();
+        task.join().unwrap();
+        assert!(cover.starts_with("data:image/jpeg;base64,"));
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(cover.split_once(',').unwrap().1)
+            .unwrap();
+        assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 2);
+    }
+
+    #[test]
+    fn rejects_non_http_schemes_and_bad_responses() {
+        for url in ["javascript:alert(1)", "file:///tmp/cover.png", "not a url"] {
+            assert_eq!(
+                fetch_cover_image(url.into()).unwrap_err().kind(),
+                ErrorKind::InvalidInput
+            );
+        }
+        for (status, body, kind) in [
+            (
+                200,
+                b"<html>not a cover</html>".to_vec(),
+                ErrorKind::InvalidInput,
+            ),
+            (404, Vec::new(), ErrorKind::Network),
+            (200, vec![0; 8 * 1024 * 1024 + 1], ErrorKind::InvalidInput),
+        ] {
+            let (url, task) = serve(status, body);
+            assert_eq!(fetch_cover_image(url).unwrap_err().kind(), kind);
+            task.join().unwrap();
+        }
+    }
+}

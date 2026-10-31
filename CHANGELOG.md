@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features & Enhancements
 
 - **Daily Review stays dismissed** — Dismissal now survives app restarts for the local day; completion updates immediately and remains complete after annotation changes. The fullscreen overlay renders outside Library scrolling/containment, preventing clipping and stray scrollbar tracks, and a fresh day resets it while the app stays open.
+- **Cover images from URLs** — Desktop and mobile download and validate cover images in Rust, avoiding WebView CORS restrictions. The editor blocks Save while loading, ignores stale results, and preserves the previous cover after failure.
 
 - **Existing reading history and XP** — Existing readers receive daily XP from retained reading activity, including profiles that already enabled a rhythm. Fractional minutes are supported and repeated backfills preserve awards. Library view and filter icons are larger and use bare icon controls, with rows and funnel glyphs. Statistics has equal-sized level badges, a weekly completion check and explicit scheduled goal changes, brighter earned achievements, and icons in place of emoji.
 

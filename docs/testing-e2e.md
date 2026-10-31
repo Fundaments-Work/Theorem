@@ -150,10 +150,15 @@ checking Notes; the current section tabs are Highlights, Notes, Words, and
 Bookmarks. These checks preserve the original content/filtering coverage without
 requiring the retired All tab or a particular separator character.
 
-Uppercase Latin text uses explicit Shift key actions in the WebKit driver helper:
+Uppercase Latin text and shifted punctuation use explicit Shift key actions in the WebKit driver helper:
 the element send-keys path under the headless compositor was observed to turn
 “Evening Reading” into lowercase. The shelf flow checks the textbox value before
-creating the shelf and still requires the exact name after restart.
+creating the shelf and still requires the exact name after restart. Cover URL
+checks also assert the exact typed URL: the driver’s direct send-keys path was
+observed to turn colons into semicolons without an explicit Shift modifier.
 
 Daily Review regressions cover persisted dismissal/completion across navigation
-and restart, plus actual viewport and overflow geometry.
+and restart, plus actual viewport and overflow geometry. The cover URL flow
+serves an image from a loopback HTTP server with no CORS header and an
+octet-stream content type; it checks native validation, save/restart persistence
+without another download, and preservation of the cover after an invalid URL.

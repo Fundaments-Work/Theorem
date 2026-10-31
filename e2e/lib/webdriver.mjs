@@ -1,6 +1,8 @@
 // Minimal W3C WebDriver client (no dependencies). Enough for tauri-driver +
 // WebKitWebDriver: sessions, script execution, element clicks and keys.
 
+const SHIFT_KEYS = {"~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0", "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/"};
+
 const ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
 
 export class WebDriverError extends Error {
@@ -47,22 +49,25 @@ export class Session {
     }
 
     async type(el, text) {
-        // WebKit's element send-keys path can lose the Shift modifier on
-        // uppercase letters under the headless compositor. Send those with an
-        // explicit modifier so the typed value matches the requested text.
-        for (const part of text.split(/([A-Z])/).filter(Boolean)) {
-            if (!/^[A-Z]$/.test(part)) {
-                await this.cmd("POST", `/element/${elementId(el)}/value`, { text: part });
-                continue;
-            }
-            const value = part.toLowerCase();
+        // WebKit can lose Shift in element send-keys, including the colon
+        // in URLs. Send shifted characters through explicit keyboard actions.
+        let plain = "";
+        const flushPlain = async () => {
+            if (plain) await this.cmd("POST", `/element/${elementId(el)}/value`, { text: plain });
+            plain = "";
+        };
+        for (const char of text) {
+            const shifted = /^[A-Z]$/.test(char) ? char.toLowerCase() : SHIFT_KEYS[char];
+            if (!shifted) { plain += char; continue; }
+            await flushPlain();
             await this.cmd("POST", "/actions", { actions: [{ type: "key", id: "kbd", actions: [
                 { type: "keyDown", value: "\uE008" },
-                { type: "keyDown", value }, { type: "keyUp", value },
+                { type: "keyDown", value: shifted }, { type: "keyUp", value: shifted },
                 { type: "keyUp", value: "\uE008" },
             ] }] });
             await this.cmd("DELETE", "/actions");
         }
+        await flushPlain();
     }
 
     async clear(el) {

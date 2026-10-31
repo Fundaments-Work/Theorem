@@ -79,3 +79,12 @@ export function isSafeAttributeUrl(name: string, value: string | null | undefine
             return true;
     }
 }
+
+/** A cover download must use an absolute HTTP(S) URL, not an app-local scheme. */
+export function remoteImageUrl(value: string): string | null {
+    if (!isSafeImageUrl(value)) return null;
+    try {
+        const parsed = new URL(value.trim());
+        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+    } catch { return null; }
+}

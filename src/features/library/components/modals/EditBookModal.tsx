@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal, ModalHeader, ModalBody, ModalFooter, TheoremBookCover } from "../../../../ui";
+import { downloadCoverImage } from "../../../../core/lib/cover-download";
 import { applyBookEdits } from "../../../../core/lib/book-edit";
 import { cn } from "../../../../core/lib/utils";
 import { Star, Upload, Link as LinkIcon, Trash2, AlertCircle, Loader2 } from "lucide-react";
@@ -31,12 +32,16 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
     const [coverUrlVisible, setCoverUrlVisible] = useState(false);
     const [coverUrl, setCoverUrl] = useState("");
 
+    const [coverLoading, setCoverLoading] = useState(false);
+    const coverRequest = useRef(0);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
+        coverRequest.current += 1;
+        setCoverLoading(false);
         if (isOpen && book) {
             setTitle(book.title);
             setAuthor(book.author || "");
@@ -59,6 +64,11 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
         }
     }, [isOpen, book]);
 
+    useEffect(() => () => {
+        if (coverPreview.startsWith("blob:")) URL.revokeObjectURL(coverPreview);
+    }, [coverPreview, isOpen]);
+    useEffect(() => () => { coverRequest.current += 1; }, []);
+
     if (!book) return null;
 
     const handleFilePick = (files: FileList | null) => {
@@ -68,6 +78,8 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
             setError("Selected file is not an image.");
             return;
         }
+        coverRequest.current += 1;
+        setCoverLoading(false);
         setCoverBlob(file);
         setRemoveCover(false);
         setCoverPreview(URL.createObjectURL(file));
@@ -76,26 +88,28 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
     const handleFetchCoverUrl = async () => {
         const url = coverUrl.trim();
-        if (!url) return;
+        if (!url || coverLoading) return;
+        const request = ++coverRequest.current;
+        setCoverLoading(true);
         try {
             setError(null);
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
-            if (!blob.type.startsWith("image/")) {
-                throw new Error("Fetched content is not an image.");
-            }
+            const blob = await downloadCoverImage(url);
+            if (request !== coverRequest.current) return;
             setCoverBlob(blob);
             setRemoveCover(false);
             setCoverPreview(URL.createObjectURL(blob));
             setCoverUrlVisible(false);
             setCoverUrl("");
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to load image from URL. The site may block downloads.");
+            if (request === coverRequest.current) setError(e instanceof Error ? e.message : typeof e === "string" ? e : "Failed to download cover.");
+        } finally {
+            if (request === coverRequest.current) setCoverLoading(false);
         }
     };
 
     const handleRemoveCover = () => {
+        coverRequest.current += 1;
+        setCoverLoading(false);
         setCoverBlob(null);
         setRemoveCover(true);
         setCoverPreview("");
@@ -103,7 +117,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!title.trim() || saving) return;
+        if (!title.trim() || saving || coverLoading) return;
 
         setSaving(true);
         setError(null);
@@ -160,7 +174,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                 <ModalHeader title="Edit Book Info" onClose={onClose} showCloseButton={true} />
                 <ModalBody>
                     {error && (
-                        <div className="flex items-start gap-2 p-3 bg-[var(--color-error)]/10 mb-4">
+                        <div role="alert" className="flex items-start gap-2 p-3 bg-[var(--color-error)]/10 mb-4">
                             <AlertCircle className="w-4 h-4 text-[color:var(--color-error)] mt-0.5 flex-shrink-0" />
                             <div className="text-xs text-[color:var(--color-error)] whitespace-pre-wrap leading-relaxed">{error}</div>
                         </div>
@@ -186,6 +200,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 <button
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
+                                    disabled={saving}
                                     className="ui-btn px-3 py-1.5 text-xs"
                                 >
                                     <Upload className="w-3.5 h-3.5" />
@@ -194,6 +209,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 <button
                                     type="button"
                                     onClick={() => setCoverUrlVisible((v) => !v)}
+                                    disabled={saving || coverLoading}
                                     className="ui-btn px-3 py-1.5 text-xs"
                                 >
                                     <LinkIcon className="w-3.5 h-3.5" />
@@ -203,7 +219,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                     <button
                                         type="button"
                                         onClick={handleRemoveCover}
-                                        disabled={removeCover}
+                                        disabled={removeCover || saving}
                                         className="ui-btn px-3 py-1.5 text-xs text-[var(--color-error)] disabled:opacity-50"
                                     >
                                         <Trash2 className="w-3.5 h-3.5" />
@@ -216,6 +232,8 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                     <input
                                         type="text"
                                         value={coverUrl}
+                                        aria-label="Cover image URL"
+                                        disabled={coverLoading || saving}
                                         onChange={(e) => setCoverUrl(e.target.value)}
                                         placeholder="https://example.com/cover.jpg"
                                         className="ui-input text-sm"
@@ -223,10 +241,10 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                     <button
                                         type="button"
                                         onClick={handleFetchCoverUrl}
-                                        disabled={!coverUrl.trim() || saving}
+                                        disabled={!coverUrl.trim() || saving || coverLoading}
                                         className="ui-btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
                                     >
-                                        Set
+                                        {coverLoading ? "Loading…" : "Load"}
                                     </button>
                                 </div>
                             )}
@@ -435,7 +453,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                     </button>
                     <button
                         type="submit"
-                        disabled={!title.trim() || saving}
+                        disabled={!title.trim() || saving || coverLoading}
                         className="ui-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}

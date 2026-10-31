@@ -289,6 +289,7 @@ pub fn run() {
             offload_commands::fetch_rss_feed,
             offload_commands::fetch_url_content,
             offload_commands::fetch_binary_content,
+            offload_commands::fetch_cover_image,
             library_folder::pick_library_folder_mobile,
             library_folder::scan_library_folder_mobile,
             library_folder::cancel_import_job,
