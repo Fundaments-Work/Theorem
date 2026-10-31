@@ -1,3 +1,4 @@
+import { NAV_CONTROL_ICON } from "../../ui/toolbar-styles";
 import { type ReactNode, memo } from "react";
 import { BarChart3, Flame, Settings } from "lucide-react";
 import { cn } from "../../core/lib/utils";
@@ -37,7 +38,7 @@ export const Sidebar = memo(function Sidebar() {
                 onClick={onClick}
                 className={cn(
                     "group relative flex h-12 w-12 shrink-0 items-center justify-center",
-                    isActive ? "text-[color:var(--color-text-primary)]" : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
+                    isActive ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)]",
                 )}
                 aria-label={label}
                 aria-current={isActive ? "page" : undefined}
@@ -64,13 +65,13 @@ export const Sidebar = memo(function Sidebar() {
             </div>
             <nav aria-label="Main navigation"className="flex flex-1 flex-col min-h-0">
                 {PRIMARY_DESTINATIONS.map((item) =>
-                    railButton(item.id, item.label, <item.Icon aria-hidden="true" className="h-[var(--icon-size-sm)] w-[var(--icon-size-sm)]" />, () => select(item.id), item.alsoActiveOn),
+                    railButton(item.id, item.label, <item.Icon aria-hidden="true" className={NAV_CONTROL_ICON} />, () => select(item.id), item.alsoActiveOn),
                 )}
             </nav>
             <div className="mt-auto flex flex-col">
                 {displayStreak && (
                     <div className="flex flex-col items-center gap-0.5 py-2"title={`${currentStreak} day streak`}>
-                        <Flame className="h-4 w-4 text-[color:var(--color-accent)]" />
+                        <Flame className={cn(NAV_CONTROL_ICON,"text-[color:var(--color-accent)]")} />
                         <span className="font-mono text-[10px] text-[color:var(--color-text-primary)]">{currentStreak}</span>
                     </div>
                 )}
@@ -81,12 +82,12 @@ export const Sidebar = memo(function Sidebar() {
                         className="group relative flex h-12 w-12 items-center justify-center text-[color:var(--color-text-secondary)] ui-signal-hover"
                         aria-label="Support Theorem on Buy Me Momo"
                     >
-                        <MomoIcon className="h-4 w-4" />
+                        <MomoIcon className={NAV_CONTROL_ICON} />
                     </button>
                 )}
                 {/* Utilities, apart from the destinations: the same pair phones keep in the top bar. */}
-                {railButton("statistics", "Statistics", <BarChart3 className="h-4 w-4" />, () => setRoute("statistics"))}
-                {railButton("settings", "Settings", <Settings className="h-4 w-4" />, () => setRoute("settings"))}
+                {railButton("statistics", "Statistics", <BarChart3 className={NAV_CONTROL_ICON} />, () => setRoute("statistics"))}
+                {railButton("settings", "Settings", <Settings className={NAV_CONTROL_ICON} />, () => setRoute("settings"))}
             </div>
         </aside>
     );

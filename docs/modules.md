@@ -120,7 +120,8 @@ uses the pooled HTTP client and `batch_ingest::downsample_cover_to_data_url`
 for bounded decoding. EditBookModal owns preview/request state; existing
 `applyBookEdits` owns persistence and EPUB write-back.
 
-
 **Daily Review**: `LibraryDailyReviewDeck` portals outside the virtualized scroll
 container and subscribes to local-date/status changes. `daily-review.ts` keeps
 dismissal across sessions and the existing completion record.
+Onboarding remains one-time; `OnboardingFrame` shares the responsive layout
+between reading setup and the optional feature guide.

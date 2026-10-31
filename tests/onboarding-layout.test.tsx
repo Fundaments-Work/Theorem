@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Onboarding keeps one card height and one layout on every step, so Back and
+ * Onboarding keeps navigation outside changing content on every step, so Back and
  * Next do not move under the pointer, and it describes sync as it works
  * (directly between devices on any network, not "over LAN").
  */
@@ -42,11 +42,18 @@ describe("onboarding", () => {
         expect(skip.tabIndex).toBe(-1);
     });
 
-    it("uses one fixed card height on desktop", () => {
+    it("keeps navigation outside the changing scroll content on every step", () => {
         render();
-        const card = document.querySelector(".fixed > div")!;
-        expect(card.className).toContain("md:h-[660px]");
-        expect(card.className).not.toContain("md:h-auto");
+        const footer = document.querySelector("footer")!;
+        const main = document.querySelector('main[aria-label="Feature guide"]')!;
+        expect(footer).not.toBeNull();
+        expect(main.contains(footer)).toBe(false);
+        for (let step = 0; step < 4; step++) {
+            expect(footer.contains(button("Next"))).toBe(true);
+            act(() => button("Next").click());
+            expect(document.querySelector("footer")).toBe(footer);
+        }
+        expect(footer.contains(button("Get Started"))).toBe(true);
     });
 
     it("does not describe sync as LAN-only", () => {

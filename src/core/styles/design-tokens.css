@@ -381,6 +381,8 @@
 .ui-btn-primary svg,
 .ui-btn-ghost svg,
 .ui-btn-danger svg {
+    width: var(--icon-size-sm);
+    height: var(--icon-size-sm);
     color: currentcolor;
 }
 
@@ -458,6 +460,11 @@
     border: 0;
     background: transparent;
     color: var(--color-text-secondary);
+}
+
+.ui-icon-btn svg {
+    width: var(--icon-size-sm);
+    height: var(--icon-size-sm);
 }
 
 .ui-icon-btn:hover:not(:disabled) {

@@ -133,7 +133,7 @@ describe("layout uses the safe-area tokens", () => {
     it("pads the bottom bar and onboarding's Skip and footer", () => {
         const nav = readFileSync(resolve(root, "src/shell/layout/BottomNav.tsx"), "utf-8");
         expect(nav).toContain("pb-[var(--safe-area-bottom)]");
-        const onboarding = readFileSync(resolve(root, "src/features/onboarding/OnboardingFlow.tsx"), "utf-8");
+        const onboarding = readFileSync(resolve(root, "src/features/onboarding/OnboardingFrame.tsx"), "utf-8");
         expect(onboarding).toContain("pt-[calc(var(--safe-area-top)+1rem)]");
         expect(onboarding).toContain("pb-[calc(var(--safe-area-bottom)+1.25rem)]");
     });

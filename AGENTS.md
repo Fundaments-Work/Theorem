@@ -229,6 +229,8 @@ The studio-wide system: `tokens.md`, `guidelines.md`, `brand/`, `canvas.html`.
 
 ## CSS conventions
 
+- Layout widths use explicit `--container-width-*` / `--layout-*` tokens; do not use named `max-w-lg` or `max-w-4xl`, which resolve to spacing tokens in this theme.
+
 - `content-visibility: auto` + `overscroll-behavior: contain` on scroll containers
 - Animate only with Tailwind utilities; guard `animate-fade-in` behind `prefers-reduced-motion: no-preference`
 - Use `cn()` from `src/core/lib/utils.ts` for class composition

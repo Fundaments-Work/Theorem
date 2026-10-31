@@ -1,3 +1,4 @@
+import { NAV_CONTROL_ICON } from "../../ui/toolbar-styles";
 import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
@@ -39,9 +40,9 @@ import { buildSourceFolderIndex } from "../../core/lib/source-folders";
 import type { SourceFolderSelection } from "../../core/lib/source-folders";
 
 const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
-    grid: <LayoutGrid className="h-6 w-6" />,
-    list: <Rows3 className="h-6 w-6" />,
-    compact: <Grid3X3 className="h-6 w-6" />,
+    grid: <LayoutGrid className={NAV_CONTROL_ICON} />,
+    list: <Rows3 className={NAV_CONTROL_ICON} />,
+    compact: <Grid3X3 className={NAV_CONTROL_ICON} />,
 };
 
 
@@ -1669,7 +1670,7 @@ export function LibraryPage() {
                 title={selectedShelf ? selectedShelf.name : showFavoritesOnly ? "Favorites" : showUnshelvedOnly ? "Unshelved" : "Library"}
                 description={`${sortedBooks.length} ${sortedBooks.length === 1 ? 'book' : 'books'}${(selectedShelf || showFavoritesOnly || showUnshelvedOnly) ? '' : ''}`}
                 // On a phone the actions use the whole row: Add stretches, the icon buttons sit at the end.
-                actionsClassName="w-full sm:w-auto"
+                actionsClassName="w-full gap-2 sm:w-auto sm:gap-2"
             >
                 {(selectedShelf || showFavoritesOnly || showUnshelvedOnly) && (
                     <button
@@ -1686,7 +1687,7 @@ export function LibraryPage() {
                 )}
                 <ImportButton onImport={handleAddBooks} isLoading={isImporting || isScanning} />
 
-                <div className="flex items-center gap-2 sm:gap-4 ml-auto">
+                <div className="ml-auto flex items-center gap-0">
                     <Button
                         data-action="toggle-select-mode"
                         onClick={() => {
@@ -1708,7 +1709,7 @@ export function LibraryPage() {
 
                     <IconButton
                         onClick={toggleViewMode}
-                        className="h-11 w-11 sm:h-10 sm:w-10"
+                        className="min-h-11 min-w-11 sm:min-h-10 sm:min-w-10"
                         title={`View: ${settings.libraryViewMode}`}
                         label={`Change view (now ${settings.libraryViewMode})`}
                         icon={viewModeIcons[settings.libraryViewMode]}
@@ -1718,10 +1719,10 @@ export function LibraryPage() {
                         label="Filter and sort"
                         aria-expanded={showFilterDropdown}
                         data-active={showFilterDropdown || hasActiveFilters}
-                        className="relative h-11 w-11 sm:h-10 sm:w-10"
+                        className="relative min-h-11 min-w-11 sm:min-h-10 sm:min-w-10"
                         title={hasActiveFilters ? "Filter and sort (active filters applied)" : "Filter and sort"}
                         icon={<>
-                            <Funnel className="h-6 w-6" />
+                            <Funnel className={NAV_CONTROL_ICON} />
                             {hasActiveFilters && <span className="absolute top-1 right-1 h-1.5 w-1.5 bg-[color:var(--color-accent)]" />}
                         </>}
                     />

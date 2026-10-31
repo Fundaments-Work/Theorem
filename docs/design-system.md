@@ -122,3 +122,11 @@ destructuring, no imports from the `src/core` barrel (see AGENTS.md).
   the `.ui-*` classes directly. Add them following the steps above.
 - `ReviewCardStack.tsx` and `Bookmarks.tsx` carry `rounded-*` and `font-*` classes from their
   original design; they have no visual effect and can be deleted.
+
+### Explicit layout widths
+
+Use `max-w-[var(--container-width-lg)]` or an appropriate `--layout-*` width
+for panels/pages. Named `max-w-lg` / `max-w-4xl` resolve to the spacing namespace
+in this app’s compiled theme (1.8rem / 6rem), not a page-width preset. Visual
+checks must measure rendered width to catch this. Navigation and Library
+controls use `NAV_CONTROL_ICON` from `ui/toolbar-styles.ts` (16px Lucide glyphs).

@@ -45,7 +45,7 @@ export function DailyReviewModal({
             isOpen={isOpen}
             onClose={onClose}
             size="xl"
-            className="w-[calc(100vw-2rem)] sm:w-[42rem] md:w-[46rem] max-w-4xl"
+            className="w-[calc(100vw-2rem)] sm:w-[42rem] md:w-[46rem] max-w-[var(--container-width-md)]"
             ariaLabel="Daily Review"
         >
             <ModalHeader title="Daily Review" onClose={onClose} showCloseButton />

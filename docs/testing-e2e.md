@@ -162,3 +162,7 @@ and restart, plus actual viewport and overflow geometry. The cover URL flow
 serves an image from a loopback HTTP server with no CORS header and an
 octet-stream content type; it checks native validation, save/restart persistence
 without another download, and preservation of the cover after an invalid URL.
+The reading setup flow verifies that completion survives restart and Settings
+has no replay entry. Fresh profiles capture every setup and guide step at
+desktop and phone widths; controls must fit the viewport with 44px touch targets.
+The E2E feature alone lowers the desktop minimum window size for phone layouts.

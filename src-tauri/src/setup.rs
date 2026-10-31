@@ -58,6 +58,12 @@ pub(crate) fn apply_linux_webkit_workarounds() {
 /// The `setup()` hook: database guard and migrations, sync, files to open,
 /// and the tray (desktop).
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Exercise phone-width layouts through WebDriver; production keeps its
+    // desktop minimum, and Android uses its own native viewport.
+    #[cfg(feature = "e2e")]
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_min_size(Some(tauri::LogicalSize::new(320.0, 480.0)))?;
+    }
     let app_data_dir = app
         .path()
         .app_data_dir()

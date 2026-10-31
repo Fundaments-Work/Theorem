@@ -7,7 +7,9 @@ import {
     ArrowRight,
     ArrowLeft,
 } from "lucide-react";
-import { cn } from "../../core/lib/utils";
+import { Button } from "../../ui/Button";
+import { IconButton } from "../../ui/IconButton";
+import { OnboardingFrame } from "./OnboardingFrame";
 import { isTauriDesktop } from "../../core/lib/env";
 import { TheoremLogo } from "../../shell/TheoremLogo";
 
@@ -15,7 +17,7 @@ interface OnboardingFlowProps {
     onComplete: () => void;
 }
 
-function LibraryIllustration() {
+export function LibraryIllustration() {
     return (
         <svg
             viewBox="0 0 320 220"
@@ -66,7 +68,7 @@ function LibraryIllustration() {
     );
 }
 
-function ReaderIllustration() {
+export function ReaderIllustration() {
     return (
         <svg
             viewBox="0 0 320 220"
@@ -270,7 +272,7 @@ const steps: OnboardingStep[] = [
         title: "Read Anything",
         subtitle: "All formats, one reader.",
         description:
-            "Import PDFs, EPUBs, MOBI, AZW, AZW3, FB2, CBZ, CBR, and RSS feeds. Read everything in a single unified workspace.",
+            "Read PDFs, ebooks, comics, and feeds in one place.",
         illustration: <FormatsIllustration />,
     },
     {
@@ -279,7 +281,7 @@ const steps: OnboardingStep[] = [
         title: "Highlight and Annotate",
         subtitle: "Capture what matters while you read.",
         description:
-            "Select text to highlight with multiple colors. Add notes, bookmarks, build vocabulary with built-in dictionary lookups, and listen with immersion reading or speed-reading mode.",
+            "Highlight a passage, leave a note, or look up a word without leaving your book.",
         illustration: <ReaderIllustration />,
     },
     {
@@ -327,107 +329,11 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
         onComplete();
     }, [onComplete]);
 
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[var(--color-background)]">
-            <div
-                className={cn(
-                    "flex flex-col w-full h-full",
-                    "md:max-w-[640px] md:h-[660px] md:max-h-[90vh]",
-                    "md:border md:border-[var(--color-border)]",
-                    "bg-[var(--color-surface)]",
-                )}
-            >
-                
-                {/* Kept on the last step (hidden) so the content does not shift. */}
-                <div className="flex justify-end px-6 pt-[calc(var(--safe-area-top)+1rem)] md:pt-[calc(var(--safe-area-top)+1.25rem)]">
-                    <button
-                        onClick={handleSkip}
-                        className={cn(
-                            "text-[11px] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors",
-                            isLast && "invisible",
-                        )}
-                        tabIndex={isLast ? -1 : undefined}
-                        aria-hidden={isLast || undefined}
-                    >
-                        Skip
-                    </button>
-                </div>
-
-                <div className="flex-1 flex flex-col items-center justify-center px-8 md:px-16 py-8 min-h-0 overflow-y-auto">
-                    
-                    <div
-                        className={cn(
-                            "w-full flex items-center justify-center mb-10",
-                            "border border-[var(--color-border)] bg-[var(--color-surface-muted)]",
-                            "p-6 md:p-8",
-                        )}
-                    >
-                        {step.illustration}
-                    </div>
-
-                    <div className="flex items-center gap-3 mb-3">
-                        <span className="text-[color:var(--color-text-primary)]">
-                            {step.icon}
-                        </span>
-                        <h1 className="text-[18px] md:text-[22px] text-[color:var(--color-text-primary)] leading-tight">
-                            {step.title}
-                        </h1>
-                    </div>
-
-                    <p className="text-[13px] text-[color:var(--color-text-secondary)] mb-4 text-center">
-                        {step.subtitle}
-                    </p>
-
-                    <p className="text-[13px] leading-[1.7] text-[color:var(--color-text-muted)] text-center max-w-[420px]">
-                        {step.description}
-                    </p>
-                </div>
-
-                <div className="border-t border-[var(--color-border)] px-8 md:px-16 pt-5 pb-[calc(var(--safe-area-bottom)+1.25rem)]">
-                    
-                    <div className="flex items-center justify-center gap-2 mb-5">
-                        {steps.map((_, index) => (
-                            <button
-                                key={index}
-                                onClick={() => setCurrentStep(index)}
-                                aria-label={`Go to step ${index + 1}`}
-                                className={cn(
-                                    "h-[3px] transition-colors duration-[var(--duration-normal)]",
-                                    index === currentStep
-                                        ? "w-8 bg-[var(--color-text-primary)]"
-                                        : "w-3 bg-[var(--color-border)] hover:bg-[var(--color-text-muted)]",
-                                )}
-                            />
-                        ))}
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                        <button
-                            onClick={handleBack}
-                            disabled={isFirst}
-                            className={cn(
-                                "ui-btn flex items-center gap-2 px-5",
-                                isFirst && "opacity-0 pointer-events-none",
-                            )}
-                        >
-                            <ArrowLeft className="h-3.5 w-3.5" />
-                            <span className="text-[11px]">
-                                Back
-                            </span>
-                        </button>
-
-                        <button
-                            onClick={handleNext}
-                            className="ui-btn-primary flex items-center gap-2 px-6"
-                        >
-                            <span className="text-[11px]">
-                                {isLast ? "Get Started" : "Next"}
-                            </span>
-                            {!isLast && <ArrowRight className="h-3.5 w-3.5" />}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
+    return <OnboardingFrame label="Feature guide" title={step.title} step={currentStep} total={steps.length} visual={step.illustration} onSkip={handleSkip} skipLabel="Skip" skipHidden={isLast} onStepChange={setCurrentStep} actions={<>
+        <IconButton label="Back" className="min-h-11 min-w-11" icon={<ArrowLeft className="h-5 w-5" />} onClick={handleBack} disabled={isFirst} />
+        <Button variant="primary" className="h-11" onClick={handleNext}>{isLast ? "Get Started" : "Next"}<ArrowRight aria-hidden="true" className="h-4 w-4" /></Button>
+    </>}>
+        <p className="text-[color:var(--color-text-primary)]">{step.subtitle}</p>
+        <p>{step.description}</p>
+    </OnboardingFrame>;
 }

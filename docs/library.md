@@ -88,9 +88,11 @@ location, so the cue appears before a page turn. Selection mode hides the cue.
 Library adds no separate resume row, weekly progress panel, or Statistics link.
 
 The action toolbar retains its earlier layout: Add Books, view, sort, and filters.
-View and filter/sort use the shared bare IconButton, with 24px glyphs inside
+View and filter/sort use the shared bare IconButton, with 16px glyphs inside
 44px touch targets (40px on desktop). They have no border or background;
-hover and active state use the accent color. List view uses a rows glyph;
+The view/filter controls form a compact group beside Add Books, with matching
+heights and an 8px gap from the primary action. Hover and active state use the accent color. Sidebar and Library share the
+16px glyph class and default Lucide stroke. List view uses a rows glyph;
 filter/sort uses a funnel glyph.
 Start selection from a book's context menu; the toolbar then offers Done.
 The initial book request waits until selection mode and its filtered scope are

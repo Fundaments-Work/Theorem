@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LibraryPage } from "../src/features/library/Library";
@@ -39,7 +39,9 @@ const sampleBook: Book = {
     filePath: "/books/meditations.epub",
     fileSize: 1024,
     format: "epub",
-    dateAdded: new Date().toISOString(),
+    addedAt: new Date(),
+    isFavorite: false,
+    readingTime: 0,
     progress: 0.5,
     tags: [],
 };
@@ -65,11 +67,14 @@ describe("Library Filter & Sort Button", () => {
         expect(addBtn).not.toBeNull();
         expect(addBtn?.className).not.toContain("flex-1");
 
-        // Uses standard square toolbar button styling matching View
-        expect(filterBtn.className).toContain("h-11");
-        expect(filterBtn.className).toContain("w-11");
-        expect(filterBtn.className).toContain("sm:h-10");
-        expect(filterBtn.className).toContain("sm:w-10");
+        const viewBtn = host.querySelector<HTMLButtonElement>('button[aria-label^="Change view"]')!;
+        expect(viewBtn).not.toBeNull();
+
+        // Both controls share 44px touch and 40px desktop targets.
+        expect(filterBtn.className).toContain("min-h-11");
+        expect(filterBtn.className).toContain("min-w-11");
+        expect(viewBtn.className).toContain("sm:min-h-10");
+        expect(viewBtn.className).toContain("sm:min-w-10");
 
         // Toggle open
         act(() => {
