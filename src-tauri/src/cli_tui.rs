@@ -54,6 +54,7 @@ struct TuiApp {
     reader_book: Option<BookRow>,
     chapter: usize,
     chapter_count: usize,
+    chapter_titles: Box<[Box<str>]>,
     chapter_text: String,
     scroll: u16,
 }
@@ -90,6 +91,7 @@ impl TuiApp {
             reader_book: None,
             chapter: 0,
             chapter_count: 0,
+            chapter_titles: Box::default(),
             chapter_text: String::new(),
             scroll: 0,
         })
@@ -169,17 +171,36 @@ impl TuiApp {
         };
         self.reader_book = Some(book.clone());
         self.chapter = 0;
+        self.chapter_titles = Box::default();
         self.chapter_count = if book.format.eq_ignore_ascii_case("epub") {
             crate::cli::resolve_book_path(app, &book.id)
                 .ok()
                 .flatten()
-                .and_then(|path| crate::cli::epub_chapter_count(&path).ok())
+                .and_then(
+                    |path| match crate::epub_parser::read_chapter_titles(&path) {
+                        Ok(titles) if !titles.is_empty() => {
+                            self.chapter_titles = titles;
+                            Some(self.chapter_titles.len().max(1))
+                        }
+                        _ => crate::cli::epub_chapter_count(&path).ok(),
+                    },
+                )
                 .unwrap_or(1)
         } else {
             1
         };
         self.view = View::Reader;
         self.load_chapter(app);
+    }
+
+    fn chapter_label(&self) -> String {
+        self.chapter_titles
+            .get(self.chapter)
+            .filter(|title| !title.is_empty())
+            .map_or_else(
+                || format!("chapter {}", self.chapter + 1),
+                |title| title.to_string(),
+            )
     }
 }
 
@@ -478,7 +499,7 @@ fn draw_reader(frame: &mut Frame, area: Rect, tui: &mut TuiApp) {
         " {} — {} {}/{} ",
         book.title,
         if book.format.eq_ignore_ascii_case("epub") {
-            format!("chapter {}", tui.chapter + 1)
+            tui.chapter_label()
         } else {
             book.format.clone()
         },
@@ -580,6 +601,87 @@ mod tests {
         assert_eq!(truncate("abc", 0), "");
         assert_eq!(truncate("abc", 1), "…");
         assert_eq!(truncate("", 0), "");
+    }
+
+    #[test]
+    fn terminal_reader_uses_chapter_titles_and_numbered_fallbacks() {
+        let mut tui = tui_with(&[]);
+        tui.chapter_titles = vec!["Opening".into(), "".into(), "第二章".into()].into_boxed_slice();
+        assert_eq!(tui.chapter_label(), "Opening");
+        tui.chapter = 1;
+        assert_eq!(tui.chapter_label(), "chapter 2");
+        tui.chapter = 2;
+        assert_eq!(tui.chapter_label(), "第二章");
+        tui.chapter = 9;
+        assert_eq!(tui.chapter_label(), "chapter 10");
+    }
+
+    #[test]
+    fn terminal_reader_draws_the_selected_chapter_name() {
+        let mut tui = tui_with(&["Book"]);
+        tui.reader_book = tui.selected_book().cloned();
+        tui.chapter_titles = vec!["Opening".into(), "Chapter Two".into()].into_boxed_slice();
+        tui.chapter_count = 2;
+        tui.chapter = 1;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 12)).unwrap();
+        terminal
+            .draw(|frame| draw_reader(frame, frame.area(), &mut tui))
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(screen.contains("Book — Chapter Two 2/2"));
+    }
+
+    #[test]
+    fn terminal_reader_keeps_spine_navigation_when_title_extraction_is_empty() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::open_at(dir.path()).unwrap();
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::FileOptions::<()>::default();
+        for (name, data) in [
+            (
+                "META-INF/container.xml",
+                r#"<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>"#,
+            ),
+            (
+                "book.opf",
+                r#"<package><manifest><item id="one" href="one.xhtml"></item><item id="two" href="two.xhtml"></item></manifest><spine><itemref idref="one"/><itemref idref="two"/></spine></package>"#,
+            ),
+            ("one.xhtml", "<html><body>First chapter.</body></html>"),
+            ("two.xhtml", "<html><body>Second chapter.</body></html>"),
+        ] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(data.as_bytes()).unwrap();
+        }
+        std::fs::write(
+            ctx.store.materialized_book_path("b1").unwrap(),
+            zip.finish().unwrap().into_inner(),
+        )
+        .unwrap();
+        ctx.store
+            .with_connection(|conn| {
+                crate::database::sqlite_save_book_metadata_inner(
+                    conn,
+                    "b1",
+                    r#"{"id":"b1","title":"Book","author":"A","format":"epub"}"#,
+                )
+            })
+            .unwrap();
+        let mut tui = TuiApp::load(&ctx).unwrap();
+        tui.open_reader(&ctx);
+        assert_eq!(tui.chapter_count, 2);
+        assert!(tui.chapter_text.contains("First chapter."));
+        tui.chapter = 1;
+        tui.load_chapter(&ctx);
+        assert!(tui.chapter_text.contains("Second chapter."));
+        assert_eq!(tui.chapter_label(), "chapter 2");
     }
 
     fn tui_with(titles: &[&str]) -> TuiApp {

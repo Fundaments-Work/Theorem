@@ -167,8 +167,15 @@ Commands that change data are: `library add`, `import`, `remove`, `favorite`, `e
 
 `theorem tui` opens a read-only interface in the terminal, with the first book selected. It needs a real terminal. Run without one, it exits with `failed to enter terminal UI mode`. It never writes your reading progress.
 
-Library columns truncate by terminal display width and retain whole graphemes,
-including CJK characters, combining marks and joined emoji.
+EPUB reader headings use chapter titles from EPUB 3 navigation, falling back
+to EPUB 2 NCX navigation and then numbered chapters. Titles are matched to the
+spine, so a different order in the contents list does not change navigation.
+If title extraction fails or returns no sections, the existing spine reader
+still supplies the chapter count and navigation.
+When several entries point into one section, a label at its start is preferred;
+otherwise the first matching fragment label is used. Titles are read once when
+the book opens. Library columns truncate by terminal display width and retain
+whole graphemes, including CJK characters, combining marks and joined emoji.
 
 | Where | Keys |
 | :--- | :--- |

@@ -408,6 +408,89 @@ struct LocatedTocSources {
     spine_hrefs: Vec<String>,
 }
 
+/// Read only the package and navigation documents for the terminal reader.
+/// Labels follow spine order, not navigation order; absent labels stay empty
+/// so the caller can retain its numbered-chapter fallback.
+#[cfg(not(target_os = "android"))]
+pub(crate) fn read_chapter_titles(path: &Path) -> Result<Box<[Box<str>]>, crate::error::AppError> {
+    use crate::error::{AppError, ErrorKind};
+    let mut archive = crate::zip_util::open_zip_archive(File::open(path)?).map_err(|error| {
+        AppError::new(ErrorKind::Corrupt, format!("Invalid EPUB archive: {error}"))
+    })?;
+    let opf_path = read_rootfile_path_inner(&mut archive)
+        .ok_or_else(|| AppError::new(ErrorKind::Corrupt, "EPUB has no package document"))?;
+    let opf = read_zip_entry_inner(&mut archive, &opf_path)
+        .ok_or_else(|| AppError::new(ErrorKind::Corrupt, "EPUB package document is missing"))?;
+    let sources = locate_toc_sources(opf.as_bytes())
+        .map_err(|error| AppError::new(ErrorKind::Corrupt, error))?;
+    let mut toc = Vec::new();
+    for (href, is_nav) in [
+        (sources.nav_href.as_deref(), true),
+        (sources.ncx_href.as_deref(), false),
+    ] {
+        if let Some(href) = href {
+            let path = resolve_epub_href(&opf_path, href);
+            let decoded =
+                percent_encoding::percent_decode_str(path.split('#').next().unwrap_or(&path))
+                    .decode_utf8_lossy();
+            if let Some(xml) = read_zip_entry_inner(&mut archive, &decoded) {
+                toc = if is_nav {
+                    parse_nav_toc(&xml, &path)
+                } else {
+                    parse_ncx_toc(&xml, &path)
+                };
+                if !toc.is_empty() {
+                    break;
+                }
+            }
+        }
+    }
+    fn index<'a>(
+        items: &'a [TocItemDto],
+        depth: usize,
+        labels: &mut HashMap<Box<str>, (&'a str, bool, usize)>,
+    ) {
+        for item in items {
+            let (file, fragment) = item.href.split_once('#').unwrap_or((&item.href, ""));
+            let file = percent_encoding::percent_decode_str(file).decode_utf8_lossy();
+            let at_start = fragment.is_empty();
+            if !item.label.is_empty() {
+                let replace =
+                    labels
+                        .get(file.as_ref())
+                        .is_none_or(|(_, previous_start, previous_depth)| {
+                            at_start && (!previous_start || depth > *previous_depth)
+                        });
+                if replace {
+                    labels.insert(
+                        file.into_owned().into_boxed_str(),
+                        (&item.label, at_start, depth),
+                    );
+                }
+            }
+            if let Some(children) = &item.subitems {
+                index(children, depth + 1, labels);
+            }
+        }
+    }
+    let mut labels = HashMap::new();
+    index(&toc, 0, &mut labels);
+    Ok(sources
+        .spine_hrefs
+        .iter()
+        .map(|href| {
+            let path = resolve_epub_href(&opf_path, href);
+            let decoded =
+                percent_encoding::percent_decode_str(path.split('#').next().unwrap_or(&path))
+                    .decode_utf8_lossy();
+            labels
+                .get(decoded.as_ref())
+                .map_or("", |(label, _, _)| *label)
+                .into()
+        })
+        .collect())
+}
+
 fn locate_toc_sources(opf_bytes: &[u8]) -> Result<LocatedTocSources, String> {
     let normalized = strip_xml_bom(opf_bytes);
     let mut reader = Reader::from_reader(normalized.as_ref());
@@ -793,6 +876,78 @@ mod tests {
             rootfile_path
         )
         .into_bytes()
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn terminal_chapter_titles_follow_spine_and_prefer_section_start_labels() {
+        let opf = br#"<package><manifest>
+            <item id="a" href="text/a.xhtml" media-type="application/xhtml+xml"/>
+            <item id="b" href="text/b.xhtml" media-type="application/xhtml+xml"/>
+            <item id="c" href="text/c.xhtml" media-type="application/xhtml+xml"/>
+            <item id="nav" href="nav/toc.xhtml" properties="nav"/>
+            </manifest><spine><itemref idref="b"/><itemref idref="a"/><itemref idref="c"/></spine></package>"#;
+        let nav = br#"<html xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol>
+            <li><a href="../text/a.xhtml#later">Later fragment</a></li>
+            <li><a href="../text/b.xhtml">Part</a><ol><li><a href="../text/b.xhtml">Chapter Two</a></li></ol></li>
+            <li><a href="../text/a.xhtml">Opening &amp; Arrival</a></li>
+            </ol></nav></body></html>"#;
+        let bytes = create_zip(&[
+            (
+                "META-INF/container.xml",
+                &create_container_xml("EPUB/book.opf"),
+            ),
+            ("EPUB/book.opf", opf),
+            ("EPUB/nav/toc.xhtml", nav),
+        ]);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), bytes).unwrap();
+        let titles = read_chapter_titles(file.path()).unwrap();
+        assert_eq!(
+            titles.as_ref(),
+            [
+                Box::<str>::from("Chapter Two"),
+                "Opening & Arrival".into(),
+                "".into()
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn terminal_chapter_titles_fall_back_to_ncx_and_handle_missing_navigation() {
+        let opf = br#"<package><manifest><item id="a" href="a.xhtml"/>
+            <item id="nav" href="nav.xhtml" properties="nav"/>
+            <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+            </manifest><spine><itemref idref="a"/></spine></package>"#;
+        let ncx = br#"<ncx><navMap><navPoint id="one"><navLabel><text>Chapter One</text></navLabel><content src="a.xhtml#begin"/></navPoint></navMap></ncx>"#;
+        for (navigation, expected) in [(ncx.as_slice(), "Chapter One"), (b"".as_slice(), "")] {
+            let bytes = create_zip(&[
+                ("META-INF/container.xml", &create_container_xml("book.opf")),
+                ("book.opf", opf),
+                ("nav.xhtml", b"<html/>"),
+                ("toc.ncx", navigation),
+            ]);
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), bytes).unwrap();
+            assert_eq!(&*read_chapter_titles(file.path()).unwrap()[0], expected);
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn terminal_chapter_titles_match_percent_encoded_navigation_and_section_paths() {
+        let opf = br#"<package><manifest><item id="a" href="a%20b.xhtml"/>
+            <item id="nav" href="toc%20nav.xhtml" properties="nav"/>
+            </manifest><spine><itemref idref="a"/></spine></package>"#;
+        let bytes = create_zip(&[
+            ("META-INF/container.xml", &create_container_xml("book.opf")),
+            ("book.opf", opf),
+            ("toc nav.xhtml", br#"<html><body><nav><ol><li><a href="a b.xhtml#intro">Opening</a></li></ol></nav></body></html>"#),
+        ]);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), bytes).unwrap();
+        assert_eq!(&*read_chapter_titles(file.path()).unwrap()[0], "Opening");
     }
 
     fn create_simple_opf(title: &str, author: &str) -> Vec<u8> {
