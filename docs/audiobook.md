@@ -107,6 +107,27 @@ narrating (`getAllSectionsForAudio` → `engines/audio-sections.ts`), and `gener
 - On completion the generated file is attached as the book's `audioTrack`
   (format `opus`) and immediately playable by the companion player.
 
+New generated files also embed `TITLE`, `ARTIST`, and Vorbis-style
+`CHAPTER001` / `CHAPTER001NAME` comments in their `OpusTags` packet. Chapter
+starts use `HH:MM:SS.mmm`; titles and names retain UTF-8. After synthesis,
+a blocking native task reads the book's current title/author from SQLite and
+streams the compressed packets through the Rust `ogg` crate, replacing only
+the tags. Audio packets, stream identity, page granules and end-of-stream
+markers are preserved. The writer handles metadata spanning multiple Ogg
+pages. A temporary file in the output directory replaces the partial file only
+after successful validation and flushing; cancellation or failure removes the
+temporary file and follows the existing partial-file cleanup path.
+
+Ogg CRCs use the non-reflected polynomial `0x04c11db7`, shifting from the high
+bit with the page checksum field zeroed. The previous table incorrectly
+shifted from the low bit; new files have corrected checksums. The independent
+`ogg` 0.9 `PacketReader` verifies page checksums by default, and its
+`PacketWriter` handles continued metadata packets and stream/page boundaries.
+Tests round-trip large tags through that reader and verify audio bytes and
+granules, corrupted/incomplete input, and cancellation without replacing the
+original partial file. Existing attached tracks and their persisted/synced
+representation are unchanged; older generated files remain linked as before.
+
 Android generation (batch `synthesizeToFile` through the selected engine) is
 deferred until Theorem Neural Voice ships; generation commands return a
 desktop-only error there.

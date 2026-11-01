@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features & Enhancements
 
 - **Audiobook media controls** — Supported system controls show artwork, playback state and position, and can move between chapters.
+- **Generated audiobook metadata** — Opus files embed book and chapter tags, including large chapter lists, with atomic cancellation-safe finalization.
 
 - **Statistics share footer** — Share cards are branded “Theorem”; recently read covers stay within a three-column footprint so the footer remains visible with fewer books.
 
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - **Nero audiobook chapters** — M4B attachments recognize Nero `chpl` chapters when QuickTime chapters are absent.
+- **Generated audiobook checksums** — Ogg pages use the correct checksum, verified by an independent reader.
 
 - **Offline laptop hotspots** — Local IPv4 discovery follows network interfaces as they appear and disappear, allowing paired devices to find each other on a laptop-hosted hotspot that is not the default route, without an internet relay.
 

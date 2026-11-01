@@ -9,11 +9,12 @@
 
 #[cfg(not(target_os = "android"))]
 pub mod engine {
+    use crate::error::{AppError, ErrorKind};
     use crate::supertonic::desktop;
     use audiopus::{Application, Bitrate, Channels, SampleRate};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
-    use std::io::Write;
+    use std::io::{Read, Seek, Write};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, LazyLock, Mutex};
     use tauri::{AppHandle, Emitter, Manager};
@@ -64,22 +65,30 @@ pub mod engine {
 
     // ── Ogg page muxer (hand-rolled: no ogg crate, packets ≤ 1275B) ─────────────
 
-    fn crc32_ogg(data: &[u8]) -> u32 {
-        let mut table = [0u32; 256];
-        for (i, slot) in table.iter_mut().enumerate() {
-            let mut crc = i as u32;
-            for _ in 0..8 {
-                crc = if crc & 1 != 0 {
-                    0x04c1_1db7 ^ (crc >> 1)
+    const OGG_CRC_TABLE: [u32; 256] = {
+        let mut table = [0; 256];
+        let mut index = 0;
+        while index < table.len() {
+            let mut crc = (index as u32) << 24;
+            let mut bit = 0;
+            while bit < 8 {
+                crc = if crc & 0x8000_0000 != 0 {
+                    (crc << 1) ^ 0x04c1_1db7
                 } else {
-                    crc >> 1
+                    crc << 1
                 };
+                bit += 1;
             }
-            *slot = crc;
+            table[index] = crc;
+            index += 1;
         }
+        table
+    };
+
+    fn crc32_ogg(data: &[u8]) -> u32 {
         let mut crc = 0u32;
         for &b in data {
-            crc = (crc << 8) ^ table[(((crc >> 24) as u8) ^ b) as usize];
+            crc = (crc << 8) ^ OGG_CRC_TABLE[(((crc >> 24) as u8) ^ b) as usize];
         }
         crc
     }
@@ -236,6 +245,180 @@ pub mod engine {
         tags
     }
 
+    fn tagged_opus_packet(
+        title: &str,
+        author: &str,
+        chapters: &[GenChapter],
+    ) -> Result<Vec<u8>, AppError> {
+        let mut tags = opus_tags_packet();
+        let count_offset = tags.len() - 4;
+        let mut count = 0u32;
+        let mut add = |comment: &str| -> Result<(), AppError> {
+            let len = u32::try_from(comment.len())
+                .map_err(|_| AppError::invalid_input("Audiobook comment is too large"))?;
+            count = count
+                .checked_add(1)
+                .ok_or_else(|| AppError::invalid_input("Too many audiobook comments"))?;
+            tags.extend_from_slice(&len.to_le_bytes());
+            tags.extend_from_slice(comment.as_bytes());
+            Ok(())
+        };
+        if !title.is_empty() {
+            add(&format!("TITLE={title}"))?;
+        }
+        if !author.is_empty() {
+            add(&format!("ARTIST={author}"))?;
+        }
+        for (index, chapter) in chapters.iter().enumerate() {
+            if !chapter.start_sec.is_finite()
+                || chapter.start_sec < 0.0
+                || chapter.start_sec > u64::MAX as f64 / 1000.0
+            {
+                return Err(AppError::invalid_input("Invalid audiobook chapter time"));
+            }
+            let millis = (chapter.start_sec * 1000.0).round() as u64;
+            add(&format!(
+                "CHAPTER{:03}={:02}:{:02}:{:02}.{:03}",
+                index + 1,
+                millis / 3_600_000,
+                millis / 60_000 % 60,
+                millis / 1000 % 60,
+                millis % 1000
+            ))?;
+            add(&format!("CHAPTER{:03}NAME={}", index + 1, chapter.title))?;
+        }
+        tags[count_offset..count_offset + 4].copy_from_slice(&count.to_le_bytes());
+        Ok(tags)
+    }
+
+    fn ogg_read_error(error: ogg::OggReadError) -> AppError {
+        match error {
+            ogg::OggReadError::ReadError(error) => error.into(),
+            other => AppError::new(
+                ErrorKind::Corrupt,
+                format!("Invalid generated Ogg stream: {other}"),
+            ),
+        }
+    }
+
+    /// Re-page the compressed packets, replacing only OpusTags. The native
+    /// writer handles comments spanning pages; audio packets and their page
+    /// granules stay intact. Memory is bounded by metadata and individual pages.
+    fn write_tagged_stream<R: Read + Seek, W: Write>(
+        input: R,
+        output: W,
+        tags: Vec<u8>,
+        cancel: &AtomicBool,
+    ) -> Result<(), AppError> {
+        use ogg::{PacketReader, PacketWriteEndInfo, PacketWriter};
+        let mut reader = PacketReader::new(input);
+        let mut writer = PacketWriter::new(output);
+        let head = reader.read_packet_expected().map_err(ogg_read_error)?;
+        let serial = head.stream_serial();
+        if !head.data.starts_with(b"OpusHead") || head.last_in_stream() {
+            return Err(AppError::new(
+                ErrorKind::Corrupt,
+                "Generated audiobook has no Opus header",
+            ));
+        }
+        writer.write_packet(head.data, serial, PacketWriteEndInfo::EndPage, 0)?;
+        let old_tags = reader.read_packet_expected().map_err(ogg_read_error)?;
+        if !old_tags.data.starts_with(b"OpusTags")
+            || old_tags.stream_serial() != serial
+            || old_tags.last_in_stream()
+        {
+            return Err(AppError::new(
+                ErrorKind::Corrupt,
+                "Generated audiobook has no Opus tags",
+            ));
+        }
+        writer.write_packet(tags, serial, PacketWriteEndInfo::EndPage, 0)?;
+        let mut ended = false;
+        while let Some(packet) = reader.read_packet().map_err(ogg_read_error)? {
+            if cancel.load(Ordering::SeqCst) {
+                return Err(AppError::invalid_input("Audiobook generation cancelled"));
+            }
+            if ended || packet.stream_serial() != serial {
+                return Err(AppError::new(
+                    ErrorKind::Corrupt,
+                    "Unexpected additional audiobook stream",
+                ));
+            }
+            ended = packet.last_in_stream();
+            let end = if ended {
+                PacketWriteEndInfo::EndStream
+            } else if packet.last_in_page() {
+                PacketWriteEndInfo::EndPage
+            } else {
+                PacketWriteEndInfo::NormalPacket
+            };
+            let granule = packet.absgp_page();
+            writer.write_packet(packet.data, serial, end, granule)?;
+        }
+        if !ended {
+            return Err(AppError::new(
+                ErrorKind::Corrupt,
+                "Generated audiobook is incomplete",
+            ));
+        }
+        writer.into_inner().flush()?;
+        Ok(())
+    }
+
+    fn finalize_metadata(
+        app: &AppHandle,
+        book_id: &str,
+        part_path: &std::path::Path,
+        chapters: &[GenChapter],
+        cancel: &AtomicBool,
+    ) -> Result<(), AppError> {
+        #[derive(Deserialize, Default)]
+        struct BookTags {
+            #[serde(default)]
+            title: Box<str>,
+            #[serde(default)]
+            author: Box<str>,
+        }
+        let metadata = crate::database::sqlite_get_book_metadata(app.clone(), book_id.into())?;
+        let metadata: BookTags = metadata
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| {
+                AppError::new(
+                    ErrorKind::Corrupt,
+                    format!("Invalid book metadata: {error}"),
+                )
+            })?
+            .unwrap_or_default();
+        let tags = tagged_opus_packet(&metadata.title, &metadata.author, chapters)?;
+        write_tagged_file(part_path, tags, cancel)
+    }
+
+    fn write_tagged_file(
+        part_path: &std::path::Path,
+        tags: Vec<u8>,
+        cancel: &AtomicBool,
+    ) -> Result<(), AppError> {
+        let mut file = tempfile::NamedTempFile::new_in(
+            part_path
+                .parent()
+                .ok_or_else(|| AppError::invalid_input("Invalid audiobook path"))?,
+        )?;
+        write_tagged_stream(
+            std::io::BufReader::new(std::fs::File::open(part_path)?),
+            std::io::BufWriter::new(file.as_file_mut()),
+            tags,
+            cancel,
+        )?;
+        if cancel.load(Ordering::SeqCst) {
+            return Err(AppError::invalid_input("Audiobook generation cancelled"));
+        }
+        file.persist(part_path)
+            .map_err(|error| AppError::from(error.error))?;
+        Ok(())
+    }
+
     /// Where generated audiobooks live; the only place Theorem deletes from.
     fn audiobooks_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
         Ok(app
@@ -375,7 +558,23 @@ pub mod engine {
         }
 
         ogg.flush_page(true).map_err(|e| e.to_string())?;
+        ogg.out.flush().map_err(|e| e.to_string())?;
         drop(ogg);
+        let metadata_app = app.clone();
+        let metadata_book_id = book_id.to_string();
+        let metadata_path = part_path.clone();
+        let chapters = tokio::task::spawn_blocking(move || {
+            finalize_metadata(
+                &metadata_app,
+                &metadata_book_id,
+                &metadata_path,
+                &chapters,
+                &cancel,
+            )?;
+            Ok::<_, AppError>(chapters)
+        })
+        .await
+        .map_err(|error| format!("Audiobook metadata task failed: {error}"))??;
         std::fs::rename(&part_path, &final_path).map_err(|e| format!("Failed to finalize: {e}"))?;
 
         Ok(GenDonePayload {
@@ -481,6 +680,209 @@ pub mod engine {
     #[cfg(all(test, not(target_os = "android")))]
     mod tests {
         use super::*;
+
+        fn encoded_stream() -> Vec<u8> {
+            let mut ogg = OggWriter::new(Vec::new(), 37);
+            let mut head = b"OpusHead\x01\x01\0\0".to_vec();
+            head.extend_from_slice(&TARGET_SAMPLE_RATE.to_le_bytes());
+            head.extend_from_slice(&[0, 0, 0]);
+            ogg.add_packet(&head, 0).unwrap();
+            ogg.flush_page(false).unwrap();
+            ogg.add_packet(&opus_tags_packet(), 0).unwrap();
+            ogg.flush_page(false).unwrap();
+            let encoder = audiopus::coder::Encoder::new(
+                SampleRate::Hz48000,
+                Channels::Mono,
+                Application::Audio,
+            )
+            .unwrap();
+            push_pcm(
+                &mut ogg,
+                &encoder,
+                &[0.1; FRAME_SAMPLES * 3],
+                &mut 0,
+                &mut [0; 4000],
+            )
+            .unwrap();
+            ogg.flush_page(true).unwrap();
+            ogg.out
+        }
+
+        fn packets(bytes: &[u8]) -> Vec<ogg::Packet> {
+            let mut reader = ogg::PacketReader::new(std::io::Cursor::new(bytes));
+            let mut packets = Vec::new();
+            while let Some(packet) = reader.read_packet().unwrap() {
+                packets.push(packet);
+            }
+            packets
+        }
+
+        fn comments(tags: &[u8]) -> Vec<String> {
+            let mut cursor = 8;
+            let mut word = || {
+                let result =
+                    u32::from_le_bytes(tags[cursor..cursor + 4].try_into().unwrap()) as usize;
+                cursor += 4;
+                result
+            };
+            let vendor_len = word();
+            cursor += vendor_len;
+            let count = u32::from_le_bytes(tags[cursor..cursor + 4].try_into().unwrap());
+            cursor += 4;
+            let mut result = Vec::new();
+            for _ in 0..count {
+                let len = u32::from_le_bytes(tags[cursor..cursor + 4].try_into().unwrap()) as usize;
+                cursor += 4;
+                result.push(String::from_utf8(tags[cursor..cursor + len].to_vec()).unwrap());
+                cursor += len;
+            }
+            assert_eq!(cursor, tags.len());
+            result
+        }
+
+        #[test]
+        fn embedded_metadata_survives_multiple_pages_without_changing_audio_or_timing() {
+            let original = encoded_stream();
+            let chapters = [
+                GenChapter {
+                    id: "one".into(),
+                    title: "Opening".into(),
+                    start_sec: 0.0,
+                    end_sec: 3600.125,
+                },
+                GenChapter {
+                    id: "two".into(),
+                    title: "第二章".repeat(10_000),
+                    start_sec: 3600.125,
+                    end_sec: 7200.0,
+                },
+            ];
+            let tags = tagged_opus_packet("A & B", "作者", &chapters).unwrap();
+            assert!(tags.len() > 65_025);
+            let mut output = Vec::new();
+            write_tagged_stream(
+                std::io::Cursor::new(&original),
+                &mut output,
+                tags,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            let before = packets(&original);
+            let after = packets(&output);
+            assert_eq!(before.len(), after.len());
+            assert_eq!(before[0].data, after[0].data);
+            assert_eq!(
+                comments(&after[1].data),
+                [
+                    "TITLE=A & B".into(),
+                    "ARTIST=作者".into(),
+                    "CHAPTER001=00:00:00.000".into(),
+                    "CHAPTER001NAME=Opening".into(),
+                    "CHAPTER002=01:00:00.125".into(),
+                    format!("CHAPTER002NAME={}", chapters[1].title),
+                ]
+            );
+            for (before, after) in before.iter().zip(&after).skip(2) {
+                assert_eq!(before.data, after.data);
+                assert_eq!(before.absgp_page(), after.absgp_page());
+                assert_eq!(before.stream_serial(), after.stream_serial());
+                assert_eq!(before.last_in_stream(), after.last_in_stream());
+            }
+            assert!(after.last().unwrap().last_in_stream());
+        }
+
+        #[test]
+        fn metadata_finalization_is_atomic_and_cancel_keeps_the_original() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("book.ogg.part");
+            let original = encoded_stream();
+            std::fs::write(&path, &original).unwrap();
+            let tags = tagged_opus_packet("Book", "Author", &[]).unwrap();
+            assert_eq!(
+                write_tagged_file(&path, tags, &AtomicBool::new(true))
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::InvalidInput
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+            write_tagged_file(
+                &path,
+                tagged_opus_packet("Book", "Author", &[]).unwrap(),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            assert_eq!(
+                comments(&packets(&std::fs::read(&path).unwrap())[1].data),
+                ["TITLE=Book", "ARTIST=Author"]
+            );
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+
+        #[test]
+        fn metadata_rejects_invalid_times_and_incomplete_or_corrupt_audio() {
+            for start in [f64::NAN, f64::INFINITY, -1.0] {
+                let chapter = GenChapter {
+                    id: "one".into(),
+                    title: "Bad".into(),
+                    start_sec: start,
+                    end_sec: 10.0,
+                };
+                assert_eq!(
+                    tagged_opus_packet("", "", &[chapter]).unwrap_err().kind(),
+                    ErrorKind::InvalidInput
+                );
+            }
+            let mut bytes = encoded_stream();
+            bytes[22] ^= 1;
+            assert_eq!(
+                write_tagged_stream(
+                    std::io::Cursor::new(bytes),
+                    Vec::new(),
+                    opus_tags_packet(),
+                    &AtomicBool::new(false)
+                )
+                .unwrap_err()
+                .kind(),
+                ErrorKind::Corrupt
+            );
+            let mut incomplete = OggWriter::new(Vec::new(), 3);
+            incomplete.add_packet(b"OpusHead", 0).unwrap();
+            incomplete.flush_page(false).unwrap();
+            incomplete.add_packet(&opus_tags_packet(), 0).unwrap();
+            incomplete.flush_page(false).unwrap();
+            assert_eq!(
+                write_tagged_stream(
+                    std::io::Cursor::new(incomplete.out),
+                    Vec::new(),
+                    opus_tags_packet(),
+                    &AtomicBool::new(false)
+                )
+                .unwrap_err()
+                .kind(),
+                ErrorKind::Corrupt
+            );
+        }
+
+        #[test]
+        fn generated_pages_pass_an_independent_ogg_checksum_reader() {
+            let mut ogg = OggWriter::new(Vec::new(), 17);
+            ogg.add_packet(b"OpusHead", 0).unwrap();
+            ogg.flush_page(false).unwrap();
+            ogg.add_packet(&opus_tags_packet(), 0).unwrap();
+            ogg.flush_page(false).unwrap();
+            ogg.add_packet(&[0xf8, 0xff, 0xfe], 960).unwrap();
+            ogg.flush_page(true).unwrap();
+            let mut reader = ogg::PacketReader::new(std::io::Cursor::new(ogg.out));
+            assert_eq!(reader.read_packet_expected().unwrap().data, b"OpusHead");
+            assert!(reader
+                .read_packet_expected()
+                .unwrap()
+                .data
+                .starts_with(b"OpusTags"));
+            assert!(reader.read_packet_expected().unwrap().last_in_stream());
+            assert!(reader.read_packet().unwrap().is_none());
+        }
 
         #[test]
         fn writes_parseable_opus_pages() {
