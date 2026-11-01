@@ -12,6 +12,34 @@ Theorem syncs books, annotations, settings, vocabulary and RSS data directly bet
 
 Sync is always compiled in (no feature gate).
 
+### Local networks and laptop hotspots
+
+Already-paired devices can sync over a laptop-hosted IPv4 hotspot without
+internet access. Discovery must send and receive multicast on the hotspot
+interface even when that interface is not the default route, or appears after
+Theorem starts. A saved IP address from another network is only a hint.
+
+`iroh-mdns-address-lookup` 0.6.0 updates its advertised IP records on endpoint
+publications, but its `Discoverer::new_interactive` uses the default multicast
+interface and does not update interface membership with those records.
+`swarm-discovery` 0.6.3 provides `DropGuard::add_interface_v4` and
+`remove_interface_v4`: these join/leave the main receive socket's multicast
+group and add/remove sockets whose outgoing multicast is pinned to each IPv4
+interface. The Cargo patch at `src-tauri/vendor/iroh-mdns-address-lookup/`
+calls those APIs when the published IPv4 address set changes. Non-local public
+NAT candidates are ignored by swarm-discovery when their interface bind fails.
+IPv6 retains upstream's default-interface behavior. See the vendored
+`THEOREM.md` for provenance and upgrade instructions.
+
+The Linux scenario
+`paired_devices_sync_on_a_non_default_interface_without_internet` verifies
+multicast delivery specifically on loopback with `IP_MULTICAST_ALL=0`, then
+exchanges data between already-paired real nodes using a discovered address;
+relays and internet address lookup are absent. Two ordinary local discovery
+instances alone would not reproduce the interface bug: they can discover one
+another through the machine's default interface. This is an automated network
+regression test; a physical laptop hotspot and phone still need manual testing.
+
 ## Security model
 
 The design follows KDE Connect and Syncthing (identity = public key, explicit approval, pinning) rather than LocalSend, whose address-based device trust allowed impersonation (CVE-2025-54792).

@@ -1179,6 +1179,113 @@ async fn an_exchange_cut_off_midway_completes_on_the_next_round() {
     assert_eq!(b.snapshot(), a.snapshot());
 }
 
+/// An already-paired laptop and phone rediscover each other on an interface
+/// that is not the default route. Loopback stands in for the hotspot interface;
+/// neither endpoint has a relay or internet address lookup configured.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg(target_os = "linux")]
+async fn paired_devices_sync_on_a_non_default_interface_without_internet() {
+    use iroh::address_lookup::{AddressLookup, EndpointData};
+    use iroh_mdns_address_lookup::MdnsAddressLookup;
+    use std::net::{Ipv4Addr, SocketAddr};
+
+    let root = tempfile::tempdir().unwrap();
+    let mut a = Device::new("laptop", root.path(), None).await;
+    let mut b = Device::new("phone", root.path(), None).await;
+    pair(&mut a, &mut b).await;
+    a.edit("book:laptop", "read on laptop").await;
+    b.edit("book:phone", "read on phone").await;
+
+    // Isolate this test from other tests and any running Theorem instance.
+    let service = format!("theorem-{}", uuid::Uuid::new_v4().simple());
+    // Receive only multicast sent over loopback. Without IP_MULTICAST_ALL=0,
+    // Linux can deliver packets from the default interface here too, hiding
+    // exactly the interface-selection bug this scenario needs to observe.
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    )
+    .unwrap();
+    socket.set_reuse_address(true).unwrap();
+    socket.set_reuse_port(true).unwrap();
+    socket
+        .bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 5353)).into())
+        .unwrap();
+    socket
+        .join_multicast_v4(&Ipv4Addr::new(224, 0, 0, 251), &Ipv4Addr::LOCALHOST)
+        .unwrap();
+    socket.set_multicast_all_v4(false).unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let listener = tokio::net::UdpSocket::from_std(socket.into()).unwrap();
+    let laptop = MdnsAddressLookup::builder()
+        .service_name(service.clone())
+        .build(a.id())
+        .unwrap();
+    let phone = MdnsAddressLookup::builder()
+        .service_name(service.clone())
+        .build(b.id())
+        .unwrap();
+    let local_addr = |device: &Device| {
+        let port = device
+            .router
+            .endpoint()
+            .bound_sockets()
+            .into_iter()
+            .find(SocketAddr::is_ipv4)
+            .unwrap()
+            .port();
+        SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+    };
+    // The hotspot interface appears after discovery has already started.
+    laptop.publish(&EndpointData::default());
+    phone.publish(&EndpointData::default());
+    laptop.publish(&EndpointData::from(
+        iroh::EndpointAddr::new(a.id()).with_ip_addr(local_addr(&a)),
+    ));
+    phone.publish(&EndpointData::from(
+        iroh::EndpointAddr::new(b.id()).with_ip_addr(local_addr(&b)),
+    ));
+
+    tokio::time::timeout(crate::file_transfer::PROBE_TIMEOUT, async {
+        let mut packet = [0; 2048];
+        loop {
+            let (len, _) = listener.recv_from(&mut packet).await.unwrap();
+            if packet[..len]
+                .windows(service.len())
+                .any(|bytes| bytes == service.as_bytes())
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("discovery never sent multicast on the non-default interface");
+
+    let discovered = tokio::time::timeout(crate::file_transfer::PROBE_TIMEOUT, async {
+        laptop.resolve(b.id()).unwrap().next().await
+    })
+    .await
+    .expect("local discovery missed a peer on the non-default interface")
+    .expect("local discovery ended without a peer")
+    .unwrap();
+    let peer: iroh::EndpointAddr = discovered.endpoint_info().clone().into();
+    assert_eq!(
+        peer.ip_addrs().copied().collect::<Vec<_>>(),
+        [local_addr(&b)]
+    );
+    assert_eq!(peer.relay_urls().count(), 0);
+
+    // Only the discovered address reaches the docs engine: pairing supplied
+    // identities and the shared namespace, never a direct address or relay.
+    a.doc_with(&b.name).start_sync(vec![peer]).await.unwrap();
+    converge(&mut a, &mut b).await;
+    assert_eq!(has(&b, "book:laptop").as_deref(), Some("read on laptop"));
+    assert_eq!(has(&a, "book:phone").as_deref(), Some("read on phone"));
+    a.router.shutdown().await.unwrap();
+    b.router.shutdown().await.unwrap();
+}
+
 /// Devices that cannot reach each other directly (no direct addresses at
 /// all) sync through a relay; the exchange stays well within the app's
 /// timeouts (6 s probe, 30 s for the exchange).

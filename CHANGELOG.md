@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- **Offline laptop hotspots** — Local IPv4 discovery follows network interfaces as they appear and disappear, allowing paired devices to find each other on a laptop-hosted hotspot that is not the default route, without an internet relay.
+
 - **RSS Channel Title Deduplication** — Fixed an XML parsing bug in the RSS engine where an RSS 2.0 `<channel><image><title>` block duplicated or overwrote the parent feed title.
 - **EPUB Note Saving** — Fixed an issue where clicking "Add Note" from the highlight color picker triggered a delayed dismissal that cleared selection context, preventing the "Save" button from saving the note.
 - **Mobile Smart Shelf Modal Scrolling** — Restructured modal layout with an internal flex column container so the shelf form and conditions list scroll properly within the viewport on mobile devices.
