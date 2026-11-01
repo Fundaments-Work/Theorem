@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AudiobookBar } from "../src/features/reader/audio/AudiobookBar";
 import { useLibraryStore } from "../src/core/store";
@@ -52,6 +52,24 @@ const mount = (t = track()) => {
 };
 const q = (sel: string) => host.querySelector<HTMLElement>(sel);
 
+function mediaSession(unsupported?: MediaSessionAction) {
+    const actions = new Map<MediaSessionAction, MediaSessionActionHandler | null>();
+    const session = {
+        metadata: null as MediaMetadata | null,
+        playbackState: "none",
+        setPositionState: vi.fn(),
+        setActionHandler: vi.fn((action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+            if (action === unsupported) throw new Error("Unsupported action");
+            actions.set(action, handler);
+        }),
+    };
+    vi.stubGlobal("navigator", Object.assign(Object.create(navigator), { mediaSession: session }));
+    vi.stubGlobal("MediaMetadata", class {
+        constructor(init: MediaMetadataInit) { Object.assign(this, init); }
+    });
+    return { session, actions };
+}
+
 beforeEach(() => {
     FakeAudio.instances = [];
     vi.stubGlobal("Audio", FakeAudio);
@@ -66,6 +84,108 @@ afterEach(() => {
 });
 
 describe("AudiobookBar", () => {
+    it("reports playback state and finite, clamped position to system controls", () => {
+        const { session } = mediaSession();
+        mount();
+        expect(session.playbackState).toBe("none");
+        expect(session.setPositionState).not.toHaveBeenCalled();
+        act(() => audio().load(600));
+        expect(session.playbackState).toBe("paused");
+        expect(session.setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 120, playbackRate: 1 });
+        act(() => { void audio().play(); audio().tick(900); });
+        expect(session.playbackState).toBe("playing");
+        expect(session.setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 600, playbackRate: 1 });
+        act(() => audio().pause());
+        expect(session.playbackState).toBe("paused");
+        act(() => root.unmount());
+        root = createRoot(host);
+        expect(session.playbackState).toBe("none");
+    });
+
+    it("system chapter controls use the current chapter and playback position", () => {
+        const { actions } = mediaSession();
+        mount();
+        act(() => audio().load(600));
+        act(() => actions.get("nexttrack")?.({ action: "nexttrack" }));
+        expect(audio().currentTime).toBe(200);
+        act(() => actions.get("nexttrack")?.({ action: "nexttrack" }));
+        expect(audio().currentTime).toBe(200);
+        act(() => audio().tick(250));
+        act(() => actions.get("previoustrack")?.({ action: "previoustrack" }));
+        expect(audio().currentTime).toBe(200);
+        act(() => actions.get("previoustrack")?.({ action: "previoustrack" }));
+        expect(audio().currentTime).toBe(0);
+    });
+
+    it("an unsupported media action does not prevent the remaining actions", () => {
+        const { actions } = mediaSession("seekbackward");
+        mount();
+        expect(actions.get("seekforward")).toBeTypeOf("function");
+        expect(actions.get("seekto")).toBeTypeOf("function");
+        act(() => root.unmount());
+        root = createRoot(host);
+        expect([...actions.values()].every((handler) => handler === null)).toBe(true);
+    });
+
+    it("publishes book artwork and clears system metadata when closed", () => {
+        const { session } = mediaSession();
+        const t = track();
+        useLibraryStore.setState({ books: [{ ...book(t), coverPath: "data:image/png;base64,AA==" }], collections: [] });
+        act(() => root.render(<AudiobookBar bookId="b1" bookTitle="Book" bookAuthor="Author" audioTrack={t} onClose={() => {}} />));
+        expect(session.metadata).toMatchObject({ title: "Book", artist: "Author", artwork: [{ src: "data:image/png;base64,AA==" }] });
+        act(() => root.unmount());
+        root = createRoot(host);
+        expect(session.metadata).toBeNull();
+    });
+
+    it("ignores unavailable duration and non-finite system seeks", () => {
+        const { session, actions } = mediaSession();
+        mount(track({ chapters: [] }));
+        expect(actions.get("nexttrack")).toBeUndefined();
+        expect(actions.get("previoustrack")).toBeUndefined();
+        act(() => audio().load(NaN));
+        expect(session.setPositionState).not.toHaveBeenCalled();
+        act(() => actions.get("seekto")?.({ action: "seekto", seekTime: NaN }));
+        expect(audio().currentTime).toBe(0);
+        act(() => audio().load(600));
+        act(() => actions.get("nexttrack")?.({ action: "nexttrack" }));
+        expect(audio().currentTime).toBe(120);
+        session.setPositionState.mockClear();
+        act(() => audio().tick(Infinity));
+        expect(session.setPositionState).not.toHaveBeenCalled();
+        act(() => actions.get("previoustrack")?.({ action: "previoustrack" }));
+        expect(audio().currentTime).toBe(Infinity);
+    });
+
+    it("system seeks honor valid offsets and position follows rate and seek events", () => {
+        const { session, actions } = mediaSession();
+        mount();
+        act(() => audio().load(600));
+        act(() => actions.get("seekforward")?.({ action: "seekforward", seekOffset: 30 }));
+        expect(audio().currentTime).toBe(150);
+        act(() => actions.get("seekbackward")?.({ action: "seekbackward", seekOffset: -2 }));
+        expect(audio().currentTime).toBe(135);
+        act(() => { audio().playbackRate = 2; audio().dispatchEvent(new Event("ratechange")); });
+        expect(session.setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 135, playbackRate: 2 });
+        act(() => { audio().currentTime = 400; audio().dispatchEvent(new Event("seeked")); });
+        expect(session.setPositionState).toHaveBeenLastCalledWith({ duration: 600, position: 400, playbackRate: 2 });
+        session.setPositionState.mockImplementation(() => { throw new Error("Unsupported position state"); });
+        act(() => { void audio().play(); audio().tick(401); });
+        expect(session.playbackState).toBe("playing");
+    });
+
+    it("rejects unsafe artwork and resets media state after a playback error", () => {
+        const { session } = mediaSession();
+        const t = track();
+        useLibraryStore.setState({ books: [{ ...book(t), coverPath: "javascript:alert(1)" }], collections: [] });
+        act(() => root.render(<AudiobookBar bookId="b1" audioTrack={t} onClose={() => {}} />));
+        expect(session.metadata).toMatchObject({ artwork: [] });
+        act(() => { audio().load(600); void audio().play(); });
+        expect(session.playbackState).toBe("playing");
+        act(() => audio().dispatchEvent(new Event("error")));
+        expect(session.playbackState).toBe("none");
+    });
+
     it("closing before the file has loaded keeps the saved position", () => {
         mount();
         act(() => root.unmount());

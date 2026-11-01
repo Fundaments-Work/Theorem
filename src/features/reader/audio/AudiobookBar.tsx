@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ListMusic, Moon, Pause, Play, Rewind, FastForward, X } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
+import { isSafeImageUrl } from "../../../core/lib/url-safety";
 import { useLibraryStore } from "../../../core/store";
 import type { BookAudioTrack } from "../../../core/types";
 import type { AudioChapter } from "../../../core/types";
@@ -13,6 +14,18 @@ const PROGRESS_SAVE_INTERVAL_MS = 5000;
 const KEYBOARD_SEEK_SECONDS = 5;
 /** A recording saved this close to the end counts as finished and restarts. */
 const RESTART_WITHIN_SECONDS = 3;
+
+function updateMediaPosition(audio: HTMLAudioElement): void {
+    if (!("mediaSession" in navigator) || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    if (!Number.isFinite(audio.currentTime) || !Number.isFinite(audio.playbackRate) || audio.playbackRate <= 0) return;
+    try {
+        navigator.mediaSession.setPositionState?.({
+            duration: audio.duration,
+            position: Math.max(0, Math.min(audio.currentTime, audio.duration)),
+            playbackRate: audio.playbackRate,
+        });
+    } catch { /* Some webviews expose only part of MediaSession. */ }
+}
 
 function describeMediaError(audio: HTMLAudioElement): string {
     // MEDIA_ERR_SRC_NOT_SUPPORTED also covers a file that moved or never existed on this device.
@@ -41,6 +54,7 @@ interface AudiobookBarProps {
 }
 
 export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visible = true, onClose }: AudiobookBarProps) {
+    const bookCover = useLibraryStore(s => s.getBook(bookId)?.coverPath);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playing, setPlaying] = useState(false);
     const [ready, setReady] = useState(false);
@@ -69,6 +83,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
 
     // Create the audio element once per recording and resume at the saved position.
     const filePath = audioTrack.filePath;
+    const hasChapters = audioTrack.chapters.length > 0;
     useEffect(() => {
         const audio = new Audio(convertFileSrc(filePath));
         audio.preload = "metadata";
@@ -98,14 +113,17 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                 setCurrentTime(0);
             }
             setReady(true);
+            updateMediaPosition(audio);
         };
         const onPlay = () => setPlaying(true);
         const onPause = () => {
             setPlaying(false);
+            updateMediaPosition(audio);
             if (loaded) saveProgress(audio.currentTime, audio.playbackRate);
         };
         const onEnded = () => {
             setPlaying(false);
+            updateMediaPosition(audio);
             if (loaded) saveProgress(Number.isFinite(audio.duration) ? audio.duration : audio.currentTime, audio.playbackRate);
         };
         const onError = () => {
@@ -115,6 +133,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         };
         const onTimeUpdate = () => {
             setCurrentTime(audio.currentTime);
+            updateMediaPosition(audio);
             const stopAt = sleepAtPositionRef.current;
             if (stopAt !== null && audio.currentTime >= stopAt) {
                 sleepAtPositionRef.current = null;
@@ -133,6 +152,9 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         audio.addEventListener("ended", onEnded);
         audio.addEventListener("error", onError);
         audio.addEventListener("timeupdate", onTimeUpdate);
+        const onPositionChange = () => updateMediaPosition(audio);
+        audio.addEventListener("seeked", onPositionChange);
+        audio.addEventListener("ratechange", onPositionChange);
 
         return () => {
             audio.removeEventListener("pause", onPause);
@@ -143,6 +165,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
             audio.removeEventListener("ended", onEnded);
             audio.removeEventListener("error", onError);
             audio.removeEventListener("timeupdate", onTimeUpdate);
+            audio.removeEventListener("seeked", onPositionChange);
+            audio.removeEventListener("ratechange", onPositionChange);
             audio.src = "";
             audioRef.current = null;
         };
@@ -163,35 +187,69 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
     // System media controls (lock screen, headphones).
     useEffect(() => {
         if (!("mediaSession" in navigator)) return;
-        navigator.mediaSession.metadata = new MediaMetadata({
-            title: bookTitle ?? "Audiobook",
-            artist: bookAuthor,
-        });
-        const actions: [MediaSessionAction, () => void][] = [
-            ["play", () => void audioRef.current?.play()],
-            ["pause", () => audioRef.current?.pause()],
-            ["seekbackward", () => skip(-SKIP_SECONDS)],
-            ["seekforward", () => skip(SKIP_SECONDS)],
-        ];
-        const onSeekTo = (details: MediaSessionActionDetails) => {
-            if (typeof details.seekTime === "number") seek(details.seekTime);
-        };
+        const session = navigator.mediaSession;
         try {
-            for (const [action, handler] of actions) {
-                navigator.mediaSession.setActionHandler(action, handler);
+            if (typeof MediaMetadata !== "undefined") {
+                session.metadata = new MediaMetadata({
+                    title: bookTitle ?? "Audiobook",
+                    artist: bookAuthor,
+                    artwork: bookCover && isSafeImageUrl(bookCover) ? [{ src: bookCover }] : [],
+                });
             }
-            navigator.mediaSession.setActionHandler("seekto", onSeekTo);
-        } catch { /* unsupported actions are fine */ }
-        return () => {
-            try {
-                for (const [action] of actions) {
-                    navigator.mediaSession.setActionHandler(action, null);
+        } catch { /* Metadata support varies by webview. */ }
+        const changeChapter = (next: boolean) => {
+            const audio = audioRef.current;
+            if (!audio || !Number.isFinite(audio.duration) || !Number.isFinite(audio.currentTime)) return;
+            const chapters = trackRef.current.chapters;
+            let chapter: AudioChapter | undefined = chapters[0];
+            if (next) {
+                chapter = chapters.find(ch => ch.startSec > audio.currentTime);
+            } else {
+                for (const candidate of chapters) {
+                    if (candidate.startSec >= audio.currentTime - RESTART_WITHIN_SECONDS) break;
+                    chapter = candidate;
                 }
-                navigator.mediaSession.setActionHandler("seekto", null);
-            } catch { /* noop */ }
+            }
+            if (chapter) seek(chapter.startSec);
+        };
+        const systemSkip = (details: MediaSessionActionDetails, direction: number) => {
+            const offset = details.seekOffset;
+            skip(direction * (typeof offset === "number" && Number.isFinite(offset) && offset > 0 ? offset : SKIP_SECONDS));
+        };
+        const actions: [MediaSessionAction, MediaSessionActionHandler][] = [
+            ["play", () => { void audioRef.current?.play().catch(() => { /* A rejected play request leaves playback paused. */ }); }],
+            ["pause", () => audioRef.current?.pause()],
+            ["seekbackward", details => systemSkip(details, -1)],
+            ["seekforward", details => systemSkip(details, 1)],
+            ["seekto", details => {
+                if (typeof details.seekTime === "number" && Number.isFinite(details.seekTime)) seek(details.seekTime);
+            }],
+        ];
+        if (hasChapters) actions.push(
+            ["nexttrack", () => changeChapter(true)],
+            ["previoustrack", () => changeChapter(false)],
+        );
+        for (const [action, handler] of actions) {
+            try { session.setActionHandler(action, handler); }
+            catch { /* One unsupported action must not prevent the others. */ }
+        }
+        if (audioRef.current) updateMediaPosition(audioRef.current);
+        return () => {
+            for (const [action] of actions) {
+                try { session.setActionHandler(action, null); }
+                catch { /* unsupported action */ }
+            }
+            try { session.metadata = null; session.playbackState = "none"; session.setPositionState?.(); }
+            catch { /* partial MediaSession support */ }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [bookTitle, bookAuthor]);
+    }, [bookId, filePath, bookTitle, bookAuthor, bookCover, hasChapters]);
+
+    useEffect(() => {
+        if (!("mediaSession" in navigator)) return;
+        try { navigator.mediaSession.playbackState = ready && !error ? (playing ? "playing" : "paused") : "none"; }
+        catch { /* partial MediaSession support */ }
+    }, [playing, ready, error, bookId, filePath, bookTitle, bookAuthor, bookCover, hasChapters]);
 
     const togglePlay = useCallback(() => {
         const audio = audioRef.current;
@@ -209,13 +267,15 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         if (!audio) return;
         audio.currentTime = Math.max(0, Math.min(audio.currentTime + seconds, audio.duration || Infinity));
         setCurrentTime(audio.currentTime);
+        updateMediaPosition(audio);
     }, []);
 
     const seek = useCallback((sec: number) => {
         const audio = audioRef.current;
-        if (!audio) return;
+        if (!audio || !Number.isFinite(sec)) return;
         audio.currentTime = Math.max(0, Math.min(sec, audio.duration || Infinity));
         setCurrentTime(audio.currentTime);
+        updateMediaPosition(audio);
     }, []);
 
     /** Click or drag on the scrubber: map the pointer to a position in the recording. */
@@ -229,6 +289,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
     const changeSpeed = useCallback((next: number) => {
         setSpeed(next);
         if (audioRef.current) audioRef.current.playbackRate = next;
+        if (audioRef.current) updateMediaPosition(audioRef.current);
         saveProgress(audioRef.current?.currentTime ?? 0, next);
     }, [saveProgress]);
 

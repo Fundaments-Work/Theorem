@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Audiobook media controls** — Supported system controls show artwork, playback state and position, and can move between chapters.
+
 - **Statistics share footer** — Share cards are branded “Theorem”; recently read covers stay within a three-column footprint so the footer remains visible with fewer books.
 
 - **Daily Review stays dismissed** — Dismissal now survives app restarts for the local day; completion updates immediately and remains complete after annotation changes. The fullscreen overlay renders outside Library scrolling/containment, preventing clipping and stray scrollbar tracks, and a fresh day resets it while the app stays open.
@@ -35,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Connected Library Folders Management** — Added a dedicated Library Folders section in Settings (`Settings → Storage → Library Folders`) to connect, rescan, and manage external folder roots on desktop and mobile. Integrated folder filtering and book counts directly into the Library filter panel with safe folder disconnect workflows.
 
 ### Bug Fixes
+
 
 - **Offline laptop hotspots** — Local IPv4 discovery follows network interfaces as they appear and disappear, allowing paired devices to find each other on a laptop-hosted hotspot that is not the default route, without an internet relay.
 

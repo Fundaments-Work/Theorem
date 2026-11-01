@@ -56,8 +56,14 @@ reader's TTS row for `src/features/reader/audio/AudiobookBar.tsx`:
 - A file that cannot be played (moved, missing on this device, or a format the
   platform webview cannot decode) shows a message in the bar and disables Play
   rather than leaving a dead button.
-- `navigator.mediaSession` metadata and action handlers for lock-screen and
-  headphone controls (play/pause, seek backward/forward).
+- Where the webview supports `navigator.mediaSession`, system controls receive
+  title, author, safe cover artwork, playback state, and finite/clamped position,
+  duration and rate. Controls support play/pause, seeking and previous/next
+  chapter. Previous restarts the current chapter after its first three seconds;
+  otherwise it goes to the previous chapter. Next stays at the last chapter
+  when there is no later chapter. Unsupported actions are handled independently,
+  and closing the player clears its metadata, position and handlers. These web
+  controls do not add Android's separate foreground playback service.
 - Platform/neural TTS narration is stopped automatically while the audiobook
   player is active.
 
