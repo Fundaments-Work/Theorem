@@ -3,8 +3,8 @@
 //! section 3).
 //!
 //! M4B chapters live in a QuickTime *chapter text track* referenced from the
-//! audio track's `udta.chap` atom; mp4ameta doesn't expose that track, so
-//! [`chapters_from_moov`] walks the sample tables directly. Nothing is
+//! audio track's `udta.chap` atom; [`chapters_from_moov`] keeps the existing
+//! chapter-track behavior. Nero chapter lists use mp4ameta. Nothing is
 //! decoded — only box metadata and small text samples are read.
 
 use serde::Serialize;
@@ -450,7 +450,10 @@ fn parse_m4b(path: &str) -> Result<AudiobookMetadata, String> {
     });
 
     let mut file = std::fs::File::open(path).map_err(|e| format!("Failed to open file: {e}"))?;
-    let chapters = chapters_from_moov(&mut file, duration_sec);
+    let mut chapters = chapters_from_moov(&mut file, duration_sec);
+    if chapters.is_empty() {
+        chapters = nero_chapters(tagged.chapter_list(), duration_sec);
+    }
 
     Ok(AudiobookMetadata {
         format: "m4b".into(),
@@ -460,6 +463,32 @@ fn parse_m4b(path: &str) -> Result<AudiobookMetadata, String> {
         cover_data_url: cover_data_url.map(|s| s.into_boxed_str()),
         chapters: chapters.into_boxed_slice(),
     })
+}
+
+/// mp4ameta reads Nero chpl starts in 100ns units by default. Preserve the
+/// existing QuickTime chapter-track precedence when both formats are present.
+fn nero_chapters(chapters: &[mp4ameta::Chapter], duration: f64) -> Vec<AudiobookChapter> {
+    let mut chapters: Vec<_> = chapters
+        .iter()
+        .filter(|chapter| duration <= 0.0 || chapter.start.as_secs_f64() < duration)
+        .collect();
+    chapters.sort_by_key(|chapter| chapter.start);
+    chapters.dedup_by_key(|chapter| chapter.start);
+    chapters
+        .iter()
+        .enumerate()
+        .map(|(index, chapter)| {
+            let start = chapter.start.as_secs_f64();
+            AudiobookChapter {
+                id: format!("ch{index}").into_boxed_str(),
+                title: chapter.title.clone().into_boxed_str(),
+                start_sec: start,
+                end_sec: chapters
+                    .get(index + 1)
+                    .map_or(duration.max(start), |next| next.start.as_secs_f64()),
+            }
+        })
+        .collect()
 }
 
 fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
@@ -661,6 +690,63 @@ pub fn extract_audiobook_metadata(path: String) -> Result<AudiobookMetadata, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn atom(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut bytes = ((data.len() + 8) as u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(kind);
+        bytes.extend_from_slice(data);
+        bytes
+    }
+
+    #[test]
+    fn m4b_reads_nero_chapter_titles_and_boundaries() {
+        let mut mvhd = vec![0; 100];
+        mvhd[12..16].copy_from_slice(&1000u32.to_be_bytes());
+        mvhd[16..20].copy_from_slice(&100_000u32.to_be_bytes());
+        let mut chpl = vec![1, 0, 0, 0, 0, 0, 0, 0, 2];
+        for (start, title) in [(0u64, "Opening"), (100_000_000, "第二章")] {
+            chpl.extend_from_slice(&start.to_be_bytes());
+            chpl.push(title.len() as u8);
+            chpl.extend_from_slice(title.as_bytes());
+        }
+        let mut moov = atom(b"mvhd", &mvhd);
+        moov.extend(atom(b"udta", &atom(b"chpl", &chpl)));
+        let mut bytes = atom(b"ftyp", b"M4B \0\0\0\0M4B ");
+        bytes.extend(atom(b"moov", &moov));
+        let file = tempfile::NamedTempFile::with_suffix(".m4b").unwrap();
+        std::fs::write(file.path(), bytes).unwrap();
+        let metadata = extract_audiobook_metadata(file.path().to_str().unwrap().into()).unwrap();
+        assert_eq!(metadata.chapters.len(), 2);
+        assert_eq!(&*metadata.chapters[0].title, "Opening");
+        assert_eq!(metadata.chapters[0].start_sec, 0.0);
+        assert_eq!(metadata.chapters[0].end_sec, 10.0);
+        assert_eq!(&*metadata.chapters[1].title, "第二章");
+        assert_eq!(metadata.chapters[1].start_sec, 10.0);
+        assert_eq!(metadata.chapters[1].end_sec, 100.0);
+    }
+
+    #[test]
+    fn nero_chapters_normalize_duplicates_order_and_duration_boundaries() {
+        use std::time::Duration;
+        let chapters = [
+            mp4ameta::Chapter::new(Duration::from_secs(10), "Second"),
+            mp4ameta::Chapter::new(Duration::ZERO, "First"),
+            mp4ameta::Chapter::new(Duration::from_secs(10), "Duplicate"),
+            mp4ameta::Chapter::new(Duration::from_secs(20), "At end"),
+            mp4ameta::Chapter::new(Duration::from_secs(30), "After end"),
+        ];
+        let got = nero_chapters(&chapters, 20.0);
+        assert_eq!(got.len(), 2);
+        assert_eq!(&*got[0].title, "First");
+        assert_eq!(got[0].end_sec, 10.0);
+        assert_eq!(&*got[1].title, "Second");
+        assert_eq!(got[1].end_sec, 20.0);
+        assert!(nero_chapters(&[], 0.0).is_empty());
+        let unknown_duration = nero_chapters(&chapters, 0.0);
+        assert!(unknown_duration
+            .iter()
+            .all(|chapter| chapter.end_sec >= chapter.start_sec));
+    }
 
     fn be32(v: u32) -> [u8; 4] {
         v.to_be_bytes()

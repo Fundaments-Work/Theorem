@@ -14,10 +14,14 @@ Book context menu (library) → **Attach Audiobook...** → pick an
 (`src-tauri/src/audiobook.rs`) parses duration, title, author, cover art and
 chapter markers in milliseconds:
 
-- **M4B/M4A**: tags and artwork via `mp4ameta`; chapters come from a
-  hand-rolled QuickTime chapter-track walker (the `udta.chap` reference →
-  stts/stsc/stsz/stco sample-table expansion → 2-byte-length-prefixed text
-  samples) because no crate exposes them.
+- **M4B/M4A**: tags and artwork via `mp4ameta`; the existing QuickTime
+  chapter-track walker remains preferred (`udta.chap` reference →
+  stts/stsc/stsz/stco sample-table expansion → text samples). When it finds
+  no chapters, Nero `chpl` chapters come from `mp4ameta::Tag::chapter_list`.
+  In mp4ameta 0.13, `ReadConfig::DEFAULT` reads chapter lists and uses a
+  10,000,000-tick timescale (100 ns). Lists are sorted by start time,
+  duplicate starts are collapsed, and starts at or beyond a known duration
+  are excluded. Each chapter ends at the next start or the file duration.
 - **MP3**: ID3v2 `CHAP`/`CTOC` frames via `id3`. Files with no ID3 tag at all
   attach normally (no title, no chapters). Duration is read without decoding:
   the Xing/Info or VBRI frame count for VBR files, otherwise audio bytes ÷
