@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Nero audiobook chapters** — M4B attachments recognize Nero `chpl` chapters when QuickTime chapters are absent.
 - **Generated audiobook checksums** — Ogg pages use the correct checksum, verified by an independent reader.
+- **Terminal Unicode truncation** — Column truncation respects CJK display widths, combining marks and joined emoji.
 
 - **Offline laptop hotspots** — Local IPv4 discovery follows network interfaces as they appear and disappear, allowing paired devices to find each other on a laptop-hosted hotspot that is not the default route, without an internet relay.
 

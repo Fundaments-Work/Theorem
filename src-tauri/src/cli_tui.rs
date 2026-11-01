@@ -12,6 +12,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::cli::Ctx;
 
@@ -546,17 +548,39 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 }
 
 fn truncate(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        text.to_string()
-    } else {
-        let cut: String = text.chars().take(max.saturating_sub(1)).collect();
-        format!("{}…", cut.trim_end())
+    if max == 0 {
+        return String::new();
     }
+    if text.width() <= max {
+        return text.to_string();
+    }
+    let mut used = 0;
+    let mut cut = String::new();
+    for grapheme in text.graphemes(true) {
+        let width = grapheme.width();
+        if width > max - 1 - used {
+            break;
+        }
+        cut.push_str(grapheme);
+        used += width;
+    }
+    format!("{}…", cut.trim_end())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncation_respects_terminal_columns_and_whole_graphemes() {
+        assert_eq!(truncate("你好世界", 5), "你好…");
+        assert_eq!(truncate("e\u{301}abcd", 3), "e\u{301}a…");
+        assert_eq!(truncate("👩‍👩‍👧‍👦abcd", 3), "👩‍👩‍👧‍👦…");
+        assert_eq!(truncate("你好", 4), "你好");
+        assert_eq!(truncate("abc", 0), "");
+        assert_eq!(truncate("abc", 1), "…");
+        assert_eq!(truncate("", 0), "");
+    }
 
     fn tui_with(titles: &[&str]) -> TuiApp {
         let dir = tempfile::tempdir().unwrap();

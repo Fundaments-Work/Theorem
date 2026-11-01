@@ -167,6 +167,9 @@ Commands that change data are: `library add`, `import`, `remove`, `favorite`, `e
 
 `theorem tui` opens a read-only interface in the terminal, with the first book selected. It needs a real terminal. Run without one, it exits with `failed to enter terminal UI mode`. It never writes your reading progress.
 
+Library columns truncate by terminal display width and retain whole graphemes,
+including CJK characters, combining marks and joined emoji.
+
 | Where | Keys |
 | :--- | :--- |
 | Library list | `j` or Down, `k` or Up to move; Enter to read; `o` to open the book in the Theorem window; `/` to filter by title or author (Esc clears); `q` to quit; `?` for help |

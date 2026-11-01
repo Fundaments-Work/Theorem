@@ -129,6 +129,8 @@ tokio = { version = "1", features = ["process"] }
 # Headless CLI: argument parsing + interactive TUI. Desktop-only so the
 # Android APK keeps its 0 MB CLI footprint.
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "derive", "suggestions", "error-context"] }
+unicode-width = "0.2"
+unicode-segmentation = "1.13"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 # The CLI resolves the app's data folder itself (as Tauri does), so it runs
 # without building an app and therefore without a display.
