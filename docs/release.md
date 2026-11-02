@@ -121,9 +121,9 @@ A main push compares against the last successful main CI run rather than the
 immediately preceding commit: cancelling an older run cannot drop its unchecked
 changes. PRs compare against their base; manual runs, an unavailable baseline or
 an API failure select every gate. Documentation-only changes skip build jobs.
-Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` to verify
-selection, cancellation coverage, unavailable baselines, release-tag checkout,
-prerelease classification and request timeouts.
+Run `node --test scripts/ci-changes.test.mjs scripts/ci-result.test.cjs scripts/release-tag.test.mjs scripts/release-target.test.cjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` to verify
+selection, required-check results, existing release detection, unavailable
+baselines, release-tag checkout, prerelease classification and request timeouts.
 A selected workflow-check job runs these selection tests and pinned actionlint
 and ShellCheck when workflows, local actions or the selector change.
 Local actionlint validation must have ShellCheck on PATH (or pass its path with
