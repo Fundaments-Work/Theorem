@@ -6,7 +6,19 @@ Open Settings from the gear icon at the bottom of the sidebar, from the gear ico
 
 ## General
 
+### Navigation
+
+Show Discover and Show Feeds independently control those destinations in the
+phone bottom bar and desktop sidebar. Both are on by default. Hiding a tab
+keeps its data and leaves the remaining tabs evenly spaced. These choices stay
+on this device; turn either control back on to restore the destination.
+Keyboard shortcut numbers stay the same.
+
+![General settings with the Discover and Feeds navigation controls](../screenshots/settings-navigation.png)
+
 ### Reading Goals
+
+- **Reading days per week.** Choose your weekly rhythm. Five reading minutes qualify a day. Changes start next Monday.
 
 - **Daily Reading Goal.** Minutes per day, 1 to 180. Default 30.
 - **Yearly Book Goal.** Books per year, 1 to 100. Default 24.
@@ -20,7 +32,7 @@ See [Reading statistics and goals](statistics.md).
 
 - **Theme.** System, Light or Dark. The default is Dark.
 - **Accent Color.** Choose one of the swatches, or type a six-digit hex color. The default is a lime green, `c6f135`.
-- **Daily Highlight.** Shows a random past highlight on the Library page. Off by default.
+- **Daily Review.** Shows a deck of past highlights for review from Library. Off by default.
 - **Speed Read.** Adds the Speed Read button to the reader. Off by default. See [Reading books, PDFs and comics](reading.md#speed-read).
 - **Text-to-Speech.** Turns text-to-speech on or off. On by default, and not available in the browser demo. See [Listening with text-to-speech and audiobooks](listening.md).
 - **Vocabulary Lookup.** Lets you save words you look up. On by default. See [Dictionary and vocabulary](dictionary.md).

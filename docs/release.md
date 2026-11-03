@@ -77,3 +77,17 @@ from the template. The `pnpm tauri icon public/favicon.svg` command
 regenerates platform PNGs but does NOT regenerate the vector drawables
 in `drawable-v24/`. These XML files are our permanent customization.
 
+
+### Screenshot assets
+
+Before publication, refresh and visually review the screenshots with the private
+`fundaments-agent-harness` workflow in `screenshots/README.md`. Its capture script
+uses isolated demo data; its export script updates this repo and
+`theorem-landing` locally. It does not deploy either repository.
+
+`Screenshots/README.md` is the placement guide and contact-sheet index.
+`Screenshots/manifest.json` records the app revision, viewport sizes, public book
+editions, feed URLs and dictionary attribution. Phone assets are responsive
+browser captures; use native device captures for system bars or native dialogs.
+Keep source captures and the full-resolution ZIP in harness state rather than
+committing duplicate archives or book files.

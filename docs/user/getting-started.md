@@ -40,7 +40,7 @@ You can also open a book directly from your file manager. Theorem registers itse
 
 On a phone, a bottom bar gives quick access to five pages: Library, Shelves, Discover, Workbench and Feeds. The top bar has a search button, Sync devices, Statistics and Settings. Bookmarks is a tab inside Workbench, next to All, Highlights, Notes and Words. On a narrow screen only the tab you are on shows its name and the others show an icon. The full sidebar appears on wider screens such as tablets.
 
-![The Theorem library on Android showing a grid of book covers](../screenshots/android-library.png)
+![The Theorem phone layout showing a grid of book covers](../screenshots/android-library.png)
 
 ## Open the main pages from the keyboard
 

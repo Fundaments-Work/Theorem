@@ -2,7 +2,7 @@
 
 Look up words while you read, install offline dictionaries, and save the words you want to remember to a vocabulary list that can also be exported.
 
-![A definition pop-up in the reader showing the word celestial, its phonetic spelling, definitions by part of speech, and Back and Save to Vocabulary buttons](../screenshots/dictionary-lookup.png)
+![A definition pop-up in the reader showing the word time, its phonetic spelling, definitions by part of speech, and Back and Save to Vocabulary buttons](../screenshots/dictionary-lookup.png)
 
 ## Look up a word
 

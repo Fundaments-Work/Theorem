@@ -2,20 +2,29 @@
 
 Review every highlight, note, saved word and bookmark across your whole library, search them, edit notes, and jump back to the place in the book.
 
-![The Workbench page listing color-coded highlights and a note from a book, with All, Highlights, Notes, Words and Bookmarks tabs](../screenshots/workbench.png)
+![The Workbench page listing color-coded highlights and a note from a book, with Highlights, Notes, Words and Bookmarks tabs](../screenshots/workbench.png)
 
 ## Open the Workbench
 
-Click Workbench in the sidebar (the fifth icon), or press `Ctrl+5`. On Android, tap Workbench in the bottom bar. The page header counts your annotations and saved words, for example "4 annotations • 3 terms".
+Click Workbench in the sidebar (the fifth icon), or press `Ctrl+5`. On Android, tap Workbench in the bottom bar. The page header counts the highlights, notes or words shown in the current tab.
 
 ## Filter, sort and search
 
-1. Use the tabs to choose what to see: All, Highlights, Notes, Words or Bookmarks. Words are the terms you saved from the dictionary. Bookmarks shows your bookmarks, described below.
-2. Click Cards to switch from the list to a card view, and click List to switch back. The button is hidden on the Words tab.
+1. Use the tabs to choose what to see: Highlights, Notes, Words or Bookmarks. Words are the terms you saved from the dictionary. Bookmarks shows your bookmarks, described below.
+2. Use the Cards view button to switch from the list to cards, and List view to switch back.
 3. Use the sort menu to choose Newest First, Oldest First or By Book.
 4. Type in the search box at the top to search highlights, notes and books.
 
 Each entry shows its type, date, the book and author, and the highlighted text. Highlights keep the color you chose, shown as a colored edge. Long quotes and notes are shortened, and a Show more link expands them.
+
+## Notes attached to highlights
+
+Notes includes both notes created in the reader and notes attached to highlights.
+Adding or editing a highlight’s note in Workbench makes it visible here too.
+The highlight remains in Highlights. Clearing the attached text removes it from
+Notes while keeping the highlight.
+
+![The Notes tab showing a note attached to a highlighted passage from Seneca](../screenshots/notes.png)
 
 ## Work with an entry
 
@@ -38,7 +47,7 @@ To save words in the first place, see [Dictionary and vocabulary](dictionary.md)
 
 ## Bookmarks
 
-Bookmarks are the last tab in the Workbench, so you can reach them on every screen, phones included. You can also press `Ctrl+7` to jump straight to it. On a narrow screen each tab shows its icon over a small label, so all five always fit.
+Bookmarks are the last tab in the Workbench, so you can reach them on every screen, phones included. You can also press `Ctrl+7` to jump straight to it. On a narrow screen each tab shows its icon over a small label, so the sections remain easy to identify.
 
 1. Use the first menu next to the tabs to show bookmarks from All sources or from one book or article. Each book is listed with its bookmark count.
 2. Use the second menu to sort by Newest First, Oldest First or By Book.

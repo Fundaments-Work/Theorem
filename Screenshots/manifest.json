@@ -1,0 +1,211 @@
+{
+  "sourceVersion": "1.6.1",
+  "sourceCommit": "b8d2e257dacb0066fe438e8d2ccb46c7d6952fad",
+  "capturedAt": "2026-11-03T14:23:33.716Z",
+  "content": {
+    "books": [
+      {
+        "file": "a-e-w-mason_the-house-of-the-arrow.epub",
+        "source": "https://standardebooks.org/ebooks/a-e-w-mason/the-house-of-the-arrow",
+        "sha256": "397f95ea687cd31e8dea345c5bc909f20e3d9225f0da0142a7f9184304c4abbf"
+      },
+      {
+        "file": "dorothy-m-richardson_oberland.epub",
+        "source": "https://standardebooks.org/ebooks/dorothy-m-richardson/oberland",
+        "sha256": "43fc559f35c946da9a65dc5c9b2eb97d9e639f8107fb769d772cf31d85dffa7c"
+      },
+      {
+        "file": "e-nesbit_beautiful-stories-from-shakespeare.epub",
+        "source": "https://standardebooks.org/ebooks/e-nesbit/beautiful-stories-from-shakespeare",
+        "sha256": "09c042a4535cc5596663fd61d8818617a3607a88d297c305bb4fd0f1fcf8c39b"
+      },
+      {
+        "file": "ernst-junger_the-storm-of-steel_basil-creighton.epub",
+        "source": "https://standardebooks.org/ebooks/ernst-junger/the-storm-of-steel/basil-creighton",
+        "sha256": "cdbb57c6ac2bbc76971992f6379eec66dd057a409547aa119044b9abad871e8a"
+      },
+      {
+        "file": "gregory-of-nyssa_on-the-making-of-man_william-moore-henry-austin-wilson.epub",
+        "source": "https://standardebooks.org/ebooks/gregory-of-nyssa/on-the-making-of-man/william-moore-henry-austin-wilson",
+        "sha256": "99c6ec3367f0a51d39777e7705e5dcb309c4ab24cc756ec534a5c60dd94aec62"
+      },
+      {
+        "file": "henry-seton-merriman_suspense.epub",
+        "source": "https://standardebooks.org/ebooks/henry-seton-merriman/suspense",
+        "sha256": "0a2bd035afd352465c4f1ef4b95064160e1bf8e1a4e49153174254ec3d6975d9"
+      },
+      {
+        "file": "henry-seton-merriman_the-sowers.epub",
+        "source": "https://standardebooks.org/ebooks/henry-seton-merriman/the-sowers",
+        "sha256": "f21c30cb98cf7364defe070961d9cb08712ab657f3c987f288baca953f53a28e"
+      },
+      {
+        "file": "herman-whitaker_the-mystery-of-the-barranca.epub",
+        "source": "https://standardebooks.org/ebooks/herman-whitaker/the-mystery-of-the-barranca",
+        "sha256": "8a48d717cf2a87add223e833906e18a2d1079573f8bb8f4e51a9a85eae9376ca"
+      },
+      {
+        "file": "jules-verne_robur-the-conqueror_sampson-low-marston-searle-rivington.epub",
+        "source": "https://standardebooks.org/ebooks/jules-verne/robur-the-conqueror/sampson-low-marston-searle-rivington",
+        "sha256": "906388c90069e4ab95953a76f90d93a74a93cefd72603da64f6e36b39de24fcc"
+      },
+      {
+        "file": "pauline-e-hopkins_of-one-blood.epub",
+        "source": "https://standardebooks.org/ebooks/pauline-e-hopkins/of-one-blood",
+        "sha256": "4faa1bed5c9ede6479eeea7eaae686ba3f5f117f5d55b910823f151d23870adc"
+      },
+      {
+        "file": "pg-2680.epub3.images.epub",
+        "source": "https://www.gutenberg.org/ebooks/2680",
+        "sha256": "f0656010dd96d75ee09912d7c655fb144818a122102b18af78620034cb9c0898"
+      },
+      {
+        "file": "pg-345.epub3.images.epub",
+        "source": "https://www.gutenberg.org/ebooks/345",
+        "sha256": "be5b12d762ceaacab5bfd0c1e510c8d36a0498cdde43790d6575d198fa9cd94d"
+      },
+      {
+        "file": "pg-84.epub3.images.epub",
+        "source": "https://www.gutenberg.org/ebooks/84",
+        "sha256": "b82b1ad5cdd15439ab99e864741a0343f107adc796ce4326e44235a3f6f558a7"
+      },
+      {
+        "file": "selma-lagerlof_the-emperor-of-portugallia_velma-swanston-howard.epub",
+        "source": "https://standardebooks.org/ebooks/selma-lagerlof/the-emperor-of-portugallia/velma-swanston-howard",
+        "sha256": "82791346b5b271c2736e882a80f9e87c3e7560a1263b862871c2cce7181b00bc"
+      },
+      {
+        "file": "seneca_moral-letters-to-lucilius_richard-m-gummere.epub",
+        "source": "https://standardebooks.org/ebooks/seneca/moral-letters-to-lucilius/richard-m-gummere",
+        "sha256": "254966e90e90bbf5f6604abbdb2f5fd3c64989d960b3eac534214cf4349326e9"
+      }
+    ],
+    "feeds": [
+      "https://publicdomainreview.org/rss.xml",
+      "https://www.openculture.com/feed",
+      "https://standardebooks.org/feeds/rss/new-releases"
+    ],
+    "readingHistory": "Staged sample history, evaluated by the real Rust/WASM reading-rhythm rules.",
+    "dictionary": {
+      "url": "https://api.dictionaryapi.dev/api/v2/entries/en/time",
+      "sourceUrls": [
+        "https://en.wiktionary.org/wiki/time"
+      ],
+      "license": {
+        "name": "CC BY-SA 3.0",
+        "url": "https://creativecommons.org/licenses/by-sa/3.0"
+      },
+      "mode": "Genuine source response staged in the app's supported lookup cache.",
+      "sha256": "e47a60d11bae360cd179c00a2a277fbfbc8d868ee999ec31e5e9da4883a04b13"
+    }
+  },
+  "viewports": {
+    "D": {
+      "width": 1200,
+      "height": 750,
+      "scale": 1.2
+    },
+    "L": {
+      "width": 1280,
+      "height": 699,
+      "scale": 1.5
+    },
+    "M": {
+      "width": 412,
+      "height": 915,
+      "scale": 2.625
+    }
+  },
+  "assets": [
+    {
+      "title": "Library grid",
+      "desktop": "library-grid.png",
+      "phone": "mobile-library.png"
+    },
+    {
+      "title": "Library list",
+      "desktop": "library-list.png",
+      "phone": "mobile-library-list.png"
+    },
+    {
+      "title": "Shelves",
+      "desktop": "shelves-overview.png",
+      "phone": "mobile-shelves-overview.png"
+    },
+    {
+      "title": "Discover",
+      "desktop": "discover.png",
+      "phone": "mobile-discover.png"
+    },
+    {
+      "title": "Feeds: The Public Domain Review",
+      "desktop": "feeds-reader.png",
+      "phone": "mobile-feeds-reader.png"
+    },
+    {
+      "title": "Workbench highlights",
+      "desktop": "workbench-highlights.png",
+      "phone": "mobile-workbench.png"
+    },
+    {
+      "title": "Workbench attached notes",
+      "desktop": "workbench-notes.png",
+      "phone": "mobile-workbench-notes.png"
+    },
+    {
+      "title": "Saved vocabulary",
+      "desktop": "workbench-words.png",
+      "phone": "mobile-workbench-words.png"
+    },
+    {
+      "title": "Saved bookmarks",
+      "desktop": "workbench-bookmarks.png",
+      "phone": "mobile-workbench-bookmarks.png"
+    },
+    {
+      "title": "EPUB reader: dark",
+      "desktop": "reader-dark-highlights.png",
+      "phone": "mobile-reader.png"
+    },
+    {
+      "title": "EPUB reader: light",
+      "desktop": "reader-light-highlights.png",
+      "phone": "mobile-reader-light-highlights.png"
+    },
+    {
+      "title": "Dictionary lookup in the reader",
+      "desktop": "dictionary-lookup.png",
+      "phone": "mobile-dictionary-lookup.png"
+    },
+    {
+      "title": "Reading statistics and levels",
+      "desktop": "statistics.png",
+      "phone": "mobile-statistics.png"
+    },
+    {
+      "title": "General settings: navigation and reading goals",
+      "desktop": "settings-navigation.png",
+      "phone": "mobile-settings-navigation.png"
+    },
+    {
+      "title": "Library with Discover and Feeds hidden",
+      "desktop": "minimal-navigation.png",
+      "phone": "mobile-minimal-navigation.png"
+    },
+    {
+      "title": "Reading setup: welcome",
+      "desktop": "onboarding-welcome.png",
+      "phone": "mobile-onboarding-welcome.png"
+    },
+    {
+      "title": "Reading setup: rhythm",
+      "desktop": "onboarding-rhythm.png",
+      "phone": "mobile-onboarding-rhythm.png"
+    },
+    {
+      "title": "Reading setup: first book",
+      "desktop": "onboarding-library.png",
+      "phone": "mobile-onboarding-library.png"
+    }
+  ]
+}

@@ -54,10 +54,10 @@
 </table>
 
 <p align="center">
-  <img src="./Screenshots/mobile-library.png" alt="Theorem on Android: the library grid" width="200">
-  <img src="./Screenshots/mobile-reader.png" alt="Theorem on Android: reading an EPUB with a highlight" width="200">
-  <img src="./Screenshots/mobile-discover.png" alt="Theorem on Android: Discover with the newest restored editions" width="200">
-  <img src="./Screenshots/mobile-workbench.png" alt="Theorem on Android: the Workbench listing highlights" width="200">
+  <img src="./Screenshots/mobile-library.png" alt="Theorem phone layout: the library grid" width="200">
+  <img src="./Screenshots/mobile-reader.png" alt="Theorem phone layout: reading an EPUB with a highlight" width="200">
+  <img src="./Screenshots/mobile-discover.png" alt="Theorem phone layout: Discover with the newest restored editions" width="200">
+  <img src="./Screenshots/mobile-workbench.png" alt="Theorem phone layout: the Workbench listing highlights" width="200">
 </p>
 
 ---
@@ -182,6 +182,12 @@ CBZ and **CBR** open natively everywhere — the RAR container is decoded in pur
 
 ### Reading Statistics
 Reading time tracking (total and per-book). Books finished. Reading streaks: current + longest. Daily activity log with 12-week heatmap. Reading goals: daily minutes and yearly books. Book completion tracking. Achievements. Shareable stats card. OS notifications for goal completion and a scheduled daily reminder.
+
+<p align="center">
+  <img src="./Screenshots/statistics.png" alt="Theorem Statistics with reading levels, XP, reading time, streaks and goals" width="820">
+</p>
+
+[All desktop and phone screenshots, with placement notes](./Screenshots/README.md).
 
 ### Speed Reader
 RSVP rapid-serial-visual-reading overlay with optimal-recognition-point highlighting, play/pause, and auto-advance — for skimming when full narration is too slow.

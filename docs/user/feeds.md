@@ -2,7 +2,7 @@
 
 Subscribe to RSS and Atom feeds, read articles in the same reader as your books, save them for offline reading, and choose how long they are kept.
 
-![The Feeds page with three subscriptions on the left and a list of article cards from all of them, each with View Original, Save and favorite buttons](../screenshots/feeds.png)
+![The Feeds page with three subscriptions on the left and article cards from The Public Domain Review, each with View Original, Save and favorite buttons](../screenshots/feeds.png)
 
 ## Open the Feeds page
 

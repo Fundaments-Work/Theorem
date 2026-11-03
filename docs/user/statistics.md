@@ -2,6 +2,13 @@
 
 See your reading time, streaks and a 12-week heatmap, set daily and yearly reading goals, turn on reminders, and share a statistics card as an image.
 
+![Statistics showing the reading level, XP, reading time, streak and goals](../screenshots/statistics.png)
+
+Your reading rhythm adds a weekly goal and lasting XP. Five reading minutes
+qualify a day. Statistics shows your level and progress; edit reading days per
+week in Settings → General. A changed weekly target starts the following Monday.
+Daily minutes and yearly book goals remain separate.
+
 ## Open the Statistics page
 
 Click the bar chart icon at the bottom of the sidebar, just above Settings, or press `Ctrl+6`. On Android the icon is in the top bar.
