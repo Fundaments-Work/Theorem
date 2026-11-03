@@ -8,9 +8,11 @@ import type { AppRoute } from "../../core/types";
 import { TheoremLogo } from "../TheoremLogo";
 import { MomoIcon } from "../../ui/MomoIcon";
 import { useSupportPrompt } from "../../core/lib/support-prompt";
-import { isNavItemActive, PRIMARY_DESTINATIONS } from "./nav-items";
+import { isNavItemActive } from "./nav-items";
+import { usePrimaryDestinations } from "./use-primary-destinations";
 
 export const Sidebar = memo(function Sidebar() {
+    const destinations = usePrimaryDestinations();
     const currentRoute = useUIStore((state) => state.currentRoute);
     const setRoute = useUIStore((state) => state.setRoute);
     const currentStreak = useSettingsStore((state) => state.stats.currentStreak);
@@ -64,7 +66,7 @@ export const Sidebar = memo(function Sidebar() {
                 <TheoremLogo size={24} className="shrink-0" />
             </div>
             <nav aria-label="Main navigation"className="flex flex-1 flex-col min-h-0">
-                {PRIMARY_DESTINATIONS.map((item) =>
+                {destinations.map((item) =>
                     railButton(item.id, item.label, <item.Icon aria-hidden="true" className={NAV_CONTROL_ICON} />, () => select(item.id), item.alsoActiveOn),
                 )}
             </nav>

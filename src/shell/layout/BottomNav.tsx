@@ -1,18 +1,20 @@
 import { memo } from "react";
 import { useUIStore } from "../../core/store";
-import { isNavItemActive, PRIMARY_DESTINATIONS } from "./nav-items";
+import { isNavItemActive } from "./nav-items";
+import { usePrimaryDestinations } from "./use-primary-destinations";
 
 export { isNavItemActive };
 
-// The same five destinations, in the same order, as the desktop rail (see nav-items.ts).
+// The same visible destinations, in the same order, as the desktop rail.
 // Settings and Statistics live in the top bar on phones; Bookmarks is a tab inside Workbench.
 export const BottomNav = memo(function BottomNav() {
+    const destinations = usePrimaryDestinations();
     const currentRoute = useUIStore((state) => state.currentRoute);
     const setRoute = useUIStore((state) => state.setRoute);
     return (
         <nav aria-label="Primary navigation" className="ui-bottom-nav fixed bottom-0 left-0 right-0 z-[var(--z-nav)] pb-[var(--safe-area-bottom)] md:hidden">
             <ul className="ui-bottom-nav-list px-2">
-                {PRIMARY_DESTINATIONS.map((item) => {
+                {destinations.map((item) => {
                     const isActive = isNavItemActive(item, currentRoute);
                     return (
                         <li key={item.id} className="flex-1">

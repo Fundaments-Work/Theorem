@@ -59,3 +59,63 @@ describe("settings migration", () => {
         }
     });
 });
+
+
+describe("navigation visibility persistence", () => {
+    it("upgrades older settings with both destinations visible", () => {
+        const upgraded = useSettingsStore.persist.getOptions().migrate!({ settings: {} }, 14) as { showDiscover: boolean; showFeeds: boolean };
+        expect(upgraded.showDiscover).toBe(true);
+        expect(upgraded.showFeeds).toBe(true);
+    });
+
+    it.each([null, {}, { showDiscover: "false", showFeeds: 0 }])("uses visible defaults for missing or malformed old preferences: %j", (state) => {
+        const upgraded = useSettingsStore.persist.getOptions().migrate!(state, 14) as { showDiscover: boolean; showFeeds: boolean };
+        expect(upgraded.showDiscover).toBe(true);
+        expect(upgraded.showFeeds).toBe(true);
+    });
+
+    it("preserves explicit hidden choices when migrating older stores", () => {
+        const upgraded = useSettingsStore.persist.getOptions().migrate!({ showDiscover: false, showFeeds: false }, 14) as { showDiscover: boolean; showFeeds: boolean };
+        expect(upgraded.showDiscover).toBe(false);
+        expect(upgraded.showFeeds).toBe(false);
+    });
+
+    it("persists local visibility separately from synced app settings", () => {
+        const original = useSettingsStore.getState();
+        try {
+            useSettingsStore.getState().updateNavigationVisibility({ showDiscover: false, showFeeds: false });
+            const state = useSettingsStore.getState();
+            const persisted = useSettingsStore.persist.getOptions().partialize!(state);
+            expect(persisted).toMatchObject({ showDiscover: false, showFeeds: false });
+            expect(state.settings).toBe(original.settings);
+            expect(state.settingsLastModifiedAt).toBe(original.settingsLastModifiedAt);
+            useSettingsStore.getState().resetSettings();
+            expect(useSettingsStore.getState()).toMatchObject({ showDiscover: true, showFeeds: true });
+        } finally {
+            useSettingsStore.setState(original);
+        }
+    });
+});
+
+
+it("restores hidden navigation destinations from persistence after rehydration", async () => {
+    const original = useSettingsStore.getState();
+    const originalStorage = useSettingsStore.persist.getOptions().storage;
+    let saved: Parameters<NonNullable<typeof originalStorage>["setItem"]>[1] | null = null;
+    useSettingsStore.persist.setOptions({ storage: {
+        getItem: () => saved,
+        setItem: (_name, value) => { saved = value; },
+        removeItem: () => { saved = null; },
+    } });
+    try {
+        useSettingsStore.getState().updateNavigationVisibility({ showDiscover: false, showFeeds: false });
+        const snapshot = saved;
+        useSettingsStore.setState({ showDiscover: true, showFeeds: true });
+        saved = snapshot;
+        await useSettingsStore.persist.rehydrate();
+        expect(useSettingsStore.getState()).toMatchObject({ showDiscover: false, showFeeds: false });
+    } finally {
+        useSettingsStore.persist.setOptions({ storage: originalStorage });
+        useSettingsStore.setState(original);
+    }
+});

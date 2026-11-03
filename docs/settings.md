@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Settings live in `settingsStore` (Zustand, version 11, persisted). A single `AppSettings` type holds all user preferences, divided into sub-stores for logical grouping:
+Settings live in `settingsStore` (Zustand, version 15, persisted). `AppSettings` holds syncable user preferences, divided into sub-stores for logical grouping:
 
 | Sub-store | What it controls |
 |-----------|-----------------|
@@ -23,7 +23,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 - Theme: Light, Dark, System
 - Accent color: 8 preset colors
 - Reading goals: Daily minutes, yearly books
-- Sidebar: Collapsed by default
+- Navigation: independent **Show Discover** and **Show Feeds** controls (both on by default). These device-local preferences filter the phone bottom bar and desktop sidebar immediately; the remaining phone tabs share the available space. Hidden destinations retain their catalogs, subscriptions and data, and can be restored here. Existing keyboard shortcut numbers remain stable and can still open hidden destinations. Hiding a currently open destination does not interrupt it. Reset settings shows both again.
 - Text-to-Speech toggle
 - Neural Voice (desktop): Supertonic install status, one-click download of the ~400MB model/runtime/voice bundle with per-file progress, installed size/path, removal — see [tts.md](tts.md)
 - Text-to-Speech Engine (Android): pick the engine Theorem narrates through; recommends the Theorem Neural Voice companion app
@@ -73,7 +73,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 
 ## Migration Strategy
 
-Settings have the longest migration chain (v0 → v11). Each migration maps the previous schema to the next. The pattern:
+Settings have the longest migration chain (v0 → v15). Each migration maps the previous schema to the next. The pattern:
 
 ```typescript
 migrate: (persisted, version) => {
@@ -85,7 +85,12 @@ migrate: (persisted, version) => {
 }
 ```
 
+Visibility lives in persisted store fields `showDiscover` and `showFeeds`, outside
+`AppSettings`: it is never included in settings sync and does not advance
+`settingsLastModifiedAt`. Existing peers keep the same synced settings format.
+
 Key migrations in history:
+- **v14→v15**: Added device-local Discover/Feeds visibility, defaulting to visible for older stores.
 - **v0→v1**: Initial structured settings
 - **v0→v4**: Added TTS defaults
 - **v4→v5**: Added TTS `speed` default
@@ -130,3 +135,11 @@ The "Clear All Data" button:
 2. Calls `clearAllApplicationStorage()`, which invokes `sqlite_clear_all_storage` (deletes all SQLite rows + removes `book-cache/`) and `clear_sync_databases` (unconditionally on Tauri)
 3. Clears the persisted storage for the settings, library, vocabulary, and rss stores
 4. Reloads the app
+
+## Navigation visibility verification
+
+`tests/phone-navigation.test.tsx`, `tests/settings-navigation.test.tsx` and
+`tests/settings-migration.test.ts` cover visibility combinations, the Settings
+controls, upgrade defaults, reset and rehydration. The real-app scenario
+`e2e/specs/navigation-visibility.test.mjs` exercises the same controls at desktop
+and phone widths and verifies the hidden destinations stay hidden after restart.

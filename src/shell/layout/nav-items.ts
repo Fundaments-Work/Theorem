@@ -10,8 +10,9 @@ export interface NavDestination {
 }
 
 /**
- * The five primary destinations, in the one order every surface uses: the desktop rail, the
- * phone bottom bar and Ctrl+1–5. One order everywhere keeps spatial memory when switching
+ * The five primary destinations in their default order across surfaces: the desktop rail, the
+ * phone bottom bar and Ctrl+1–5. Navigation can hide Discover and Feeds per device;
+ * shortcuts keep these numbers. The remaining items keep their order when switching
  * devices (Material 3 and Apple's HIG both require the rail and the bottom bar to match).
  *
  * Grouped by the reader's job: your books (Library, Shelves), then new reading (Discover,
@@ -37,7 +38,8 @@ export function isNavItemActive(item: Pick<NavDestination, "id" | "alsoActiveOn"
 }
 
 /**
- * Page shortcuts, numbered like the screen: Ctrl+1–5 are the destinations in rail order, then
+ * Page shortcuts keep their canonical numbers even when a destination is hidden.
+ * Ctrl+1–5 are the destinations in default rail order, then
  * the utilities and Bookmarks. Settings keeps the platform convention Ctrl+,.
  */
 export function navigationShortcuts(): { label: string; keys: string; route: AppRoute }[] {

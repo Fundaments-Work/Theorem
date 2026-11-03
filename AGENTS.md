@@ -132,7 +132,7 @@ the Tauri command surface, persistence and typed errors live in
 that must not be broken:
 
 - **Routing**: `useUIStore.currentRoute`; no React Router. A new page updates `App.tsx`,
-  `core/types`, `Sidebar`, `BottomNav` (five tabs only) and `AppTitlebar`.
+  `core/types`, `Sidebar`, `BottomNav` (at most five tabs; Discover and Feeds can be hidden per device) and `AppTitlebar`.
 - **Stores**: one file per slice in `src/core/store/`, imported from the barrel with
   individual selectors, never destructured.
 - **Imports**: never from `src/core/index.ts`; no path aliases. Import `core/store`,

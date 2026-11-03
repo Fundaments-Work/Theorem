@@ -326,6 +326,9 @@ const StorageTab = memo(function StorageTab({ onClearData }: { onClearData: () =
 });
 
 export const SettingsPage = memo(function SettingsPage() {
+    const showDiscover = useSettingsStore((state) => state.showDiscover);
+    const showFeeds = useSettingsStore((state) => state.showFeeds);
+    const updateNavigationVisibility = useSettingsStore((state) => state.updateNavigationVisibility);
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
     const updateVocabularySettings = useSettingsStore((state) => state.updateVocabularySettings);
@@ -735,6 +738,22 @@ export const SettingsPage = memo(function SettingsPage() {
             </div>
 
             {(activeTab === "general" || visitedTabs.has("general")) && <div className={activeTab === "general" ? "space-y-8" : "hidden"}>
+                    <Section
+                        title="Navigation"
+                        description="Choose what appears in the bottom bar and sidebar on this device. Hidden features keep their data and can be shown again anytime."
+                        icon={<BookOpen className="w-5 h-5" />}
+                    >
+                        <SettingRow label="Show Discover" description="Browse and add books from catalogs">
+                            <div role="group" aria-label="Show Discover">
+                                <Toggle checked={showDiscover} onChange={(checked) => updateNavigationVisibility({ showDiscover: checked })} />
+                            </div>
+                        </SettingRow>
+                        <SettingRow label="Show Feeds" description="Read articles from your subscriptions">
+                            <div role="group" aria-label="Show Feeds">
+                                <Toggle checked={showFeeds} onChange={(checked) => updateNavigationVisibility({ showFeeds: checked })} />
+                            </div>
+                        </SettingRow>
+                    </Section>
                     <Section
                         title="Reading Goals"
                         description="Choose a weekly rhythm and daily or yearly targets"

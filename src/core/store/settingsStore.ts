@@ -110,7 +110,13 @@ const defaultReadingStats: ReadingStats = {
     lastDailyReminderDate: undefined,
 };
 
-interface SettingsStore {
+interface NavigationVisibility {
+    showDiscover: boolean;
+    showFeeds: boolean;
+}
+
+interface SettingsStore extends NavigationVisibility {
+    updateNavigationVisibility: (updates: Partial<NavigationVisibility>) => void;
     readingSetupStep: number;
     rhythmOutbox: Record<string, {date: string; source: string; seconds: number}>;
     readingOutbox: Record<string, { date: string; minutes: number; bookId: string }>;
@@ -131,6 +137,11 @@ interface SettingsStore {
 export const useSettingsStore = create<SettingsStore>()(
     persist(
         (set, get) => ({
+            showDiscover: true,
+            showFeeds: true,
+            updateNavigationVisibility: (updates) => {
+                set(updates);
+            },
             readingSetupStep: 0,
             rhythmOutbox: {},
             readingOutbox: {},
@@ -203,6 +214,8 @@ export const useSettingsStore = create<SettingsStore>()(
             resetSettings: () => {
                 set({
                     settings: defaultAppSettings,
+                    showDiscover: true,
+                    showFeeds: true,
                     settingsLastModifiedAt: new Date().toISOString(),
                 });
                 scheduleMutationSync();
@@ -223,11 +236,13 @@ export const useSettingsStore = create<SettingsStore>()(
         }),
         {
             name: "theorem-settings",
-            version: 14,
+            version: 15,
             storage: deferredJsonStorage,
             partialize: memoizePartialize(
-                (state) => [state.settings, state.stats, state.settingsLastModifiedAt, state.readingSetupStep, state.readingOutbox, state.rhythmOutbox],
+                (state) => [state.showDiscover, state.showFeeds, state.settings, state.stats, state.settingsLastModifiedAt, state.readingSetupStep, state.readingOutbox, state.rhythmOutbox],
                 (state) => ({
+                    showDiscover: state.showDiscover,
+                    showFeeds: state.showFeeds,
                     readingSetupStep: state.readingSetupStep,
                     rhythmOutbox: state.rhythmOutbox,
                     readingOutbox: state.readingOutbox,
@@ -242,6 +257,11 @@ export const useSettingsStore = create<SettingsStore>()(
                         ? persistedState
                         : {}
                 ) as any;
+
+                if (version < 15) {
+                    state.showDiscover = typeof state.showDiscover === "boolean" ? state.showDiscover : true;
+                    state.showFeeds = typeof state.showFeeds === "boolean" ? state.showFeeds : true;
+                }
 
                 if (version < 14) { state.readingSetupStep = 0; state.readingOutbox = {}; state.rhythmOutbox = {}; }
                 if (version < 14 && state.settings) {

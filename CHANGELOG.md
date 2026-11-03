@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Optional Discover and Feeds tabs (#173)** — Settings → General can hide either destination from the phone bottom bar and desktop sidebar on each device. Remaining tabs fill the space; restoring a tab retains its data and keyboard shortcuts keep their existing numbers.
+
 - **Audiobook media controls** — Supported system controls show artwork, playback state and position, and can move between chapters.
 - **Generated audiobook metadata** — Opus files embed book and chapter tags, including large chapter lists, with atomic cancellation-safe finalization.
 - **Terminal chapter names** — The TUI reads EPUB 3 navigation or EPUB 2 NCX chapter titles in spine order and retains numbered fallbacks.

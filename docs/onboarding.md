@@ -42,7 +42,7 @@ Onboarding runs once per installation/profile. Settings has no replay or reset
 control. E2E visual checks use fresh, isolated app profiles so testing never
 requires clearing a reader’s library.
 
-The settings store (`theorem-settings`, version 14) persists
+The settings store (`theorem-settings`, version 15) persists
 `settings.hasCompletedOnboarding` and `readingSetupStep`. Tauri keeps it in the
 SQLite KV row `zustand:theorem-settings`; the browser keeps it in IndexedDB
 (`theorem-persist`, store `kv`). Completion also sets the legacy localStorage

@@ -6,13 +6,14 @@ import { BottomNav, isNavItemActive } from "../src/shell/layout/BottomNav";
 import { Sidebar } from "../src/shell/layout/Sidebar";
 import { navigationShortcuts, PRIMARY_DESTINATIONS } from "../src/shell/layout/nav-items";
 import { WorkbenchTabs } from "../src/features/library/components/WorkbenchTabs";
-import { useUIStore } from "../src/core/store";
+import { useSettingsStore, useUIStore } from "../src/core/store";
 import "./test-utils/render-hook";
 
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+    useSettingsStore.setState({ showDiscover: true, showFeeds: true });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -154,5 +155,41 @@ describe("one navigation order everywhere", () => {
 
     it("uses one plain name per page (no Snapshots on one device and Feeds on another)", () => {
         expect(PRIMARY_DESTINATIONS.map((d) => d.label)).toEqual(order);
+    });
+});
+
+
+describe("optional navigation destinations", () => {
+    it.each([
+        [false, true, ["Library", "Shelves", "Feeds", "Workbench"]],
+        [true, false, ["Library", "Shelves", "Discover", "Workbench"]],
+        [false, false, ["Library", "Shelves", "Workbench"]],
+    ] as const)("shows the same filtered destinations on both surfaces (Discover=%s, Feeds=%s)", (showDiscover, showFeeds, expected) => {
+        useSettingsStore.setState({ showDiscover, showFeeds });
+        act(() => root.render(<BottomNav />));
+        expect(labels()).toEqual(expected);
+        expect(container.querySelectorAll("nav li")).toHaveLength(expected.length);
+        act(() => root.render(<Sidebar />));
+        expect(Array.from(container.querySelectorAll('nav[aria-label="Main navigation"] button')).map(b => b.getAttribute("aria-label"))).toEqual(expected);
+    });
+
+    it("updates immediately and restores destinations in their original order", () => {
+        act(() => root.render(<BottomNav />));
+        act(() => useSettingsStore.getState().updateNavigationVisibility({ showDiscover: false, showFeeds: false }));
+        expect(labels()).toEqual(["Library", "Shelves", "Workbench"]);
+        act(() => useSettingsStore.getState().updateNavigationVisibility({ showDiscover: true }));
+        expect(labels()).toEqual(["Library", "Shelves", "Discover", "Workbench"]);
+        act(() => useSettingsStore.getState().updateNavigationVisibility({ showFeeds: true }));
+        expect(labels()).toEqual(PRIMARY_DESTINATIONS.map(d => d.label));
+    });
+
+    it("keeps routes and keyboard shortcuts available when their tabs are hidden", () => {
+        useSettingsStore.setState({ showDiscover: false, showFeeds: false });
+        useUIStore.setState({ currentRoute: "feeds" });
+        act(() => root.render(<BottomNav />));
+        expect(labels()).toEqual(["Library", "Shelves", "Workbench"]);
+        expect(useUIStore.getState().currentRoute).toBe("feeds");
+        expect(navigationShortcuts().find(s => s.route === "annotations")?.keys).toBe("Ctrl+5");
+        expect(navigationShortcuts().find(s => s.route === "opds")?.keys).toBe("Ctrl+3");
     });
 });
