@@ -132,3 +132,25 @@ The browser build uses fetch and therefore requires the host to allow CORS.
 Save is blocked while downloading. Closing the editor, changing books, or
 choosing another image invalidates pending results. Blob preview URLs are
 revoked on replacement/close/unmount. No new persisted book format is required.
+
+## Returning from another page
+
+Library owns the book-grid scroll container, so its scroll position, filters and
+virtualizer state survive navigation. The shell's outer `main` is shared with
+long pages such as Settings. `App.tsx` resets that outer container's scroll
+coordinates synchronously in a layout effect on route changes. Otherwise a
+Settings offset can survive the route swap and shift Library partly or entirely
+above the visible viewport. Library's own scroller is left intact. This needs
+no deferred layout measurement or animation-frame delay.
+
+A hidden page reports zero width; Library's ResizeObserver ignores that value
+rather than regrouping rows against the window width. The grid remembers its
+scroll offset only while Library is active and restores it through TanStack
+Virtual's `scrollToOffset` after measuring on return. TanStack Virtual's
+`measure()` clears size caches; its offset API owns scroll reconciliation, so
+restoration uses the real visible container without a custom frame delay.
+
+`e2e/specs/library-navigation.test.mjs` scrolls the real Settings page and
+compares Library's bounds before and after returning at desktop and phone
+widths. It asserts the viewport position as well as the container size: a grid
+can have the correct height while being positioned off-screen.

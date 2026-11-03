@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- **Library after Settings** — Returning from a scrolled Settings page resets the shared outer viewport so Library is fully visible again, while preserving the book grid’s own scroll position.
+
 - **Attached notes in Workbench (#170)** — Notes now includes highlights with attached note text, including existing saved annotations. Counts update when notes are added, edited or cleared, and highlights remain available in Highlights. Real-app coverage verifies reader note saving and both kinds of notes after restart.
 
 - **Nero audiobook chapters** — M4B attachments recognize Nero `chpl` chapters when QuickTime chapters are absent.

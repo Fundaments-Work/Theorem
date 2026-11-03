@@ -91,6 +91,16 @@ function App() {
     const setRoute = useUIStore((state) => state.setRoute);
     const setLoading = useUIStore((state) => state.setLoading);
     const mainScrollRef = useRef<HTMLElement>(null);
+    useLayoutEffect(() => {
+        // The shell scroller is shared by routes; a long Settings page must not
+        // leave the cached Library translated above the viewport. Page-owned
+        // scrollers (including the virtualized book grid) keep their position.
+        const main = mainScrollRef.current;
+        if (main) {
+            main.scrollTop = 0;
+            main.scrollLeft = 0;
+        }
+    }, [currentRoute]);
     const autoSyncEnabled = useSettingsStore((state) => state.settings.deviceSync?.autoSyncEnabled ?? true);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
     const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -628,7 +638,7 @@ function App() {
     const isReaderMode = currentRoute === "reader";
 
     // Route keep-alive (#103): non-reader pages stay mounted across
-    // navigation and toggle via `hidden`, preserving scroll position,
+    // navigation and toggle via `hidden`, preserving page-owned scroll position,
     // virtualizer caches, and filter state instead of remounting.
     // The reader stays exclusive (heavy engines unmount on exit).
 

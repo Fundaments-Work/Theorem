@@ -962,6 +962,7 @@ export function LibraryPage() {
     }, [isSelecting, clearSelection]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
+    const savedScrollOffset = useRef(0);
     const [scrollHeaderHeight, setScrollHeaderHeight] = useState(0);
     const scrollHeaderRef = useCallback((element: HTMLDivElement | null) => {
         if (!element) return;
@@ -1016,6 +1017,7 @@ export function LibraryPage() {
         let lastWidth = el.clientWidth;
         const observer = new ResizeObserver(() => {
             const currentWidth = el.clientWidth;
+            if (currentWidth === 0) { lastWidth = 0; return; }
             setObservedCols(compute());
             if (lastWidth === 0 && currentWidth > 0) {
                 rowVirtualizer.measure();
@@ -1062,6 +1064,7 @@ export function LibraryPage() {
     useLayoutEffect(() => {
         if (currentRoute === "library") {
             rowVirtualizer.measure();
+            rowVirtualizer.scrollToOffset(savedScrollOffset.current, { behavior: "auto" });
         }
     }, [currentRoute, rowVirtualizer, settings.libraryViewMode, effectiveCols, isCompactView, isListView]);
 
@@ -1877,7 +1880,9 @@ export function LibraryPage() {
                         </div>
                     </div>
 
-                    <section aria-label="Library books" ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid [content-visibility:auto] pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
+                    <section aria-label="Library books" ref={scrollRef} onScroll={(event) => {
+                        if (currentRoute === "library") savedScrollOffset.current = event.currentTarget.scrollTop;
+                    }} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid [content-visibility:auto] pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                         <div ref={scrollHeaderRef} className="flow-root">
                         <LibraryDailyReviewDeck
                             showDailyHighlight={!!settings.showDailyHighlight}

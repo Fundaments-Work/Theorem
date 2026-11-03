@@ -9,7 +9,7 @@ AGENTS.md keeps only the rules an agent must follow; this page is the reference 
 
 ## Architecture
 
-**Routing**: Zustand-driven via `useUIStore.currentRoute` and `AppRoute` union type (`src/core/types/index.ts:445`). No React Router. Additions require updating: `src/App.tsx` (route switch + lazy load), `src/core/types/index.ts` (type), `src/shell/layout/Sidebar.tsx` (desktop rail), `src/shell/layout/BottomNav.tsx` (phones: at most five tabs, so a new page usually belongs *inside* an existing tab, as Bookmarks does in Workbench), `src/shell/AppTitlebar.tsx`.
+**Routing**: Zustand-driven via `useUIStore.currentRoute` and `AppRoute` union type (`src/core/types/index.ts:445`). No React Router. `App` resets the shared outer scroller on route changes; each cached page keeps its own internal scroll position. Additions require updating: `src/App.tsx` (route switch + lazy load), `src/core/types/index.ts` (type), `src/shell/layout/Sidebar.tsx` (desktop rail), `src/shell/layout/BottomNav.tsx` (phones: at most five tabs, so a new page usually belongs *inside* an existing tab, as Bookmarks does in Workbench), `src/shell/AppTitlebar.tsx`.
 
 **Stores**: One file per slice in `src/core/store/`, barrel-rexported from `src/core/store/index.ts`. Always import from the barrel (`"../../core/store"`), not individual slice files. Import stores with individual selectors (`useUIStore(s => s.x)`), never destructuring.
 
