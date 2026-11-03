@@ -55,18 +55,23 @@ function isVisibleSource(sourceId: string, sourceLookup: Map<string, ResolvedAnn
     return sourceLookup.has(sourceId);
 }
 
+// Workbench edits and older peers can attach a note without changing a highlight's type.
+function hasNote(mark: { type: string; noteContent?: string }): boolean {
+    return mark.type === "note" || (mark.type === "highlight" && !!mark.noteContent?.trim());
+}
+
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /** The Workbench subtitle, in the words its tabs use (highlights, notes, words). */
 export function workbenchSummary(
     filter: string,
-    marks: ReadonlyArray<{ type: string; bookId: string }>,
+    marks: ReadonlyArray<{ type: string; bookId: string; noteContent?: string }>,
     wordCount: number,
 ): string {
     const words = plural(wordCount, "word", "words");
     if (filter === "vocabulary") return words;
-    const notes = marks.filter((m) => m.type === "note").length;
-    const highlights = marks.length - notes;
+    const notes = marks.filter(hasNote).length;
+    const highlights = marks.filter((m) => m.type === "highlight").length;
     const books = new Set(marks.map((m) => m.bookId)).size;
     const parts = filter === "notes"
         ? [plural(notes, "note", "notes")]
@@ -288,11 +293,7 @@ export function AnnotationsPage() {
         }
 
         if (activeFilter !== "vocabulary") {
-            const typeMap = {
-                highlights: "highlight",
-                notes: "note",
-            } as const;
-            filtered = filtered.filter((a) => a.type === typeMap[activeFilter]);
+            filtered = filtered.filter((a) => activeFilter === "notes" ? hasNote(a) : a.type === "highlight");
         }
         return filtered;
     }, [annotations, activeFilter, currentBookId, sourceLookup]);

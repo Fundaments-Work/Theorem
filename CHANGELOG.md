@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- **Attached notes in Workbench (#170)** — Notes now includes highlights with attached note text, including existing saved annotations. Counts update when notes are added, edited or cleared, and highlights remain available in Highlights. Real-app coverage verifies reader note saving and both kinds of notes after restart.
+
 - **Nero audiobook chapters** — M4B attachments recognize Nero `chpl` chapters when QuickTime chapters are absent.
 - **Generated audiobook checksums** — Ogg pages use the correct checksum, verified by an independent reader.
 - **Terminal Unicode truncation** — Column truncation respects CJK display widths, combining marks and joined emoji.

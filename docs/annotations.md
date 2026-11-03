@@ -109,3 +109,27 @@ The `annotation_json` column stores the full annotation object because the annot
 | Drawing/underline | Not supported | Pen drawing supported (SVG); underline not supported |
 | Text selection | Provided by browser in iframe | Custom text layer overlay |
 | Re-rendering on reload | Foliate auto-renders from CFI data | Rect data deserialized and re-drawn |
+
+## Saving and finding notes (#170)
+
+EPUB notes can be created from selected text or added to an existing highlight.
+The reader's Add Note action retains the selection while opening the editor;
+scrolling inside the editor must not dismiss it. Save records the annotation
+and its note, and returns to the reader. The selection/editor fixes originated
+in commit `694ec096`.
+
+Workbench's Notes tab includes explicit `note` records and `highlight` records
+with non-whitespace `noteContent`. Workbench edits and older app versions can
+attach a note without changing a highlight's saved type. These existing notes
+must be visible immediately without rewriting data, changing timestamps or
+syncing a migration. Highlights with attached notes remain in Highlights too.
+Bookmarks and empty/whitespace-only highlight notes do not enter Notes.
+Subtitle counts follow the same rule. Explicit note records retain their
+existing visibility, even when their note text is empty.
+
+`tests/highlight-note-editing.test.tsx` covers retaining selection context and
+saving after scrolling in the note editor. `tests/workbench-notes.test.tsx`
+covers attached notes, edits, clearing, legacy data and blank inputs;
+`tests/workbench-summary.test.ts` covers counts. The real-app scenario
+`e2e/specs/reader-notes.test.mjs` saves a note from EPUB selection, attaches a
+note to a highlight through Workbench, and verifies both in Notes after restart.

@@ -26,3 +26,11 @@ describe("workbenchSummary", () => {
         expect(workbenchSummary("all", [], 0)).toBe("0 highlights, 0 notes · 0 words");
     });
 });
+
+
+it("counts attached notes in Notes while retaining their highlight count", () => {
+    const attached = [{ type: "highlight", bookId: "a", noteContent: "My note" }];
+    expect(workbenchSummary("notes", attached, 0)).toBe("1 note from 1 book");
+    expect(workbenchSummary("highlights", attached, 0)).toBe("1 highlight from 1 book");
+    expect(workbenchSummary("all", attached, 0)).toBe("1 highlight, 1 note from 1 book · 0 words");
+});
