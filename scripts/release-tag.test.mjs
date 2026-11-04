@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -26,6 +26,10 @@ test('release reruns use the requested tag and classify patch releases as prerel
         const tagged = commit('tagged source');
         for (const tag of ['v1.6.0', 'v1.6.1', 'v1.6.0-rc.1']) git('tag', tag);
         const branch = commit('newer branch source');
+        git('update-ref', 'refs/remotes/origin/main', branch);
+        git('checkout', '--detach', tagged);
+        commit('unmerged source');
+        git('tag', 'v1.6.2');
         for (const [tag, prerelease] of [['v1.6.0', 'false'], ['v1.6.1', 'true'], ['v1.6.0-rc.1', 'true']]) {
             git('checkout', '--detach', branch);
             const output = join(dir, 'output');
@@ -41,13 +45,21 @@ test('release reruns use the requested tag and classify patch releases as prerel
             assert.equal(git('rev-parse', 'HEAD'), tagged);
             assert.equal(readFileSync(join(dir, 'revision'), 'utf8'), 'tagged source');
         }
-        for (const tag of ['v1.6.99', 'main', 'v1.6.1;touch injected', 'v1.6.1\nsha=injected']) {
+        for (const tag of ['v1.6.2', 'v1.6.99', 'main', 'v1.6.1;touch injected', 'v1.6.1\nsha=injected']) {
             git('checkout', '--detach', branch);
             const result = spawnSync('/bin/bash', [script], { cwd: dir, encoding: 'utf8', env: {
                 ...env, REQUESTED_TAG: tag, GITHUB_OUTPUT: join(dir, 'invalid-output'),
             } });
             assert.notEqual(result.status, 0, tag);
+            assert.equal(existsSync(join(dir, 'invalid-output')), false, 'untrusted tags must not publish outputs');
             assert.equal(git('rev-parse', 'HEAD'), branch);
         }
+        git('update-ref', '-d', 'refs/remotes/origin/main');
+        const missingMain = spawnSync('/bin/bash', [script], { cwd: dir, encoding: 'utf8', env: {
+            ...env, REQUESTED_TAG: 'v1.6.1', GITHUB_OUTPUT: join(dir, 'missing-main-output'),
+        } });
+        assert.notEqual(missingMain.status, 0);
+        assert.equal(existsSync(join(dir, 'missing-main-output')), false);
+        assert.equal(git('rev-parse', 'HEAD'), branch);
     } finally { rmSync(dir, { recursive: true, force: true }); }
 });

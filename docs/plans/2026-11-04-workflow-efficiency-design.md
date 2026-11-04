@@ -11,11 +11,13 @@ produces one verified frontend; the native check job restores it for all-feature
 Keep default Rust tests and all-feature linting, since they validate different
 configurations. Native E2E executables are built and checked locally.
 
-Release and dry-run workflows share frontend/icon preparation and restoration
+Release jobs share frontend/icon preparation and restoration
 composite actions. Native jobs keep their own target-specific installers,
 signing and dependencies. Resolve the requested tag once, build its immutable
 revision everywhere, serialize same-tag attempts, and retain the draft until
-all platforms succeed. Keep dry runs manual and version-update PRs active.
+all platforms succeed. Require the selected tag commit to be integrated into
+main and keep release builds free of persistent dependency/build caches.
+Remove the separate dry-run workflow; version-update PRs remain active.
 
 Keep security scans and real local E2E assertions. Remove the CodeQL language without
 tracked source files; preserve the Homebrew Ruby formula analysis. Share

@@ -121,24 +121,29 @@ not trigger native E2E builds. Fast Node helper tests still protect workflow
 selection and the local E2E tooling. Run the complete native suite locally on
 the exact release commit before tagging; see `docs/testing-e2e.md`.
 
-Release and manual dry-run workflows use the same composite frontend actions.
+The release workflow shares frontend preparation and restoration actions.
+There is no release dry-run workflow.
 One Linux job checks the Foliate runtime, builds/verifies the frontend, generates
 platform icons, and uploads both. All native platform jobs restore that artifact
 and use `src-tauri/tauri.ci.conf.json` to bypass the already completed frontend
-hook. Normal local builds retain `pnpm build`. Native jobs still install frozen
-frontend dependencies for the Tauri CLI and bundled resources; pnpm and Cargo
-caches reduce those installs. The Vite production build has no target-platform
-conditional, so these assets are shared across platforms.
+hook. Normal local builds retain `pnpm build`. Native jobs install frozen
+frontend dependencies for the Tauri CLI and bundled resources. Release jobs do
+not restore or save Cargo/pnpm caches: signed release builds use fresh dependencies
+and do not populate the default branch cache with a dispatched tag checkout.
+Routine CI retains its caches. This follows the
+[CodeQL cache-poisoning guidance](https://codeql.github.com/codeql-query-help/actions/actions-cache-poisoning-direct-cache/).
+The Vite production build has no target-platform conditional, so these assets
+are shared across platforms.
 
 Release reruns resolve the existing requested tag to an immutable commit, use
 that revision for release notes and every platform build, and serialize attempts
 for the same tag without cancelling signing/uploads. Only `X.Y.0` without a
-suffix is stable; all patch releases are prereleases. Dry runs are manual only
-and do not need extra `release-check/*` branches. Dry runs remove cached bundle
-outputs before building and require every installer/signature pattern through
-`scripts/check-release-assets.sh`. Patterns stay literal until expansion inside
-the bundle directory; unquoted patterns with `nullglob` previously vanished
-before the check loop, allowing missing signatures to pass. The shared-action workflows
+suffix is stable; all patch releases are prereleases. A requested tag must resolve
+to a commit already on `origin/main` before any tagged source is built. Each
+desktop build requires every installer/signature pattern through
+`scripts/check-release-assets.sh` before publication. Patterns stay literal until
+expansion inside the bundle directory, so unmatched patterns cannot silently
+disappear. There is no separate dry-run workflow. The shared-action workflows
 must exist at the selected tag; tags predating these actions need their original
 workflow. No workflow optimization itself grants permission to tag or publish.
 

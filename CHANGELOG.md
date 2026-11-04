@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Release cache isolation** — Remove persistent Cargo/pnpm caches from signed release builds, reject tags outside main, and remove the separate release dry-run workflow.
+
 - **Reliable local option clicks** — Keep native select controls clear of reading-reminder toasts during release verification, retaining the real click and persistence assertions.
 
 - **Local E2E release verification** — Run the complete native E2E suite locally before tagging. GitHub keeps unit tests, lint, typechecks, security scans and release builds without hosted E2E jobs, nightly schedules or native test-binary builds.
@@ -19,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sync dependency compatibility** — Keep docs and blobs versions aligned until their coordinated upgrade is available.
 
-- **Workflow efficiency** — Run automatic CI once on main, select relevant gates without losing coverage after cancellations, share verified frontend assets with native checks, and share one frontend/icon build across release platforms. Workflow and helper shell checks protect job selection; dry runs reject missing installers/signatures and clear stale bundles. Manual releases use the exact requested tag; patch releases are marked prereleases. Docs-only updates no longer redeploy the product landing page.
+- **Workflow efficiency** — Run automatic CI once on main, select relevant gates without losing coverage after cancellations, share verified frontend assets with native checks, and share one frontend/icon build across release platforms. Workflow and helper shell checks protect job selection; release jobs require installers and signatures before publication. Manual releases use the exact requested tag; patch releases are marked prereleases. Docs-only updates no longer redeploy the product landing page.
 
 - **Release branch maintenance** — Pull requests and manual CI check `1.6.1`, and Dependabot targets the active release branch.
 

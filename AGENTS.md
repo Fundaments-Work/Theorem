@@ -186,8 +186,9 @@ that must not be broken:
 ## Release
 
 Versioning, the tagging checklist, CI troubleshooting and the Android icon notes are in
-[docs/release.md](docs/release.md). Two rules stay here: only `X.Y.0` is stable (patches are
-pre-releases), and never merge to `main`, tag, publish, deploy or close an issue without the
+[docs/release.md](docs/release.md). Release builds use no persistent dependency/build caches and accept only tags
+already integrated into main. There is no release dry-run workflow. Two rules
+stay here: only `X.Y.0` is stable (patches are pre-releases), and never merge to `main`, tag, publish, deploy or close an issue without the
 maintainer's approval.
 
 ## Project management

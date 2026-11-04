@@ -145,7 +145,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -154,17 +154,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev autoconf automake libtool
-
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -184,6 +173,12 @@ jobs:
           prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
           args: --target x86_64-unknown-linux-gnu --config src-tauri/tauri.ci.conf.json
+
+      - name: Verify installers and updater signatures
+        shell: bash
+        env:
+          EXPECTED_ASSETS: "deb/*.deb appimage/*.AppImage appimage/*.AppImage.sig"
+        run: bash scripts/check-release-assets.sh "$EXPECTED_ASSETS"
 
   build-macos-intel:
     name: Build macOS (Intel)
@@ -210,7 +205,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -219,17 +214,6 @@ jobs:
 
       - name: Install macOS build dependencies
         run: brew install autoconf automake libtool
-
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-intel-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-intel-cargo-
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -287,6 +271,12 @@ jobs:
           prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
           args: --target x86_64-apple-darwin --config src-tauri/tauri.ci.conf.json
+
+      - name: Verify installers and updater signatures
+        shell: bash
+        env:
+          EXPECTED_ASSETS: "dmg/*.dmg macos/*.app.tar.gz macos/*.app.tar.gz.sig"
+        run: bash scripts/check-release-assets.sh "$EXPECTED_ASSETS"
 
   build-macos-arm:
     name: Build macOS (Apple Silicon)
@@ -310,7 +300,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -319,17 +309,6 @@ jobs:
 
       - name: Install macOS build dependencies
         run: brew install autoconf automake libtool
-
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-arm-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-arm-cargo-
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -388,6 +367,12 @@ jobs:
           retryAttempts: 2
           args: --target aarch64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
+      - name: Verify installers and updater signatures
+        shell: bash
+        env:
+          EXPECTED_ASSETS: "dmg/*.dmg macos/*.app.tar.gz macos/*.app.tar.gz.sig"
+        run: bash scripts/check-release-assets.sh "$EXPECTED_ASSETS"
+
   build-windows:
     name: Build Windows
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
@@ -409,21 +394,10 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -443,6 +417,12 @@ jobs:
           prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
           args: --config src-tauri/tauri.ci.conf.json
+
+      - name: Verify installers and updater signatures
+        shell: bash
+        env:
+          EXPECTED_ASSETS: "nsis/*-setup.exe nsis/*-setup.exe.sig msi/*.msi msi/*.msi.sig"
+        run: bash scripts/check-release-assets.sh "$EXPECTED_ASSETS"
 
   build-android:
     name: Build Android
@@ -465,7 +445,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -485,17 +465,6 @@ jobs:
 
       - name: Install NDK
         run: sdkmanager "ndk;29.0.13846066"
-
-      - name: Cache cargo
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-android-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-android-cargo-
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile

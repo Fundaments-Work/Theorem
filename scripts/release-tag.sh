@@ -7,6 +7,10 @@ if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 SHA=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
+  echo "::error::Release tags must point to a commit already integrated into main."
+  exit 1
+fi
 {
   echo "tag=$TAG"
   echo "sha=$SHA"
