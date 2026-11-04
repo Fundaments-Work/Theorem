@@ -28,6 +28,11 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     target-branch: "1.6.1"
+    # iroh-docs 0.101 exposes Store/Hash from iroh-blobs 0.103.
+    # Upgrade these together; a second blobs version breaks their Rust types.
+    ignore:
+      - dependency-name: "iroh-blobs"
+        versions: [">=0.104.0"]
     schedule:
       interval: "weekly"
       day: "monday"

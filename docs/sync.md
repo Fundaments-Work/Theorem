@@ -262,3 +262,16 @@ interfaces from endpoint publications, so Theorem reapplies the existing
 `add_interface_v4` / `remove_interface_v4` patch. Advertised address records alone
 do not change multicast membership. The non-default-interface scenario above
 must continue passing on upgrades.
+
+### Matching the docs and blobs crates
+
+`iroh-docs` 0.101 depends on `iroh-blobs` 0.103 and exposes its `Store` and
+`Hash` types in its public API. Keep Theorem’s direct blobs dependency on that
+same compatible release line. Upgrading only blobs to 0.104 introduces two
+versions; their nominal Rust types differ and fail compilation in sync entry
+reads, deletion handling and document engine construction (Dependabot #176).
+The [published docs manifest](https://docs.rs/crate/iroh-docs/0.101.0/source/Cargo.toml)
+and the failed PR’s compiler diagnostics establish
+this requirement. Dependabot ignores blobs >=0.104 until a coordinated docs
+and blobs upgrade can remove the ignore and pass the existing sync scenarios.
+No persisted format or sync protocol changes are part of this maintenance.
