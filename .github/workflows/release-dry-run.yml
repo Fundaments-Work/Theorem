@@ -101,23 +101,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
-        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
+        run: |
+          # Restored caches must not satisfy checks with an old installer/signature.
+          for directory in src-tauri/target/release/bundle src-tauri/target/*/release/bundle; do
+            if [[ -d "$directory" ]]; then rm -rf -- "$directory"; fi
+          done
+          pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
 
       - name: Check every release asset was produced
         shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          base=src-tauri/target/release/bundle
-          [[ -d "$base" ]] || base=$(ls -d src-tauri/target/*/release/bundle | head -1)
-          missing=0
-          for pattern in ${{ matrix.expect }}; do
-            files=( $base/$pattern )
-            if (( ${#files[@]} == 0 )); then
-              echo "::error::missing $pattern"
-              missing=1
-            else
-              ls -l "${files[@]}"
-            fi
-          done
-          exit $missing
+        env:
+          EXPECTED_ASSETS: ${{ matrix.expect }}
+        run: bash scripts/check-release-assets.sh "$EXPECTED_ASSETS"

@@ -7,13 +7,15 @@ if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 SHA=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
-echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
-patch="${TAG##*.}"
-if [[ "$TAG" == *-* || "$patch" != 0 ]]; then
-  echo "prerelease=true" >> "$GITHUB_OUTPUT"
-else
-  echo "prerelease=false" >> "$GITHUB_OUTPUT"
-fi
+{
+  echo "tag=$TAG"
+  echo "sha=$SHA"
+  echo "VERSION=${TAG#v}"
+  patch="${TAG##*.}"
+  if [[ "$TAG" == *-* || "$patch" != 0 ]]; then
+    echo "prerelease=true"
+  else
+    echo "prerelease=false"
+  fi
+} >> "$GITHUB_OUTPUT"
 git checkout --detach "$SHA"

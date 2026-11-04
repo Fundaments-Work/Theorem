@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sync dependency compatibility** — Keep docs and blobs versions aligned until their coordinated upgrade is available.
 
-- **Workflow efficiency** — Run automatic CI once on main, select relevant gates without losing coverage after cancellations, reuse frontend and E2E binaries, and share one frontend/icon build across release platforms. Manual releases use the exact requested tag; patch releases are marked prereleases. Docs-only updates no longer redeploy the product landing page.
+- **Workflow efficiency** — Run automatic CI once on main, select relevant gates without losing coverage after cancellations, reuse frontend and E2E binaries, and share one frontend/icon build across release platforms. Workflow and helper shell checks protect job selection; dry runs reject missing installers/signatures and clear stale bundles. Manual releases use the exact requested tag; patch releases are marked prereleases. Docs-only updates no longer redeploy the product landing page.
 
 - **Release branch maintenance** — Pull requests and manual CI check `1.6.1`, and Dependabot targets the active release branch.
 

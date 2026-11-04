@@ -105,11 +105,13 @@ A main push compares against the last successful main CI run rather than the
 immediately preceding commit: cancelling an older run cannot drop its unchecked
 changes. PRs compare against their base; manual runs, an unavailable baseline or
 an API failure select every gate. Documentation-only changes skip build jobs.
-Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs e2e/lib/webdriver.test.mjs` to verify
+Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/webdriver.test.mjs` to verify
 selection, cancellation coverage, unavailable baselines, release-tag checkout,
 prerelease classification and request timeouts.
 A selected workflow-check job runs these selection tests and pinned actionlint
-when workflows, local actions or the selector change. Validate locally with
+and ShellCheck when workflows, local actions or the selector change.
+Local actionlint validation must have ShellCheck on PATH (or pass its path with
+`-shellcheck`) to match the hosted check. Validate locally with
 `actionlint` (v1.7.12) or `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`.
 
 The web job uploads one verified `dist` artifact. The Rust job restores it for
@@ -134,7 +136,11 @@ Release reruns resolve the existing requested tag to an immutable commit, use
 that revision for release notes and every platform build, and serialize attempts
 for the same tag without cancelling signing/uploads. Only `X.Y.0` without a
 suffix is stable; all patch releases are prereleases. Dry runs are manual only
-and do not need extra `release-check/*` branches. The shared-action workflows
+and do not need extra `release-check/*` branches. Dry runs remove cached bundle
+outputs before building and require every installer/signature pattern through
+`scripts/check-release-assets.sh`. Patterns stay literal until expansion inside
+the bundle directory; unquoted patterns with `nullglob` previously vanished
+before the check loop, allowing missing signatures to pass. The shared-action workflows
 must exist at the selected tag; tags predating these actions need their original
 workflow. No workflow optimization itself grants permission to tag or publish.
 

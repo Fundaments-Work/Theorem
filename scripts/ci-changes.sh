@@ -14,8 +14,10 @@ files="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
 has() { echo "$files" | grep -E "$1" >/dev/null && echo true || echo false; }
 # Docs, issue templates and the like need no build at all.
 shared='^(\.github/actions/|\.github/workflows/ci\.yml|package\.json|pnpm-lock\.yaml|scripts/|tsconfig.*\.json)'
-echo "web=$(has "$shared|^(src/|tests/|index\.html|ui-gallery\.html|public/|vite\.config|vitest\.config|src-tauri/crates/theorem-core/)")" >> "$GITHUB_OUTPUT"
-echo "rust=$(has "^(\.github/actions/|\.github/workflows/ci\.yml|src-tauri/|pnpm-lock\.yaml)")" >> "$GITHUB_OUTPUT"
-echo "android=$(has "^(\.github/workflows/ci\.yml|src-tauri/(src|crates|plugins|gen|Cargo|tauri\.conf|capabilities)|pnpm-lock\.yaml)")" >> "$GITHUB_OUTPUT"
-echo "e2e=$(has '^(scripts/|src/|src-tauri/|public/|e2e/|package\.json|pnpm-lock\.yaml|vite\.config|index\.html|\.github/workflows/ci\.yml|\.github/actions/)')" >> "$GITHUB_OUTPUT"
-echo "workflows=$(has '^(\.github/(workflows/|actions/)|scripts/(ci-changes|release-tag)\.)')" >> "$GITHUB_OUTPUT"
+{
+  echo "web=$(has "$shared|^(src/|tests/|index\.html|ui-gallery\.html|public/|vite\.config|vitest\.config|src-tauri/crates/theorem-core/)")"
+  echo "rust=$(has "^(\.github/actions/|\.github/workflows/ci\.yml|src-tauri/|pnpm-lock\.yaml)")"
+  echo "android=$(has "^(\.github/workflows/ci\.yml|src-tauri/(src|crates|plugins|gen|Cargo|tauri\.conf|capabilities)|pnpm-lock\.yaml)")"
+  echo "e2e=$(has '^(scripts/|src/|src-tauri/|public/|e2e/|package\.json|pnpm-lock\.yaml|vite\.config|index\.html|\.github/workflows/ci\.yml|\.github/actions/)')"
+  echo "workflows=$(has '^(\.github/(workflows/|actions/)|scripts/(ci-changes|release-tag|check-release-assets)\.)')"
+} >> "$GITHUB_OUTPUT"
