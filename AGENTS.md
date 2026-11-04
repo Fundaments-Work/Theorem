@@ -74,7 +74,8 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main` or `1.6.1`; use manual CI for release-branch checks before integration. Relevant paths select web, Rust, Android and workflow checks. GitHub does not build or run native E2E and has no E2E schedule or manual mode. Keep local `pnpm e2e` coverage and run the full suite on the exact final release commit before tagging. Fast Node helper tests for E2E tooling still run in CI. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and local harness logic. See `docs/release.md` for shared artifacts and release build rules.
 
 CodeQL's Java/Kotlin job uses `.github/codeql/android` to compile our two Android
-plugin libraries against the locked Tauri Android API. Keep this scan separate
+plugin libraries against the locked Tauri Android API and run
+`:folder:testDebugUnitTest` for broadcast validation. Keep this scan separate
 from native Rust builds and APK packaging (see `docs/release.md`).
 
 ### Known-flaky tests

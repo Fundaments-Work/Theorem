@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Android reminder broadcast validation** — Reschedule reminders only for the five supported system actions; ignore missing, unknown and lookalike broadcast actions before accessing alarms or preferences.
+
 - **Android security analysis** — Compile our maintained Kotlin plugins for CodeQL using the locked Tauri API, without a native build or APK packaging; stop excluding plugin sources as vendored code.
 
 - **Release cache isolation** — Remove persistent Cargo/pnpm caches from signed release builds, reject tags outside main, and remove the separate release dry-run workflow.

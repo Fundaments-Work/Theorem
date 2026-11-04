@@ -131,12 +131,12 @@ jobs:
           languages: java-kotlin
           build-mode: manual
           config-file: ./.github/codeql/codeql-config.yml
-      - name: Compile maintained Android plugins
+      - name: Compile maintained Android plugins and test broadcast validation
         working-directory: .github/codeql/android
         # This project contains only Android library modules: no Rust, APK,
         # signing, app packaging, or instrumentation-test tasks are present.
         run: >-
-          gradle :tts:compileDebugKotlin :folder:compileDebugKotlin
+          gradle :tts:compileDebugKotlin :folder:testDebugUnitTest
           --no-daemon --no-build-cache --max-workers=2
           -Dorg.gradle.jvmargs=-Xmx2g
           -Pkotlin.compiler.execution.strategy=in-process

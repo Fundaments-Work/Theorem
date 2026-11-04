@@ -158,7 +158,11 @@ Kotlin needs compilation for CodeQL analysis ([GitHub build modes](https://docs.
 To reproduce locally, resolve the API path with the workflow's `cargo metadata`
 command, then run its Gradle compilation command from `.github/codeql/android`
 with Java 17, Gradle 8.14.3 and Android SDK 36. Use a clean checkout without
-signing configuration. Documentation pushes dispatch
+signing configuration. The reminder receiver regression tests run with
+`gradle :folder:testDebugUnitTest` from the same project. They exercise the real
+receiver method with mocked Android boundaries, checking every allowed action
+and rejecting missing, unknown and lookalike actions before any context access.
+Documentation pushes dispatch
 only the studio docs refresh. Releases and manual notification requests also
 refresh the product landing page, through one shared notification action. The
 release workflow calls it explicitly because releases published using

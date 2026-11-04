@@ -222,6 +222,15 @@ class ReminderReceiver : BroadcastReceiver() {
 /** Android drops alarms on reboot and app update, and a clock change moves "20:00". */
 class ReminderRescheduleReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    ReadingReminder.schedule(context)
+    // Explicit broadcasts bypass intent filters. Accept only the system events
+    // declared in our manifest before touching reminder state or alarms.
+    when (intent.action) {
+      Intent.ACTION_BOOT_COMPLETED,
+      Intent.ACTION_MY_PACKAGE_REPLACED,
+      Intent.ACTION_TIME_CHANGED,
+      Intent.ACTION_TIMEZONE_CHANGED,
+      AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> ReadingReminder.schedule(context)
+      else -> return
+    }
   }
 }
