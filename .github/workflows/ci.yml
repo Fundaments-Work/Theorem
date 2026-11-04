@@ -5,7 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main, "1.6.1"]
+  schedule:
+    # Full native suite once a night (03:02 Nepal time), separate from push CI.
+    - cron: '17 21 * * *'
   workflow_dispatch:
+    inputs:
+      e2e_suite:
+        description: Native E2E coverage
+        type: choice
+        options: [smoke, full]
+        default: smoke
 
 permissions:
   contents: read
@@ -13,7 +22,7 @@ permissions:
 
 # A newer push to the same branch/PR makes the in-flight run obsolete.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'full') && 'full-e2e' || github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -56,10 +65,10 @@ jobs:
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
           shellcheck scripts/ci-changes.sh scripts/release-tag.sh scripts/check-release-assets.sh
       - name: Exercise job selection
-        run: node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs
+        run: node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs
 
   web:
-    name: Web (typecheck, design, tests, build)
+    name: ${{ github.event_name == 'schedule' && 'Frontend build for E2E' || 'Web (typecheck, design, tests, build)' }}
     needs: changes
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.rust == 'true' || (github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true')
     runs-on: ubuntu-latest
@@ -84,12 +93,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
+        if: github.event_name != 'schedule'
         run: pnpm typecheck
 
       - name: Design-system rules
+        if: github.event_name != 'schedule'
         run: pnpm check:design
 
       - name: Test
+        if: github.event_name != 'schedule'
         run: pnpm test
 
       # Fails if the committed foliate runtime differs from the submodule plus our patches.
@@ -110,7 +122,7 @@ jobs:
           retention-days: 1
 
   rust-check:
-    name: Rust Check
+    name: ${{ github.event_name == 'schedule' && 'Build E2E app' || 'Rust Check' }}
     needs: [changes, web]
     if: needs.changes.outputs.rust == 'true' || (github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true')
     runs-on: ubuntu-22.04
@@ -290,11 +302,11 @@ jobs:
     # `--features e2e`, driven through tauri-driver + WebKitWebDriver under headless Mutter.
     # Non-blocking while hosted WebKit screenshot failures are investigated.
     # The Rust job supplies the binary; this job only installs the runtime and runs tests.
-    name: E2E (Linux, non-blocking)
+    name: E2E (${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'full') && 'full' || 'smoke' }}, Linux, non-blocking)
     needs: [changes, rust-check]
     if: github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'full') && 25 || 10 }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -312,9 +324,6 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: WebDriver client regressions
-        run: node --test e2e/lib/webdriver.test.mjs
-
       - name: Install dependencies (Ubuntu)
         run: |
           sudo apt-get update
@@ -329,14 +338,20 @@ jobs:
       - name: Restore executable permissions
         run: chmod +x e2e-bin/theorem e2e-bin/tauri-driver
 
-      - name: Run e2e suite
+      - name: Run selected E2E suite
         env:
+          E2E_SUITE: ${{ github.event_name == 'schedule' && 'full' || inputs.e2e_suite || 'smoke' }}
           THEOREM_E2E_BINARY: ${{ github.workspace }}/e2e-bin/theorem
           TAURI_DRIVER: ${{ github.workspace }}/e2e-bin/tauri-driver
           THEOREM_E2E_DISPLAY: mutter
           LIBGL_ALWAYS_SOFTWARE: "1"
           THEOREM_E2E_ARTIFACTS: ${{ github.workspace }}/e2e/.artifacts
-        run: pnpm e2e
+        run: |
+          if [[ "$E2E_SUITE" == full ]]; then
+            pnpm e2e
+          else
+            pnpm e2e --smoke
+          fi
 
       - name: Upload failure artifacts
         if: failure()

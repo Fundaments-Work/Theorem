@@ -105,7 +105,9 @@ A main push compares against the last successful main CI run rather than the
 immediately preceding commit: cancelling an older run cannot drop its unchecked
 changes. PRs compare against their base; manual runs, an unavailable baseline or
 an API failure select every gate. Documentation-only changes skip build jobs.
-Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/webdriver.test.mjs` to verify
+Nightly runs select only the frontend/native build needed for full E2E, skipping
+the daytime unit/lint and Android jobs.
+Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` to verify
 selection, cancellation coverage, unavailable baselines, release-tag checkout,
 prerelease classification and request timeouts.
 A selected workflow-check job runs these selection tests and pinned actionlint
@@ -120,8 +122,12 @@ the normal Rust checks. It strips copies of the executable and tauri-driver for
 transfer; the E2E runner restores executable permissions and installs runtime
 packages, without another Rust or frontend build. E2E remains non-blocking and
 its hosted WebKit screenshot failures remain visible; artifact reuse does not
-skip assertions. PRs do not run native E2E. Frontend/E2E-only changes can build
-the native E2E app without rerunning unrelated Rust tests.
+skip assertions. Relevant main pushes use the launch/import/reader smoke suite;
+full coverage runs nightly at 21:17 UTC or through the manual `e2e_suite: full`
+choice. Manual CI defaults to smoke, while local `pnpm e2e` remains full. PRs do
+not add native E2E builds. Frontend/E2E-only changes can build the native E2E app
+without rerunning unrelated Rust tests. The smoke/full policy is documented in
+`docs/testing-e2e.md`; full local E2E is required before release.
 
 Release and manual dry-run workflows use the same composite frontend actions.
 One Linux job checks the Foliate runtime, builds/verifies the frontend, generates

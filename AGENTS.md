@@ -40,7 +40,8 @@ The Cargo patch in `src-tauri/vendor/iroh-mdns-address-lookup/` tracks IPv4 mult
 | Rust tests | `cd src-tauri && cargo test --workspace --lib --tests` |
 | One Rust test | `cd src-tauri && cargo test --lib <name>` |
 | Sync scenarios | `cd src-tauri && cargo test --lib scenarios::` (large library: `cargo test --release --lib scenarios::a_large_library -- --ignored --nocapture`) |
-| E2E client regressions | `node --test e2e/lib/webdriver.test.mjs` |
+| E2E client regressions | `node --test e2e/lib/webdriver.test.mjs e2e/lib/specs.test.mjs` |
+| E2E smoke | `pnpm e2e --smoke` (`--list` previews selected files) |
 | End-to-end (real app) | `pnpm e2e:build` once, then `pnpm e2e [spec-word]` (Linux; see `docs/testing-e2e.md`) |
 | Foliate runtime | `pnpm foliate:check` |
 | Rust release build | `cd src-tauri && cargo build --release` |
@@ -58,7 +59,7 @@ All of these, in this order; each must be clean (this is what CI runs, plus the 
 5. `pnpm typecheck` and `pnpm check:design` (no new design-system violation; a baseline entry may only shrink)
 6. `pnpm test` — the whole suite, not only the files you touched
 7. `pnpm build` — also enforces the startup bundle budget
-8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` and `--target armv7-linux-androideabi` (Android-only code or dependencies, and any size or offset constant: the release ships 32-bit APKs, where `usize` is 32 bits; set the NDK `CC_/CXX_/AR_<target>` compilers), `pnpm e2e` (user-visible flows), `node --test e2e/lib/webdriver.test.mjs` (WebDriver harness)
+8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` and `--target armv7-linux-androideabi` (Android-only code or dependencies, and any size or offset constant: the release ships 32-bit APKs, where `usize` is 32 bits; set the NDK `CC_/CXX_/AR_<target>` compilers), `pnpm e2e` (user-visible flows), `node --test e2e/lib/webdriver.test.mjs e2e/lib/specs.test.mjs` (WebDriver harness)
 
 If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it changed.
 
@@ -70,7 +71,7 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 - Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
 - Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
-CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main` or `1.6.1`; use manual CI for release-branch checks before integration. Relevant paths select web, Rust, Android and E2E gates. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and WebDriver timeouts. See `docs/release.md` for shared artifacts and release build rules.
+CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main` or `1.6.1`; use manual CI for release-branch checks before integration. Relevant paths select web, Rust, Android and E2E gates. Relevant main pushes use native E2E smoke; full E2E runs nightly or with manual `e2e_suite: full`. PRs do not add native E2E builds. Local `pnpm e2e` remains full, and full local E2E is required before release. Nightly runs skip the daytime unit/lint and Android checks. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and WebDriver timeouts. See `docs/release.md` for shared artifacts and release build rules.
 
 ### Known-flaky tests
 

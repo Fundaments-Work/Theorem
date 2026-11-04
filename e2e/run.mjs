@@ -2,6 +2,8 @@
 // Entry point for `pnpm e2e`.
 //
 //   pnpm e2e                 run every spec in e2e/specs
+//   pnpm e2e --smoke         run launch, import/search and reader smoke specs
+//   pnpm e2e --list          list the selected specs without launching the app
 //   pnpm e2e --build         build the UI and the e2e binary first
 //   pnpm e2e library         run specs whose file name contains "library"
 //
@@ -16,10 +18,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BINARY, REPO } from "./lib/app.mjs";
 import { stopGroupSync } from "./lib/procs.mjs";
+import { selectSpecs } from "./lib/specs.mjs";
 
 const argv = process.argv.slice(2);
 const build = argv.includes("--build");
 const filters = argv.filter((a) => !a.startsWith("--"));
+const specDir = join(REPO, "e2e", "specs");
+let specs = [];
+if (!argv.includes("--explore")) {
+    try {
+        specs = selectSpecs(readdirSync(specDir), { smoke: argv.includes("--smoke"), filters });
+    } catch (error) {
+        console.error(`e2e: ${error.message}`);
+        process.exit(1);
+    }
+    if (argv.includes("--list")) {
+        console.log(specs.join("\n"));
+        process.exit(0);
+    }
+    specs = specs.map(file => join(specDir, file));
+}
 const children = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -139,12 +157,6 @@ if (argv.includes("--explore")) {
 }
 
 // 3. Specs, one at a time (each launches its own app).
-const specDir = join(REPO, "e2e", "specs");
-const specs = readdirSync(specDir)
-    .filter((f) => f.endsWith(".test.mjs"))
-    .filter((f) => filters.length === 0 || filters.some((x) => f.includes(x)))
-    .sort()
-    .map((f) => join(specDir, f));
 const started = Date.now();
 const res = spawnSync(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=spec", ...specs], {
     env: { ...env, THEOREM_E2E_TMP: tmpdir() },

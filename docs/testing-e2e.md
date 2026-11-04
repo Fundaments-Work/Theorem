@@ -16,13 +16,19 @@ Needs: `WebKitWebDriver` (Arch: part of `webkit2gtk-4.1`; Debian/Ubuntu:
 
 ```bash
 pnpm e2e:build        # vite build + cargo build --features e2e, then run
-pnpm e2e              # run against the existing build
+pnpm e2e              # full suite against the existing build
+pnpm e2e --smoke      # launch, import/search and reader-position smoke suite
+pnpm e2e --smoke --list  # list the selected files without launching anything
 pnpm e2e reader shelves   # only specs whose file name contains a word
 ```
 
 Run heavy steps capped when other work shares the machine, e.g.
 `resources/capped.sh 6G 600 env CARGO_BUILD_JOBS=4 cargo build --features e2e`.
-The suite takes about 2.5 minutes for 8 specs (25 tests).
+The default runs every spec; `--smoke` selects the three existing launch,
+import/search and reader-position files. Filters can narrow either selection.
+A missing smoke file or empty selection fails instead of accidentally letting
+Node discover unrelated tests. `--list` previews the selection without starting
+a display, driver or app.
 
 ### Isolation
 
@@ -133,10 +139,25 @@ contain it.
 `.github/workflows/ci.yml` has an `e2e` job on `ubuntu-22.04` (headless Mutter,
 `webkit2gtk-driver`, `tauri-driver`). It is `continue-on-error: true` until it
 has been reliably green on hosted runners; screenshots of timeouts are
-uploaded as the `e2e-artifacts` artifact. It runs for relevant main pushes and
-manual checks, using the verified frontend and a stripped executable copy from
-the web/Rust jobs rather than rebuilding either on its own runner. Documentation
-pushes skip it. See `docs/release.md` for selection and artifact handling.
+uploaded as the `e2e-artifacts` artifact. Relevant main pushes run the small
+smoke suite: first launch, book import/search and reader position across restart.
+PRs retain their fast checks and do not add a native E2E build. Documentation-only
+pushes skip E2E. No existing spec or assertion is removed from the full suite.
+
+The full suite runs nightly at 21:17 UTC (03:02 Nepal time) and can be requested
+through Actions → CI → Run workflow → `e2e_suite: full`. Manual runs default to
+`smoke`; local `pnpm e2e` still defaults to the full suite. Run full local E2E
+before a release. The nightly path builds the app and runs full E2E without
+repeating frontend unit tests, Rust lint/unit tests or Android checks. Nightly
+and manually requested full runs share a cancellation group per branch;
+pushes have a separate group and do not interrupt full coverage. Smoke runners
+have a ten-minute execution limit;
+full runners have twenty-five minutes, separate from the native build timeout.
+
+Both suites reuse the verified frontend and stripped executable copy from the
+web/Rust jobs rather than rebuilding on the E2E runner. Fast Node harness tests
+run in the selected workflow-check job, including on PRs that change E2E files.
+See `docs/release.md` for selection and artifact handling.
 
 
 The reading-rhythm scenario chooses a goal, imports and opens a book, checks the

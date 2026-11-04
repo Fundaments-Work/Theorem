@@ -50,7 +50,7 @@ test('native and dependency changes retain all required gates', () => {
     }
 });
 test('E2E harness edits select its runner', () => {
-    assert.deepEqual(select({ files: ['e2e/lib/app.mjs'] }).gates, { ...none, e2e: 'true' });
+    assert.deepEqual(select({ files: ['e2e/lib/app.mjs'] }).gates, { ...none, e2e: 'true', workflows: 'true' });
 });
 test('manual runs, missing baselines, unreachable commits and API failures check everything', () => {
     for (const options of [{ event: 'workflow_dispatch' }, { base: '' }, { unavailable: true },
@@ -74,4 +74,8 @@ test('large diffs do not lose matches through grep SIGPIPE under pipefail', () =
 test('workflow edits select lint without unrelated native jobs', () => {
     assert.deepEqual(select({ files: ['.github/workflows/release.yml'] }).gates, { ...none, workflows: 'true' });
     assert.equal(select({ files: ['scripts/ci-changes.sh'] }).gates.workflows, 'true');
+});
+
+test('nightly runs select native E2E without repeating web tests or Rust/Android checks', () => {
+    assert.deepEqual(select({ event: 'schedule', apiFailure: true }).gates, { ...none, e2e: 'true' });
 });

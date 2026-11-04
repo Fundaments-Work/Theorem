@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Lighter hosted E2E** — Relevant main pushes run the existing launch, import/search and reader-position smoke checks. Full E2E moves to nightly/manual runs; local full coverage stays available, and nightly runs avoid repeating daytime unit/lint and Android checks.
+
 - **ZIP maintenance patch** — Update to zip 9.2.1, including its writer cleanup and getrandom build fix.
 
 - **Follow-up dependency updates** — Update translation rendering, icons, logging, Unicode widths and ZIP parsing.

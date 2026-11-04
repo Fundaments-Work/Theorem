@@ -2,6 +2,17 @@
 # Select gates conservatively; cancelled runs must not lose coverage.
 set -euo pipefail
 all() { for gate in web rust android e2e workflows; do echo "$gate=true" >> "$GITHUB_OUTPUT"; done; }
+# Nightly runs exercise the real app without repeating daytime lint/unit gates.
+if [ "$EVENT" = schedule ]; then
+  {
+    echo "web=false"
+    echo "rust=false"
+    echo "android=false"
+    echo "e2e=true"
+    echo "workflows=false"
+  } >> "$GITHUB_OUTPUT"
+  exit 0
+fi
 # A cancelled run is not a validation baseline. Include all changes
 # since the last successful main run, including superseded pushes.
 if [ "$EVENT" = push ]; then
@@ -19,5 +30,5 @@ shared='^(\.github/actions/|\.github/workflows/ci\.yml|package\.json|pnpm-lock\.
   echo "rust=$(has "^(\.github/actions/|\.github/workflows/ci\.yml|src-tauri/|pnpm-lock\.yaml)")"
   echo "android=$(has "^(\.github/workflows/ci\.yml|src-tauri/(src|crates|plugins|gen|Cargo|tauri\.conf|capabilities)|pnpm-lock\.yaml)")"
   echo "e2e=$(has '^(scripts/|src/|src-tauri/|public/|e2e/|package\.json|pnpm-lock\.yaml|vite\.config|index\.html|\.github/workflows/ci\.yml|\.github/actions/)')"
-  echo "workflows=$(has '^(\.github/(workflows/|actions/)|scripts/(ci-changes|release-tag|check-release-assets)\.)')"
+  echo "workflows=$(has '^(\.github/(workflows/|actions/)|e2e/|scripts/(ci-changes|release-tag|check-release-assets)\.)')"
 } >> "$GITHUB_OUTPUT"

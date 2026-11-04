@@ -29,3 +29,16 @@ Git repository, workflow syntax with actionlint, normal project gates, and the
 real E2E suite against the stripped artifact. Installer signing and publication
 remain outside this verification; they require a maintainer-approved release.
 The known hosted WebKit screenshot timeouts remain a separate unresolved issue.
+
+## E2E execution policy
+
+Keep the existing specs unchanged and select launch, import/search and reader
+position as the routine smoke suite. Relevant main pushes run smoke; PRs keep
+fast validation without an additional native app build. Nightly and explicitly
+requested manual runs execute every spec, including the screenshot regressions.
+Local E2E defaults to full and remains required before a release. Scheduled runs
+build the frontend and native executable but omit the daytime unit/lint and
+Android checks. Full runs share a cancellation group per branch, separate from
+ordinary pushes, so pushes cannot stop nightly coverage. Test selection fails
+when a smoke file is missing or filters match nothing, and can be previewed
+before starting any app processes.
