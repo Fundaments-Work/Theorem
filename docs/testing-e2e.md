@@ -130,7 +130,7 @@ contain it.
 
 ## CI
 
-`.github/workflows/ci.yml` has an `e2e` job on `ubuntu-22.04` (Xvfb,
+`.github/workflows/ci.yml` has an `e2e` job on `ubuntu-22.04` (headless Mutter,
 `webkit2gtk-driver`, `tauri-driver`). It is `continue-on-error: true` until it
 has been reliably green on hosted runners; screenshots of timeouts are
 uploaded as the `e2e-artifacts` artifact.
@@ -166,3 +166,15 @@ The reading setup flow verifies that completion survives restart and Settings
 has no replay entry. Fresh profiles capture every setup and guide step at
 desktop and phone widths; controls must fit the viewport with 44px touch targets.
 The E2E feature alone lowers the desktop minimum window size for phone layouts.
+
+Hosted CI uses the same isolated headless Mutter path as local validation, with
+Mesa software rendering installed explicitly and forced with
+`LIBGL_ALWAYS_SOFTWARE=1`. In the previous Ubuntu/Xvfb run,
+UI assertions and navigation completed but WebKitWebDriver’s screenshot
+requests never returned; its screenshot-dependent specs timed out. Choosing
+Mutter keeps the real screenshot assertions and exercises the compositor path
+that passes locally. Xvfb remains an explicitly selectable fallback for local
+diagnostics; it is not the CI screenshot backend.
+
+This follows [GNOME’s headless GTK testing setup](https://gnome.pages.gitlab.gnome.org/pygobject/guide/testing.html),
+which runs GTK applications under an isolated headless Wayland Mutter process.
