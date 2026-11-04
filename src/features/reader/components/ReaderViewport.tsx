@@ -3,7 +3,7 @@ import { isNativeRangeFile, type BookSource } from "../../../core/lib/native-ran
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState, memo } from 'react';
 import { useDocumentReader } from '../hooks/useDocumentReader';
 import { FootnotePopover } from './FootnotePopover';
-import type { FootnoteData } from '../engines/foliate-engine';
+import type { FootnoteData, MediaOverlayPlayer } from '../engines/foliate-engine';
 import { cn } from "../../../core/lib/utils";
 import { PageLoader } from "../../../ui";
 import { getSettingsChanges } from "../../../core/lib/design-tokens";
@@ -46,6 +46,8 @@ export interface ReaderViewportHandle {
     getVisibleTextForTts: () => { text: string; startWordId: string } | null;
     getAllSectionsForAudio: () => Promise<{ id: string; title: string; text: string }[]>;
     getNextPageTextForTts: () => { text: string; startWordId: string } | null;
+    getMediaOverlay: () => MediaOverlayPlayer | null;
+    startMediaOverlay: () => Promise<void>;
 }
 
 interface ReaderViewportProps {
@@ -194,6 +196,8 @@ export const ReaderViewport = memo(forwardRef<ReaderViewportHandle, ReaderViewpo
         getAllSectionsForAudio: () => getAllSectionsForAudio(),
         getNextPageTextForTts: () => getNextPageTextForTts(),
         getSectionFractions: () => getEngine()?.getSectionFractions() ?? [],
+        getMediaOverlay: () => getEngine()?.getMediaOverlay() ?? null,
+        startMediaOverlay: async () => { await getEngine()?.startMediaOverlay(); },
     }), [next, prev, goToFraction, goTo, goToAnnotation, goBack, goForward, canGoBack, canGoForward, search, clearSearch, addHighlight, addAnnotation, removeHighlight, loadAnnotations, clearSelection, getVisibleTextForTts, getAllSectionsForAudio, getNextPageTextForTts, getEngine]);
 
     const onHistoryChangeRef = useRef(onHistoryChange);

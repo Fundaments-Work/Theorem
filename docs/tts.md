@@ -3,7 +3,25 @@
 Theorem has two narration paths: **platform TTS** (always available, zero
 download) and the **Neural Voice** engine (Supertonic 3, fp32, downloaded on
 demand on desktop). A third path — attached human-narrated audiobooks — is
-covered in [audiobook.md](audiobook.md).
+covered in [audiobook.md](audiobook.md). A fourth, narration the book ships
+itself, is described under [Media Overlays](#media-overlays-read-along).
+
+## Media Overlays (read along)
+
+Some EPUB 3 books ship recorded narration synced to the text through SMIL files.
+Toggling immersion mode on such a book swaps the TTS row for
+`src/features/reader/audio/MediaOverlayBar.tsx`, which drives `MediaOverlay`
+(`foliate-js-runtime/epub.js`) through `FoliateEngine.getMediaOverlay()` and
+`startMediaOverlay()`:
+
+- An attached audiobook takes priority over a book's own overlay.
+- Playback starts at the beginning of the current section, not the current page.
+- Controls: play/pause, previous/next phrase, speed, minute sleep timer, and
+  system media keys. Speed is not saved between sessions.
+- The spoken phrase gets the book's `media:active-class`, or `media-active` if
+  it declares none. `getCSS` styles either one from the theme, because the theme
+  forces every element's background and would hide the book's own rule.
+- Closing the view stops narration.
 
 ## Platform-Specific Backends (fallback path)
 

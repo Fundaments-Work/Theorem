@@ -71,6 +71,7 @@ import { immersionPlayer, getNeuralStatus, resolveNeuralVoice } from "./audio/Im
 import { showTtsError } from "./audio/tts-errors";
 import { toast } from "sonner";
 import { AudiobookBar } from "./audio/AudiobookBar";
+import { MediaOverlayBar } from "./audio/MediaOverlayBar";
 import { SpeedReader } from "./components/SpeedReader";
 import { resumeDecision } from "./lib/resume-progress";
 
@@ -362,12 +363,19 @@ const BookReaderPage = memo(function BookReaderPage() {
         [currentBook?.filePath, currentBook?.format],
     );
     const audioTrack = currentBook?.audioTrack;
-    // Pause platform/neural narration while the human-narrated player is active.
+    // A book's own synced narration replaces generated speech. An audiobook the
+    // user attached on purpose still wins over it.
+    const [isBookReady, setIsBookReady] = useState(false);
+    const mediaOverlay = useMemo(
+        () => (immersionMode && !audioTrack && isBookReady ? readerRef.current?.getMediaOverlay?.() ?? null : null),
+        [immersionMode, audioTrack, currentBookId, isBookReady],
+    );
+    // Pause platform/neural narration while a human-narrated player is active.
     useEffect(() => {
-        if (immersionMode && audioTrack) {
+        if (immersionMode && (audioTrack || mediaOverlay)) {
             immersionPlayer.stop();
         }
-    }, [immersionMode, audioTrack]);
+    }, [immersionMode, audioTrack, mediaOverlay]);
 
     const isPdfFormat = currentBook?.format === 'pdf';
 
@@ -1591,10 +1599,10 @@ const BookReaderPage = memo(function BookReaderPage() {
     // Neural voice: warm the next page's first synthesized chunks while the
     // current page reads, so turning the page doesn't wait on synthesis.
     useEffect(() => {
-        if (isPdfFormat || !ttsEnabled || !immersionMode || !ttsData) return;
+        if (isPdfFormat || !ttsEnabled || !immersionMode || !ttsData || mediaOverlay) return;
         const next = readerRef.current?.getNextPageTextForTts?.();
         if (next?.text) void immersionPlayer.prefetch(next.text, ttsSpeakOptions());
-    }, [ttsData, isPdfFormat, ttsEnabled, immersionMode, ttsSpeakOptions]);
+    }, [ttsData, isPdfFormat, ttsEnabled, immersionMode, mediaOverlay, ttsSpeakOptions]);
 
     useEffect(() => {
         if (!isPdfFormat || !currentBookId || pdfTotalPages <= 0) {
@@ -2115,7 +2123,6 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const isPdfPageBookmarked = bookmarkByPage.has(pdfCurrentPage);
 
-    const [isBookReady, setIsBookReady] = useState(false);
 
     const isCurrentPageBookmarked = location?.cfi ? bookmarkByLocation.has(location.cfi) : false;
 
@@ -3143,7 +3150,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onSeek={handleSeek}
                         totalPages={location?.pageInfo?.totalPages}
                         onToggleToc={() => togglePanel('toc')}
-                        immersionMode={immersionMode && !audioTrack}
+                        immersionMode={immersionMode && !audioTrack && !mediaOverlay}
                         ttsState={ttsState}
                         onTtsPlay={handleTtsPlay}
                         onTtsPause={handleTtsPause}
@@ -3165,6 +3172,19 @@ const BookReaderPage = memo(function BookReaderPage() {
                                 : shouldShowReaderChrome ? "translate-y-0" : "translate-y-full pointer-events-none",
                         )}
                     />
+
+                    {mediaOverlay && currentBook && (
+                        <MediaOverlayBar
+                            key={currentBook.id}
+                            overlay={mediaOverlay}
+                            onStart={() => readerRef.current?.startMediaOverlay?.() ?? Promise.resolve()}
+                            bookTitle={currentBook.title}
+                            bookAuthor={currentBook.author}
+                            bookCover={currentBook.coverPath}
+                            visible={shouldShowReaderChrome}
+                            onClose={() => setImmersionMode(false)}
+                        />
+                    )}
 
                     {immersionMode && audioTrack && (
                         <AudiobookBar
