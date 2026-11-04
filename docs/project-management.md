@@ -48,7 +48,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full PR process. TL;DR:
 1. Work on the active release branch (`1.6.1`); keep only it and `main` after cleanup. Create a task branch only when the maintainer requests one.
 2. Atomic conventional commits (`feat:`, `fix:`, `chore:`, etc.)
 3. Run quality gates before opening
-4. CI runs typecheck, tests, build and Rust checks for pushes and pull requests to both maintained branches.
+4. CI runs relevant typechecks, unit tests, builds and Rust checks on main pushes, PRs targeting either maintained branch and manual runs. Native E2E runs locally before release.
 5. Maintainer reviews within a few days
 6. Integrate approved changes into `1.6.1`. Merge to `main` only with the maintainer’s approval; dependency PRs may be resolved on the release branch with a link to their integration commit. Remove their branches after integration.
 

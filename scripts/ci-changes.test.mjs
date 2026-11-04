@@ -32,25 +32,27 @@ ${apiFailure ? 'exit 1' : `cat '${dir}/previous'`}
         return { gates, diff };
     } finally { rmSync(dir, { recursive: true, force: true }); }
 }
-const all = { web: 'true', rust: 'true', android: 'true', e2e: 'true', workflows: 'true' };
-const none = { web: 'false', rust: 'false', android: 'false', e2e: 'false', workflows: 'false' };
+const all = { web: 'true', rust: 'true', android: 'true', workflows: 'true' };
+const none = { web: 'false', rust: 'false', android: 'false', workflows: 'false' };
 test('documentation and empty diffs skip all builds', () => {
     assert.deepEqual(select({ files: ['docs/release.md', 'CHANGELOG.md'] }).gates, none);
     assert.deepEqual(select().gates, none);
 });
-test('frontend changes select web and native E2E without Android lint', () => {
-    assert.deepEqual(select({ files: ['src/App.tsx'] }).gates, { ...none, web: 'true', e2e: 'true' });
+test('frontend changes select web without native builds', () => {
+    assert.deepEqual(select({ files: ['src/App.tsx'] }).gates, { ...none, web: 'true' });
 });
 test('native and dependency changes retain all required gates', () => {
-    for (const file of ['src-tauri/src/lib.rs', 'src-tauri/Cargo.lock', 'pnpm-lock.yaml', '.github/workflows/ci.yml']) {
-        const { gates } = select({ files: [file] });
-        assert.equal(gates.rust, 'true', file);
-        assert.equal(gates.android, 'true', file);
-        assert.equal(gates.e2e, 'true', file);
+    for (const [file, web, workflows] of [
+        ['src-tauri/src/lib.rs', 'false', 'false'],
+        ['src-tauri/Cargo.lock', 'false', 'false'],
+        ['pnpm-lock.yaml', 'true', 'false'],
+        ['.github/workflows/ci.yml', 'true', 'true'],
+    ]) {
+        assert.deepEqual(select({ files: [file] }).gates, { web, rust: 'true', android: 'true', workflows }, file);
     }
 });
-test('E2E harness edits select its runner', () => {
-    assert.deepEqual(select({ files: ['e2e/lib/app.mjs'] }).gates, { ...none, e2e: 'true', workflows: 'true' });
+test('local E2E harness edits select only fast helper checks', () => {
+    assert.deepEqual(select({ files: ['e2e/lib/app.mjs'] }).gates, { ...none, workflows: 'true' });
 });
 test('manual runs, missing baselines, unreachable commits and API failures check everything', () => {
     for (const options of [{ event: 'workflow_dispatch' }, { base: '' }, { unavailable: true },
@@ -62,7 +64,7 @@ test('pushes compare against the last validated commit rather than a cancelled p
     const { gates, diff } = select({ event: 'push', base: 'cancelled', previous: 'validated', files: ['src/App.tsx'] });
     assert.match(diff, /validated\nhead\n/);
     assert.doesNotMatch(diff, /cancelled/);
-    assert.equal(gates.e2e, 'true');
+    assert.equal(gates.web, 'true');
 });
 test('PRs use their base without querying main validation', () => {
     assert.match(select({ apiFailure: true }).diff, /base\nhead\n/);
@@ -76,6 +78,8 @@ test('workflow edits select lint without unrelated native jobs', () => {
     assert.equal(select({ files: ['scripts/ci-changes.sh'] }).gates.workflows, 'true');
 });
 
-test('nightly runs select native E2E without repeating web tests or Rust/Android checks', () => {
-    assert.deepEqual(select({ event: 'schedule', apiFailure: true }).gates, { ...none, e2e: 'true' });
+test('every local E2E edit avoids hosted application builds', () => {
+    for (const file of ['e2e/run.mjs', 'e2e/lib/specs.mjs', 'e2e/specs/reading-rhythm.test.mjs']) {
+        assert.deepEqual(select({ files: [file] }).gates, { ...none, workflows: 'true' });
+    }
 });

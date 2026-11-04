@@ -5,11 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.1] - Unreleased
+## [1.6.1] - 2026-11-04 (Pre-release)
 
 ### Features & Enhancements
 
-- **Lighter hosted E2E** — Relevant main pushes run the existing launch, import/search and reader-position smoke checks. Full E2E moves to nightly/manual runs; local full coverage stays available, and nightly runs avoid repeating daytime unit/lint and Android checks.
+- **Local E2E release verification** — Run the complete native E2E suite locally before tagging. GitHub keeps unit tests, lint, typechecks, security scans and release builds without hosted E2E jobs, nightly schedules or native test-binary builds.
 
 - **ZIP maintenance patch** — Update to zip 9.2.1, including its writer cleanup and getrandom build fix.
 
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sync dependency compatibility** — Keep docs and blobs versions aligned until their coordinated upgrade is available.
 
-- **Workflow efficiency** — Run automatic CI once on main, select relevant gates without losing coverage after cancellations, reuse frontend and E2E binaries, and share one frontend/icon build across release platforms. Workflow and helper shell checks protect job selection; dry runs reject missing installers/signatures and clear stale bundles. Manual releases use the exact requested tag; patch releases are marked prereleases. Docs-only updates no longer redeploy the product landing page.
+- **Workflow efficiency** — Run automatic CI once on main, select relevant gates without losing coverage after cancellations, share verified frontend assets with native checks, and share one frontend/icon build across release platforms. Workflow and helper shell checks protect job selection; dry runs reject missing installers/signatures and clear stale bundles. Manual releases use the exact requested tag; patch releases are marked prereleases. Docs-only updates no longer redeploy the product landing page.
 
 - **Release branch maintenance** — Pull requests and manual CI check `1.6.1`, and Dependabot targets the active release branch.
 

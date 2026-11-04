@@ -5,16 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main, "1.6.1"]
-  schedule:
-    # Full native suite once a night (03:02 Nepal time), separate from push CI.
-    - cron: '17 21 * * *'
   workflow_dispatch:
-    inputs:
-      e2e_suite:
-        description: Native E2E coverage
-        type: choice
-        options: [smoke, full]
-        default: smoke
 
 permissions:
   contents: read
@@ -22,7 +13,7 @@ permissions:
 
 # A newer push to the same branch/PR makes the in-flight run obsolete.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'full') && 'full-e2e' || github.event_name }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,7 +27,6 @@ jobs:
       web: ${{ steps.f.outputs.web }}
       rust: ${{ steps.f.outputs.rust }}
       android: ${{ steps.f.outputs.android }}
-      e2e: ${{ steps.f.outputs.e2e }}
       workflows: ${{ steps.f.outputs.workflows }}
     steps:
       - uses: actions/checkout@v7
@@ -68,9 +58,9 @@ jobs:
         run: node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs
 
   web:
-    name: ${{ github.event_name == 'schedule' && 'Frontend build for E2E' || 'Web (typecheck, design, tests, build)' }}
+    name: Web (typecheck, design, tests, build)
     needs: changes
-    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.rust == 'true' || (github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true')
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -93,15 +83,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        if: github.event_name != 'schedule'
         run: pnpm typecheck
 
       - name: Design-system rules
-        if: github.event_name != 'schedule'
         run: pnpm check:design
 
       - name: Test
-        if: github.event_name != 'schedule'
         run: pnpm test
 
       # Fails if the committed foliate runtime differs from the submodule plus our patches.
@@ -122,9 +109,9 @@ jobs:
           retention-days: 1
 
   rust-check:
-    name: ${{ github.event_name == 'schedule' && 'Build E2E app' || 'Rust Check' }}
+    name: Rust Check
     needs: [changes, web]
-    if: needs.changes.outputs.rust == 'true' || (github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true')
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
@@ -164,7 +151,6 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/tauri-driver
             src-tauri/target
           key: ${{ runner.os }}-native-check-v2-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
@@ -192,30 +178,6 @@ jobs:
       - name: Test
         if: needs.changes.outputs.rust == 'true'
         run: cargo test --manifest-path src-tauri/Cargo.toml --workspace --lib --tests
-
-      # Reuse Clippy/test dependencies rather than compiling in a separate job.
-      # E2E remains non-blocking; its runner reports a missing build as a failure.
-      - name: Prepare E2E binaries
-        id: e2e-build
-        if: github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          cargo build --manifest-path src-tauri/Cargo.toml --features e2e
-          command -v tauri-driver || cargo install tauri-driver --locked
-          mkdir -p e2e-bin
-          cp src-tauri/target/debug/theorem e2e-bin/theorem
-          cp "$(command -v tauri-driver)" e2e-bin/tauri-driver
-          strip e2e-bin/theorem e2e-bin/tauri-driver
-
-      - name: Share E2E binaries
-        if: steps.e2e-build.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: ci-e2e-binaries
-          path: e2e-bin
-          if-no-files-found: error
-          retention-days: 1
 
   rust-android-check:
     # Desktop CI does not compile the `cfg(target_os = "android")` code; the
@@ -296,67 +258,3 @@ jobs:
       # The release also builds 32-bit APKs, where usize is 32 bits wide.
       - name: Clippy (armv7-linux-androideabi, 32-bit)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --target armv7-linux-androideabi -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
-
-  e2e:
-    # End-to-end suite (docs/testing-e2e.md): the real app built with
-    # `--features e2e`, driven through tauri-driver + WebKitWebDriver under headless Mutter.
-    # Non-blocking while hosted WebKit screenshot failures are investigated.
-    # The Rust job supplies the binary; this job only installs the runtime and runs tests.
-    name: E2E (${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'full') && 'full' || 'smoke' }}, Linux, non-blocking)
-    needs: [changes, rust-check]
-    if: github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true'
-    runs-on: ubuntu-22.04
-    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.e2e_suite == 'full') && 25 || 10 }}
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      # pnpm must be on PATH before setup-node so its built-in pnpm store cache works.
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install dependencies (Ubuntu)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-2 libasound2 webkit2gtk-driver mutter libegl-mesa0 libgl1-mesa-dri dbus
-
-      - name: Restore E2E binaries
-        uses: actions/download-artifact@v8
-        with:
-          name: ci-e2e-binaries
-          path: e2e-bin
-
-      - name: Restore executable permissions
-        run: chmod +x e2e-bin/theorem e2e-bin/tauri-driver
-
-      - name: Run selected E2E suite
-        env:
-          E2E_SUITE: ${{ github.event_name == 'schedule' && 'full' || inputs.e2e_suite || 'smoke' }}
-          THEOREM_E2E_BINARY: ${{ github.workspace }}/e2e-bin/theorem
-          TAURI_DRIVER: ${{ github.workspace }}/e2e-bin/tauri-driver
-          THEOREM_E2E_DISPLAY: mutter
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          THEOREM_E2E_ARTIFACTS: ${{ github.workspace }}/e2e/.artifacts
-        run: |
-          if [[ "$E2E_SUITE" == full ]]; then
-            pnpm e2e
-          else
-            pnpm e2e --smoke
-          fi
-
-      - name: Upload failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-artifacts
-          path: e2e/.artifacts
-          if-no-files-found: ignore

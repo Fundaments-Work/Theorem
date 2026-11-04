@@ -136,28 +136,18 @@ contain it.
 
 ## CI
 
-`.github/workflows/ci.yml` has an `e2e` job on `ubuntu-22.04` (headless Mutter,
-`webkit2gtk-driver`, `tauri-driver`). It is `continue-on-error: true` until it
-has been reliably green on hosted runners; screenshots of timeouts are
-uploaded as the `e2e-artifacts` artifact. Relevant main pushes run the small
-smoke suite: first launch, book import/search and reader position across restart.
-PRs retain their fast checks and do not add a native E2E build. Documentation-only
-pushes skip E2E. No existing spec or assertion is removed from the full suite.
+GitHub does not build or run the native E2E executable. There is no push,
+nightly or manual hosted E2E job. CI retains frontend/Rust unit tests, lint,
+typechecks, Android compilation checks and security scans. The fast Node helper
+tests for spec selection and WebDriver timeouts still run when E2E files change;
+they do not launch Theorem, a browser or a compositor.
 
-The full suite runs nightly at 21:17 UTC (03:02 Nepal time) and can be requested
-through Actions → CI → Run workflow → `e2e_suite: full`. Manual runs default to
-`smoke`; local `pnpm e2e` still defaults to the full suite. Run full local E2E
-before a release. The nightly path builds the app and runs full E2E without
-repeating frontend unit tests, Rust lint/unit tests or Android checks. Nightly
-and manually requested full runs share a cancellation group per branch;
-pushes have a separate group and do not interrupt full coverage. Smoke runners
-have a ten-minute execution limit;
-full runners have twenty-five minutes, separate from the native build timeout.
-
-Both suites reuse the verified frontend and stripped executable copy from the
-web/Rust jobs rather than rebuilding on the E2E runner. Fast Node harness tests
-run in the selected workflow-check job, including on PRs that change E2E files.
-See `docs/release.md` for selection and artifact handling.
+Run relevant E2E specs locally while developing, and run the complete local
+`pnpm e2e` suite on the exact final release commit before tagging. Use
+`pnpm e2e --smoke` for an optional quick local check. The local suite and every
+existing assertion remain available. Keep the gate log and full E2E result with
+the release verification record. The tradeoff is that GitHub no longer provides
+independent UI verification; revisit hosted E2E when a reliable runner is ready.
 
 
 The reading-rhythm scenario chooses a goal, imports and opens a book, checks the
@@ -191,7 +181,7 @@ has no replay entry. Fresh profiles capture every setup and guide step at
 desktop and phone widths; controls must fit the viewport with 44px touch targets.
 The E2E feature alone lowers the desktop minimum window size for phone layouts.
 
-Hosted CI uses an isolated headless Mutter display and Mesa software rendering
+The previous hosted configuration used an isolated headless Mutter display and Mesa software rendering
 (`LIBGL_ALWAYS_SOFTWARE=1`). Keep WebKit compositing enabled in the test fixture;
 software rendering does not require disabling compositing. The fixture disables
 DMA-BUF hardware buffers instead.

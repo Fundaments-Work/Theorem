@@ -32,7 +32,7 @@
 
 6. **Landing page automated rebuild hook**:
    - Theorem landing page (`theorem-landing`) auto-rebuilds via `.github/workflows/notify-landing.yml` upon release publication using repository secret `CLOUDFLARE_DEPLOY_HOOK_URL`.
-   - The Hugo build parses `CHANGELOG.md` directly from `main` and updates `https://theorem.fundaments.work/changelog/`.
+   - The landing build parses `CHANGELOG.md` directly from `main` and updates `https://theorem.fundaments.work/changelog/`.
 
 7. **Tag and push**:
    ```bash
@@ -100,13 +100,11 @@ the maintainer’s approval of the release/tag step.
 
 ### Workflow selection and shared builds
 
-`scripts/ci-changes.sh` selects web, Rust, Android and E2E checks by changed paths.
+`scripts/ci-changes.sh` selects web, Rust, Android and workflow checks by changed paths.
 A main push compares against the last successful main CI run rather than the
 immediately preceding commit: cancelling an older run cannot drop its unchecked
 changes. PRs compare against their base; manual runs, an unavailable baseline or
 an API failure select every gate. Documentation-only changes skip build jobs.
-Nightly runs select only the frontend/native build needed for full E2E, skipping
-the daytime unit/lint and Android jobs.
 Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` to verify
 selection, cancellation coverage, unavailable baselines, release-tag checkout,
 prerelease classification and request timeouts.
@@ -117,17 +115,11 @@ Local actionlint validation must have ShellCheck on PATH (or pass its path with
 `actionlint` (v1.7.12) or `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`.
 
 The web job uploads one verified `dist` artifact. The Rust job restores it for
-all-feature linting and builds the E2E executable using the same Cargo cache as
-the normal Rust checks. It strips copies of the executable and tauri-driver for
-transfer; the E2E runner restores executable permissions and installs runtime
-packages, without another Rust or frontend build. E2E remains non-blocking and
-its hosted WebKit screenshot failures remain visible; artifact reuse does not
-skip assertions. Relevant main pushes use the launch/import/reader smoke suite;
-full coverage runs nightly at 21:17 UTC or through the manual `e2e_suite: full`
-choice. Manual CI defaults to smoke, while local `pnpm e2e` remains full. PRs do
-not add native E2E builds. Frontend/E2E-only changes can build the native E2E app
-without rerunning unrelated Rust tests. The smoke/full policy is documented in
-`docs/testing-e2e.md`; full local E2E is required before release.
+all-feature linting without building a runnable E2E executable. GitHub has no
+native E2E job, nightly schedule or manual E2E mode. Frontend-only changes do
+not trigger native E2E builds. Fast Node helper tests still protect workflow
+selection and the local E2E tooling. Run the complete native suite locally on
+the exact release commit before tagging; see `docs/testing-e2e.md`.
 
 Release and manual dry-run workflows use the same composite frontend actions.
 One Linux job checks the Foliate runtime, builds/verifies the frontend, generates
