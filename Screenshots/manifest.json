@@ -1,13 +1,8 @@
 {
   "sourceVersion": "1.6.1",
-  "sourceCommit": "3828904cf4f487cefca0c24f6ddcccff08d67c02",
-  "sourceCodeChanges": [
-    "package.json",
-    "pnpm-lock.yaml",
-    "public/wasm/theorem_core_bg.wasm",
-    "src/core/wasm/theorem_core_bg.wasm"
-  ],
-  "capturedAt": "2026-11-04T08:41:32.458Z",
+  "sourceCommit": "29f5b231d4c01204fbfa1235a1806c7ef273def5",
+  "sourceCodeChanges": [],
+  "capturedAt": "2026-11-04T08:57:03.219Z",
   "content": {
     "books": [
       {
