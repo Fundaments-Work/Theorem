@@ -391,20 +391,30 @@ class MediaOverlay extends EventTarget {
     #volume = 1
     #rate = 1
     #state
+    // Bumped by every play, start and stop, so work that an interrupted one
+    // still has in flight can tell it was abandoned.
+    #session = 0
     constructor(book, loadXML) {
         super()
         this.book = book
         this.loadXML = loadXML
     }
-    async #loadSMIL(item) {
+    async #loadSMIL(item, session) {
         if (this.#lastMediaOverlayItem === item) return
         const doc = await this.loadXML(item.href)
+        if (session !== this.#session) return
         const resolve = href => href ? resolveURL(href, item.href) : null
+        // resolveURL drops the fragment, but it is what identifies the spoken phrase.
+        const resolveText = href => {
+            const path = resolve(href)
+            const hash = href?.split('#')[1]
+            return path && hash ? `${path}#${hash}` : path
+        }
         const { $, $$$ } = childGetter(doc, NS.SMIL)
         this.#audioIndex = -1
         this.#itemIndex = -1
         this.#entries = $$$(doc, 'par').reduce((arr, $par) => {
-            const text = resolve($($par, 'text')?.getAttribute('src'))
+            const text = resolveText($($par, 'text')?.getAttribute('src'))
             const $audio = $($par, 'audio')
             if (!text || !$audio) return arr
             const src = resolve($audio.getAttribute('src'))
@@ -418,7 +428,7 @@ class MediaOverlay extends EventTarget {
         this.#lastMediaOverlayItem = item
     }
     get #activeAudio() {
-        return this.#entries[this.#audioIndex]
+        return this.#entries?.[this.#audioIndex]
     }
     get #activeItem() {
         return this.#activeAudio?.items?.[this.#itemIndex]
@@ -433,20 +443,28 @@ class MediaOverlay extends EventTarget {
     #unhighlight() {
         this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
     }
-    async #play(audioIndex, itemIndex) {
+    #playFailed(audio, e) {
+        // play() rejects with AbortError whenever a pause interrupts it.
+        if (this.#audio === audio && e?.name !== 'AbortError') this.#error(e)
+    }
+    async #play(audioIndex, itemIndex, startAt) {
+        const session = ++this.#session
         this.#stop()
         this.#audioIndex = audioIndex
         this.#itemIndex = itemIndex
         const src = this.#activeAudio?.src
         if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
 
-        const url = URL.createObjectURL(await this.book.loadBlob(src))
+        const blob = await this.book.loadBlob(src)
+        if (session !== this.#session) return
+        const position = startAt ?? this.#activeItem.begin ?? 0
+        const url = URL.createObjectURL(blob)
         const audio = new Audio(url)
         this.#audio = audio
         audio.volume = this.#volume
         audio.playbackRate = this.#rate
         audio.addEventListener('timeupdate', () => {
-            if (audio.paused) return
+            if (audio.paused || this.#audio !== audio) return
             const t = audio.currentTime
             const { items } = this.#activeAudio
             if (t > this.#activeItem?.end) {
@@ -460,10 +478,14 @@ class MediaOverlay extends EventTarget {
             while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
             if (this.#itemIndex !== oldIndex) this.#highlight()
         })
-        audio.addEventListener('error', () =>
-            this.#error(new Error(`Failed to load ${src}`)))
-        audio.addEventListener('playing', () => this.#highlight())
+        audio.addEventListener('error', () => {
+            if (this.#audio === audio) this.#error(new Error(`Failed to load ${src}`))
+        })
+        audio.addEventListener('playing', () => {
+            if (this.#audio === audio) this.#highlight()
+        })
         audio.addEventListener('ended', () => {
+            if (this.#audio !== audio) return
             this.#unhighlight()
             URL.revokeObjectURL(url)
             this.#audio = null
@@ -471,25 +493,38 @@ class MediaOverlay extends EventTarget {
         })
         if (this.#state === 'paused') {
             this.#highlight()
-            audio.currentTime = this.#activeItem.begin ?? 0
+            audio.currentTime = position
         }
         else audio.addEventListener('canplaythrough', () => {
-            
-            audio.currentTime = this.#activeItem.begin ?? 0
-            this.#state = 'playing'
-            audio.play().catch(e => this.#error(e))
+            if (this.#audio !== audio) return
+            const start = () => {
+                if (this.#audio !== audio || this.#state === 'paused') return
+                this.#state = 'playing'
+                audio.play().catch(e => this.#playFailed(audio, e))
+            }
+            // Playing while the seek is still in progress appears to leave WebKitGTK
+            // silent, with its clock running as if nothing were wrong.
+            if (Math.abs(audio.currentTime - position) < 0.01) return start()
+            audio.addEventListener('seeked', start, { once: true })
+            audio.currentTime = position
         }, { once: true })
     }
     async start(sectionIndex, filter = () => true) {
         this.#audio?.pause()
         const section = this.book.sections[sectionIndex]
         const href = section?.id
-        if (!href) return
+        if (!href) {
+            this.#state = 'stopped'
+            this.dispatchEvent(new CustomEvent('finished'))
+            return
+        }
 
         const { mediaOverlay } = section
         if (!mediaOverlay) return this.start(sectionIndex + 1)
         this.#sectionIndex = sectionIndex
-        await this.#loadSMIL(mediaOverlay)
+        const session = ++this.#session
+        await this.#loadSMIL(mediaOverlay, session)
+        if (session !== this.#session) return
 
         for (let i = 0; i < this.#entries.length; i++) {
             const { items } = this.#entries[i]
@@ -498,6 +533,8 @@ class MediaOverlay extends EventTarget {
                     return this.#play(i, j).catch(e => this.#error(e))
             }
         }
+        // Nothing to read here, and nothing else would ever report that.
+        return this.start(sectionIndex + 1)
     }
     pause() {
         this.#state = 'paused'
@@ -505,29 +542,40 @@ class MediaOverlay extends EventTarget {
     }
     resume() {
         this.#state = 'playing'
-        this.#audio?.play().catch(e => this.#error(e))
+        const audio = this.#audio
+        audio?.play().catch(e => this.#playFailed(audio, e))
     }
     #stop() {
         if (this.#audio) {
             this.#audio.pause()
             URL.revokeObjectURL(this.#audio.src)
+            // Pausing keeps the media pipeline alive; this releases it.
+            this.#audio.removeAttribute('src')
+            this.#audio.load()
             this.#audio = null
             this.#unhighlight()
         }
     }
     stop() {
+        this.#session++
         this.#state = 'stopped'
         this.#stop()
     }
     prev() {
-        if (this.#itemIndex > 0) this.#play(this.#audioIndex, this.#itemIndex - 1)
+        const failed = e => this.#error(e)
+        if (this.#itemIndex > 0) this.#play(this.#audioIndex, this.#itemIndex - 1).catch(failed)
         else if (this.#audioIndex > 0) this.#play(this.#audioIndex - 1,
-            this.#entries[this.#audioIndex - 1].items.length - 1)
+            this.#entries[this.#audioIndex - 1].items.length - 1).catch(failed)
         else if (this.#sectionIndex > 0)
-            this.start(this.#sectionIndex - 1, (_, i, items) => i === items.length - 1)
+            this.start(this.#sectionIndex - 1, (_, i, items) => i === items.length - 1).catch(failed)
     }
     next() {
-        this.#play(this.#audioIndex, this.#itemIndex + 1)
+        const items = this.#activeAudio?.items
+        if (!items) return
+        const failed = e => this.#error(e)
+        if (this.#itemIndex < items.length - 1)
+            this.#play(this.#audioIndex, this.#itemIndex + 1).catch(failed)
+        else this.#play(this.#audioIndex + 1, 0).catch(failed)
     }
     setVolume(volume) {
         this.#volume = volume
@@ -535,7 +583,17 @@ class MediaOverlay extends EventTarget {
     }
     setRate(rate) {
         this.#rate = rate
-        if (this.#audio) this.#audio.playbackRate = rate
+        const audio = this.#audio
+        if (!audio) return // anything still fetching picks up #rate when it is created
+        // HAVE_FUTURE_DATA: before this the element has not started, so it can just be told.
+        if (audio.readyState < 3) {
+            audio.playbackRate = rate
+            return
+        }
+        // Changing the rate of a playing element silences WebKitGTK for a while,
+        // though its clock keeps running. A new element starting at the rate is fine.
+        this.#play(this.#audioIndex, this.#itemIndex, audio.currentTime)
+            .catch(e => this.#error(e))
     }
 }
 
