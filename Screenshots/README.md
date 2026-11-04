@@ -1,6 +1,6 @@
 # Theorem 1.6.1 screenshots
 
-Captured from commit `29f5b231`. These are genuine app captures with staged public-domain books, live feed subscriptions, highlights, vocabulary and sample reading history. Phone images show the responsive browser interface; they are not Android OS screenshots.
+Captured from commit `83f15373`. These are genuine app captures with staged public-domain books, live feed subscriptions, highlights, vocabulary and sample reading history. Phone images show the responsive browser interface; they are not Android OS screenshots.
 
 ![Desktop contact sheet](contact-sheet-desktop.png)
 
