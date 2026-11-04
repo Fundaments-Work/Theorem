@@ -104,7 +104,7 @@ nucleo-matcher = "0.3.1"
 percent-encoding = "2"
 iroh = "1.0.2"
 iroh-docs = "0.101.0"
-iroh-blobs = { version = "0.103.0", features = ["fs-store"] }
+iroh-blobs = { version = "0.104.0", features = ["fs-store"] }
 iroh-gossip = "0.101.0"
 iroh-mdns-address-lookup = "0.6.0"
 readability = { version = "0.3.0", default-features = false }

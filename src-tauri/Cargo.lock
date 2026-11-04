@@ -585,6 +585,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "bao-tree"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50d0e17303b78c9bb240014f3f401ecae5c0460438ace49a171e5f97e3ae57ba"
+dependencies = [
+ "blake3",
+ "bytes",
+ "futures-lite",
+ "genawaiter",
+ "iroh-io",
+ "positioned-io",
+ "range-collections",
+ "self_cell",
+ "serde",
+ "smallvec",
+ "tokio",
+]
+
+[[package]]
 name = "base16ct"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3395,7 +3414,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3148ad01585eb6b7cfb641e4100564f4f56db644f4cbed8c10ab2478663161f"
 dependencies = [
  "arrayvec",
- "bao-tree",
+ "bao-tree 0.16.1",
  "bytes",
  "cfg_aliases",
  "chrono",
@@ -3410,7 +3429,47 @@ dependencies = [
  "iroh-io",
  "iroh-metrics",
  "iroh-tickets",
- "iroh-util",
+ "iroh-util 0.6.0",
+ "irpc",
+ "n0-error",
+ "n0-future",
+ "nested_enum_utils",
+ "noq",
+ "postcard",
+ "rand 0.10.3",
+ "range-collections",
+ "redb 4.3.0",
+ "ref-cast",
+ "reflink-copy",
+ "self_cell",
+ "serde",
+ "smallvec",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "iroh-blobs"
+version = "0.104.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7880fd27004f713cfb220b494036613a439cff4e9c17d16d5179e8440f90cb0d"
+dependencies = [
+ "bao-tree 0.17.0",
+ "bytes",
+ "cfg_aliases",
+ "chrono",
+ "constant_time_eq 0.4.2",
+ "data-encoding",
+ "derive_more",
+ "genawaiter",
+ "getrandom 0.4.3",
+ "hex",
+ "iroh",
+ "iroh-base",
+ "iroh-io",
+ "iroh-metrics",
+ "iroh-tickets",
+ "iroh-util 0.7.0",
  "irpc",
  "n0-error",
  "n0-future",
@@ -3467,7 +3526,7 @@ dependencies = [
  "futures-buffered",
  "hex",
  "iroh",
- "iroh-blobs",
+ "iroh-blobs 0.103.1",
  "iroh-gossip",
  "iroh-metrics",
  "iroh-tickets",
@@ -3662,6 +3721,20 @@ name = "iroh-util"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20e41eb982f15230c55f0a70a74a514360e1f565b07861924fd0e8db172b3d00"
+dependencies = [
+ "derive_more",
+ "iroh",
+ "n0-error",
+ "n0-future",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "iroh-util"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "889d5cc9da2eaac9f63657237c491db17d1fe9fffdc7c0f2f0e04c49d5d45053"
 dependencies = [
  "derive_more",
  "iroh",
@@ -8284,7 +8357,7 @@ dependencies = [
  "id3",
  "image",
  "iroh",
- "iroh-blobs",
+ "iroh-blobs 0.104.0",
  "iroh-docs",
  "iroh-gossip",
  "iroh-mdns-address-lookup",
