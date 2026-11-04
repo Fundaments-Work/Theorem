@@ -5,6 +5,11 @@ import { textWalker } from './text-walker.js'
 
 const SEARCH_PREFIX = 'foliate-search:'
 
+// Used when a book declares no media:active-class: getCSS styles the same default.
+export const DEFAULT_MEDIA_ACTIVE_CLASS = 'media-active'
+export const getMediaActiveClass = book =>
+    book.media?.activeClass ?? DEFAULT_MEDIA_ACTIVE_CLASS
+
 const isZip = async file => {
     const arr = new Uint8Array(await file.slice(0, 4).arrayBuffer())
     return arr[0] === 0x50 && arr[1] === 0x4b && arr[2] === 0x03 && arr[3] === 0x04
@@ -475,17 +480,22 @@ export class View extends HTMLElement {
         this.#root.append(this.renderer)
 
         if (book.sections.some(section => section.mediaOverlay)) {
-            const activeClass = book.media.activeClass
+            const activeClass = getMediaActiveClass(book)
             const playbackActiveClass = book.media.playbackActiveClass
             this.mediaOverlay = book.getMediaOverlay()
             let lastActive
+            let highlightId = 0
             this.mediaOverlay.addEventListener('highlight', e => {
+                const id = ++highlightId
                 const resolved = this.resolveNavigation(e.detail.text)
                 this.renderer.goTo(resolved)
                     .then(() => {
+                        // A later phrase may have started while the page was turning.
+                        if (id !== highlightId) return
                         const { doc } = this.renderer.getContents()
                             .find(x => x.index === resolved.index)
                         const el = resolved.anchor(doc)
+                        if (!el?.classList) return
                         el.classList.add(activeClass)
                         if (playbackActiveClass) el.ownerDocument
                             .documentElement.classList.add(playbackActiveClass)
@@ -493,6 +503,7 @@ export class View extends HTMLElement {
                     })
             })
             this.mediaOverlay.addEventListener('unhighlight', () => {
+                highlightId++
                 const el = lastActive?.deref()
                 if (el) {
                     el.classList.remove(activeClass)
@@ -512,6 +523,7 @@ export class View extends HTMLElement {
         this.lastLocation = null
         this.history.clear()
         this.tts = null
+        this.mediaOverlay?.stop()
         this.mediaOverlay = null
     }
     goToTextStart() {
