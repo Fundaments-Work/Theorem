@@ -9,11 +9,11 @@ paths-ignore:
   - dist
   - src-tauri/target
 
-  # Generated Tauri scaffolding (Android project, schemas)
-  - src-tauri/gen
+  # Generated schemas. MainActivity under gen/android is maintained code.
+  - src-tauri/gen/schemas
 
   # Vendored Tauri Android API (checked into the plugin directories)
-  - src-tauri/plugins/*/android
+  - src-tauri/plugins/*/android/.tauri
 
   # Upstream foliate-js submodule. Our patched runtime in
   # src/features/reader/foliate-js-runtime is still analyzed.

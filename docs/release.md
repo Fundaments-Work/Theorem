@@ -148,8 +148,17 @@ must exist at the selected tag; tags predating these actions need their original
 workflow. No workflow optimization itself grants permission to tag or publish.
 
 CodeQL keeps its weekly/manual scans and dependency/workflow-triggered main
-scans. It analyzes JavaScript/TypeScript, Rust, Actions and the Homebrew Ruby
-formula; the empty Python analysis job is removed. Documentation pushes dispatch
+scans. It analyzes JavaScript/TypeScript, Rust, Actions, the Homebrew Ruby
+formula and our Android Kotlin plugins; the empty Python analysis job is removed.
+The Java/Kotlin job compiles the two maintained plugin libraries with the Tauri
+Android API selected by `Cargo.lock`. Its isolated Gradle project lives in
+`.github/codeql/android`; it has no Rust, APK, signing or instrumentation tasks.
+This scan covers plugin code, not the generated Android application scaffolding.
+Kotlin needs compilation for CodeQL analysis ([GitHub build modes](https://docs.github.com/en/code-security/concepts/code-scanning/codeql/codeql-for-compiled-languages)).
+To reproduce locally, resolve the API path with the workflow's `cargo metadata`
+command, then run its Gradle compilation command from `.github/codeql/android`
+with Java 17, Gradle 8.14.3 and Android SDK 36. Use a clean checkout without
+signing configuration. Documentation pushes dispatch
 only the studio docs refresh. Releases and manual notification requests also
 refresh the product landing page, through one shared notification action. The
 release workflow calls it explicitly because releases published using

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Android security analysis** — Compile our maintained Kotlin plugins for CodeQL using the locked Tauri API, without a native build or APK packaging; stop excluding plugin sources as vendored code.
+
 - **Release cache isolation** — Remove persistent Cargo/pnpm caches from signed release builds, reject tags outside main, and remove the separate release dry-run workflow.
 
 - **Reliable local option clicks** — Keep native select controls clear of reading-reminder toasts during release verification, retaining the real click and persistence assertions.

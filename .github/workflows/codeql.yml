@@ -57,9 +57,6 @@ jobs:
           # Small build/tooling scripts committed to the repository.
           - language: ruby
             build-mode: none
-          # java-kotlin is intentionally omitted. The only Kotlin is Tauri's
-          # generated Android project and the vendored plugin API, and CodeQL
-          # requires a full Gradle build for Kotlin analysis.
 
     steps:
       - name: Checkout repository
@@ -96,3 +93,54 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
+
+  android:
+    name: Analyze (java-kotlin)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.14.3'
+          cache-disabled: true
+      - name: Resolve the locked Tauri Android API without compiling Rust
+        run: |
+          set -euo pipefail
+          cargo metadata --manifest-path src-tauri/Cargo.toml --locked --format-version 1 \
+            --filter-platform aarch64-linux-android |
+            jq -er '.packages[] | select(.name == "tauri") | .manifest_path | sub("/Cargo.toml$"; "/mobile/android")' \
+            > .github/codeql/android/tauri-path.txt
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: manual
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Compile maintained Android plugins
+        working-directory: .github/codeql/android
+        # This project contains only Android library modules: no Rust, APK,
+        # signing, app packaging, or instrumentation-test tasks are present.
+        run: >-
+          gradle :tts:compileDebugKotlin :folder:compileDebugKotlin
+          --no-daemon --no-build-cache --max-workers=2
+          -Dorg.gradle.jvmargs=-Xmx2g
+          -Pkotlin.compiler.execution.strategy=in-process
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:java-kotlin"
