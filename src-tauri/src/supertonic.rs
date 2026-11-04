@@ -780,16 +780,16 @@ pub mod desktop {
             }
         }
 
-        static ORT_INIT: OnceLock<Result<(), String>> = OnceLock::new();
-        let init_result = ORT_INIT.get_or_init(|| {
-            let _ = ort::init_from(&lib_path)
-                .map_err(|e| format!("Failed to load ONNX Runtime from {lib_path:?}: {e:?}"))?
-                .commit();
-            Ok(())
-        });
-        if let Err(err) = init_result {
-            return Err(err.clone());
-        }
+        static ORT_INIT: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
+        let environment = ORT_INIT
+            .get_or_init(|| {
+                ort::init_from(&lib_path)
+                    .map_err(|e| format!("Failed to load ONNX Runtime from {lib_path:?}: {e:?}"))?
+                    .build()
+                    .map_err(|e| format!("Failed to initialize ONNX Runtime: {e}"))
+            })
+            .as_ref()
+            .map_err(Clone::clone)?;
 
         let threads = std::thread::available_parallelism()
             .map(|n| n.get().min(8))
@@ -798,7 +798,7 @@ pub mod desktop {
             // Note: no explicit graph-optimization level — the default is
             // ORT_ENABLE_ALL, and some ort enum values are rejected by the
             // downloaded runtime ("graph_optimization_level is not valid").
-            Session::builder()
+            Session::builder(environment)
                 .map_err(|e| e.to_string())?
                 .with_intra_threads(threads)
                 .map_err(|e| e.to_string())?
@@ -1099,6 +1099,13 @@ pub mod desktop {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn bindings_keep_legacy_cpu_session_creation() {
+            // API 22 enables automatic EP selection, which fails with our
+            // verified 1.22 runtime; API 21 retains the existing CPU path.
+            assert_eq!(ort::MINOR_VERSION, 21);
+        }
 
         #[test]
         fn blank_text_has_no_chunks() {

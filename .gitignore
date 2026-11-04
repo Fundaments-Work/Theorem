@@ -111,3 +111,6 @@ squashfs-root/
 .design-sync/learnings/
 .design-sync/node_modules
 e2e/.artifacts/
+
+# Downloaded ONNX compatibility-test runtime
+/src-tauri/tests/fixtures/onnx-runtime/

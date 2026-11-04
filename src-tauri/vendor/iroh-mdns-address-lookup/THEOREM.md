@@ -1,6 +1,6 @@
 # Theorem's local patch
 
-Source: `iroh-mdns-address-lookup` 0.6.0 as published on crates.io, from
+Source: `iroh-mdns-address-lookup` 0.6.1 as published on crates.io, from
 <https://github.com/n0-computer/iroh-address-lookups>. Copyright 2025 N0, INC.;
 licensed MIT OR Apache-2.0. The upstream source, tests, example and normalized
 manifest are retained here.

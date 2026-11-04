@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.91"
 name = "iroh-mdns-address-lookup"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["n0 team"]
 build = false
 autolib = false

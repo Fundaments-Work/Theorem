@@ -19,7 +19,7 @@ internet access. Discovery must send and receive multicast on the hotspot
 interface even when that interface is not the default route, or appears after
 Theorem starts. A saved IP address from another network is only a hint.
 
-`iroh-mdns-address-lookup` 0.6.0 updates its advertised IP records on endpoint
+`iroh-mdns-address-lookup` 0.6.1 updates its advertised IP records on endpoint
 publications, but its `Discoverer::new_interactive` uses the default multicast
 interface and does not update interface membership with those records.
 `swarm-discovery` 0.6.3 provides `DropGuard::add_interface_v4` and
@@ -252,3 +252,13 @@ The real-node `reading_rhythm_converges_after_offline_reading_and_legacy_statist
 scenario covers three nodes, contributions accumulated without exchange, both
 exchange orders, replay, and a later legacy statistics payload. Pure Rust and
 browser-bridge tests cover goal conflicts, replay, invalid data and thresholds.
+
+### mDNS dependency updates
+
+The vendored 0.6.1 upstream now compares published endpoint content when
+deduplicating observations and derives lookup deadlines from discovery cadence.
+Its upstream source and tests are retained. It still does not join IPv4 multicast
+interfaces from endpoint publications, so Theorem reapplies the existing
+`add_interface_v4` / `remove_interface_v4` patch. Advertised address records alone
+do not change multicast membership. The non-default-interface scenario above
+must continue passing on upgrades.

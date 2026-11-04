@@ -139,3 +139,24 @@ TTS.
   neural-install shortcut when it is not). Toggling immersion mode on a book
   with an attached audiobook opens the audiobook player instead
   ([audiobook.md](audiobook.md)).
+
+### ONNX binding compatibility
+
+The `ort` binding uses API 21 explicitly, retaining the legacy CPU session path
+on the verified ONNX Runtime 1.22 assets downloaded by `tts_model`. In rc.15,
+enabling API 22 makes `SessionBuilder::new` set an automatic EP selection
+policy. Our 1.22 runtime exposes no automatic EP devices: its MaxEfficiency
+policy aborts on an empty device list, and PreferCPU returns an error. API 21
+avoids that automatic selection while the existing CPU backend remains usable.
+This rule was checked against ort rc.15’s session builder and the runtime’s
+`provider_policy_context.cc`, then verified with actual repeated inference.
+A binding update must not silently raise the selected API. With ort rc.15,
+`EnvironmentBuilder::build()` returns the environment and `Session::builder`
+borrows it explicitly. A process-wide `OnceLock` retains the environment and
+its initialization result for every session; initialization failures propagate
+without discarding them. Existing runtime downloads remain valid.
+
+The explicit `onnx_compatibility` integration test runs repeated Identity
+inference sessions against a separately downloaded, SHA-256-verified 1.22
+runtime. See `src-tauri/tests/fixtures/README.md`; it never uses personal TTS
+models or app data. The normal unit suite also guards the binding’s API level.

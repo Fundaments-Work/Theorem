@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Dependency maintenance** — Update the JavaScript, Rust and CI dependencies, preserve hotspot discovery in the mDNS upgrade, and adapt neural speech to the new ONNX environment API while retaining compatibility with installed runtimes.
+
 - **Updated screenshots and user guides** — Fresh public-domain books and cultural feeds illustrate the current desktop and phone layouts, with a placement guide, reading rhythm, attached notes and optional navigation.
 
 - **Optional Discover and Feeds tabs (#173)** — Settings → General can hide either destination from the phone bottom bar and desktop sidebar on each device. Remaining tabs fill the space; restoring a tab retains its data and keyboard shortcuts keep their existing numbers.
