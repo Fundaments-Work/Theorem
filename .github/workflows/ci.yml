@@ -265,6 +265,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: WebDriver client regressions
+        run: node --test e2e/lib/webdriver.test.mjs
+
       - name: Install dependencies (Ubuntu)
         run: |
           sudo apt-get update

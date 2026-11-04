@@ -167,14 +167,22 @@ has no replay entry. Fresh profiles capture every setup and guide step at
 desktop and phone widths; controls must fit the viewport with 44px touch targets.
 The E2E feature alone lowers the desktop minimum window size for phone layouts.
 
-Hosted CI uses the same isolated headless Mutter path as local validation, with
-Mesa software rendering installed explicitly and forced with
-`LIBGL_ALWAYS_SOFTWARE=1`. In the previous Ubuntu/Xvfb run,
-UI assertions and navigation completed but WebKitWebDriver’s screenshot
-requests never returned; its screenshot-dependent specs timed out. Choosing
-Mutter keeps the real screenshot assertions and exercises the compositor path
-that passes locally. Xvfb remains an explicitly selectable fallback for local
-diagnostics; it is not the CI screenshot backend.
+Hosted CI uses an isolated headless Mutter display and Mesa software rendering
+(`LIBGL_ALWAYS_SOFTWARE=1`). Keep WebKit compositing enabled in the test fixture;
+software rendering does not require disabling compositing. The fixture disables
+DMA-BUF hardware buffers instead.
 
-This follows [GNOME’s headless GTK testing setup](https://gnome.pages.gitlab.gnome.org/pygobject/guide/testing.html),
-which runs GTK applications under an isolated headless Wayland Mutter process.
+In [WebKitGTK 2.50.4’s automation implementation](https://github.com/WebKit/WebKit/blob/webkitgtk-2.50.4/Source/WebKit/UIProcess/Automation/WebAutomationSession.cpp),
+`takeScreenshot` waits for `callAfterNextPresentationUpdate` before reading the
+view snapshot. The old fixture disabled compositing, and hosted screenshot
+requests stalled even though DOM assertions completed. Both Xvfb and Mutter
+showed that failure on the runner; changing only the compositor was insufficient.
+The fixture now preserves the presentation pipeline while using software GL.
+
+The WebDriver client also bounds HTTP requests to 35 seconds, above the remote
+30-second script timeout. A stalled driver is cancelled instead of waiting for
+Node’s five-minute header timeout. `node --test e2e/lib/webdriver.test.mjs`
+checks stalled and healthy screenshot responses. Existing UI and screenshot
+assertions remain the regression coverage.
+
+The isolated compositor follows [GNOME’s headless GTK testing setup](https://gnome.pages.gitlab.gnome.org/pygobject/guide/testing.html).

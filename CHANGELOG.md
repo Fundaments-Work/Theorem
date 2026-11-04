@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
-- **CI screenshots** — Run the real-app screenshot suite on an isolated headless Mutter compositor with Mesa instead of the Ubuntu/Xvfb configuration whose screenshot requests stalled.
+- **CI screenshots** — Preserve WebKit presentation updates with Mesa software compositing, and cancel stalled WebDriver requests instead of waiting for a five-minute header timeout. Keep the real UI and screenshot assertions.
 
 - **Library after Settings** — Returning from a scrolled Settings page resets the shared outer viewport so Library is fully visible again, while preserving the book grid’s own scroll position.
 

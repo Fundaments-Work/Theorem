@@ -3,6 +3,8 @@
 
 const SHIFT_KEYS = {"~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0", "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/"};
 
+const COMMAND_REQUEST_TIMEOUT_MS = 35000;
+
 const ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
 
 export class WebDriverError extends Error {
@@ -13,9 +15,10 @@ export class WebDriverError extends Error {
 }
 
 export class Session {
-    constructor(base, id) {
+    constructor(base, id, { requestTimeoutMs = COMMAND_REQUEST_TIMEOUT_MS } = {}) {
         this.base = base;
         this.id = id;
+        this.requestTimeoutMs = requestTimeoutMs;
     }
 
     static async create(base, capabilities) {
@@ -24,7 +27,7 @@ export class Session {
     }
 
     cmd(method, path, body) {
-        return request(this.base, method, `/session/${this.id}${path}`, body);
+        return request(this.base, method, `/session/${this.id}${path}`, body, this.requestTimeoutMs);
     }
 
     async delete() {
@@ -114,8 +117,9 @@ export function elementId(el) {
     return el[ELEMENT_KEY] ?? el.ELEMENT;
 }
 
-async function request(base, method, path, body) {
+async function request(base, method, path, body, timeoutMs = COMMAND_REQUEST_TIMEOUT_MS) {
     const res = await fetch(base + path, {
+        signal: AbortSignal.timeout(timeoutMs),
         method,
         headers: body === undefined ? {} : { "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),

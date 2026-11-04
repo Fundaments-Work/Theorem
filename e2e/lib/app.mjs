@@ -64,14 +64,15 @@ export class Sandbox {
             XDG_CONFIG_HOME: join(this.home, ".config"),
             XDG_CACHE_HOME: join(this.home, ".cache"),
             XDG_STATE_HOME: join(this.home, ".local/state"),
-            // Software rendering: stable in headless compositors and CI.
-            WEBKIT_DISABLE_COMPOSITING_MODE: "1",
+            // Keep presentation updates enabled for WebDriver snapshots while
+            // rendering through Mesa software instead of DMA-BUF hardware.
             WEBKIT_DISABLE_DMABUF_RENDERER: "1",
             LIBGL_ALWAYS_SOFTWARE: "1",
             NO_AT_BRIDGE: "1",
             // Answers for native dialogs (e2e builds only, see src-tauri/src/e2e_hooks.rs).
             THEOREM_E2E_DIALOGS: join(this.root, "dialogs"),
         };
+        delete this.env.WEBKIT_DISABLE_COMPOSITING_MODE;
         this.driver = null;
         this.app = null;
     }

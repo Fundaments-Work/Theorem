@@ -40,6 +40,7 @@ The Cargo patch in `src-tauri/vendor/iroh-mdns-address-lookup/` tracks IPv4 mult
 | Rust tests | `cd src-tauri && cargo test --workspace --lib --tests` |
 | One Rust test | `cd src-tauri && cargo test --lib <name>` |
 | Sync scenarios | `cd src-tauri && cargo test --lib scenarios::` (large library: `cargo test --release --lib scenarios::a_large_library -- --ignored --nocapture`) |
+| E2E client regressions | `node --test e2e/lib/webdriver.test.mjs` |
 | End-to-end (real app) | `pnpm e2e:build` once, then `pnpm e2e [spec-word]` (Linux; see `docs/testing-e2e.md`) |
 | Foliate runtime | `pnpm foliate:check` |
 | Rust release build | `cd src-tauri && cargo build --release` |
@@ -57,7 +58,7 @@ All of these, in this order; each must be clean (this is what CI runs, plus the 
 5. `pnpm typecheck` and `pnpm check:design` (no new design-system violation; a baseline entry may only shrink)
 6. `pnpm test` — the whole suite, not only the files you touched
 7. `pnpm build` — also enforces the startup bundle budget
-8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` and `--target armv7-linux-androideabi` (Android-only code or dependencies, and any size or offset constant: the release ships 32-bit APKs, where `usize` is 32 bits; set the NDK `CC_/CXX_/AR_<target>` compilers), `pnpm e2e` (user-visible flows)
+8. When relevant: `pnpm foliate:check` (reader runtime), `cargo clippy --target aarch64-linux-android -- -D warnings` and `--target armv7-linux-androideabi` (Android-only code or dependencies, and any size or offset constant: the release ships 32-bit APKs, where `usize` is 32 bits; set the NDK `CC_/CXX_/AR_<target>` compilers), `pnpm e2e` (user-visible flows), `node --test e2e/lib/webdriver.test.mjs` (WebDriver harness)
 
 If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it changed.
 
