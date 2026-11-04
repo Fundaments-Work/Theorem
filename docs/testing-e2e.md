@@ -164,6 +164,14 @@ checking Notes; the current section tabs are Highlights, Notes, Words, and
 Bookmarks. These checks preserve the original content/filtering coverage without
 requiring the retired All tab or a particular separator character.
 
+The WebDriver client centers an option's enclosing select before its real
+native option click. The [WebDriver click algorithm](https://www.w3.org/TR/webdriver2/#element-click)
+scrolls the container into view and rejects an obscured center; nearest-edge
+scrolling can leave the Settings retention control under the daily reminder
+toast after 20:00. Centering the select keeps the notification visible and
+preserves the native input/change events and persistence assertions, without
+waiting for a fixed toast duration or hiding notifications.
+
 Uppercase Latin text and shifted punctuation use explicit Shift key actions in the WebKit driver helper:
 the element send-keys path under the headless compositor was observed to turn
 “Evening Reading” into lowercase. The shelf flow checks the textbox value before

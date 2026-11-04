@@ -48,6 +48,15 @@ export class Session {
     }
 
     async click(el) {
+        // WebDriver scrolls an option's select into view using nearest alignment.
+        // A bottom-right toast can still cover that edge. Center the container,
+        // then keep the real WebDriver option click and its native input events.
+        await this.execute(`
+            const element = arguments[0];
+            if (element.tagName === "OPTION") {
+                element.closest("select")?.scrollIntoView({ block: "center", inline: "center" });
+            }
+        `, el);
         await this.cmd("POST", `/element/${elementId(el)}/click`, {});
     }
 

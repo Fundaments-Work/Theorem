@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Reliable local option clicks** — Keep native select controls clear of reading-reminder toasts during release verification, retaining the real click and persistence assertions.
+
 - **Local E2E release verification** — Run the complete native E2E suite locally before tagging. GitHub keeps unit tests, lint, typechecks, security scans and release builds without hosted E2E jobs, nightly schedules or native test-binary builds.
 
 - **ZIP maintenance patch** — Update to zip 9.2.1, including its writer cleanup and getrandom build fix.
