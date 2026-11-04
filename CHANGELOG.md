@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Follow-up dependency updates** — Update translation rendering, icons, logging, Unicode widths and ZIP parsing.
+
 - **Release branch maintenance** — CI checks `main` and `1.6.1`, and Dependabot targets the active release branch.
 
 - **Dependency maintenance** — Update the JavaScript, Rust and CI dependencies, preserve hotspot discovery in the mDNS upgrade, and adapt neural speech to the new ONNX environment API while retaining compatibility with installed runtimes.
