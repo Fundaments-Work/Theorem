@@ -55,8 +55,6 @@ jobs:
           - language: actions
             build-mode: none
           # Small build/tooling scripts committed to the repository.
-          - language: python
-            build-mode: none
           - language: ruby
             build-mode: none
           # java-kotlin is intentionally omitted. The only Kotlin is Tauri's

@@ -1,0 +1,40 @@
+name: Notify Studio and Landing
+description: Dispatch docs updates and optionally rebuild the product landing page.
+inputs:
+  ref:
+    description: Product branch or release tag
+    required: true
+  sha:
+    description: Immutable product revision
+    required: true
+  deploy-landing:
+    description: Trigger the product landing page only for releases or manual requests
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Dispatch docs-updated to fundaments-landing
+      shell: bash
+      env:
+        PRODUCT_REF: ${{ inputs.ref }}
+        PRODUCT_SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+        if [ -z "${GH_TOKEN:-}" ]; then
+          echo "::warning::STUDIO_SYNC_TOKEN is not set; skipping docs portal dispatch."
+          exit 0
+        fi
+        gh api repos/Fundaments-Work/fundaments-landing/dispatches \
+          -f event_type=docs-updated \
+          -F "client_payload[product]=theorem" \
+          -F "client_payload[ref]=$PRODUCT_REF" \
+          -F "client_payload[sha]=$PRODUCT_SHA"
+    - name: Call Cloudflare Pages Deploy Hook
+      if: inputs.deploy-landing == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -n "${DEPLOY_HOOK:-}" ]; then
+          curl --fail --silent --show-error --output /dev/null \
+            --connect-timeout 10 --max-time 30 -X POST "$DEPLOY_HOOK"
+        fi

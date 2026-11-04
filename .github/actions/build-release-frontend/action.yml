@@ -1,0 +1,26 @@
+name: Build release frontend
+description: Build and verify platform-independent frontend and icons once per workflow.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v7
+      with:
+        node-version: "22"
+        cache: pnpm
+    - shell: bash
+      run: pnpm install --frozen-lockfile
+    - shell: bash
+      run: pnpm foliate:check
+    - shell: bash
+      run: pnpm build
+    - shell: bash
+      run: pnpm tauri icon public/favicon.svg
+    - uses: actions/upload-artifact@v7
+      with:
+        name: release-frontend
+        path: |
+          dist
+          src-tauri/icons
+        if-no-files-found: error
+        retention-days: 3

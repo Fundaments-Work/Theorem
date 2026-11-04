@@ -70,7 +70,7 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 - Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
 - Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
-CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `cargo test --workspace --lib --tests`) on pushes and pull requests to `main` and `1.6.1`.
+CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main` or `1.6.1`; use manual CI for release-branch checks before integration. Relevant paths select web, Rust, Android and E2E gates. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and WebDriver timeouts. See `docs/release.md` for shared artifacts and release build rules.
 
 ### Known-flaky tests
 

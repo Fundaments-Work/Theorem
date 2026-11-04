@@ -11,6 +11,11 @@ on:
         required: true
         type: string
 
+# Serialize attempts for the same tag without cancelling a signing/upload step.
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -23,10 +28,11 @@ jobs:
     name: Create Release
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
-      release_id: ${{ steps.create-release.outputs.id }}
-      release_upload_url: ${{ steps.create-release.outputs.upload_url }}
       release_tag: ${{ steps.resolve-tag.outputs.tag }}
+      release_sha: ${{ steps.resolve-tag.outputs.sha }}
+      prerelease: ${{ steps.resolve-tag.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,49 +44,8 @@ jobs:
       - name: Resolve release tag
         id: resolve-tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ github.event.inputs.release_tag }}"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Check existing release tag
-        id: release-check
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ steps.resolve-tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          response="$(curl --silent --show-error --write-out '\n%{http_code}' \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
-          status="$(printf '%s' "${response}" | tail -n1)"
-          body="$(printf '%s' "${response}" | sed '$d')"
-          if [[ "${status}" == "200" ]]; then
-            release_id="$(printf '%s' "${body}" | jq -r '.id // empty')"
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
-            echo "Release for ${RELEASE_TAG} already exists and will be updated."
-          elif [[ "${status}" == "404" ]]; then
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "release_id=" >> "$GITHUB_OUTPUT"
-            echo "::notice::No release found for ${RELEASE_TAG}. A new draft release will be created."
-          else
-            echo "::error::GitHub API returned unexpected status ${status} while checking release tag ${RELEASE_TAG}."
-            exit 1
-          fi
-
-      - name: Get version display
-        id: version-display
-        run: |
-          TAG="${{ steps.resolve-tag.outputs.tag }}"
-          echo "VERSION=${TAG#v}" >> "$GITHUB_OUTPUT"
+          REQUESTED_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: bash scripts/release-tag.sh
 
       - name: Extract Release Notes
         id: release-notes
@@ -109,7 +74,7 @@ jobs:
       - name: Append download & install instructions
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version-display.outputs.VERSION }}"
+          VERSION="${{ steps.resolve-tag.outputs.VERSION }}"
           TAG="${{ steps.resolve-tag.outputs.tag }}"
           BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           cat >> release_notes.md <<EOF
@@ -141,31 +106,46 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.resolve-tag.outputs.tag }}
-          name: Theorem ${{ steps.version-display.outputs.VERSION }}
+          name: Theorem ${{ steps.resolve-tag.outputs.VERSION }}
           body_path: release_notes.md
           draft: true
-          prerelease: ${{ contains(steps.version-display.outputs.VERSION, '-') }}
+          prerelease: ${{ steps.resolve-tag.outputs.prerelease }}
           generate_release_notes: false
+
+  frontend:
+    name: Prepare release frontend
+    needs: create-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
+          submodules: recursive
+      - uses: ./.github/actions/build-release-frontend
 
   build-linux:
     name: Build Linux
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
-    needs: create-release
+    timeout-minutes: 120
+    needs: [create-release, frontend]
     env:
       RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
           submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -189,11 +169,7 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Sync foliate-js submodule
-        run: bash scripts/sync-foliate-js.sh
-
-      - name: Regenerate platform icons from source
-        run: pnpm tauri icon public/favicon.svg
+      - uses: ./.github/actions/restore-release-frontend
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
@@ -205,15 +181,16 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
-          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
-          args: --target x86_64-unknown-linux-gnu
+          args: --target x86_64-unknown-linux-gnu --config src-tauri/tauri.ci.conf.json
 
   build-macos-intel:
     name: Build macOS (Intel)
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
-    needs: create-release
+    timeout-minutes: 120
+    needs: [create-release, frontend]
     env:
       RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
       CFLAGS: "-arch x86_64"
@@ -223,15 +200,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
           submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -255,8 +234,7 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Regenerate platform icons from source
-        run: pnpm tauri icon public/favicon.svg
+      - uses: ./.github/actions/restore-release-frontend
 
       - name: Resolve macOS signing mode
         id: macos-signing
@@ -290,9 +268,9 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
-          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
-          args: --target x86_64-apple-darwin
+          args: --target x86_64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
       - name: Build Tauri app (ad-hoc signing)
         if: steps.macos-signing.outputs.mode == 'adhoc'
@@ -306,30 +284,33 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
-          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
-          args: --target x86_64-apple-darwin
+          args: --target x86_64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
   build-macos-arm:
     name: Build macOS (Apple Silicon)
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
-    needs: create-release
+    timeout-minutes: 120
+    needs: [create-release, frontend]
     env:
       RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
           submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -353,8 +334,7 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Regenerate platform icons from source
-        run: pnpm tauri icon public/favicon.svg
+      - uses: ./.github/actions/restore-release-frontend
 
       - name: Resolve macOS signing mode
         id: macos-signing
@@ -388,9 +368,9 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
-          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
-          args: --target aarch64-apple-darwin
+          args: --target aarch64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
       - name: Build Tauri app (ad-hoc signing)
         if: steps.macos-signing.outputs.mode == 'adhoc'
@@ -404,29 +384,32 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
-          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
-          args: --target aarch64-apple-darwin
+          args: --target aarch64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
   build-windows:
     name: Build Windows
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
-    needs: create-release
+    timeout-minutes: 120
+    needs: [create-release, frontend]
     env:
       RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
           submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -445,6 +428,8 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - uses: ./.github/actions/restore-release-frontend
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
         env:
@@ -455,28 +440,32 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
-          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          prerelease: ${{ needs.create-release.outputs.prerelease }}
           retryAttempts: 2
+          args: --config src-tauri/tauri.ci.conf.json
 
   build-android:
     name: Build Android
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    needs: create-release
+    timeout-minutes: 120
+    needs: [create-release, frontend]
     env:
       RELEASE_TAG: ${{ needs.create-release.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
           submodules: recursive
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -510,6 +499,8 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - uses: ./.github/actions/restore-release-frontend
 
       - name: Initialize Android project
         run: pnpm tauri android init --ci
@@ -671,7 +662,7 @@ jobs:
           EOF
 
       - name: Build Android release artifacts
-        run: pnpm tauri android build --split-per-abi
+        run: pnpm tauri android build --split-per-abi --config src-tauri/tauri.ci.conf.json
 
       - name: Collect signed Android artifacts
         shell: bash
@@ -708,6 +699,7 @@ jobs:
 
   publish-release:
     name: Publish Release
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     needs: [create-release, build-linux, build-macos-intel, build-macos-arm, build-windows, build-android]
     if: >-
@@ -722,28 +714,20 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.create-release.outputs.release_sha }}
 
       - name: Publish Release
         run: |
           gh release edit "$RELEASE_TAG" --draft=false
 
+      # GITHUB_TOKEN publication does not trigger the release-event workflow.
       - name: Notify Studio & Landing
+        uses: ./.github/actions/notify-landing
+        with:
+          ref: ${{ needs.create-release.outputs.release_tag }}
+          sha: ${{ needs.create-release.outputs.release_sha }}
+          deploy-landing: 'true'
         env:
           GH_TOKEN: ${{ secrets.STUDIO_SYNC_TOKEN }}
           DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK_URL }}
-        run: |
-          if [ -n "$GH_TOKEN" ]; then
-            echo "Dispatching docs-updated event to Fundaments-Work/fundaments-landing..."
-            gh api repos/Fundaments-Work/fundaments-landing/dispatches \
-              -f event_type=docs-updated \
-              -F "client_payload[product]=theorem" \
-              -F "client_payload[ref]=${{ env.RELEASE_TAG }}" \
-              -F "client_payload[sha]=${{ github.sha }}" || echo "Failed to dispatch to fundaments-landing"
-          else
-            echo "::warning::STUDIO_SYNC_TOKEN is not set; skipping docs portal dispatch."
-          fi
-
-          if [ -n "$DEPLOY_HOOK" ]; then
-            echo "Triggering Cloudflare Pages deploy hook..."
-            curl -sS -X POST "$DEPLOY_HOOK" || echo "Failed to trigger Cloudflare deploy hook"
-          fi

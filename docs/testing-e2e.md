@@ -133,7 +133,10 @@ contain it.
 `.github/workflows/ci.yml` has an `e2e` job on `ubuntu-22.04` (headless Mutter,
 `webkit2gtk-driver`, `tauri-driver`). It is `continue-on-error: true` until it
 has been reliably green on hosted runners; screenshots of timeouts are
-uploaded as the `e2e-artifacts` artifact.
+uploaded as the `e2e-artifacts` artifact. It runs for relevant main pushes and
+manual checks, using the verified frontend and a stripped executable copy from
+the web/Rust jobs rather than rebuilding either on its own runner. Documentation
+pushes skip it. See `docs/release.md` for selection and artifact handling.
 
 
 The reading-rhythm scenario chooses a goal, imports and opens a book, checks the

@@ -1,0 +1,15 @@
+name: Restore release frontend
+description: Restore the shared frontend and require it before bypassing the Tauri build hook.
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: release-frontend
+        path: .
+    - shell: bash
+      run: |
+        set -euo pipefail
+        test -s dist/index.html
+        node scripts/verify-pdfjs-assets.mjs
+        node scripts/check-startup-bundle.mjs

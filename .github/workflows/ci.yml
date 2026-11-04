@@ -2,13 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main, "1.6.1"]
+    branches: [main]
   pull_request:
     branches: [main, "1.6.1"]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 # A newer push to the same branch/PR makes the in-flight run obsolete.
 concurrency:
@@ -26,6 +27,8 @@ jobs:
       web: ${{ steps.f.outputs.web }}
       rust: ${{ steps.f.outputs.rust }}
       android: ${{ steps.f.outputs.android }}
+      e2e: ${{ steps.f.outputs.e2e }}
+      workflows: ${{ steps.f.outputs.workflows }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,23 +37,29 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          set -euo pipefail
-          all() { echo "web=true" >> "$GITHUB_OUTPUT"; echo "rust=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT"; }
-          # Manual runs, new branches and unreachable bases check everything.
-          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then all; exit 0; fi
-          files="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
-          has() { echo "$files" | grep -qE "$1" && echo true || echo false; }
-          # Docs, issue templates and the like need no build at all.
-          shared='^(\.github/workflows/ci\.yml|package\.json|pnpm-lock\.yaml|scripts/|tsconfig.*\.json)'
-          echo "web=$(has "$shared|^(src/|tests/|index\.html|ui-gallery\.html|public/|vite\.config|vitest\.config|src-tauri/crates/theorem-core/)")" >> "$GITHUB_OUTPUT"
-          echo "rust=$(has "^(\.github/workflows/ci\.yml|src-tauri/|pnpm-lock\.yaml)")" >> "$GITHUB_OUTPUT"
-          echo "android=$(has "^(\.github/workflows/ci\.yml|src-tauri/(src|crates|plugins|gen|Cargo|tauri\.conf|capabilities)|pnpm-lock\.yaml)")" >> "$GITHUB_OUTPUT"
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci-changes.sh
+
+  workflow-check:
+    name: Workflow lint and selection tests
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Exercise job selection
+        run: node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs
 
   web:
     name: Web (typecheck, design, tests, build)
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.rust == 'true' || (github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -90,10 +99,18 @@ jobs:
       - name: Build
         run: pnpm exec vite build && node scripts/verify-pdfjs-assets.mjs && node scripts/check-startup-bundle.mjs
 
+      - name: Share frontend with native checks
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-frontend
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
   rust-check:
     name: Rust Check
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    needs: [changes, web]
+    if: needs.changes.outputs.rust == 'true' || (github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true')
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
@@ -133,26 +150,58 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/tauri-driver
             src-tauri/target
-          key: ${{ runner.os }}-check-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-native-check-v2-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-native-check-v2-cargo-
             ${{ runner.os }}-check-cargo-
 
       # clippy --all-targets already type-checks everything, so no separate `cargo check`.
       - name: Check Rust formatting
+        if: needs.changes.outputs.rust == 'true'
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
-      # tauri::generate_context! requires frontendDist (../dist) to exist; this
-      # job checks Rust only, so an empty folder stands in for the web build.
+      - name: Restore verified frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-frontend
+          path: dist
+
       - name: Clippy
+        if: needs.changes.outputs.rust == 'true'
         run: |
-          mkdir -p dist
           cargo clippy --manifest-path src-tauri/Cargo.toml --all-features --all-targets -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
 
       # Unit and integration tests of the app and every workspace crate.
       # `#[ignore]`d tests hit live catalogs and stay out of CI.
       - name: Test
+        if: needs.changes.outputs.rust == 'true'
         run: cargo test --manifest-path src-tauri/Cargo.toml --workspace --lib --tests
+
+      # Reuse Clippy/test dependencies rather than compiling in a separate job.
+      # E2E remains non-blocking; its runner reports a missing build as a failure.
+      - name: Prepare E2E binaries
+        id: e2e-build
+        if: github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cargo build --manifest-path src-tauri/Cargo.toml --features e2e
+          command -v tauri-driver || cargo install tauri-driver --locked
+          mkdir -p e2e-bin
+          cp src-tauri/target/debug/theorem e2e-bin/theorem
+          cp "$(command -v tauri-driver)" e2e-bin/tauri-driver
+          strip e2e-bin/theorem e2e-bin/tauri-driver
+
+      - name: Share E2E binaries
+        if: steps.e2e-build.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-e2e-binaries
+          path: e2e-bin
+          if-no-files-found: error
+          retention-days: 1
 
   rust-android-check:
     # Desktop CI does not compile the `cfg(target_os = "android")` code; the
@@ -235,22 +284,16 @@ jobs:
   e2e:
     # End-to-end suite (docs/testing-e2e.md): the real app built with
     # `--features e2e`, driven through tauri-driver + WebKitWebDriver under headless Mutter.
-    # Non-blocking while it proves itself on hosted runners, and it compiles the whole app a
-    # second time, so it runs on maintained-branch pushes (or by hand), not on every pull request.
+    # Non-blocking while hosted WebKit screenshot failures are investigated.
+    # The Rust job supplies the binary; this job only installs the runtime and runs tests.
     name: E2E (Linux, non-blocking)
-    if: github.event_name != 'pull_request'
+    needs: [changes, rust-check]
+    if: github.event_name != 'pull_request' && needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     continue-on-error: true
-    env:
-      CARGO_NET_RETRY: 5
-      CARGO_HTTP_TIMEOUT: 120
-      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       # pnpm must be on PATH before setup-node so its built-in pnpm store cache works.
       - name: Install pnpm
@@ -271,34 +314,21 @@ jobs:
       - name: Install dependencies (Ubuntu)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev autoconf automake libtool webkit2gtk-driver mutter libegl-mesa0 libgl1-mesa-dri dbus
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-2 libasound2 webkit2gtk-driver mutter libegl-mesa0 libgl1-mesa-dri dbus
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v6
+      - name: Restore E2E binaries
+        uses: actions/download-artifact@v8
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin/tauri-driver
-            src-tauri/target
-          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-e2e-cargo-
+          name: ci-e2e-binaries
+          path: e2e-bin
 
-      - name: Install tauri-driver
-        run: command -v tauri-driver || cargo install tauri-driver --locked
-
-      - name: Build UI and e2e app
-        run: |
-          bash scripts/sync-foliate-js.sh
-          pnpm exec vite build
-          cargo build --manifest-path src-tauri/Cargo.toml --features e2e
+      - name: Restore executable permissions
+        run: chmod +x e2e-bin/theorem e2e-bin/tauri-driver
 
       - name: Run e2e suite
         env:
+          THEOREM_E2E_BINARY: ${{ github.workspace }}/e2e-bin/theorem
+          TAURI_DRIVER: ${{ github.workspace }}/e2e-bin/tauri-driver
           THEOREM_E2E_DISPLAY: mutter
           LIBGL_ALWAYS_SOFTWARE: "1"
           THEOREM_E2E_ARTIFACTS: ${{ github.workspace }}/e2e/.artifacts

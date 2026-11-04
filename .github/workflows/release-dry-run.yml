@@ -2,13 +2,9 @@ name: Release dry run
 
 # Builds the desktop installers exactly as release.yml does, without creating
 # or touching a GitHub release. Run it before tagging, and after changing the
-# bundle config or release.yml: push to a `release-check/*` branch, or run it
-# by hand from the Actions tab once it is on main.
+# bundle config or release.yml: run it manually from the Actions tab.
 
 on:
-  push:
-    branches:
-      - 'release-check/**'
   workflow_dispatch:
 
 permissions:
@@ -23,8 +19,19 @@ env:
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
+  frontend:
+    name: Prepare release frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/build-release-frontend
+
   bundle:
     name: Bundle ${{ matrix.name }}
+    needs: frontend
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -48,13 +55,14 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: "22"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+          cache: pnpm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -74,12 +82,18 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Sync foliate-js submodule
-        if: runner.os == 'Linux'
-        run: bash scripts/sync-foliate-js.sh
+      - uses: ./.github/actions/restore-release-frontend
 
-      - name: Regenerate platform icons from source
-        run: pnpm tauri icon public/favicon.svg
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-dry-run-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-dry-run-cargo-
 
       - name: Build installers
         shell: bash
@@ -87,7 +101,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
-        run: pnpm tauri build ${{ matrix.args }}
+        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.ci.conf.json
 
       - name: Check every release asset was produced
         shell: bash

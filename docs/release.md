@@ -92,6 +92,56 @@ browser captures; use native device captures for system bars or native dialogs.
 Keep source captures and the full-resolution ZIP in harness state rather than
 committing duplicate archives or book files.
 
-CI validates both maintained branches, `main` and `1.6.1`. Dependency updates
-are integrated and checked on `1.6.1`; publishing a prerelease still requires
+Automatic CI runs on pushes to `main`, once when the same commit is pushed to
+both maintained branches. PRs targeting either branch and manual CI runs remain
+available. Check dependency updates locally or manually on `1.6.1` before
+integration. Dependabot version PRs remain active. Publishing still requires
 the maintainer’s approval of the release/tag step.
+
+### Workflow selection and shared builds
+
+`scripts/ci-changes.sh` selects web, Rust, Android and E2E checks by changed paths.
+A main push compares against the last successful main CI run rather than the
+immediately preceding commit: cancelling an older run cannot drop its unchecked
+changes. PRs compare against their base; manual runs, an unavailable baseline or
+an API failure select every gate. Documentation-only changes skip build jobs.
+Run `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs e2e/lib/webdriver.test.mjs` to verify
+selection, cancellation coverage, unavailable baselines, release-tag checkout,
+prerelease classification and request timeouts.
+A selected workflow-check job runs these selection tests and pinned actionlint
+when workflows, local actions or the selector change. Validate locally with
+`actionlint` (v1.7.12) or `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`.
+
+The web job uploads one verified `dist` artifact. The Rust job restores it for
+all-feature linting and builds the E2E executable using the same Cargo cache as
+the normal Rust checks. It strips copies of the executable and tauri-driver for
+transfer; the E2E runner restores executable permissions and installs runtime
+packages, without another Rust or frontend build. E2E remains non-blocking and
+its hosted WebKit screenshot failures remain visible; artifact reuse does not
+skip assertions. PRs do not run native E2E. Frontend/E2E-only changes can build
+the native E2E app without rerunning unrelated Rust tests.
+
+Release and manual dry-run workflows use the same composite frontend actions.
+One Linux job checks the Foliate runtime, builds/verifies the frontend, generates
+platform icons, and uploads both. All native platform jobs restore that artifact
+and use `src-tauri/tauri.ci.conf.json` to bypass the already completed frontend
+hook. Normal local builds retain `pnpm build`. Native jobs still install frozen
+frontend dependencies for the Tauri CLI and bundled resources; pnpm and Cargo
+caches reduce those installs. The Vite production build has no target-platform
+conditional, so these assets are shared across platforms.
+
+Release reruns resolve the existing requested tag to an immutable commit, use
+that revision for release notes and every platform build, and serialize attempts
+for the same tag without cancelling signing/uploads. Only `X.Y.0` without a
+suffix is stable; all patch releases are prereleases. Dry runs are manual only
+and do not need extra `release-check/*` branches. The shared-action workflows
+must exist at the selected tag; tags predating these actions need their original
+workflow. No workflow optimization itself grants permission to tag or publish.
+
+CodeQL keeps its weekly/manual scans and dependency/workflow-triggered main
+scans. It analyzes JavaScript/TypeScript, Rust, Actions and the Homebrew Ruby
+formula; the empty Python analysis job is removed. Documentation pushes dispatch
+only the studio docs refresh. Releases and manual notification requests also
+refresh the product landing page, through one shared notification action. The
+release workflow calls it explicitly because releases published using
+`GITHUB_TOKEN` do not trigger another workflow ([GitHub event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
