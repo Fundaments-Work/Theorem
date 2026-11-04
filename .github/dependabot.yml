@@ -3,7 +3,7 @@ updates:
   # Frontend / tooling (pnpm workspace at the repo root).
   - package-ecosystem: "npm"
     directory: "/"
-    target-branch: "main"
+    target-branch: "1.6.1"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -27,7 +27,7 @@ updates:
   # so a single entry covers all Rust crates.
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
-    target-branch: "main"
+    target-branch: "1.6.1"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -49,7 +49,7 @@ updates:
   # GitHub Actions used by ci.yml and release.yml.
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "main"
+    target-branch: "1.6.1"
     schedule:
       interval: "weekly"
       day: "monday"

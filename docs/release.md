@@ -91,3 +91,7 @@ editions, feed URLs and dictionary attribution. Phone assets are responsive
 browser captures; use native device captures for system bars or native dialogs.
 Keep source captures and the full-resolution ZIP in harness state rather than
 committing duplicate archives or book files.
+
+CI validates both maintained branches, `main` and `1.6.1`. Dependency updates
+are integrated and checked on `1.6.1`; publishing a prerelease still requires
+the maintainer’s approval of the release/tag step.

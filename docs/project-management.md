@@ -45,14 +45,19 @@ GitHub issue forms are configured at `.github/ISSUE_TEMPLATE/`:
 ### PR Lifecycle
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full PR process. TL;DR:
-1. Branch from `main` using `feature/` or `fix/` prefix
+1. Work on the active release branch (`1.6.1`); keep only it and `main` after cleanup. Create a task branch only when the maintainer requests one.
 2. Atomic conventional commits (`feat:`, `fix:`, `chore:`, etc.)
 3. Run quality gates before opening
-4. CI runs typecheck, tests, build, Rust checks automatically
+4. CI runs typecheck, tests, build and Rust checks for pushes and pull requests to both maintained branches.
 5. Maintainer reviews within a few days
-6. Approved PRs are merged to `main`
+6. Integrate approved changes into `1.6.1`. Merge to `main` only with the maintainer’s approval; dependency PRs may be resolved on the release branch with a link to their integration commit. Remove their branches after integration.
 
 ### Release Workflow
 
 See [release.md](release.md). CI (`release.yml`) auto-builds and publishes on tag push.
 
+
+Dependabot version-update PRs target the active `1.6.1` branch for npm, Cargo
+and GitHub Actions. Security alerts track the default branch independently;
+they clear when the verified fixes reach `main`. Do not dismiss an alert merely
+because its fix is waiting on a release branch.

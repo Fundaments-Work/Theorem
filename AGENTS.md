@@ -69,7 +69,7 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 - Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
 - Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
-CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `cargo test --workspace --lib --tests`) on push to main.
+CI (`ci.yml`) runs typecheck, test, build, and rust-check (fmt, clippy, check, `cargo test --workspace --lib --tests`) on pushes and pull requests to `main` and `1.6.1`.
 
 ### Known-flaky tests
 
@@ -99,6 +99,9 @@ The standard every change is held to, whether a person or an agent writes it.
 **Docs travel with the code**
 - Every behaviour change updates its `docs/<area>.md`, the `CHANGELOG.md` entry of the unreleased version, and this file when a rule, module layout or command changes.
 - Don't hard-code counts that drift (test totals, line numbers). When you state one, check it.
+
+**Branches**
+- Keep `main` and the active release branch (`1.6.1`). Work directly on the release branch; do not create an issue-specific branch unless the maintainer requests one. Integrate dependency updates there and remove their bot branches once resolved.
 
 **Commits**
 - Atomic conventional commits (`feat:`, `fix:`, `perf:`, `test:`, `docs:`, `refactor:`, `chore:`), one concern each.
