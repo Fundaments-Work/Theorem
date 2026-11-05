@@ -679,7 +679,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                         </div>
                     </div>
 
-                    <div className="flex w-full items-center gap-2 sm:ml-0 sm:w-auto sm:gap-3 flex-wrap">
+                    <div className="flex w-full items-center justify-end gap-2 sm:ml-0 sm:w-auto sm:gap-3 flex-wrap">
                         <Button variant="primary"
                             onClick={handleGoToLibrary}
                             disabled={!!shelf.smartRules}

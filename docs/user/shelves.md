@@ -23,7 +23,9 @@ Choose whichever is easier:
 
 ### Work inside a shelf
 
-Click a shelf to open it. The toolbar has these buttons:
+Click a shelf to open it. On phones, the action buttons sit on the right below the shelf title. The three-dot More actions menu opens inward so its options stay on screen.
+
+The toolbar has these buttons:
 
 - Back to shelves
 - Add Books

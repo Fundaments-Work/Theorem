@@ -49,6 +49,37 @@ test("the shelf lists exactly the added book", async () => {
     assert.equal(await app.exists(bookButton(BOOKS.lamplighter.title)), false);
 });
 
+test("shelf actions and their dropdown stay on screen at phone widths", async () => {
+    try {
+        for (const width of [320, 390, 640, 1280]) {
+            await app.session.cmd("POST", "/window/rect", { width, height: 844, x: 0, y: 0 });
+            await app.waitFor(async () => await app.session.execute("return innerWidth === arguments[0]", width), { what: `${width}px viewport` });
+            const more = await app.find({ role: "button", name: "More actions" });
+            const bounds = await app.session.execute(`
+                const r = arguments[0].getBoundingClientRect();
+                return { left: r.left, right: r.right, width: innerWidth };
+            `, more);
+            assert.ok(bounds.left > bounds.width / 2, `Actions should be on the right at ${width}px: ${JSON.stringify(bounds)}`);
+            await app.click({ role: "button", name: "More actions" });
+            for (const name of ["Group by Series", "Manage Series…", "Select Books", "New sub-shelf…"]) {
+                // Use visible menu text: a separate keyboard-only toolbar
+                // control also has the accessible name "Select Books".
+                const item = await app.find({ text: name });
+                const rect = await app.session.execute(`
+                    const r = arguments[0].closest('button').getBoundingClientRect();
+                    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: innerWidth, height: innerHeight };
+                `, item);
+                assert.ok(rect.left >= 0 && rect.right <= rect.width && rect.top >= 0 && rect.bottom <= rect.height,
+                    `${name} should fit at ${width}px: ${JSON.stringify(rect)}`);
+                assert.equal(await app.isClickable({ text: name }), true, `${name} is reachable at ${width}px`);
+            }
+            await app.click({ role: "button", name: "More actions" });
+        }
+    } finally {
+        await app.session.cmd("POST", "/window/rect", { width: 1280, height: 844, x: 0, y: 0 });
+    }
+});
+
 test("the shelf survives a restart", async () => {
     await box.quit();
     app = await box.launch();
