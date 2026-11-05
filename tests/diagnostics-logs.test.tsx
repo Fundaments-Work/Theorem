@@ -74,6 +74,21 @@ describe("exportLogs", () => {
         expect(mocks.saveFileAs).not.toHaveBeenCalled();
     });
 
+    it("preserves binary bytes when the IPC fallback returns a JSON array", async () => {
+        const bytes = [0x50, 0x4b, 3, 4, 0, 128, 255];
+        mocks.invoke.mockResolvedValue(bytes);
+        mocks.saveFileAs.mockResolvedValue({ ok: true });
+        expect(await exportLogs()).toEqual({ ok: true });
+        const blob = mocks.saveFileAs.mock.calls[0][1] as Blob;
+        expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual(bytes);
+    });
+
+    it("rejects an empty IPC byte array", async () => {
+        mocks.invoke.mockResolvedValue([]);
+        expect((await exportLogs()).ok).toBe(false);
+        expect(mocks.saveFileAs).not.toHaveBeenCalled();
+    });
+
     it("reports a native failure instead of throwing", async () => {
         mocks.invoke.mockRejectedValue("Could not find the log folder");
         const result = await exportLogs();

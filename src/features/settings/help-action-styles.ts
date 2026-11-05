@@ -1,0 +1,2 @@
+/** Equal-sized, quiet action rows shared by Settings Help links and buttons. */
+export const HELP_ACTION_CLASS = "flex min-h-11 w-full items-center gap-3 border-b border-[var(--color-border-subtle)] px-1 py-3 text-left font-sans text-sm text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0";

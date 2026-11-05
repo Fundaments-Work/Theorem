@@ -3,9 +3,10 @@ import { FileText } from "lucide-react";
 import { toast } from "sonner";
 import { isTauri } from "../../core/lib/env";
 import { exportLogs } from "../../core/lib/log-export";
+import { HELP_ACTION_CLASS } from "./help-action-styles";
 
 /**
- * Settings → About: saves the app's log files (plus version and platform,
+ * Settings → Help & Diagnostics: saves the app's log files (plus version and platform,
  * nothing else) as a zip to attach to a bug report.
  */
 export function ExportLogsButton() {
@@ -32,7 +33,7 @@ export function ExportLogsButton() {
             onClick={() => void handleClick()}
             disabled={busy}
             title="Save the app's log files to attach to a bug report. They hold no books or notes."
-            className="flex items-center gap-2 p-3 w-full border border-[var(--color-border)] text-[12px] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors disabled:opacity-50"
+            className={HELP_ACTION_CLASS}
         >
             <FileText className="w-4 h-4" />
             <span>{busy ? "Exporting logs..." : "Export Logs"}</span>

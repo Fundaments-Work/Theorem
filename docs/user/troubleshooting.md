@@ -86,7 +86,7 @@ Search finds the exact letters you type. Check the spelling and turn off Match C
 
 - **macOS says the app is from an unidentified developer.** Allow it in System Settings, Privacy and Security, then open it again. See [Install Theorem](install.md#install-on-macos).
 - **Android will not install the APK.** Allow installs from your browser or file manager when Android asks. Use the 64-bit `arm64` file on most phones.
-- **Check for Updates says Not Available on Android.** The in-app updater is for desktop only. Install a newer APK by hand.
+- **How do I update on Android?** Open Settings → Help → Download Latest Release and install a newer APK over the existing app. The desktop-only update-check button is hidden on Android.
 - **The Linux install script cannot find a package.** Only `.deb` and `.AppImage` files are published. On Fedora and other RPM-based systems, the script installs the AppImage.
 
 ## Where your data is and how to see logs
@@ -95,4 +95,4 @@ Theorem keeps its library database and book copies in its app data folder. On Li
 
 ## Report a problem
 
-Open Settings, select the About tab, and click Report an Issue under Links. This opens the issue tracker on GitHub. Include your Theorem version, which the About tab shows, your operating system, and the steps that cause the problem.
+Open Settings, select the Help tab, and click Report an Issue. This opens the issue tracker on GitHub. Include your Theorem version, which the About tab shows, your operating system, and the steps that cause the problem.

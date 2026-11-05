@@ -2,7 +2,7 @@
 
 Find every Theorem setting by tab, learn the keyboard shortcuts for the app and the reader, back up your data, clear it, and use the command line on desktop.
 
-Open Settings from the gear icon at the bottom of the sidebar, from the gear icon in the top bar on Android, or with `Ctrl+,`. Settings has six tabs: General, Dictionary, Devices & Export, Data & Storage, Shortcuts and About. On phones and tablets there is no Shortcuts tab, since there is no keyboard to use them with, and Devices & Export is called Devices. Theorem remembers the tab you used last during a session.
+Open Settings from the gear icon at the bottom of the sidebar, from the gear icon in the top bar on Android, or with `Ctrl+,`. Settings has General, Dictionary, Devices & Export, Data & Storage, About and Help, with Shortcuts also available on desktop. On phones and tablets there is no Shortcuts tab, since there is no keyboard to use them with, and Devices & Export is called Devices. Theorem remembers the tab you used last during a session.
 
 ## General
 
@@ -93,7 +93,7 @@ Restoring replaces the library on this device; Theorem then reloads. The device 
 
 ### Automatic copies
 
-Once a day, and before each update changes the library, Theorem checks its database for damage and keeps a copy of it. The two newest copies are listed under Backup & Restore, each with a Restore button. They hold the library database (book details, covers, notes, vocabulary, feeds, settings), not the book files, which stay where they are.
+Once a day, and before each update changes the library, Theorem checks its database for damage and keeps a copy of it. The two newest copies are listed under Backup & Restore, each with Restore and Delete controls. Delete asks you to confirm the copy’s date and size; it removes only that copy. Manage exported `.theorem-backup` files with your device’s file manager. They hold the library database (book details, covers, notes, vocabulary, feeds, settings), not the book files, which stay where they are.
 
 If Theorem finds its database damaged when it starts, or an update cannot convert it, it shows a recovery screen instead of an empty library. From there you can put back one of the automatic copies, restore a backup file, or continue anyway.
 
@@ -107,7 +107,11 @@ This tab lists the app's keyboard shortcuts in read-only groups. Press `Shift+?`
 
 ## About
 
-Shows the version, the build stamp (source commit and date), the license and the author. The Links section has the GitHub repository, Support Theorem (Buy Me Momo), Check for Updates, Download Latest Release and Report an Issue. See [Install Theorem](install.md#update-theorem) for updates.
+Shows the version, the build stamp (source commit and date), the license and the author. The Links section has the GitHub repository and Support Theorem (Buy Me Momo).
+
+## Help
+
+Help & Diagnostics has Check for Updates on desktop, Download Latest Release, Report an Issue and Export Logs in the desktop and Android apps. Log export saves a ZIP you can attach to a bug report; on Android it goes to Downloads/Theorem. See [Install Theorem](install.md#update-theorem) for updates.
 
 ## Keyboard shortcuts
 

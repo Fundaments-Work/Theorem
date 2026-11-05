@@ -26,6 +26,7 @@ const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => (
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
 import { KnapTemplateEditor } from "./KnapTemplateEditor";
 import { ExportLogsButton } from "./ExportLogsButton";
+import { HELP_ACTION_CLASS } from "./help-action-styles";
 import { BackupSection } from "./BackupSection";
 import { LibraryFoldersSection } from "./LibraryFoldersSection";
 import { MomoIcon } from "../../ui/MomoIcon";
@@ -53,7 +54,7 @@ import {
     FolderOpen,
 } from "lucide-react";
 
-type SettingsTab = "general" | "dictionary" | "integrations" | "storage" | "shortcuts" | "about";
+type SettingsTab = "general" | "dictionary" | "integrations" | "storage" | "shortcuts" | "about" | "help";
 const SETTINGS_TAB_SESSION_KEY = "theorem-settings:active-tab";
 const SETTINGS_FOCUS_SECTION_SESSION_KEY = "theorem-settings:focus-section";
 
@@ -362,7 +363,8 @@ export const SettingsPage = memo(function SettingsPage() {
             persisted === "integrations" ||
             persisted === "storage" ||
             (persisted === "shortcuts" && showShortcuts) ||
-            persisted === "about"
+            persisted === "about" ||
+            persisted === "help"
         ) {
             return persisted;
         }
@@ -685,6 +687,7 @@ export const SettingsPage = memo(function SettingsPage() {
         { id: "storage" as const, label: "Data & Storage" },
         ...(showShortcuts ? [{ id: "shortcuts" as const, label: "Shortcuts" }] : []),
         { id: "about" as const, label: "About" },
+        { id: "help" as const, label: "Help" },
     ];
 
     return (
@@ -1418,7 +1421,18 @@ export const SettingsPage = memo(function SettingsPage() {
                                 <MomoIcon className="w-4 h-4" />
                                 <span>Support Theorem (Buy Me Momo)</span>
                             </a>
-                             {updateInfo ? (
+                        </div>
+                    </Section>
+                </div>}
+
+            {(activeTab === "help" || visitedTabs.has("help")) && <div className={activeTab === "help" ? "space-y-8" : "hidden"}>
+                    <Section
+                        title="Help & Diagnostics"
+                        description="Get updates, save logs and report a problem"
+                        icon={<AlertCircle className="w-5 h-5" />}
+                    >
+                        <div className="space-y-2">
+                             {isTauriDesktop() && (updateInfo ? (
                                  <div className="space-y-2">
                                      <div className="p-3 border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">
                                          <p className="text-[12px]">{updateInfo.prerelease ? "Beta" : "Update"} Available: v{updateInfo.version}</p>
@@ -1429,7 +1443,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                      {!updateInfo.prerelease ? (
                                          <button
                                              onClick={handleInstallUpdate}
-                                             className="flex items-center gap-2 p-3 w-full border border-[var(--color-accent)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors"
+                                             className={HELP_ACTION_CLASS}
                                          >
                                              <Download className="w-4 h-4" />
                                              <span>Install Update & Restart</span>
@@ -1440,7 +1454,11 @@ export const SettingsPage = memo(function SettingsPage() {
                                              href={updateInfo.url}
                                              target="_blank"
                                              rel="noopener noreferrer"
-                                             className="flex items-center gap-2 p-3 w-full border border-[var(--color-accent)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors"
+                                             onClick={(e) => {
+                                                 e.preventDefault();
+                                                 void openExternalUrl(updateInfo.url!);
+                                             }}
+                                             className={HELP_ACTION_CLASS}
                                          >
                                              <Download className="w-4 h-4" />
                                              <span>View Beta Release</span>
@@ -1451,17 +1469,21 @@ export const SettingsPage = memo(function SettingsPage() {
                                  <button
                                      onClick={handleCheckForUpdates}
                                      disabled={updateChecking}
-                                     className="flex items-center gap-2 p-3 w-full border border-[var(--color-border)] text-[12px] text-[color:var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors disabled:opacity-50"
+                                     className={HELP_ACTION_CLASS}
                                  >
                                      <RefreshCw className={updateChecking ? "w-4 h-4 animate-spin" : "w-4 h-4"} />
                                      <span>{updateChecking ? "Checking..." : "Check for Updates"}</span>
                                  </button>
-                             )}
+                             ))}
                             <a
-                                href="https://github.com/fundaments-work/theorem/releases/latest"
+                                href="https://github.com/fundaments-work/theorem/releases"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-2 p-3 border border-[var(--color-border)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)] transition-colors"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void openExternalUrl("https://github.com/fundaments-work/theorem/releases");
+                                }}
+                                className={HELP_ACTION_CLASS}
                             >
                                 <Download className="w-4 h-4" />
                                 <span>Download Latest Release</span>
@@ -1470,7 +1492,11 @@ export const SettingsPage = memo(function SettingsPage() {
                                 href="https://github.com/fundaments-work/theorem/issues"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-2 p-3 border border-[var(--color-border)] text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)] transition-colors"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    void openExternalUrl("https://github.com/fundaments-work/theorem/issues");
+                                }}
+                                className={HELP_ACTION_CLASS}
                             >
                                 <AlertCircle className="w-4 h-4" />
                                 <span>Report an Issue</span>

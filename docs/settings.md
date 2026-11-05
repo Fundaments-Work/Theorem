@@ -17,7 +17,9 @@ The `AppSettings` type is also used as the Zod schema (`AppSettingsSchema`) for 
 
 ## Settings Page Tabs
 
-The Settings page (`Settings.tsx`) has 6 tabs:
+The Settings page (`Settings.tsx`) shows General, Dictionary, Devices & Export,
+Data & Storage, About and Help. Desktop also shows Shortcuts; phones use a
+three-column, two-row grid with every tab visible.
 
 ### General
 - Theme: Light, Dark, System
@@ -41,7 +43,7 @@ The Settings page (`Settings.tsx`) has 6 tabs:
 ### Data & Storage (id: `storage`)
 - Storage statistics (Books, Highlights & Notes, RSS Articles, Offline Dictionaries)
 - Library Folders (`LibraryFoldersSection.tsx`): Connect external directory trees on desktop or mobile, view connected folder book counts, rescan folders for new/modified books, and safely disconnect folders.
-- Backup & Restore (`BackupSection.tsx`): Create Backup File (`.theorem-backup`, optional dictionaries), Restore from Backup (inspect, confirm, replace, reload), and the automatic database copies with Restore buttons. See [persistence.md](persistence.md#backups-snapshots-and-startup-safety)
+- Backup & Restore (`BackupSection.tsx`): Create Backup File (`.theorem-backup`, optional dictionaries), Restore from Backup (inspect, confirm, replace, reload), and the automatic database copies with Restore and Delete buttons. Deletion asks for confirmation showing the date, app version and size. It removes only that automatic copy, leaving the live library and other backups in place. Exported `.theorem-backup` files are managed through the device's file manager. See [persistence.md](persistence.md#backups-snapshots-and-startup-safety)
 - Clear all data (with warning dialog)
 
 ### Shortcuts
@@ -55,6 +57,14 @@ The Settings page (`Settings.tsx`) has 6 tabs:
   the `app_build_info` command). Desktop release binaries embed the web UI at
   compile time, so a binary can silently go stale after frontend changes —
   this stamp makes that visible at a glance.
+
+### Help (id: `help`)
+
+- **Check for Updates** appears only in the desktop app. Android and browser
+  users get a release-download link, including prereleases, without a control
+  that ends in a desktop-only error. Release and issue links open externally
+  through the shared URL-safety path.
+- **Report an Issue** opens the project's issue page.
 - **Export Logs** (desktop and Android): saves `theorem-logs-<date>.zip` with
   the log files and a `diagnostics.txt` (app version, OS, architecture,
   webview version). Built by `export_logs_bundle` in
@@ -67,6 +77,11 @@ The Settings page (`Settings.tsx`) has 6 tabs:
   at info and above (debug under `tauri dev`), every Rust panic, and errors
   caught by the React error boundaries. Never log book text, notes, keys or
   device identifiers: users attach these files to public issues.
+- Tauri 2.12.4 `src/ipc/protocol.rs` sends raw responses through its channel
+  transport or serializes the byte vector into the JavaScript callback in its
+  fallback path. `log-export.ts` accepts both `ArrayBuffer` and `number[]`,
+  converting the latter to binary bytes before building the ZIP Blob. Passing
+  the array directly to `Blob` writes comma-separated text and corrupts it.
 - **Refreshing a locally built binary**: `pnpm build && (cd src-tauri && cargo
   build --release)` re-embeds the current UI into the release binary. CI
   release artifacts remain the canonical install.

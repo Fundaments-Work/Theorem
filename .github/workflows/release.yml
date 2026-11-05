@@ -98,7 +98,7 @@ jobs:
 
           **Linux one-liner:** \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install-linux.sh | bash\`
 
-          > Desktop builds **auto-update** in place (Settings → About → Check for Updates). Android updates are manual unless installed via F-Droid.
+          > Desktop builds **auto-update** in place (Settings → Help → Check for Updates). Android updates are manual unless installed via F-Droid.
           EOF
 
       - name: Create or Update Release

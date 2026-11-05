@@ -97,7 +97,7 @@ The source has no Wayland-specific code. At start-up on Linux, Theorem sets two 
 
 ## How do I update Theorem?
 
-1. Open Settings, select About, and click Check for Updates.
+1. Open Settings, select Help, and click Check for Updates.
 2. Follow the prompts. A beta build that finds a newer beta shows a View Beta Release link instead of installing it. Open it and download the new package.
 3. Alternatively, run the install script again with the version you want. It stops Theorem, replaces the files and keeps your data.
 

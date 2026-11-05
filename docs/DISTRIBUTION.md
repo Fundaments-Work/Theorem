@@ -12,7 +12,7 @@ For the maintainer-facing submission templates (Homebrew, WinGet), see
 | Channel | Platform | How users get it | Status |
 |---------|----------|------------------|--------|
 | [GitHub Releases](https://github.com/fundaments-work/Theorem/releases/latest) | all | direct download | ✅ live |
-| In-app updater | desktop | Settings → About → Check for Updates | ✅ live |
+| In-app updater | desktop | Settings → Help → Check for Updates | ✅ live |
 | Linux install script | Linux | `curl … \| bash` | ✅ live |
 | [AUR](https://wiki.archlinux.org/title/AUR_submission_guidelines) | Arch | `yay -S theorem-bin` | 🟡 template (`docs/PKGBUILD`) |
 | Homebrew cask | macOS | `brew install --cask theorem` | 🟡 template (`packaging/homebrew`) |
@@ -49,7 +49,7 @@ Configured in `src-tauri/tauri.conf.json` → `plugins.updater`:
 - Artifacts are signed at build time (`createUpdaterArtifacts: true`); the
   matching public key is in `tauri.conf.json`.
 
-Users update via **Settings → About → Check for Updates**. Works on Linux,
+Users update via **Settings → Help → Check for Updates**. Works on Linux,
 macOS, and Windows. Android has no in-app updater — install a new APK (or use
 F-Droid once available).
 

@@ -21,7 +21,9 @@ export async function exportLogs(now: Date = new Date()): Promise<ExportResult> 
         return { ok: false, message: "Log files are written by the desktop and Android apps only." };
     }
     try {
-        const bytes = await invoke<ArrayBuffer>("export_logs_bundle");
+        // Tauri's IPC fallback serializes raw responses as a JSON byte array.
+        const response = await invoke<ArrayBuffer | number[]>("export_logs_bundle");
+        const bytes = Array.isArray(response) ? new Uint8Array(response).buffer : response;
         if (!bytes || bytes.byteLength === 0) {
             return { ok: false, message: "The log bundle came back empty." };
         }
