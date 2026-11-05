@@ -33,6 +33,7 @@
 //! frontend reads before it renders, instead of starting with an empty
 //! library.
 
+use crate::error::AppError;
 use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -1066,6 +1067,22 @@ pub fn snapshot_path(app_data_dir: &Path, name: &str) -> Result<PathBuf, String>
     Ok(path)
 }
 
+/// Delete one completed automatic copy, never a live database or directory.
+pub fn delete_snapshot(app_data_dir: &Path, name: &str) -> Result<(), AppError> {
+    if parse_snapshot_name(name).is_none() {
+        return Err(AppError::invalid_input("Unknown automatic copy"));
+    }
+    let path = snapshot_dir(app_data_dir).join(name);
+    let metadata = fs::symlink_metadata(&path)?;
+    if !metadata.file_type().is_file() {
+        return Err(AppError::invalid_input(
+            "Automatic copy must be a regular file",
+        ));
+    }
+    fs::remove_file(path)?;
+    Ok(())
+}
+
 // ─── Startup guard ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1562,6 +1579,20 @@ pub fn db_health_dismiss() {
 #[tauri::command]
 pub async fn db_list_snapshots(app: AppHandle) -> Result<Vec<SnapshotInfo>, String> {
     offload(move || Ok(list_snapshots(&app_data_dir(&app)?))).await
+}
+
+#[tauri::command]
+pub async fn db_delete_snapshot(app: AppHandle, name: String) -> Result<(), AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app_data_dir(&app)?;
+        delete_snapshot(&dir, &name)?;
+        let mut health = current_health();
+        health.snapshots = list_snapshots(&dir);
+        set_health(health);
+        Ok(())
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Background task failed: {e}")))?
 }
 
 #[tauri::command]

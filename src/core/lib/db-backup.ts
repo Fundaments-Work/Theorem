@@ -122,6 +122,10 @@ export function listSnapshots(): Promise<DbSnapshotInfo[]> {
     return invoke<DbSnapshotInfo[]>("db_list_snapshots");
 }
 
+export function deleteSnapshot(name: string): Promise<void> {
+    return invoke<void>("db_delete_snapshot", { name });
+}
+
 /**
  * Replace the library, then reload so every store hydrates from the restored
  * database. Pending writes go to the old database first (it is kept as

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, History, Upload } from "lucide-react";
+import { Download, History, Trash2, Upload } from "lucide-react";
 import { cn, formatFileSize } from "../../core/lib/utils";
 import { ConfirmDialog, AlertDialog } from "../../ui/ConfirmDialog";
 import {
     createBackup,
+    deleteSnapshot,
     describeBackupProgress,
     describeManifest,
     inspectBackup,
@@ -35,10 +36,11 @@ export function formatSnapshotDate(snapshot: DbSnapshotInfo): string {
 export function BackupSection() {
     const supported = isBackupSupported();
     const [includeDictionaries, setIncludeDictionaries] = useState(false);
-    const [busy, setBusy] = useState<"backup" | "restore" | null>(null);
+    const [busy, setBusy] = useState<"backup" | "restore" | "delete" | null>(null);
     const [status, setStatus] = useState("");
     const [snapshots, setSnapshots] = useState<DbSnapshotInfo[]>([]);
     const [pending, setPending] = useState<PendingRestore | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<DbSnapshotInfo | null>(null);
     const [alert, setAlert] = useState<{ title: string; message: string } | null>(null);
 
     useEffect(() => {
@@ -55,7 +57,7 @@ export function BackupSection() {
     }, [supported]);
 
     useEffect(() => {
-        if (!busy) return;
+        if (busy !== "backup" && busy !== "restore") return;
         let unlisten: (() => void) | null = null;
         let cancelled = false;
         void listenBackupProgress((progress) => setStatus(describeBackupProgress(progress))).then((stop) => {
@@ -118,6 +120,21 @@ export function BackupSection() {
             setAlert({ title: "Restore Failed", message: errorText(error) });
         }
     }, [pending]);
+
+    const handleDelete = useCallback(async () => {
+        const target = pendingDelete;
+        setPendingDelete(null);
+        if (!target) return;
+        setBusy("delete");
+        try {
+            await deleteSnapshot(target.name);
+            setSnapshots((current) => current.filter((copy) => copy.name !== target.name));
+        } catch (error) {
+            setAlert({ title: "Delete Failed", message: errorText(error) });
+        } finally {
+            setBusy(null);
+        }
+    }, [pendingDelete]);
 
     if (!supported) {
         return (
@@ -242,27 +259,50 @@ export function BackupSection() {
                     </div>
                     <ul className="divide-y divide-[var(--color-border-subtle)]">
                         {snapshots.map((snapshot) => (
-                            <li key={snapshot.name} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--color-surface-muted)]/40 transition-colors">
+                            <li key={snapshot.name} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--color-surface-muted)]/40 transition-colors">
                                 <span className="font-sans text-[12px] text-[color:var(--color-text-primary)]">
                                     {formatSnapshotDate(snapshot)}
                                     <span className="ml-2 text-[11px] text-[color:var(--color-text-muted)]">
                                         Theorem {snapshot.appVersion} · {formatFileSize(snapshot.size)}
                                     </span>
                                 </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setPending({ kind: "snapshot", snapshot })}
-                                    disabled={busy !== null}
-                                    className="ui-btn-ghost px-3 py-1 text-xs border border-[var(--color-border)] cursor-pointer"
-                                    aria-label={`Restore the copy from ${formatSnapshotDate(snapshot)}`}
-                                >
-                                    Restore
-                                </button>
+                                <div className="ml-auto flex shrink-0 items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPending({ kind: "snapshot", snapshot })}
+                                        disabled={busy !== null}
+                                        className="ui-btn-ghost px-3 py-1 text-xs border border-[var(--color-border)] cursor-pointer"
+                                        aria-label={`Restore the copy from ${formatSnapshotDate(snapshot)}`}
+                                    >
+                                        Restore
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPendingDelete(snapshot)}
+                                        disabled={busy !== null}
+                                        className="ui-btn-ghost flex h-11 w-11 items-center justify-center text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)] disabled:opacity-50"
+                                        aria-label={`Delete the copy from ${formatSnapshotDate(snapshot)}`}
+                                        title="Delete automatic copy"
+                                    >
+                                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                    </button>
+                                </div>
                             </li>
                         ))}
                     </ul>
                 </div>
             )}
+
+            <ConfirmDialog
+                isOpen={pendingDelete !== null}
+                title="Delete Automatic Copy"
+                message={pendingDelete ? `Delete the automatic copy from ${formatSnapshotDate(pendingDelete)} (Theorem ${pendingDelete.appVersion}, ${formatFileSize(pendingDelete.size)})? This cannot be undone. Your current library and other backups stay as they are.` : ""}
+                confirmLabel="Delete Copy"
+                cancelLabel="Cancel"
+                variant="danger"
+                onConfirm={() => void handleDelete()}
+                onCancel={() => setPendingDelete(null)}
+            />
 
             <ConfirmDialog
                 isOpen={pending !== null}

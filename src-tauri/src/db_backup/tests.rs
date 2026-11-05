@@ -808,6 +808,69 @@ fn snapshot_names_are_validated() {
 }
 
 #[test]
+fn deleting_a_snapshot_preserves_the_live_database_and_other_copies() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = make_device(tmp.path(), 2, "delete-copy", "fixture");
+    let conn = Connection::open(&db).unwrap();
+    let first = take_snapshot(&conn, tmp.path(), VERSION, 1_000).unwrap();
+    let second = take_snapshot(&conn, tmp.path(), VERSION, 2_000).unwrap();
+    let name = first.file_name().unwrap().to_str().unwrap();
+    delete_snapshot(tmp.path(), name).unwrap();
+    assert!(!first.exists());
+    assert!(second.exists());
+    assert_eq!(list_snapshots(tmp.path()).len(), 1);
+    assert_eq!(titles(&conn).len(), 2);
+    quick_check(&conn).unwrap();
+    assert_eq!(
+        delete_snapshot(tmp.path(), name).unwrap_err().kind(),
+        crate::error::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn deleting_snapshots_rejects_paths_directories_and_partial_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(snapshot_dir(tmp.path())).unwrap();
+    let live = tmp.path().join("theorem.db");
+    fs::write(&live, b"keep live data").unwrap();
+    let directory = snapshot_dir(tmp.path()).join("theorem-1-v1.6.0.db");
+    fs::create_dir(&directory).unwrap();
+    for name in [
+        "",
+        "theorem.db",
+        "../theorem.db",
+        "/theorem-1-v1.db",
+        "theorem-1-v1/../../theorem.db",
+        "theorem-1-v1.db.partial",
+        "theorem-1-v1.6.0.db",
+    ] {
+        assert_eq!(
+            delete_snapshot(tmp.path(), name).unwrap_err().kind(),
+            crate::error::ErrorKind::InvalidInput,
+            "{name:?} must not be deletable"
+        );
+    }
+    assert_eq!(fs::read(live).unwrap(), b"keep live data");
+    assert!(directory.is_dir());
+}
+
+#[cfg(unix)]
+#[test]
+fn deleting_snapshots_rejects_symlinks() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(snapshot_dir(tmp.path())).unwrap();
+    let outside = tmp.path().join("theorem.db");
+    fs::write(&outside, b"keep").unwrap();
+    let name = "theorem-1-v1.6.0.db";
+    std::os::unix::fs::symlink(&outside, snapshot_dir(tmp.path()).join(name)).unwrap();
+    assert_eq!(
+        delete_snapshot(tmp.path(), name).unwrap_err().kind(),
+        crate::error::ErrorKind::InvalidInput
+    );
+    assert_eq!(fs::read(outside).unwrap(), b"keep");
+}
+
+#[test]
 fn check_is_due_daily_and_on_version_change() {
     let day = CHECK_INTERVAL_SECS;
     assert!(check_due(0, "", "1.6.0", 10), "first run");

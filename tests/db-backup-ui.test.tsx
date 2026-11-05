@@ -265,6 +265,37 @@ describe("Settings backup section", () => {
         expect(h.reload).toHaveBeenCalledTimes(1);
     });
 
+    it.each([false, true])("deletes only the confirmed automatic copy (mobile: %s)", async (mobile) => {
+        h.mobile = mobile;
+        handlers.db_delete_snapshot = () => undefined;
+        render(<BackupSection />);
+        await flush();
+        await click(button(/Delete the copy from/));
+        expect(calls("db_delete_snapshot")).toHaveLength(0);
+        expect(document.body.textContent).toContain("Delete Automatic Copy");
+        expect(document.body.textContent).toContain("2.0 KB");
+        await click(button("Delete Copy"));
+        expect(calls("db_delete_snapshot")).toEqual([["db_delete_snapshot", { name: snapshot.name }]]);
+        expect(document.body.textContent).not.toContain("Theorem 1.6.0");
+        expect(h.reload).not.toHaveBeenCalled();
+        expect(isPersistenceSuspended()).toBe(false);
+    });
+
+    it("keeps a copy when deletion is cancelled or fails", async () => {
+        handlers.db_delete_snapshot = () => { throw new Error("Cannot delete copy"); };
+        render(<BackupSection />);
+        await flush();
+        await click(button(/Delete the copy from/));
+        await click(button("Cancel"));
+        expect(calls("db_delete_snapshot")).toHaveLength(0);
+        expect(button(/Restore the copy from/)).toBeTruthy();
+        await click(button(/Delete the copy from/));
+        await click(button("Delete Copy"));
+        expect(document.body.textContent).toContain("Delete Failed");
+        expect(button(/Restore the copy from/)).toBeTruthy();
+        expect(button("Create Backup File").disabled).toBe(false);
+    });
+
     it("materializes an Android content URI before inspecting it", async () => {
         h.mobile = true;
         h.open.mockResolvedValue("content://downloads/42");

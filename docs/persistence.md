@@ -83,6 +83,12 @@ All connections go through `with_connection(app, |conn| operation(conn))` which 
 
 Disk cost: two snapshots, each about the size of the database (covers are stored in it).
 
+Settings → Data & Storage can delete a selected automatic copy after showing
+its date, version and size in a confirmation. `db_delete_snapshot` validates
+the snapshot name and regular file type, removes that file on a worker, and
+refreshes the recovery list. It never opens or replaces the live database.
+Exported `.theorem-backup` archives remain under the user's file manager.
+
 ### Deferred maintenance (`db_maintenance.rs`)
 
 `setup()` runs before the window can paint (on Android, inside the activity's start). Since 1.6.0 it runs only the startup guard above with `database::run_startup_migrations`: the schema, the versioned one-shot migrations (v1.5.3, v1.5.4, v1.5.9) and the RSS time-unit repair, which the interface reads at startup. When the guard reports `ok`, `db_maintenance::spawn_startup_maintenance` starts a thread that, two seconds later, runs on pooled connections:

@@ -420,6 +420,7 @@ pub fn run() {
             db_backup::db_health_status,
             db_backup::db_health_dismiss,
             db_backup::db_list_snapshots,
+            db_backup::db_delete_snapshot,
             db_backup::db_backup_create,
             db_backup::db_backup_inspect,
             db_backup::db_backup_restore,
