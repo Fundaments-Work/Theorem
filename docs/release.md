@@ -92,11 +92,11 @@ browser captures; use native device captures for system bars or native dialogs.
 Keep source captures and the full-resolution ZIP in harness state rather than
 committing duplicate archives or book files.
 
-Automatic CI runs on pushes to `main`, once when the same commit is pushed to
-both maintained branches. PRs targeting either branch and manual CI runs remain
-available. Check dependency updates locally or manually on `1.6.1` before
-integration. Dependabot version PRs remain active. Publishing still requires
-the maintainer’s approval of the release/tag step.
+Automatic CI runs on pushes and pull requests to `main`; manual CI remains
+available for maintainer-designated release branches before integration. The
+maintainer approved retiring `1.6.1` after its rebuilt release was published;
+the release tag remains. Dependabot version PRs now target `main`. Publishing
+still requires the maintainer’s approval of the release/tag step.
 
 ### Workflow selection and shared builds
 

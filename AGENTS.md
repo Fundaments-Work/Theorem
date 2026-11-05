@@ -71,7 +71,7 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 - Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
 - Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
-CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main` or `1.6.1`; use manual CI for release-branch checks before integration. Relevant paths select web, Rust, Android and workflow checks. GitHub does not build or run native E2E and has no E2E schedule or manual mode. Keep local `pnpm e2e` coverage and run the full suite on the exact final release commit before tagging. Fast Node helper tests for E2E tooling still run in CI. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and local harness logic. See `docs/release.md` for shared artifacts and release build rules.
+CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main`; use manual CI for any maintainer-designated release branch before integration. Relevant paths select web, Rust, Android and workflow checks. GitHub does not build or run native E2E and has no E2E schedule or manual mode. Keep local `pnpm e2e` coverage and run the full suite on the exact final release commit before tagging. Fast Node helper tests for E2E tooling still run in CI. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and local harness logic. See `docs/release.md` for shared artifacts and release build rules.
 
 CodeQL's Java/Kotlin job uses `.github/codeql/android` to compile our two Android
 plugin libraries against the locked Tauri Android API and run
@@ -108,7 +108,7 @@ The standard every change is held to, whether a person or an agent writes it.
 - Don't hard-code counts that drift (test totals, line numbers). When you state one, check it.
 
 **Branches**
-- Keep `main` and the active release branch (`1.6.1`). Work directly on the release branch; do not create an issue-specific branch unless the maintainer requests one. Integrate dependency updates there and remove their bot branches once resolved.
+- Keep `main`. The `1.6.1` branch was retired after the maintainer-approved rebuild; retain its release tag. Work on `main` unless the maintainer designates another active release branch, and do not create an issue-specific branch unless requested. Dependabot targets `main`; remove bot branches once their updates are resolved.
 
 **Commits**
 - Atomic conventional commits (`feat:`, `fix:`, `perf:`, `test:`, `docs:`, `refactor:`, `chore:`), one concern each.
