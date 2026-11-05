@@ -59,6 +59,18 @@ describe("withMetadataStamp", () => {
         }
         expect(withMetadataStamp(before, before, now)).toBe(before);
     });
+
+    it("versions cover-only changes independently and keeps repeated edit stamps increasing", () => {
+        const before = book({ coverPath: "old", metadataUpdatedAt: EARLY });
+        const changed = withMetadataStamp(before, { ...before, coverPath: "new" }, now);
+        expect(changed.coverUpdatedAt).toBe(LATE);
+        expect(changed.metadataUpdatedAt).toBe(EARLY);
+        const removed = withMetadataStamp(changed, { ...changed, coverPath: "" }, now);
+        expect(Date.parse(removed.coverUpdatedAt!)).toBe(Date.parse(LATE) + 1);
+        const renamed = withMetadataStamp(changed, { ...changed, title: "Renamed" }, now);
+        const renamedAgain = withMetadataStamp(renamed, { ...renamed, title: "Renamed again" }, now);
+        expect(Date.parse(renamedAgain.metadataUpdatedAt!)).toBe(Date.parse(LATE) + 1);
+    });
 });
 
 describe("edits record the version they were made on", () => {
@@ -91,6 +103,10 @@ describe("edits record the version they were made on", () => {
 });
 
 describe("mergeBooks with edit stamps", () => {
+    it("keeps an intentionally cleared author instead of restoring the old name", () => {
+        const [merged] = mergeBooks([book({ author: "", metadataUpdatedAt: LATE })], [book({ author: "Old name", metadataUpdatedAt: EARLY })]);
+        expect(merged.author).toBe("");
+    });
     it("a newer unfavourite, untag and unrate reach the other device", () => {
         const local = book({ isFavorite: true, tags: ["sf", "classic"], rating: 5, metadataUpdatedAt: EARLY });
         const remote = book({ isFavorite: false, tags: ["sf"], rating: undefined, metadataUpdatedAt: LATE });

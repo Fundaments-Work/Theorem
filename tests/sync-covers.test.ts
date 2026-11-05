@@ -15,7 +15,8 @@ vi.mock("@tauri-apps/api/core", () => ({
     }),
     convertFileSrc: (p: string, proto = "asset") => `${proto}://localhost/${encodeURIComponent(p)}`,
 }));
-vi.mock("../src/core/lib/device-sync", () => ({ getPairedDevices: async () => [{ deviceId: "peer" }] }));
+vi.mock("../src/core/lib/device-sync", () => ({ getPairedDevices: async () => [{ deviceId: "peer" }], irohStart: async () => {} }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 
 const storedCovers = new Map<string, string>();
 const saveCalls: Array<{ id: string; dataUrl: string }> = [];
@@ -29,13 +30,15 @@ vi.mock("../src/core/lib/storage", async (importOriginal) => {
             storedCovers.set(id, dataUrl);
             return `theorem-cover://localhost/${id}?v=new`;
         }),
+        deleteCoverImage: vi.fn(async (id: string) => { storedCovers.delete(id); }),
     };
 });
 
 import { coverPathForBookEntry, needsCoverEntry, parseCoverEntry, applyIncomingCover } from "../src/core/lib/sync-covers";
-import { coverDisplayUrl, isFallbackCover } from "../src/core/lib/storage";
-import { hydrateFromIrohDocs, provisionToIrohDocs } from "../src/core/lib/sync-orchestrator";
-import { useLibraryStore } from "../src/core/store";
+import { coverDisplayUrl, getCoverImage, isFallbackCover } from "../src/core/lib/storage";
+import { applyBookEdits } from "../src/core/lib/book-edit";
+import { ensureResponderSyncReady, hydrateFromIrohDocs, provisionToIrohDocs, subscribeZustandToIrohDocs } from "../src/core/lib/sync-orchestrator";
+import { useLibraryStore, useSettingsStore, useVocabularyStore, useRssStore } from "../src/core/store";
 import type { Book } from "../src/core/types";
 
 const BIG = "data:image/webp;base64," + "A".repeat(20_000);
@@ -92,6 +95,56 @@ describe("cover helpers", () => {
 });
 
 describe("cover sync over docs", () => {
+    it.each(Array.from({ length: 20 }, (_, i) => i + 1))("a local removal during an incoming cover write stays removed (run %s)", async (run) => {
+        const id = `cover-race-${run}`;
+        storedCovers.set(id, BIG);
+        useLibraryStore.setState({ books: [{ ...book(id, "theorem-cover://localhost/old"), format: "pdf" }] });
+        docsEntries = { [`cover:${id}`]: JSON.stringify({ id, dataUrl: TINY, updatedAt: "2026-11-05T10:00:00Z" }) };
+        let finishRead!: (value: string) => void;
+        let started!: () => void;
+        const reading = new Promise<string>(resolve => { finishRead = resolve; });
+        const readStarted = new Promise<void>(resolve => { started = resolve; });
+        vi.mocked(getCoverImage).mockImplementationOnce(() => { started(); return reading; });
+        const incoming = hydrateFromIrohDocs();
+        await readStarted;
+        const editing = applyBookEdits(id, {}, { remove: true });
+        finishRead(BIG);
+        const [, result] = await Promise.all([incoming, editing]);
+        expect(result.ok).toBe(true);
+        expect(storedCovers.has(id)).toBe(false);
+        expect(useLibraryStore.getState().getBook(id)?.coverPath).toBe("");
+    });
+    it.each([undefined, "2026-11-04T10:00:00Z"])("a stale peer cover cannot revert a local edit (stamp: %s)", async (updatedAt) => {
+        storedCovers.set("edited-cover", BIG);
+        useLibraryStore.setState({ books: [{ ...book("edited-cover", "theorem-cover://localhost/edited-cover?v=2"), coverUpdatedAt: "2026-11-05T10:00:00Z" }] });
+        docsEntries = { "cover:edited-cover": JSON.stringify({ id: "edited-cover", dataUrl: TINY, updatedAt }) };
+        await hydrateFromIrohDocs();
+        expect(storedCovers.get("edited-cover")).toBe(BIG);
+        expect(saveCalls).toHaveLength(0);
+        expect(useLibraryStore.getState().getBook("edited-cover")?.coverPath).toBe("theorem-cover://localhost/edited-cover?v=2");
+    });
+
+    it("publishes a cover-only edit even when it is the first notification after subscribing", async () => {
+        useLibraryStore.setState({ books: [book("live-cover", "theorem-cover://localhost/live-cover?v=1")] });
+        storedCovers.set("live-cover", BIG);
+        for (const store of [useLibraryStore, useSettingsStore, useVocabularyStore, useRssStore]) {
+            vi.spyOn(store.persist, "hasHydrated").mockReturnValue(true);
+        }
+        await ensureResponderSyncReady();
+        docsWrites.length = 0;
+        vi.useFakeTimers();
+        const stop = subscribeZustandToIrohDocs();
+        try {
+            useLibraryStore.setState({ books: [{ ...book("live-cover", "theorem-cover://localhost/live-cover?v=2"), coverUpdatedAt: "2026-11-05T10:00:00Z" }] });
+            await vi.advanceTimersByTimeAsync(1000);
+            const entry = docsWrites.find(w => w.key === "cover:live-cover");
+            expect(entry).toBeDefined();
+            expect(JSON.parse(entry!.value)).toMatchObject({ id: "live-cover", dataUrl: BIG, updatedAt: "2026-11-05T10:00:00Z" });
+        } finally {
+            stop();
+            vi.useRealTimers();
+        }
+    });
     it("provisioning sends covers as their own entries and keeps them out of book entries", async () => {
         storedCovers.set("b1", BIG);
         useLibraryStore.setState({ books: [book("b1", "theorem-cover://localhost/b1?v=1"), book("b2", TINY)] });
@@ -128,5 +181,27 @@ describe("cover sync over docs", () => {
         docsEntries = { "book:b1": JSON.stringify({ ...book("b1"), coverPath: BIG }) };
         await hydrateFromIrohDocs();
         expect(saveCalls.map((c) => c.id)).toEqual(["b1"]);
+    });
+
+    it("retains a newer cover stamp even when the image bytes are already identical", async () => {
+        storedCovers.set("identical-cover", BIG);
+        useLibraryStore.setState({ books: [book("identical-cover", "theorem-cover://localhost/identical-cover?v=1")] });
+        docsEntries = { "cover:identical-cover": JSON.stringify({ id: "identical-cover", dataUrl: BIG, updatedAt: "2026-11-05T10:00:00Z" }) };
+        await hydrateFromIrohDocs();
+        expect(saveCalls).toHaveLength(0);
+        expect(useLibraryStore.getState().getBook("identical-cover")?.coverUpdatedAt).toBe("2026-11-05T10:00:00Z");
+    });
+
+    it("removes a cover and does not resurrect it from an older peer", async () => {
+        storedCovers.set("removed-cover", BIG);
+        useLibraryStore.setState({ books: [book("removed-cover", "theorem-cover://localhost/removed-cover?v=1")] });
+        docsEntries = { "cover:removed-cover": JSON.stringify({ id: "removed-cover", dataUrl: TINY, removed: true, updatedAt: "2026-11-05T10:00:00Z" }) };
+        await hydrateFromIrohDocs();
+        expect(storedCovers.has("removed-cover")).toBe(false);
+        expect(useLibraryStore.getState().getBook("removed-cover")?.coverPath).toBe("");
+        docsEntries = { "cover:removed-cover": JSON.stringify({ id: "removed-cover", dataUrl: BIG }) };
+        await hydrateFromIrohDocs();
+        expect(storedCovers.has("removed-cover")).toBe(false);
+        expect(useLibraryStore.getState().getBook("removed-cover")?.coverPath).toBe("");
     });
 });

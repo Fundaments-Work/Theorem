@@ -55,6 +55,7 @@ export const BookSchema = z.object({
     syncedWithoutFile: z.boolean().optional(),
     blobHash: z.string().optional(),
     coverBlobHash: z.string().optional(),
+    coverUpdatedAt: z.string().optional(),
     series: z.string().optional(),
     seriesIndex: z.number().optional(),
     metadataUpdatedAt: z.string().optional(),

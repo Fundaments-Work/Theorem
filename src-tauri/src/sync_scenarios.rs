@@ -1365,6 +1365,85 @@ async fn a_passed_on_copy_never_hides_a_newer_edit() {
 
 // ── Versions before sync protocol 3, and the move to per-book entries ──────
 
+/// Reading a stale copy later must not hide a newer metadata edit before
+/// SQLite or the UI gets a chance to merge the fields.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn book_metadata_edits_survive_later_reading_on_another_device() {
+    let root = tempfile::tempdir().unwrap();
+    let mut a = Device::new("editor", root.path(), None).await;
+    let mut b = Device::new("reader", root.path(), None).await;
+    pair(&mut a, &mut b).await;
+    let edited = serde_json::json!({
+        "id":"edited-book", "title":"Edited title", "author":"Edited author",
+        "metadataUpdatedAt":"2026-11-05T10:00:00Z", "tags":[],
+        "progress":0.1, "lastReadAt":"2026-11-05T09:00:00Z"
+    });
+    let read = serde_json::json!({
+        "id":"edited-book", "title":"Original title", "author":"Original author",
+        "metadataUpdatedAt":"2026-11-04T10:00:00Z", "tags":["old"],
+        "progress":0.7, "lastReadAt":"2026-11-05T11:00:00Z"
+    });
+    for (device, peer, value) in [(&a, "reader", edited), (&b, "editor", read)] {
+        let (_, _, error) = device
+            .write(
+                &device.doc_with(peer),
+                device.protocol(),
+                &[("book:edited-book".into(), value.to_string())],
+                true,
+            )
+            .await;
+        assert_eq!(error, None);
+    }
+    assert!(exchange(&a, &b, true).await.synced);
+    for device in [&a, &b] {
+        let result = read_docs(&device.doc_list(), &device.blobs, None, Some(&device.own)).await;
+        let book: serde_json::Value =
+            serde_json::from_str(&result.entries["book:edited-book"]).unwrap();
+        assert_eq!(
+            book["title"], "Edited title",
+            "{} lost the edit",
+            device.name
+        );
+        assert_eq!(book["author"], "Edited author");
+        assert_eq!(book["tags"], serde_json::json!([]));
+        assert_eq!(book["progress"], 0.7);
+        assert_eq!(book["lastReadAt"], "2026-11-05T11:00:00Z");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn edited_covers_win_over_later_stale_copies_from_current_and_legacy_peers() {
+    for legacy in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let mut a = Device::new("cover-editor", root.path(), None).await;
+        let mut b = Device::new("stale-peer", root.path(), None).await;
+        b.old = legacy;
+        pair(&mut a, &mut b).await;
+        let edited = serde_json::json!({"id":"b1", "dataUrl":"data:image/png;base64,TkVX", "updatedAt":"2026-11-05T10:00:00Z"});
+        let stale = serde_json::json!({"id":"b1", "dataUrl":"data:image/png;base64,T0xE"});
+        for (device, peer, value) in [(&a, "stale-peer", &edited), (&b, "cover-editor", &stale)] {
+            let (_, _, error) = device
+                .write(
+                    &device.doc_with(peer),
+                    device.protocol(),
+                    &[("cover:b1".into(), value.to_string())],
+                    true,
+                )
+                .await;
+            assert_eq!(error, None);
+            tick().await;
+        }
+        assert!(exchange(&a, &b, true).await.synced);
+        for device in [&a, &b] {
+            let result =
+                read_docs(&device.doc_list(), &device.blobs, None, Some(&device.own)).await;
+            let cover: serde_json::Value =
+                serde_json::from_str(&result.entries["cover:b1"]).unwrap();
+            assert_eq!(cover, edited, "{} reverted (legacy: {legacy})", device.name);
+        }
+    }
+}
+
 /// `write_entries_to_doc` as versions before protocol 3 had it: one entry
 /// per item, annotations included.
 async fn old_write(

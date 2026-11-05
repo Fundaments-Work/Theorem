@@ -82,7 +82,7 @@ Device A (shows QR)                      Device B (scans)
   write ticket  ──────────────────────────►  saves A, imports the doc
 ```
 
-Both sides also exchange their sync protocol (`SYNC_PROTOCOL`, 3 in this version). Declining, closing the dialog or waiting 90 s refuses. The approval is asked once per pairing; afterwards the device is recognised by its key on every connection. Only Device Sync shows a QR code, and leaving the page or closing the code withdraws its secret, so a request cannot arrive where the prompt would not be seen. `close_pairing_qr` withdraws the secret when the QR dialog closes. Paired devices are stored in `sync-paired-devices.json` keyed by `device_id`; every change goes through `SyncTransportState::persist_paired`, which also updates the allowlist. A file that cannot be parsed is kept as `sync-paired-devices.json.corrupt` instead of being overwritten.
+Both sides also exchange their sync protocol (`SYNC_PROTOCOL`, currently 5). Declining, closing the dialog or waiting 90 s refuses. The approval is asked once per pairing; afterwards the device is recognised by its key on every connection. Only Device Sync shows a QR code, and leaving the page or closing the code withdraws its secret, so a request cannot arrive where the prompt would not be seen. `close_pairing_qr` withdraws the secret when the QR dialog closes. Paired devices are stored in `sync-paired-devices.json` keyed by `device_id`; every change goes through `SyncTransportState::persist_paired`, which also updates the allowlist. A file that cannot be parsed is kept as `sync-paired-devices.json.corrupt` instead of being overwritten.
 
 ## Sync lifecycle
 
@@ -118,7 +118,7 @@ Rounds never overlap: a second caller waits for the running round (and shares it
 
 ### 4. Merge
 
-With several paired devices, each key's copies are combined in Rust (annotations per annotation, see Provision): records (`book:`, `annotation:`, `collection:`, `cover:`, `rss_article:`, `rss_feed:`, `tomb:`, `vocab:`) take whole the copy with the newest change by the record's own stamps (`metadataUpdatedAt`, `updatedAt`, `lastReadAt`, `deletedAt`, `addedAt`, `createdAt`), by when it was written only when those tie or are missing. When it was written misleads: a device passing on an item it received (the middle one of three) writes its copy at its next provisioning, possibly after another device's newer edit it has not read yet; objects merge field by field with newer copies winning; lists (from older devices) are concatenated for the app to deduplicate. The app folds `tomb:` and `rss_feed:` entries into the lists its merge works on.
+With several paired devices, each key's copies are combined in Rust (annotations per annotation, see Provision): records (`annotation:`, `collection:`, `cover:`, `rss_article:`, `rss_feed:`, `tomb:`, `vocab:`) take whole the copy with the newest change by the record's own stamps (`metadataUpdatedAt`, `updatedAt`, `lastReadAt`, `deletedAt`, `addedAt`, `createdAt`), by when it was written only when those tie or are missing. When it was written misleads: a device passing on an item it received (the middle one of three) writes its copy at its next provisioning, possibly after another device's newer edit it has not read yet; objects merge field by field with newer copies winning; lists (from older devices) are concatenated for the app to deduplicate. The app folds `tomb:` and `rss_feed:` entries into the lists its merge works on.
 
 `sqlite_merge_sync_entries` then writes SQLite **in one transaction**, and `mergeIncomingData` updates the stores. All merges (rounds, live batches, progressive flushes, tombstones) run one at a time, and library changes are applied per ID onto the current store, so an edit made while a merge awaits survives it.
 
@@ -133,6 +133,38 @@ With several paired devices, each key's copies are combined in Rust (annotations
 | Reading stats | Max of each stat, union of daily activity, streaks recomputed. |
 | RSS feeds / articles | By URL / ID. Read and favourite are kept if either side has them; furthest progress. |
 | Deletion tombstones | Union, pruned after 90 days. |
+
+Book copies are combined by field group before delivery: metadata follows
+`metadataUpdatedAt`, reading position follows `lastReadAt` (higher progress on
+a tie), and cover state follows `coverUpdatedAt`. A later reading event must
+not hide another device's newer title or author edit. Missing optional fields
+on the winning metadata copy are removals; SQLite removes them too, and FTS is
+indexed from the final retained title and author.
+
+### Cover edits (protocol 5)
+
+Books optionally carry `coverUpdatedAt`; `cover:<id>` retains `{id, dataUrl}`
+and adds optional `updatedAt` and `removed`. Replacements and removals advance
+only the cover stamp; metadata and cover stamps increase even for two edits
+within one millisecond. The reader accepts old unstamped entries, but they
+cannot overwrite a stamped local edit. Cover copies are chosen by their own
+stamp, so passing an older image on later cannot date it as newly edited.
+Stamped tiny covers also get a separate entry. A removed cover carries an
+image fallback for old peers, which continue reading `dataUrl` and ignore the
+new fields; new peers delete the local image and retain the removal stamp.
+The existing per-item, legacy-list and per-annotation compatibility paths stay
+in use for old peers. No database schema migration is needed: the optional
+book stamp is kept in the existing metadata JSON, with absence as the legacy
+form. `tests/sync-covers.test.ts` covers stale and unstamped echoes, first live
+edits, identical bytes and removals; real-node scenarios cover independent
+metadata/reading changes and covers exchanged with current and legacy peers.
+
+`book-edit-lock.ts` serializes the local editor and incoming cover writes per
+book, including the image, display path and persisted edit stamp. Checking a
+stamp only before an asynchronous image write allowed a local edit made during
+that write to be overwritten afterwards. The controlled interleaving in the
+cover tests verifies that the local edit runs after the incoming write and
+remains the final image, including an intentional removal.
 
 Unchanged books are not rewritten in SQLite.
 

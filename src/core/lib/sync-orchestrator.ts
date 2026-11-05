@@ -26,6 +26,7 @@ import {
 } from "./sync-import";
 import { isTauri } from "./env";
 import { loadStoredAnnotations } from "./annotation-load";
+import { acquireBookEditLock } from "./book-edit-lock";
 import { parseSyncEntityEntry, reportMalformedSyncEntry } from "./sync-entries";
 import {
     sqliteDeleteAnnotation,
@@ -39,7 +40,7 @@ import {
     type SyncMergeResult,
 } from "./sqlite-storage";
 import { diffVocabularyForSqlite } from "./vocab-sqlite-diff";
-import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, coverPathForBookEntry, needsCoverEntry, parseCoverEntry } from "./sync-covers";
+import { applyIncomingCover, buildCoverEntry, COVER_KEY_PREFIX, coverEntryKey, coverMarker, coverPathForBookEntry, needsCoverEntry, parseCoverEntry, type CoverEntry } from "./sync-covers";
 
 /** Sync entry key prefix for one RSS article (`rss_article:<id>`). */
 export const RSS_ARTICLE_KEY_PREFIX = "rss_article:";
@@ -421,11 +422,11 @@ async function mergeIncomingDataLocked(
         }
     }
 
-    const incomingCovers: Array<{ id: string; dataUrl: string }> = [];
+    const incomingCovers: CoverEntry[] = [];
     for (const key of Object.keys(safeMap)) {
         if (!key.startsWith(COVER_KEY_PREFIX)) continue;
         const cover = parseCoverEntry(safeMap[key]);
-        if (cover) incomingCovers.push(cover);
+        if (cover && cover.id === key.slice(COVER_KEY_PREFIX.length)) incomingCovers.push(cover);
     }
 
     let nativeReport: SyncMergeResult | null = null;
@@ -594,13 +595,13 @@ async function mergeIncomingDataLocked(
                     currentLibState = { ...currentLibState, books: final };
                 }
 
-                const incomingWithCovers = (incoming as { id: string; coverPath?: string }[])
+                const incomingWithCovers = (incoming as { id: string; coverPath?: string; coverUpdatedAt?: string }[])
                     .filter((b) => b.coverPath && b.coverPath.startsWith("data:"));
 
                 // Older peers still embed covers in book entries.
                 for (const inc of incomingWithCovers) {
                     if (!incomingCovers.some((c) => c.id === inc.id)) {
-                        incomingCovers.push({ id: inc.id, dataUrl: inc.coverPath! });
+                        incomingCovers.push({ id: inc.id, dataUrl: inc.coverPath!, ...(inc.coverUpdatedAt ? { updatedAt: inc.coverUpdatedAt } : {}) });
                     }
                 }
             }
@@ -684,26 +685,46 @@ async function mergeIncomingDataLocked(
     }
 
     if (incomingCovers.length > 0) {
-        const updatedCovers = new Map<string, string>();
-        for (const cover of incomingCovers) {
-            try {
-                const path = await applyIncomingCover(cover.id, cover.dataUrl);
-                if (path) updatedCovers.set(cover.id, path);
-            } catch (e) { warnMergeFailure("cover", e); }
-        }
-        if (updatedCovers.size > 0) {
-            for (const [id, path] of updatedCovers) {
-                // Known to peers already: neither provisioning nor the live bridge re-sends it.
-                rememberProvisioned(coverEntryKey(id), path);
-                _receivedCoverPaths.add(path);
+        const releases: Array<() => void> = [];
+        try {
+            const coversById = new Map(incomingCovers.map((cover) => [cover.id, cover]));
+            const updatedCovers = new Map<string, string>();
+            for (const cover of incomingCovers) {
+                releases.push(await acquireBookEditLock(cover.id));
+                try {
+                    const local = useLibraryStore.getState().getBook(cover.id);
+                    if (epochOf(local?.coverUpdatedAt) > epochOf(cover.updatedAt)) continue;
+                    const path = await applyIncomingCover(cover.id, cover.dataUrl, cover.removed);
+                    if (path !== null) updatedCovers.set(cover.id, path);
+                    else if (cover.updatedAt && cover.updatedAt !== local?.coverUpdatedAt) updatedCovers.set(cover.id, local?.coverPath ?? "");
+                } catch (e) { warnMergeFailure("cover", e); }
             }
-            applyRemote(() => useLibraryStore.setState((state) => ({
-                books: state.books.map((book) => {
-                    const path = updatedCovers.get(book.id);
-                    return path ? { ...book, coverPath: path, coverExtractionDone: true } : book;
-                }),
-            })));
-            markUpdated("covers");
+            if (updatedCovers.size > 0) {
+                for (const [id, path] of updatedCovers) {
+                    // Known to peers already: neither provisioning nor the live bridge re-sends it.
+                    const cover = coversById.get(id);
+                    rememberProvisioned(coverEntryKey(id), coverMarker({ coverPath: path, coverUpdatedAt: cover?.updatedAt }));
+                }
+                applyRemote(() => useLibraryStore.setState((state) => ({
+                    books: state.books.map((book) => {
+                        const path = updatedCovers.get(book.id);
+                        if (!updatedCovers.has(book.id)) return book;
+                        const cover = coversById.get(book.id);
+                        return { ...book, coverPath: path, coverExtractionDone: true,
+                            ...(cover?.updatedAt ? { coverUpdatedAt: cover.updatedAt } : {}),
+                            ...(cover?.removed ? { coverBlobHash: undefined } : {}) };
+                    }),
+                })));
+                if (isTauri()) {
+                    for (const id of updatedCovers.keys()) {
+                        const book = useLibraryStore.getState().getBook(id);
+                        if (book) await sqliteSaveBookMetadata(id, JSON.stringify(book));
+                    }
+                }
+                markUpdated("covers");
+            }
+        } finally {
+            for (const release of releases) release();
         }
     }
 
@@ -1823,7 +1844,6 @@ const STARTUP_SYNC_DELAY_MS = 5000;
 
 const MUTATION_SYNC_DEBOUNCE_MS = 2000;
 /** Cover paths that arrived from a peer: the live bridge must not echo them back. */
-const _receivedCoverPaths = new Set<string>();
 const READING_SYNC_THROTTLE_MS = 30_000;
 
 let _autoSyncTimer: ReturnType<typeof setInterval> | null = null;
@@ -2343,12 +2363,13 @@ export async function provisionToIrohDocs(): Promise<boolean> {
         }
         // Covers travel as their own entries, re-sent only when the cover changes.
         for (const book of lib.books) {
-            if (!needsCoverEntry(book.coverPath)) continue;
+            if (!needsCoverEntry(book.coverPath, book.coverUpdatedAt)) continue;
             const key = coverEntryKey(book.id);
-            if (alreadyProvisioned(key, book.coverPath!)) continue;
+            const marker = coverMarker(book);
+            if (alreadyProvisioned(key, marker)) continue;
             try {
-                const entry = await buildCoverEntry(book.id);
-                if (entry) queue(key, entry, book.coverPath!);
+                const entry = await buildCoverEntry(book.id, book);
+                if (entry) queue(key, entry, marker);
             } catch {
                 // A missing cover must not fail provisioning.
             }
@@ -2508,6 +2529,7 @@ export function subscribeZustandToIrohDocs(): () => void {
     void getPairedDevices().then(noteSyncProtocols).catch(() => {});
 
     let prevBooks = useLibraryStore.getState().books;
+    const initialCovers = new Map(prevBooks.map((book) => [book.id, coverMarker(book)]));
     let prevAnnotations = useLibraryStore.getState().annotations;
     let prevCollections = useLibraryStore.getState().collections;
     let prevTombstones = useLibraryStore.getState().deletionTombstones;
@@ -2561,15 +2583,15 @@ export function subscribeZustandToIrohDocs(): () => void {
                 if (entry && entry.ref === book) continue;
                 // An existing cover changed (edit, re-extraction): send it. First-time
                 // covers (hydration, new imports) go out with the next provisioning.
-                const previousCover = (entry?.ref as { coverPath?: string } | undefined)?.coverPath;
-                if (!fromPeer && previousCover && book.coverPath !== previousCover && needsCoverEntry(book.coverPath)
-                    && !_receivedCoverPaths.has(book.coverPath!)) {
+                const previous = entry?.ref as Book | undefined;
+                const previousCover = previous ? coverMarker(previous) : initialCovers.get(book.id);
+                const marker = coverMarker(book);
+                if (!fromPeer && previousCover !== undefined && marker !== previousCover && needsCoverEntry(book.coverPath, book.coverUpdatedAt)) {
                     const coverKey = coverEntryKey(book.id);
-                    const coverPath = book.coverPath!;
                     scheduleDocsWrite(coverKey, () => {
-                        void buildCoverEntry(book.id).then((value) => {
-                            if (value) return writeOwnEntry(coverKey, value, coverPath);
-                        });
+                        void buildCoverEntry(book.id, book).then((value) => {
+                            if (value) return writeOwnEntry(coverKey, value, marker);
+                        }).catch((error) => warnMergeFailure("cover", error));
                     });
                 }
                 const serialized = serializeBook(book);
@@ -2589,6 +2611,7 @@ export function subscribeZustandToIrohDocs(): () => void {
                     entry.ref = book;
                 }
             }
+            initialCovers.clear();
             if (bookIndex.size > state.books.length) {
                 sweepStaleIndex(bookIndex, new Set(state.books.map(b => b.id)));
             }

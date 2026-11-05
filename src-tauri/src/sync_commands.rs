@@ -2028,7 +2028,8 @@ fn record_stamp(value: &str) -> Option<i64> {
 }
 
 fn stamp_of(record: &serde_json::Value) -> Option<i64> {
-    const STAMPS: [&str; 6] = [
+    const STAMPS: [&str; 7] = [
+        "coverUpdatedAt",
         "metadataUpdatedAt",
         "updatedAt",
         "lastReadAt",
@@ -2046,6 +2047,85 @@ fn stamp_of(record: &serde_json::Value) -> Option<i64> {
             _ => None,
         })
         .max()
+}
+
+/// Independent edits must survive selecting the newest whole-book snapshot.
+/// Missing fields on the winning version are removals, not an invitation to
+/// bring the previous value back from a stale author's copy.
+fn combine_book_versions(values: &[(u64, String)], newest: String) -> String {
+    let versions: Vec<_> = values
+        .iter()
+        .filter_map(|(written, raw)| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .filter(|v| v.is_object())
+                .map(|v| (*written, v))
+        })
+        .collect();
+    let Ok(mut merged) = serde_json::from_str::<serde_json::Value>(&newest) else {
+        return newest;
+    };
+    let original = merged.clone();
+    let Some(object) = merged.as_object_mut() else {
+        return newest;
+    };
+    let stamp = |record: &serde_json::Value, field: &str| {
+        record.get(field).and_then(|v| match v {
+            serde_json::Value::Number(n) => n.as_i64(),
+            serde_json::Value::String(s) => chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|d| d.timestamp_millis()),
+            _ => None,
+        })
+    };
+    for (field, fields) in [
+        ("metadataUpdatedAt", crate::database::BOOK_EDITABLE_FIELDS),
+        ("lastReadAt", crate::database::BOOK_READING_FIELDS),
+        (
+            "coverUpdatedAt",
+            &[
+                "coverUpdatedAt",
+                "coverBlobHash",
+                "coverPath",
+                "coverExtractionDone",
+            ][..],
+        ),
+    ] {
+        let winner = versions
+            .iter()
+            .filter(|(_, v)| stamp(v, field).is_some())
+            .max_by(|(wa, a), (wb, b)| {
+                stamp(a, field)
+                    .cmp(&stamp(b, field))
+                    .then_with(|| {
+                        if field == "lastReadAt" {
+                            a.get("progress")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(0.0)
+                                .total_cmp(
+                                    &b.get("progress").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                )
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    })
+                    .then(wa.cmp(wb))
+            });
+        if let Some((_, winner)) = winner {
+            for key in fields {
+                if let Some(value) = winner.get(*key) {
+                    object.insert((*key).into(), value.clone());
+                } else {
+                    object.remove(*key);
+                }
+            }
+        }
+    }
+    if merged == original {
+        newest
+    } else {
+        serde_json::to_string(&merged).unwrap_or(newest)
+    }
 }
 
 /// A record's own `id` (when it is a string) and its stamp ([`record_stamp`]);
@@ -2087,6 +2167,11 @@ fn combine_doc_values(
                 .max_by_key(|(order, _)| *order)
                 .map(|(_, v)| v.clone())
                 .unwrap_or_default();
+            let latest = if key.starts_with("book:") {
+                combine_book_versions(&values, latest)
+            } else {
+                latest
+            };
             results.insert(key, latest);
             continue;
         }
@@ -2388,10 +2473,13 @@ mod tests {
             r#"{"note":"new","updatedAt":1700000005000}"#
         );
         // A book read later on one device and edited earlier on another: the
-        // later change (reading) wins the copy; the app merges the rest.
+        // later reading position and the newer metadata edit both survive.
         let read = r#"{"title":"Dune","metadataUpdatedAt":"2026-10-25T09:00:00.000Z","lastReadAt":"2026-10-25T11:00:00.000Z"}"#;
         let out = combine(&[("book:1", 30, edited), ("book:1", 20, read)]);
-        assert_eq!(out["book:1"], read);
+        let book: serde_json::Value = serde_json::from_str(&out["book:1"]).unwrap();
+        assert_eq!(book["title"], "Dune (edited)");
+        assert_eq!(book["metadataUpdatedAt"], "2026-10-25T10:00:05.000Z");
+        assert_eq!(book["lastReadAt"], "2026-10-25T11:00:00.000Z");
         // Copies without stamps (or with equal ones): the one written last.
         let out = combine(&[("vocab:v", 10, r#"{"t":1}"#), ("vocab:v", 20, r#"{"t":2}"#)]);
         assert_eq!(out["vocab:v"], r#"{"t":2}"#);

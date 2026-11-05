@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 /// lists; devices below 3 still get one entry per annotation as well.
 /// 4: optional versioned reading-rhythm counters and awards in `reading_stats`.
 /// Legacy statistics remain present for peers that do not understand the extension.
-pub const SYNC_PROTOCOL: u8 = 4;
+/// 5: optional cover edit stamps and removal markers. Cover entries retain
+/// their image data URL for older peers (a fallback image for removals).
+pub const SYNC_PROTOCOL: u8 = 5;
 
 /// The longest device name shown or sent.
 pub const MAX_DEVICE_NAME_CHARS: usize = 64;

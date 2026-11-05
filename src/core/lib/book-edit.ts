@@ -3,6 +3,7 @@ import { useLibraryStore } from "../store";
 import { getBookData, getBookBlob, saveBookData, saveCoverImage, deleteCoverImage } from "./storage";
 import { sqliteSaveBookMetadata } from "./sqlite-storage";
 import type { Book } from "../types";
+import { withBookEditLock } from "./book-edit-lock";
 
 export interface CoverEditInput {
     blob?: Blob;
@@ -83,6 +84,10 @@ export async function applyBookEdits(
     metadata: Partial<Book>,
     cover?: CoverEditInput,
 ): Promise<BookEditResult> {
+    return withBookEditLock(bookId, () => applyBookEditsLocked(bookId, metadata, cover));
+}
+
+async function applyBookEditsLocked(bookId: string, metadata: Partial<Book>, cover?: CoverEditInput): Promise<BookEditResult> {
     try {
         const book = useLibraryStore.getState().getBook(bookId);
         if (!book) return { ok: false, message: "Book not found." };
@@ -93,6 +98,7 @@ export async function applyBookEdits(
         if (cover?.remove) {
             await deleteCoverImage(bookId);
             updates.coverPath = "";
+            updates.coverBlobHash = undefined;
             updates.coverExtractionDone = true;
         } else if (cover?.blob) {
             const dataUrl = await saveCoverImage(bookId, cover.blob);

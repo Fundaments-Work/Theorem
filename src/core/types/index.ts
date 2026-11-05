@@ -99,6 +99,8 @@ export interface Book {
     blobHash?: string;
 
     coverBlobHash?: string;
+    /** Cover replacement/removal time, independent of metadata and reading. */
+    coverUpdatedAt?: string;
 
     /** Companion human-narrated audiobook (attachable to any book). */
     audioTrack?: BookAudioTrack;

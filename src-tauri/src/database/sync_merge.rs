@@ -328,7 +328,7 @@ fn sanitize_incoming_book(incoming: &serde_json::Value) -> serde_json::Value {
 
 /// The book details a user edits (mirrors `BOOK_EDITABLE_FIELDS` in
 /// book-edit-stamp.ts): the side with the newer `metadataUpdatedAt` wins them.
-pub(super) const BOOK_EDITABLE_FIELDS: &[&str] = &[
+pub(crate) const BOOK_EDITABLE_FIELDS: &[&str] = &[
     "title",
     "author",
     "description",
@@ -353,7 +353,7 @@ pub(super) const BOOK_EDITABLE_FIELDS: &[&str] = &[
 const ANNOTATION_EDITABLE_FIELDS: &[&str] = &["noteContent", "textNoteContent", "color", "type"];
 
 /// Where the reader is: the side with the newer `lastReadAt` wins them.
-const BOOK_READING_FIELDS: &[&str] = &[
+pub(crate) const BOOK_READING_FIELDS: &[&str] = &[
     "progress",
     "currentLocation",
     "lastReadAt",
@@ -375,6 +375,7 @@ fn drop_older_fields(existing: &serde_json::Value, incoming: &mut serde_json::Va
     };
     let drop_edits = newer_here("metadataUpdatedAt");
     let drop_reading = newer_here("lastReadAt");
+    let drop_cover = newer_here("coverUpdatedAt");
     if let Some(obj) = incoming.as_object_mut() {
         if drop_edits {
             for field in BOOK_EDITABLE_FIELDS {
@@ -384,6 +385,16 @@ fn drop_older_fields(existing: &serde_json::Value, incoming: &mut serde_json::Va
         if drop_reading {
             for field in BOOK_READING_FIELDS {
                 obj.remove(*field);
+            }
+        }
+        if drop_cover {
+            for field in [
+                "coverUpdatedAt",
+                "coverBlobHash",
+                "coverPath",
+                "coverExtractionDone",
+            ] {
+                obj.remove(field);
             }
         }
     }
@@ -417,6 +428,15 @@ fn merge_book_metadata_json(
     };
 
     if let (Some(merged_obj), Some(inc_obj)) = (merged.as_object_mut(), incoming.as_object()) {
+        let incoming_edit = parse_sync_date(incoming.get("metadataUpdatedAt"));
+        let existing_edit = parse_sync_date(merged_obj.get("metadataUpdatedAt"));
+        if incoming_edit.is_some() && incoming_edit > existing_edit {
+            for field in BOOK_EDITABLE_FIELDS {
+                if !inc_obj.contains_key(*field) {
+                    merged_obj.remove(*field);
+                }
+            }
+        }
         for (k, v) in inc_obj {
             // Never overwrite local storage/file paths with null/missing/empty from sync
             if existing_json.is_some() {
@@ -490,7 +510,6 @@ fn merge_synced_book(
     conflicts: &mut usize,
 ) -> rusqlite::Result<bool> {
     let title = book_val.get("title").and_then(|v| v.as_str()).unwrap_or("");
-    let author = book_val.get("author").and_then(|v| v.as_str());
 
     connection.execute(
         "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
@@ -548,9 +567,17 @@ fn merge_synced_book(
     )?;
 
     let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
+    let final_book = serde_json::from_str::<serde_json::Value>(&final_json).unwrap_or_default();
     let _ = connection.execute(
         "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-        params![book_id, title, author],
+        params![
+            book_id,
+            final_book
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            final_book.get("author").and_then(|v| v.as_str())
+        ],
     );
     Ok(true)
 }
@@ -1149,6 +1176,32 @@ mod tests {
         assert_eq!(book["title"], "Dune Messiah");
         assert_eq!(book["tags"], serde_json::json!(["classic"]));
         assert_eq!(book["progress"], 0.4);
+    }
+
+    #[test]
+    fn removed_metadata_stays_removed_and_stale_titles_do_not_replace_search_terms() {
+        let conn = setup_db();
+        for value in [
+            serde_json::json!({"id":"b1", "title":"Original", "author":"Old author", "rating":5, "series":"Old series", "metadataUpdatedAt":"2026-11-04T10:00:00Z"}),
+            serde_json::json!({"id":"b1", "title":"Edited", "author":"New author", "metadataUpdatedAt":"2026-11-05T10:00:00Z"}),
+            serde_json::json!({"id":"b1", "title":"Original", "author":"Old author", "rating":5, "series":"Old series", "metadataUpdatedAt":"2026-11-04T10:00:00Z", "progress":0.8, "lastReadAt":"2026-11-05T11:00:00Z"}),
+        ] {
+            let entries = std::collections::HashMap::from([("book:b1".into(), value.to_string())]);
+            sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        }
+        let book = stored_book(&conn, "b1");
+        assert_eq!(book["title"], "Edited");
+        assert!(book.get("rating").is_none());
+        assert!(book.get("series").is_none());
+        assert_eq!(book["progress"], 0.8);
+        let indexed: (String, String) = conn
+            .query_row(
+                "SELECT title, author FROM books_fts WHERE id = 'b1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(indexed, ("Edited".into(), "New author".into()));
     }
 
     #[test]

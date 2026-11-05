@@ -44,12 +44,16 @@ function sameValue(a: unknown, b: unknown): boolean {
  */
 export function withMetadataStamp(before: Book, after: Book, now: Date = new Date()): Book {
     if (after === before) return after;
+    if (before.coverPath !== after.coverPath || before.coverBlobHash !== after.coverBlobHash) {
+        const previous = Date.parse(before.coverUpdatedAt ?? "") || 0;
+        after = { ...after, coverUpdatedAt: new Date(Math.max(now.getTime(), previous + 1)).toISOString() };
+    }
     const edited = BOOK_EDITABLE_FIELDS.some((field) => !sameValue(before[field], after[field]));
     if (!edited) return after;
     const { metadataBaseAt: _previousBase, ...rest } = after;
     return {
         ...rest,
-        metadataUpdatedAt: now.toISOString(),
+        metadataUpdatedAt: new Date(Math.max(now.getTime(), (Date.parse(before.metadataUpdatedAt ?? "") || 0) + 1)).toISOString(),
         ...(before.metadataUpdatedAt ? { metadataBaseAt: before.metadataUpdatedAt } : {}),
     };
 }

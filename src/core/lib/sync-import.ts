@@ -183,6 +183,15 @@ export function mergeBooks(
         // back. Without stamps (older app versions) the union rules above stay.
         const remoteEditAt = toEpoch(inc.metadataUpdatedAt);
         const localEditAt = toEpoch(match.metadataUpdatedAt);
+        const remoteCoverAt = toEpoch(inc.coverUpdatedAt);
+        const localCoverAt = toEpoch(match.coverUpdatedAt);
+        merged.coverUpdatedAt = remoteCoverAt > localCoverAt ? inc.coverUpdatedAt : match.coverUpdatedAt;
+        if (localCoverAt > remoteCoverAt) {
+            merged.coverPath = match.coverPath;
+            merged.coverBlobHash = match.coverBlobHash;
+        } else if (remoteCoverAt > localCoverAt) {
+            merged.coverBlobHash = inc.coverBlobHash;
+        }
         if (remoteEditAt > 0 || localEditAt > 0) {
             const winner = remoteEditAt > localEditAt ? inc : match;
             const target = merged as unknown as Record<string, unknown>;
@@ -191,7 +200,7 @@ export function mergeBooks(
             }
             merged.progressBeforeFinish = winner.progressBeforeFinish;
             merged.title = merged.title || match.title || inc.title;
-            merged.author = merged.author || match.author || inc.author;
+            merged.author = winner.author ?? "";
             merged.tags = merged.tags ?? [];
             merged.isFavorite = Boolean(merged.isFavorite);
             merged.metadataUpdatedAt = winner.metadataUpdatedAt;
