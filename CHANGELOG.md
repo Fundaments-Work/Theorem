@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.1] - 2026-11-04 (Pre-release)
+## [1.6.1] - 2026-11-05 (Pre-release)
+
+### Fixed
+
+- **Shelf actions on phones** — Align Add, view and More actions to the right so the shelf dropdown stays on screen and its actions remain reachable.
+- **Settings help on phones** — Add a Help tab for diagnostics, release downloads and issue reporting; show desktop update checking only where it works. Preserve ZIP bytes when log export uses Tauri's byte-array response fallback.
+- **Edited covers and metadata stay edited after sync** — Merge book details and reading position independently, version cover replacements and removals, and publish the first cover edit after sync starts. Stale peer copies cannot restore an older cover or a cleared author, rating or series. Keep the search index aligned with retained metadata.
+- **Delete automatic copies** — Remove individual automatic database backups from Data & Storage after confirming the date and size, without changing the current library or other copies.
 
 ### Features & Enhancements
 
