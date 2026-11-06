@@ -55,7 +55,7 @@ jobs:
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
           shellcheck scripts/ci-changes.sh scripts/release-tag.sh scripts/check-release-assets.sh
       - name: Exercise job selection
-        run: node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs
+        run: node --test scripts/ci-changes.test.mjs scripts/ci-result.test.cjs scripts/release-tag.test.mjs scripts/release-target.test.cjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs
 
   web:
     name: Web (typecheck, design, tests, build)
@@ -258,3 +258,17 @@ jobs:
       # The release also builds 32-bit APKs, where usize is 32 bits wide.
       - name: Clippy (armv7-linux-androideabi, 32-bit)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --target armv7-linux-androideabi -- -D warnings -A unknown-lints -A clippy::chunks-exact-to-as-chunks
+
+  required-check:
+    name: CI result
+    if: always()
+    needs: [changes, workflow-check, web, rust-check, rust-android-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const { assertCiResult } = require('./scripts/ci-result.cjs');
+            assertCiResult(${{ toJSON(needs) }});

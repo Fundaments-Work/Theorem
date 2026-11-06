@@ -42,10 +42,10 @@ Key architectural decisions:
 
 ### Branching
 
-- `main` is the stable release branch. All PRs target `main`.
+- `main` is the maintained integration branch. All PRs target `main`.
 - Feature branches use `feature/` prefix (e.g., `feature/dark-mode-toggle`)
 - Bug fix branches use `fix/` prefix (e.g., `fix/reader-crash-on-mobile`)
-- Release branches use `release/` prefix (e.g., `release/1.4.3`)
+- A maintainer designates any active release branch; releases come from commits integrated into `main`.
 
 ### Code Style
 
@@ -135,12 +135,9 @@ We welcome contributions in these areas:
 
 Releases are automated via GitHub Actions. A maintainer:
 
-1. Bumps version in `package.json`, `Cargo.toml`, `tauri.conf.json`, and `theorem-sync-core/Cargo.toml`
-2. Updates `CHANGELOG.md`
-3. Registers icons from `public/favicon.svg`
-4. Tags `v<version>` and pushes — CI builds all targets and publishes
-
-The full procedure is documented in [AGENTS.md](./AGENTS.md) under the Release section.
+Follow [the release procedure](docs/release.md), including all version files,
+verification, and explicit maintainer approval before tagging or publishing.
+Release repair and replacement need a separately reviewed procedure.
 
 ## TTS / Immersion Reading Development
 

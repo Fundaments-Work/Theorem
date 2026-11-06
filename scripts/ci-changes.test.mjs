@@ -76,6 +76,8 @@ test('large diffs do not lose matches through grep SIGPIPE under pipefail', () =
 test('workflow edits select lint without unrelated native jobs', () => {
     assert.deepEqual(select({ files: ['.github/workflows/release.yml'] }).gates, { ...none, workflows: 'true' });
     assert.equal(select({ files: ['scripts/ci-changes.sh'] }).gates.workflows, 'true');
+    assert.equal(select({ files: ['scripts/release-target.cjs'] }).gates.workflows, 'true');
+    assert.equal(select({ files: ['scripts/ci-result.cjs'] }).gates.workflows, 'true');
 });
 
 test('every local E2E edit avoids hosted application builds', () => {

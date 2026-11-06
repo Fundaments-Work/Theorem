@@ -33,6 +33,7 @@ jobs:
       release_tag: ${{ steps.resolve-tag.outputs.tag }}
       release_sha: ${{ steps.resolve-tag.outputs.sha }}
       prerelease: ${{ steps.resolve-tag.outputs.prerelease }}
+      release_id: ${{ steps.create-release.outputs.id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,6 +47,16 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: bash scripts/release-tag.sh
+
+      - name: Refuse an existing release or draft
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { assertNewRelease } = require('./scripts/release-target.cjs');
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              ...context.repo, per_page: 100,
+            });
+            assertNewRelease(releases, ${{ toJSON(steps.resolve-tag.outputs.tag) }});
 
       - name: Extract Release Notes
         id: release-notes
@@ -168,6 +179,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
@@ -250,6 +262,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
@@ -266,6 +279,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
@@ -345,6 +359,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
@@ -361,6 +376,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
@@ -412,6 +428,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
@@ -687,8 +704,15 @@ jobs:
           ref: ${{ needs.create-release.outputs.release_sha }}
 
       - name: Publish Release
-        run: |
-          gh release edit "$RELEASE_TAG" --draft=false
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const release_id = Number(${{ toJSON(needs.create-release.outputs.release_id) }});
+            const { data: release } = await github.rest.repos.getRelease({ ...context.repo, release_id });
+            if (!release.draft || release.tag_name !== ${{ toJSON(needs.create-release.outputs.release_tag) }}) {
+              throw new Error('The prepared release is no longer the expected draft; refusing to publish.');
+            }
+            await github.rest.repos.updateRelease({ ...context.repo, release_id, draft: false });
 
       # GITHUB_TOKEN publication does not trigger the release-event workflow.
       - name: Notify Studio & Landing

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release targeting** — Refuse an existing release or draft before building, target desktop uploads and publication by release ID, and document the limits of release recovery and repository protection.
+
 ### Maintenance
 
 - **Release branch retirement** — Retire the `1.6.1` branch after publishing its approved rebuild; keep its release tag and direct CI and dependency updates to `main`.

@@ -47,7 +47,23 @@
 
 ### Release CI troubleshooting
 
-The release workflow publishes a **draft** release first, then flips it public only if every platform job succeeds. So a failed job leaves assets uploaded but the release unpublished — fix and re-run rather than rebuilding from scratch.
+For a new release, the workflow creates a draft and publishes that draft by its
+release ID after the platform jobs succeed. It refuses to start if any published
+release or draft already uses the tag. A failed run can therefore leave a draft
+that blocks a fresh run: inspect the draft and run history, preserve any needed
+assets, and agree on a recovery procedure before deleting or modifying anything.
+Do not rerun against a published tag to replace assets. A reviewed replacement
+process must identify the release by ID and verify every uploaded asset and
+updater manifest before publication; the current workflow does not provide it.
+Tag-triggered workflows run the workflow definition at the tagged revision. Old
+tags do not acquire this guard merely because it is added to `main`; do not push
+or rerun an old tag as a recovery shortcut. A manual dispatch must use a reviewed
+workflow revision that includes the guard.
+
+The 1.6.1 rebuild exposed why this matters: the public desktop assets are older
+than the tagged fix even though the rebuild reported success. Do not assume that
+the public assets match the tag, or that a deleted draft can be recovered. Keep
+the existing release untouched until a replacement is separately approved.
 
 **Android builds fail intermittently with a Maven Central `403`** (seen on 1.5.9):
 ```
@@ -94,8 +110,8 @@ committing duplicate archives or book files.
 
 Automatic CI runs on pushes and pull requests to `main`; manual CI remains
 available for maintainer-designated release branches before integration. The
-maintainer approved retiring `1.6.1` after its rebuilt release was published;
-the release tag remains. Dependabot version PRs now target `main`. Publishing
+maintainer approved retiring `1.6.1`; the release tag remains. The rebuilt
+desktop assets were not confirmed on the public release. Dependabot version PRs now target `main`. Publishing
 still requires the maintainer’s approval of the release/tag step.
 
 ### Workflow selection and shared builds
@@ -135,13 +151,15 @@ Routine CI retains its caches. This follows the
 The Vite production build has no target-platform conditional, so these assets
 are shared across platforms.
 
-Release reruns resolve the existing requested tag to an immutable commit, use
+Release runs resolve the requested tag to an immutable commit, use
 that revision for release notes and every platform build, and serialize attempts
 for the same tag without cancelling signing/uploads. Only `X.Y.0` without a
 suffix is stable; all patch releases are prereleases. A requested tag must resolve
 to a commit already on `origin/main` before any tagged source is built. Each
 desktop build requires every installer/signature pattern through
-`scripts/check-release-assets.sh` before publication. Patterns stay literal until
+`scripts/check-release-assets.sh` before publication. This checks runner files,
+not the assets attached on GitHub; independent remote verification is still
+required before relying on a release. Patterns stay literal until
 expansion inside the bundle directory, so unmatched patterns cannot silently
 disappear. There is no separate dry-run workflow. The shared-action workflows
 must exist at the selected tag; tags predating these actions need their original

@@ -18,5 +18,5 @@ shared='^(\.github/actions/|\.github/workflows/ci\.yml|package\.json|pnpm-lock\.
   echo "web=$(has "$shared|^(src/|tests/|index\.html|ui-gallery\.html|public/|vite\.config|vitest\.config|src-tauri/crates/theorem-core/)")"
   echo "rust=$(has "^(\.github/actions/|\.github/workflows/ci\.yml|src-tauri/|pnpm-lock\.yaml)")"
   echo "android=$(has "^(\.github/workflows/ci\.yml|src-tauri/(src|crates|plugins|gen|Cargo|tauri\.conf|capabilities)|pnpm-lock\.yaml)")"
-  echo "workflows=$(has '^(\.github/(workflows/|actions/)|e2e/|scripts/(ci-changes|release-tag|check-release-assets)\.)')"
+  echo "workflows=$(has '^(\.github/(workflows/|actions/)|e2e/|scripts/(ci-changes|ci-result|release-tag|release-target|check-release-assets)\.)')"
 } >> "$GITHUB_OUTPUT"
