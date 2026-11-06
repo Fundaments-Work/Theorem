@@ -8,7 +8,7 @@ import { bookButton, goTo, importBooks, launchFresh } from "../lib/flows.mjs";
 
 const box = new Sandbox("shelves");
 const files = writeStandardBooks(box.files);
-const SHELF = "Evening Reading";
+const SHELF = "Evening Reading and a Very Long Shelf Name for Narrow Windows";
 let app;
 before(async () => {
     app = await launchFresh(box);
@@ -49,9 +49,9 @@ test("the shelf lists exactly the added book", async () => {
     assert.equal(await app.exists(bookButton(BOOKS.lamplighter.title)), false);
 });
 
-test("shelf actions and their dropdown stay on screen at phone widths", async () => {
+test("shelf actions and their dropdown stay on screen at phone and tablet widths", async () => {
     try {
-        for (const width of [320, 390, 640, 1280]) {
+        for (const width of [320, 390, 640, 768, 820, 1024, 1280]) {
             await app.session.cmd("POST", "/window/rect", { width, height: 844, x: 0, y: 0 });
             await app.waitFor(async () => await app.session.execute("return innerWidth === arguments[0]", width), { what: `${width}px viewport` });
             const more = await app.find({ role: "button", name: "More actions" });
