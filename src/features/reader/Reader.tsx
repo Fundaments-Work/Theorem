@@ -70,6 +70,7 @@ import { registerShortcuts } from "../../core/lib/keyboard-shortcuts";
 import { immersionPlayer, getNeuralStatus, resolveNeuralVoice } from "./audio/ImmersionPlayer";
 import { showTtsError } from "./audio/tts-errors";
 import { toast } from "sonner";
+import { notifyNextSeriesBook } from "./series-completion-notification";
 import { AudiobookBar } from "./audio/AudiobookBar";
 import { SpeedReader } from "./components/SpeedReader";
 import { resumeDecision } from "./lib/resume-progress";
@@ -1158,15 +1159,8 @@ const BookReaderPage = memo(function BookReaderPage() {
                 || seriesBooks.find((b) => !isBookMarkedRead(b));
 
             if (nextBook) {
-                toast(`Finished ${completedBook.title}!`, {
-                    description: `Next up in ${completedBook.series}: ${nextBook.title}${nextBook.seriesIndex != null ? ` (Vol. ${nextBook.seriesIndex})` : ""}`,
-                    action: {
-                        label: "Read Next",
-                        onClick: () => {
-                            useUIStore.getState().setRoute("reader", nextBook.id);
-                        },
-                    },
-                    duration: 10000,
+                notifyNextSeriesBook(completedBook, nextBook, (nextBookId) => {
+                    useUIStore.getState().setRoute("reader", nextBookId);
                 });
             }
         }
