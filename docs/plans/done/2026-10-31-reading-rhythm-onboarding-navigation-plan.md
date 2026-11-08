@@ -1,7 +1,8 @@
 # Reading rhythm, onboarding, and navigation
 
 Date: 2026-10-31
-Status: Implemented on `feat/reading-rhythm`; human usability study remains pending
+Status: Implemented; outstanding reader and Android validation is tracked in the
+[1.6.2 release plan](../2026-11-08-v1.6.2-reliability-release-plan.md).
 
 ## Outcome
 
@@ -32,8 +33,8 @@ Exclude from the first release: leaderboards, currencies, paid streak protection
 
 - `src/shell/layout/nav-items.ts` already defines the shared order: Library, Shelves, Discover, Feeds, Workbench. It also drives numbered navigation shortcuts. Workbench owns annotations, vocabulary, and bookmarks.
 - `BottomNav.tsx` already renders labels; `Sidebar.tsx` uses an icon rail with accessible names and tooltips. Statistics and Settings are secondary utilities.
-- `src/features/onboarding/OnboardingFlow.tsx` presents a five-screen feature tour. Completion is represented by a persisted setting and a local-storage marker; see [onboarding](../onboarding.md).
-- Existing statistics include daily and yearly goals, streaks, achievements, and a heatmap. The settings store currently uses persistence version 13. Inspect the current version again when implementing; see [statistics](../statistics.md).
+- `src/features/onboarding/OnboardingFlow.tsx` presents a five-screen feature tour. Completion is represented by a persisted setting and a local-storage marker; see [onboarding](../../onboarding.md).
+- Existing statistics include daily and yearly goals, streaks, achievements, and a heatmap. The settings store currently uses persistence version 13. Inspect the current version again when implementing; see [statistics](../../statistics.md).
 - `useReadingTime.ts` tracks visible reader time and flushes it to statistics and native reading-session storage. Visibility is a proxy for reading, not proof of attention.
 - SQLite already has a `reading_sessions` table. Its recording operation adds minutes on conflict; retrying the same payload is therefore not inherently idempotent. Do not use it unmodified as an XP award ledger.
 - In-memory daily activity is bounded. Lifetime XP must not be derived solely from the retained heatmap.
@@ -124,7 +125,7 @@ Before implementing XP, write a precise data contract covering:
 - A compact native progress response, typed `AppError`, `with_connection()`, appropriate `Box<str>`/`Box<[T]>` DTO fields, and individual Zustand selectors.
 - A lightweight browser persistence adapter with the same contract for supported web use. No bulk JavaScript history aggregation; agree a shared native/WASM strategy if historical aggregation is required there.
 
-Do not announce lifetime XP until persistence, sync, backup, and restore preserve it. Define metadata-only award sync so older peers can continue reading and syncing their existing data. Follow [sync rules](../sync.md): protocol/version migration, old-form reads and writes where required, and real-node mixed-version scenarios. An older peer must not erase new goal or award fields through a settings replacement.
+Do not announce lifetime XP until persistence, sync, backup, and restore preserve it. Define metadata-only award sync so older peers can continue reading and syncing their existing data. Follow [sync rules](../../sync.md): protocol/version migration, old-form reads and writes where required, and real-node mixed-version scenarios. An older peer must not erase new goal or award fields through a settings replacement.
 
 Migration proposal: retain all existing statistics and preferences, start XP from the feature's activation date, and explain that earlier reading remains in Statistics. Do not fabricate lifetime awards from a truncated activity window. Backups must include the ledger; restoring or importing twice must not duplicate awards. An older backup cannot replace a newer award set during merge; document deliberate full-restore semantics separately.
 
@@ -181,7 +182,7 @@ Tests must assert behavior, not component source text:
 - Real app e2e: fresh install → setup → import → read → exit/relaunch → resume; existing-user adoption; Android Back and safe areas; permission denial; progress across a simulated date boundary; keyboard, large text, and reduced motion.
 - For timing bugs, report repeated failing runs before the fix and passing runs after it. Use controllable clocks and conditions, never longer sleeps to conceal races.
 
-Before each implementation commit run the ordered quality gates in [AGENTS.md](../../AGENTS.md), including the full Rust and frontend suites and build. Build `dist/` first in a fresh checkout when all-feature Clippy needs it. Run Android target checks for relevant native changes and integer-size/offset assumptions. Run `pnpm foliate:check` only if the reader runtime is touched; avoid touching it for this feature.
+Before each implementation commit run the ordered quality gates in [AGENTS.md](../../../AGENTS.md), including the full Rust and frontend suites and build. Build `dist/` first in a fresh checkout when all-feature Clippy needs it. Run Android target checks for relevant native changes and integer-size/offset assumptions. Run `pnpm foliate:check` only if the reader runtime is touched; avoid touching it for this feature.
 
 Update `docs/statistics.md`, `docs/onboarding.md`, `docs/user/statistics.md`, `docs/user/getting-started.md`, `docs/modules.md`, `docs/sync.md`, and the unreleased changelog alongside actual behavior changes. Update AGENTS.md only if rules, commands, or module layout change. Do not describe planned functionality as shipped.
 
