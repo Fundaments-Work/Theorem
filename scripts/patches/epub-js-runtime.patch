@@ -148,13 +148,16 @@
          const result = { label, href, subitems: parseOL($ol) }
          if (getType) result.type = $a?.getAttributeNS(NS.EPUB, 'type')?.split(/\s/)
          return result
-@@ -402,20 +391,30 @@
+@@ -402,20 +391,33 @@
      #volume = 1
      #rate = 1
      #state
 +    // Bumped by every play, start and stop, so work that an interrupted one
 +    // still has in flight can tell it was abandoned.
 +    #session = 0
++    // Set by the app on WebKitGTK, where changing the rate of playing audio
++    // silences it. See setRate.
++    restartOnRateChange = false
      constructor(book, loadXML) {
          super()
          this.book = book
@@ -181,7 +184,7 @@
              const $audio = $($par, 'audio')
              if (!text || !$audio) return arr
              const src = resolve($audio.getAttribute('src'))
-@@ -429,7 +428,7 @@
+@@ -429,7 +431,7 @@
          this.#lastMediaOverlayItem = item
      }
      get #activeAudio() {
@@ -190,7 +193,7 @@
      }
      get #activeItem() {
          return this.#activeAudio?.items?.[this.#itemIndex]
-@@ -444,20 +443,28 @@
+@@ -444,20 +446,28 @@
      #unhighlight() {
          this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
      }
@@ -222,7 +225,7 @@
              const t = audio.currentTime
              const { items } = this.#activeAudio
              if (t > this.#activeItem?.end) {
-@@ -471,10 +478,14 @@
+@@ -471,10 +481,14 @@
              while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
              if (this.#itemIndex !== oldIndex) this.#highlight()
          })
@@ -240,7 +243,7 @@
              this.#unhighlight()
              URL.revokeObjectURL(url)
              this.#audio = null
-@@ -482,26 +493,38 @@
+@@ -482,26 +496,38 @@
          })
          if (this.#state === 'paused') {
              this.#highlight()
@@ -287,7 +290,7 @@
  
          for (let i = 0; i < this.#entries.length; i++) {
              const { items } = this.#entries[i]
-@@ -510,6 +533,8 @@
+@@ -510,6 +536,8 @@
                      return this.#play(i, j).catch(e => this.#error(e))
              }
          }
@@ -296,7 +299,7 @@
      }
      pause() {
          this.#state = 'paused'
-@@ -517,29 +542,40 @@
+@@ -517,29 +545,40 @@
      }
      resume() {
          this.#state = 'playing'
@@ -342,7 +345,7 @@
      }
      setVolume(volume) {
          this.#volume = volume
-@@ -547,7 +583,17 @@
+@@ -547,7 +586,18 @@
      }
      setRate(rate) {
          this.#rate = rate
@@ -350,18 +353,19 @@
 +        const audio = this.#audio
 +        if (!audio) return // anything still fetching picks up #rate when it is created
 +        // HAVE_FUTURE_DATA: before this the element has not started, so it can just be told.
-+        if (audio.readyState < 3) {
++        if (!this.restartOnRateChange || audio.readyState < 3) {
 +            audio.playbackRate = rate
 +            return
 +        }
 +        // Changing the rate of a playing element silences WebKitGTK for a while,
-+        // though its clock keeps running. A new element starting at the rate is fine.
++        // though its clock keeps running. A new element starting at the rate is
++        // fine, at the cost of a short gap while it loads.
 +        this.#play(this.#audioIndex, this.#itemIndex, audio.currentTime)
 +            .catch(e => this.#error(e))
      }
  }
  
-@@ -565,7 +611,6 @@
+@@ -565,7 +615,6 @@
      opf.getElementById(opf.documentElement.getAttribute('unique-identifier'))
      ?? opf.getElementsByTagNameNS(NS.DC, 'identifier')[0])
  
@@ -369,7 +373,7 @@
  const deobfuscate = async (key, length, blob) => {
      const array = new Uint8Array(await blob.slice(0, length).arrayBuffer())
      length = Math.min(length, array.length)
-@@ -582,7 +627,7 @@
+@@ -582,7 +631,7 @@
  const deobfuscators = (sha1 = WebCryptoSHA1) => ({
      'http://www.idpf.org/2008/embedding': {
          key: opf => sha1(getIdentifier(opf)
@@ -378,7 +382,7 @@
              .replaceAll(/[\u0020\u0009\u000d\u000a]/g, '')),
          decode: (key, blob) => deobfuscate(key, 1040, blob),
      },
-@@ -667,7 +712,7 @@
+@@ -667,7 +716,7 @@
              }))
  
          this.cover = this.getItemByProperty('cover-image')
@@ -387,7 +391,7 @@
              ?? this.getItemByID($$$(opf, 'meta')
                  .find(filterAttribute('name', 'cover'))
                  ?.getAttribute('content'))
-@@ -689,9 +734,7 @@
+@@ -689,9 +738,7 @@
          const parts = CFI.parse(cfi)
          const top = (parts.parent ?? parts).shift()
          let $itemref = CFI.toElement(this.opf, top)
@@ -398,7 +402,7 @@
          if ($itemref && $itemref.nodeName !== 'idref') {
              top.at(-1).id = null
              $itemref = CFI.toElement(this.opf, top)
-@@ -713,32 +756,36 @@
+@@ -713,32 +760,36 @@
          this.loadBlob = loadBlob
          this.manifest = resources.manifest
          this.assets = resources.manifest
@@ -449,7 +453,7 @@
              if (childList) childList.push(href)
              else this.#children.set(parent, [href])
          }
-@@ -747,19 +794,17 @@
+@@ -747,19 +798,17 @@
      unref(href) {
          if (!this.#refCount.has(href)) return
          const count = this.#refCount.get(href) - 1
@@ -471,7 +475,7 @@
      async loadItem(item, parents = []) {
          if (!item) return null
          const { href, mediaType } = item
-@@ -776,18 +821,48 @@
+@@ -776,18 +825,48 @@
  
          const shouldReplace =
              (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
@@ -525,7 +529,7 @@
          return this.loadItem(item, parents.concat(base))
      }
      async loadReplaced(item, parents = []) {
-@@ -801,27 +876,16 @@
+@@ -801,27 +880,16 @@
          }
          if (!str) return null
  
@@ -555,7 +559,7 @@
              if ([MIME.XHTML, MIME.SVG].includes(item.mediaType)) {
                  let child = doc.firstChild
                  while (child instanceof ProcessingInstruction) {
-@@ -836,29 +900,34 @@
+@@ -836,29 +904,34 @@
                      child = child.nextSibling
                  }
              }
@@ -596,7 +600,7 @@
              const result = new XMLSerializer().serializeToString(doc)
              return this.createURL(href, result, item.mediaType, parent)
          }
-@@ -873,19 +942,19 @@
+@@ -873,19 +946,19 @@
              /url\(\s*["']?([^'"\n]*?)\s*["']?\s*\)/gi,
              (_, url) => this.loadHref(url, href, parents)
                  .then(url => `url("${url}")`))
@@ -620,7 +624,7 @@
              const relative = pathRelative(pathDirname(href), asset.href)
              const relativeEnc = encodeURI(relative)
              const rootRelative = '/' + asset.href
-@@ -934,7 +1003,14 @@
+@@ -934,7 +1007,14 @@
      #loader
      #encryption
      constructor({ loadText, loadBlob, getSize, sha1 }) {

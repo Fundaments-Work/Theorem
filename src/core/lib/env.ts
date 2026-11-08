@@ -24,6 +24,11 @@ export function isTauriDesktop(): boolean {
     return isTauri() && !isMobile();
 }
 
+/** The Linux desktop app. Tauri's webview on Linux is always WebKitGTK. */
+export function isWebKitGTK(): boolean {
+    return isTauriDesktop() && /Linux/.test(navigator.userAgent);
+}
+
 export function isAndroid(): boolean {
     if (typeof navigator === 'undefined') return false;
     return /Android/i.test(navigator.userAgent);

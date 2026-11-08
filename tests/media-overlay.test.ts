@@ -81,6 +81,7 @@ type Overlay = EventTarget & {
     pause(): void;
     resume(): void;
     setRate(rate: number): void;
+    restartOnRateChange: boolean;
 };
 
 async function openOverlay(
@@ -366,9 +367,29 @@ describe("MediaOverlay", () => {
     });
 
     describe("changing speed", () => {
-        // Changing playbackRate on a playing element silences WebKitGTK for a while.
-        it("swaps in a new player at the same position while playing", async () => {
+        it("changes the rate of the playing element where no restart is needed", async () => {
             const { overlay } = await openOverlay();
+            await startPlaying(overlay);
+            const playing = FakeAudio.last!;
+            playing.currentTime = 0.5;
+            overlay.setRate(1.5);
+            await flush();
+            expect(FakeAudio.last).toBe(playing);
+            expect(playing.playbackRate).toBe(1.5);
+            expect(playing.paused).toBe(false);
+            expect(playing.currentTime).toBe(0.5);
+        });
+    });
+
+    describe("changing speed on WebKitGTK", () => {
+        // Changing playbackRate on a playing element silences WebKitGTK for a while.
+        const openOverlayRestarting = async () => {
+            const opened = await openOverlay();
+            opened.overlay.restartOnRateChange = true;
+            return opened;
+        };
+        it("swaps in a new player at the same position while playing", async () => {
+            const { overlay } = await openOverlayRestarting();
             await startPlaying(overlay);
             const old = FakeAudio.last!;
             old.currentTime = 0.5;
@@ -390,7 +411,7 @@ describe("MediaOverlay", () => {
         });
 
         it("stays paused at the same position when paused", async () => {
-            const { overlay } = await openOverlay();
+            const { overlay } = await openOverlayRestarting();
             await startPlaying(overlay);
             FakeAudio.last!.currentTime = 0.5;
             overlay.pause();
@@ -405,7 +426,7 @@ describe("MediaOverlay", () => {
         });
 
         it("does not lose the position when clicked again while the new player loads", async () => {
-            const { overlay } = await openOverlay();
+            const { overlay } = await openOverlayRestarting();
             await startPlaying(overlay);
             FakeAudio.last!.currentTime = 0.5;
             overlay.setRate(1.5);
@@ -425,7 +446,7 @@ describe("MediaOverlay", () => {
         });
 
         it("a skip right after a speed change starts at the new phrase", async () => {
-            const { overlay } = await openOverlay();
+            const { overlay } = await openOverlayRestarting();
             await startPlaying(overlay);
             FakeAudio.last!.currentTime = 0.5;
             overlay.setRate(1.5);
@@ -439,12 +460,20 @@ describe("MediaOverlay", () => {
         });
 
         it("only remembers the speed before anything has played", async () => {
-            const { overlay } = await openOverlay();
+            const { overlay } = await openOverlayRestarting();
             overlay.setRate(1.5);
             await flush();
             expect(FakeAudio.all).toHaveLength(0);
             await startPlaying(overlay);
             expect(FakeAudio.last!.playbackRate).toBe(1.5);
         });
+    });
+});
+
+describe("FoliateEngine turns on the rate-change restart only on WebKitGTK", () => {
+    const engineSource = readFileSync("src/features/reader/engines/foliate-engine.ts", "utf-8");
+
+    it("sets it from the platform check after opening the book", () => {
+        expect(engineSource).toContain("this.view.mediaOverlay.restartOnRateChange = isWebKitGTK();");
     });
 });

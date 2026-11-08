@@ -22,6 +22,11 @@ Toggling immersion mode on such a book swaps the TTS row for
   immersion leaves it as it is (`lib/immersion-source.ts`).
 - Controls: play/pause, previous/next phrase, speed, minute sleep timer, and
   system media keys. Speed is not saved between sessions.
+- Speed on Linux: changing `playbackRate` on playing audio silences WebKitGTK
+  while the element's clock keeps running. Where `isWebKitGTK()` (the Linux
+  desktop app) is true, `FoliateEngine` sets `restartOnRateChange`, and a speed
+  change starts a new element at the same position instead. Expect a short gap
+  while it loads. Other platforms change the rate in place.
 - The spoken phrase gets the book's `media:active-class`, or `media-active` if
   it declares none. `getCSS` styles either one from the theme, because the theme
   forces every element's background and would hide the book's own rule.

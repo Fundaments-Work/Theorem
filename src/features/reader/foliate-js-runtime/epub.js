@@ -394,6 +394,9 @@ class MediaOverlay extends EventTarget {
     // Bumped by every play, start and stop, so work that an interrupted one
     // still has in flight can tell it was abandoned.
     #session = 0
+    // Set by the app on WebKitGTK, where changing the rate of playing audio
+    // silences it. See setRate.
+    restartOnRateChange = false
     constructor(book, loadXML) {
         super()
         this.book = book
@@ -586,12 +589,13 @@ class MediaOverlay extends EventTarget {
         const audio = this.#audio
         if (!audio) return // anything still fetching picks up #rate when it is created
         // HAVE_FUTURE_DATA: before this the element has not started, so it can just be told.
-        if (audio.readyState < 3) {
+        if (!this.restartOnRateChange || audio.readyState < 3) {
             audio.playbackRate = rate
             return
         }
         // Changing the rate of a playing element silences WebKitGTK for a while,
-        // though its clock keeps running. A new element starting at the rate is fine.
+        // though its clock keeps running. A new element starting at the rate is
+        // fine, at the cost of a short gap while it loads.
         this.#play(this.#audioIndex, this.#itemIndex, audio.currentTime)
             .catch(e => this.#error(e))
     }
