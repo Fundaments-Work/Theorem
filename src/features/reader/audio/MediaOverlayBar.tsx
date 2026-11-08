@@ -150,7 +150,7 @@ export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookC
             )}
             style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + var(--safe-area-bottom))" }}
         >
-            <div className="mx-auto max-w-2xl px-3">
+            <div className="mx-auto max-w-[var(--container-width-sm)] px-3">
                 <div className="border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-3 pt-2 pb-2 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                     <div className="flex items-center gap-2 min-w-0">
                         <AudioLines className="w-3.5 h-3.5 text-[color:var(--color-accent)] shrink-0" />

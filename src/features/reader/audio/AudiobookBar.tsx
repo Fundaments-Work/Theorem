@@ -321,7 +321,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
             )}
             style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + var(--safe-area-bottom))" }}
         >
-            <div className="mx-auto max-w-2xl px-3">
+            <div className="mx-auto max-w-[var(--container-width-sm)] px-3">
                 <div className="border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-3 pt-2 pb-2 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                     {replacesBookNarration && (
                         <p className="mb-1 text-[10px] text-[color:var(--color-text-muted)] truncate">

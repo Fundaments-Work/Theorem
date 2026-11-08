@@ -214,4 +214,13 @@ describe("MediaOverlayBar", () => {
         await act(async () => { first.fire("finished"); });
         expect(host.textContent).not.toContain("Finished");
     });
+
+    it("uses a container width, not a named max-w that resolves to spacing", async () => {
+        // docs/design-system.md: named max-w-* classes resolve to the spacing scale
+        // here, so max-w-2xl squeezed the bar to 3.6rem.
+        await mount();
+        const classes = Array.from(host.querySelectorAll("[class]")).flatMap(el => Array.from(el.classList));
+        expect(classes).toContain("max-w-[var(--container-width-sm)]");
+        expect(classes.filter(c => /^max-w-(xs|sm|md|lg|xl|\dxl)$/.test(c))).toEqual([]);
+    });
 });
