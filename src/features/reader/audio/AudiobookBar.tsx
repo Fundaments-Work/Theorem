@@ -50,10 +50,12 @@ interface AudiobookBarProps {
     audioTrack: BookAudioTrack;
     /** Chrome visible (auto-hide aware); playback continues while hidden. */
     visible?: boolean;
+    /** The book also has its own synced narration, which the audiobook takes priority over. */
+    replacesBookNarration?: boolean;
     onClose: () => void;
 }
 
-export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visible = true, onClose }: AudiobookBarProps) {
+export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visible = true, replacesBookNarration = false, onClose }: AudiobookBarProps) {
     const bookCover = useLibraryStore(s => s.getBook(bookId)?.coverPath);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [playing, setPlaying] = useState(false);
@@ -321,6 +323,11 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         >
             <div className="mx-auto max-w-2xl px-3">
                 <div className="border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-3 pt-2 pb-2 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                    {replacesBookNarration && (
+                        <p className="mb-1 text-[10px] text-[color:var(--color-text-muted)] truncate">
+                            Playing your audiobook instead of the book's narration
+                        </p>
+                    )}
                     {/* Row 1: chapter / time / actions */}
                     <div className="flex items-center gap-2 min-w-0">
                         <ListMusic className="w-3.5 h-3.5 text-[color:var(--color-accent)] shrink-0" />

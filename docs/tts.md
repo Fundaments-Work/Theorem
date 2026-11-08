@@ -14,7 +14,9 @@ Toggling immersion mode on such a book swaps the TTS row for
 (`foliate-js-runtime/epub.js`) through `FoliateEngine.getMediaOverlay()` and
 `startMediaOverlay()`:
 
-- An attached audiobook takes priority over a book's own overlay.
+- An attached audiobook takes priority over a book's own overlay, and its bar
+  says so on such a book. The read-along bar always names the book's narration
+  and, before it starts, says it begins at the start of the section.
 - Playback starts at the beginning of the current section, not the current page.
 - Reading along doesn't depend on the TTS setting: on a book with an overlay,
   immersion leaves it as it is (`lib/immersion-source.ts`).

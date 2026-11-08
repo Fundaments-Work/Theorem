@@ -11,8 +11,8 @@ const SLEEP_MINUTES = [15, 30, 45];
 type BarState = "idle" | "loading" | "playing" | "paused" | "finished";
 
 const STATUS_LABEL: Record<BarState, string> = {
-    idle: "Read along with this book's narration",
-    loading: "Loading narration...",
+    idle: "Starts at the beginning of this section",
+    loading: "Loading...",
     playing: "Reading along",
     paused: "Paused",
     finished: "Finished",
@@ -155,6 +155,8 @@ export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookC
                     <div className="flex items-center gap-2 min-w-0">
                         <AudioLines className="w-3.5 h-3.5 text-[color:var(--color-accent)] shrink-0" />
                         <span className="min-w-0 flex-1 text-[11px] text-[color:var(--color-text-primary)] truncate">
+                            {/* Name the source: immersion can also play generated speech or an audiobook. */}
+                            <span className="text-[color:var(--color-text-muted)]">Book narration · </span>
                             {error
                                 ? <span role="alert" className="text-[color:var(--color-error)]">{error}</span>
                                 : STATUS_LABEL[state]}

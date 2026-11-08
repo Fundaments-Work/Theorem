@@ -3196,6 +3196,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                             bookAuthor={currentBook.author}
                             audioTrack={audioTrack}
                             visible={shouldShowReaderChrome}
+                            replacesBookNarration={!!bookMediaOverlay}
                             onClose={() => setImmersionMode(false)}
                         />
                     )}

@@ -178,4 +178,14 @@ describe("MediaOverlayBar", () => {
         await click("Close player");
         expect(onClose).toHaveBeenCalledOnce();
     });
+
+    it("names the book's narration as the source and says where it starts", async () => {
+        await mount();
+        expect(host.textContent).toContain("Book narration");
+        expect(host.textContent).toContain("Starts at the beginning of this section");
+        await click("Play");
+        await fire("highlight");
+        expect(host.textContent).toContain("Book narration");
+        expect(host.textContent).not.toContain("Starts at the beginning");
+    });
 });

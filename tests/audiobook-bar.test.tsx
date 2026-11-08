@@ -259,4 +259,11 @@ describe("AudiobookBar", () => {
         const pressed = Array.from(host.querySelectorAll('button[aria-pressed="true"]')).map((b) => b.textContent);
         expect(pressed).toEqual(["1.5×"]);
     });
+
+    it("says when it plays instead of the book's own narration", () => {
+        mount();
+        expect(host.textContent).not.toContain("instead of the book's narration");
+        act(() => root.render(<AudiobookBar bookId="b1" audioTrack={track()} replacesBookNarration onClose={() => {}} />));
+        expect(host.textContent).toContain("Playing your audiobook instead of the book's narration");
+    });
 });
