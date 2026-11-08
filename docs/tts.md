@@ -16,6 +16,8 @@ Toggling immersion mode on such a book swaps the TTS row for
 
 - An attached audiobook takes priority over a book's own overlay.
 - Playback starts at the beginning of the current section, not the current page.
+- Reading along doesn't depend on the TTS setting: on a book with an overlay,
+  immersion leaves it as it is (`lib/immersion-source.ts`).
 - Controls: play/pause, previous/next phrase, speed, minute sleep timer, and
   system media keys. Speed is not saved between sessions.
 - The spoken phrase gets the book's `media:active-class`, or `media-active` if
