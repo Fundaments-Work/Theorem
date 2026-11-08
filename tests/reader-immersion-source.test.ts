@@ -35,4 +35,13 @@ describe("Reader keeps the saved TTS setting for books with their own narration"
     it("does not leave immersion over TTS being off while the book's narration plays", () => {
         expect(readerSource).toContain("if (!ttsEnabled && immersionMode && immersionUsesTts(bookImmersionSource))");
     });
+
+    it("looks up the overlay again for each book and gives each book its own bar", () => {
+        expect(readerSource).toMatch(/const bookMediaOverlay = useMemo\([\s\S]*?\[currentBookId, isBookReady\]/);
+        expect(readerSource).toMatch(/<MediaOverlayBar\s+key=\{currentBook\.id\}/);
+    });
+
+    it("shows generated speech controls only when no recorded narration plays", () => {
+        expect(readerSource).toContain("immersionMode={immersionMode && !audioTrack && !mediaOverlay}");
+    });
 });

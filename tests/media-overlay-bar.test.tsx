@@ -188,4 +188,30 @@ describe("MediaOverlayBar", () => {
         expect(host.textContent).toContain("Book narration");
         expect(host.textContent).not.toContain("Starts at the beginning");
     });
+
+    it("switching books stops the old narration and starts the new book idle", async () => {
+        // Reader keys the bar by book id, so a new book mounts a new bar.
+        const first = overlay;
+        const second = new FakeOverlay();
+        const render = async (key: string, o: FakeOverlay, title: string) => {
+            await act(async () => {
+                root.render(<MediaOverlayBar key={key} overlay={o} onStart={onStart as () => Promise<void>} bookTitle={title} onClose={onClose as () => void} />);
+            });
+        };
+        await render("b1", first, "First");
+        await click("Play");
+        await fire("highlight");
+        expect(host.textContent).toContain("Reading along");
+
+        await render("b2", second, "Second");
+        expect(first.stop).toHaveBeenCalled();
+        expect(second.stop).not.toHaveBeenCalled();
+        expect(onStart).toHaveBeenCalledOnce(); // the new book does not start on its own
+        expect(host.textContent).toContain("Starts at the beginning of this section");
+        expect((navigator.mediaSession.metadata as MediaMetadata | null)?.title).not.toBe("First");
+
+        // Late events from the old book's player no longer reach the bar.
+        await act(async () => { first.fire("finished"); });
+        expect(host.textContent).not.toContain("Finished");
+    });
 });

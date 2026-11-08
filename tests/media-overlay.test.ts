@@ -164,6 +164,15 @@ describe("MediaOverlay", () => {
         expect(book.resolveHref(highlighted[0]).anchor(doc)?.id).toBe("p1");
     });
 
+    it("finds no narration in a book without overlays", async () => {
+        const bytes = readFileSync(`${process.cwd()}/tests/fixtures/epub/multi-chapter.epub`);
+        const { makeBook } = await import("../src/features/reader/foliate-js-runtime/view.js");
+        const book = await makeBook(new File([bytes], "multi-chapter.epub", { type: "application/epub+zip" }));
+        expect(book.sections.length).toBeGreaterThan(0);
+        // The view only creates a MediaOverlay when some section has one.
+        expect(book.sections.some((s: { mediaOverlay: unknown }) => s.mediaOverlay)).toBe(false);
+    });
+
     it("next() before anything has played does nothing", async () => {
         const { overlay, played } = await openOverlay();
         expect(() => overlay.next()).not.toThrow();
