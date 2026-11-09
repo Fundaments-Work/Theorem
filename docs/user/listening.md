@@ -2,13 +2,14 @@
 
 Have a book read aloud with your system voice or an offline neural voice, attach a narrated audiobook file, or generate an audiobook from a book on desktop.
 
-Theorem offers three ways to listen. All of them work offline.
+Theorem offers four ways to listen. All of them work offline.
 
 | Way | What it is | Where |
 | :--- | :--- | :--- |
 | System voice | Your operating system's built-in text-to-speech | Desktop and Android |
 | Neural voice | A higher-quality voice that Theorem runs on your computer after a one-time download | Desktop only |
 | Audiobook file | A human-narrated `.m4b`, `.m4a` or `.mp3` file that you attach to a book | Desktop and Android |
+| Book narration | Recorded narration that some EPUB 3 books include, synced to the text (Media Overlays) | Tested on Linux desktop |
 
 Listening is not available for PDFs. It works with EPUB, MOBI, AZW, AZW3, FB2 and RSS articles.
 
@@ -20,7 +21,7 @@ Listening is not available for PDFs. It works with EPUB, MOBI, AZW, AZW3, FB2 an
 4. Use pause and stop as needed. Theorem reads the text on the current page and then turns the page and keeps going. Pages with nothing to read, such as a full-page picture, are skipped. At the end of the book it stops and says so, instead of reading the last page again.
 5. Click the headphones button again (Exit Immersion Reading) to return to normal reading.
 
-The bar shows Reading aloud, Paused or Loading..., and the time left. If text-to-speech was switched off in Settings, opening Immersion Reading switches it back on.
+The bar shows Reading aloud, Paused or Loading..., and the time left. If text-to-speech was switched off in Settings, opening Immersion Reading switches it back on. Books with their own narration are the exception, see below.
 
 ### System voices
 
@@ -32,6 +33,17 @@ The system voice depends on your platform:
 - **Android** uses the speech engine selected in Settings. See the Android section below.
 
 Theorem uses the book's language when it has one, and English otherwise.
+
+## Read along with a book's own narration
+
+Some EPUB 3 books come with a recording of the text, synced phrase by phrase. On such a book, the headphones button opens a Book narration bar instead of the text-to-speech controls.
+
+1. Open the book and click the headphones button. The bar says Book narration · Starts at the beginning of this section.
+2. Click play. Narration starts at the beginning of the current section (usually a chapter), not at the page you are on. The phrase being read is highlighted, and the pages turn with it.
+3. Use pause, the previous and next phrase buttons, a speed of 0.75x to 2x, and the sleep timer (15, 30 or 45 min). System media controls also work. They were tested through Linux's media control interface, not with physical keys.
+4. Click Close player, or the headphones button again, to stop.
+
+This does not use text-to-speech, so opening it leaves your text-to-speech setting as it is. If you attached an audiobook to the same book, the audiobook plays instead, and its player says so. Speed is not remembered between sessions. On Linux, a speed change may cause a short pause in the sound, and the audio may need extra GStreamer packages. See [Theorem on Linux](linux.md#what-does-theorem-need-on-linux). Read-along has only been tested on Linux so far.
 
 ## Install the neural voice (desktop)
 
