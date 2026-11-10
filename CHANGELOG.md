@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Slow Android imports** — Wait for native document materialization and import results instead of reporting a timeout while the native operation is still running.
 - **Release targeting** — Refuse an existing release or draft before building, target desktop uploads and publication by release ID, and document the limits of release recovery and repository protection.
 
 ### Maintenance
