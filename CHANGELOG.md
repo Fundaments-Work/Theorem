@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Maintenance
 
+- **Windows native tests** — Embed the Common Controls v6 activation manifest in test executables as well as the app so the Windows loader can start the import regressions.
+
 - **Native import CI** — Install frozen frontend dependencies before Windows regression tests so Tauri can resolve its bundled PDF.js resources, and match the local Cargo formatting check.
 
 - **Release branch retirement** — Retire the `1.6.1` branch after publishing its approved rebuild; keep its release tag and direct CI and dependency updates to `main`.

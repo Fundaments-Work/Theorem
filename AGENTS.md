@@ -80,6 +80,10 @@ plugin libraries against the locked Tauri Android API and run
 `:folder:testDebugUnitTest` for broadcast validation. Keep this scan separate
 from native Rust builds and APK packaging (see `docs/release.md`).
 
+Windows MSVC builds embed `src-tauri/windows-app-manifest.xml` through the linker
+for every artifact, including unit-test harnesses. Preserve this when changing
+`build.rs`; Tauri's default manifest embedding covers application binaries only.
+
 ### Known-flaky tests
 
 - `tests/library-virtualization.test.ts` ("Row height estimation") asserts `elapsed < 1` ms for a pure size calculation and can exceed it under full-suite load. Re-run the file alone to confirm a lone failure, but still verify no genuine O(n) scan was introduced.

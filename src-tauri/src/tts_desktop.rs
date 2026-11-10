@@ -254,6 +254,7 @@ pub fn emit_utterance_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::sync::mpsc;
 
     #[test]

@@ -2,7 +2,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    tauri_build::build();
+    let attributes = tauri_build::Attributes::new();
+    #[cfg(windows)]
+    let attributes = {
+        // tauri-winres links its manifest only into application binaries.
+        // Unit-test harnesses need Common Controls v6 before any test can run.
+        let manifest = std::env::current_dir()
+            .expect("Windows build directory must exist")
+            .join("windows-app-manifest.xml");
+        println!("cargo:rerun-if-changed={}", manifest.display());
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+        attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest())
+    };
+    tauri_build::try_build(attributes).expect("Tauri build setup failed");
     println!("cargo:rerun-if-changed=build.rs");
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();

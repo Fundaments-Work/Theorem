@@ -142,6 +142,21 @@ not trigger native E2E builds. Fast Node helper tests still protect workflow
 selection and the local E2E tooling. Run the complete native suite locally on
 the exact release commit before tagging; see `docs/testing-e2e.md`.
 
+Windows test executables need the Common Controls v6 activation manifest before
+the loader can resolve Tauri's native dialog imports. In the locked dependency
+chain, `tauri-build` 2.7.2 calls `tauri-winres` 0.3.6's `compile()`, which calls
+`embed-resource` 3.0.11's `compile()`. When a crate has an application binary,
+that function emits `cargo:rustc-link-arg-bins`, excluding the library unit-test
+harness. The resulting test executable exits with `0xc0000139` before running
+tests. `src-tauri/build.rs` therefore disables only Tauri's own manifest resource
+and passes `/MANIFEST:EMBED` and `/MANIFESTINPUT` to every artifact in Windows
+MSVC builds (the shipped Windows toolchain).
+`src-tauri/windows-app-manifest.xml` preserves Tauri's default Common Controls
+dependency; icons and version resources still come from Tauri. This follows the
+[Tauri maintainer's workaround](https://github.com/tauri-apps/tauri/issues/13419).
+The hosted native import tests verify executable startup and queue/ingestion/
+archive behavior; Linux gates cannot validate the Windows loader.
+
 The release workflow shares frontend preparation and restoration actions.
 There is no release dry-run workflow.
 One Linux job checks the Foliate runtime, builds/verifies the frontend, generates
