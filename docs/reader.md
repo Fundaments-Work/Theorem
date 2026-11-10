@@ -18,6 +18,10 @@ Reflowable formats (EPUB, MOBI, FB2) are fundamentally different from PDF. PDF i
 
 > RSS articles are converted to a synthetic EPUB (`convertArticleToEpubBlob`) and rendered through the normal foliate engine. `ArticleViewer.tsx` is exported but unused.
 
+The reader mounts a notification renderer while a book is open. On completion
+of a series book, the Read Next prompt can therefore be used immediately; the
+notification dismisses when its action opens the next unread book.
+
 ## Non-PDF Rendering Path
 
 ```

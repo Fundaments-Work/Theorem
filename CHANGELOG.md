@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reader notifications** — Show notifications while a book is open, including the next-in-series prompt, and dismiss the prompt when its Read Next action opens the next book.
 - **Release targeting** — Refuse an existing release or draft before building, target desktop uploads and publication by release ID, and document the limits of release recovery and repository protection.
 
 ### Maintenance

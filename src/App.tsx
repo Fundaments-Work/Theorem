@@ -670,11 +670,14 @@ function App() {
 
     if (isReaderMode) {
         return (
-            <RouteErrorBoundary>
-                <Suspense fallback={<PageLoader message="Opening reader..." className="fixed inset-0" />}>
-                    <ReaderPage />
-                </Suspense>
-            </RouteErrorBoundary>
+            <>
+                <RouteErrorBoundary>
+                    <Suspense fallback={<PageLoader message="Opening reader..." className="fixed inset-0" />}>
+                        <ReaderPage />
+                    </Suspense>
+                </RouteErrorBoundary>
+                <Toaster position="bottom-right" />
+            </>
         );
     }
 
