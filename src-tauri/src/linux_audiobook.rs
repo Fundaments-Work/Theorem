@@ -204,11 +204,23 @@ mod imp {
         SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
     }
 
+    fn next_session_id(counter: &AtomicU32) -> Result<u32, AppError> {
+        let mut current = counter.load(Ordering::Relaxed);
+        loop {
+            let next = current
+                .checked_add(1)
+                .ok_or_else(|| AppError::internal("Audiobook session identifiers are exhausted"))?;
+            match counter.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Ok(current),
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
     pub fn open(path: String) -> Result<u32, AppError> {
         let player = LinuxAudiobook::open(Path::new(&path))?;
-        let id = NEXT_SESSION
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .map_err(|_| AppError::internal("Audiobook session identifiers are exhausted"))?;
+        let id = next_session_id(&NEXT_SESSION)?;
         let mut sessions = sessions()
             .lock()
             .map_err(|_| AppError::internal("Audiobook player is unavailable"))?;
@@ -259,6 +271,37 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn session_identity_exhaustion_never_wraps_or_reuses_an_id() {
+            let counter = AtomicU32::new(u32::MAX - 1);
+            assert_eq!(next_session_id(&counter).unwrap(), u32::MAX - 1);
+            assert!(next_session_id(&counter).is_err());
+            assert_eq!(counter.load(Ordering::Relaxed), u32::MAX);
+        }
+
+        #[test]
+        fn concurrent_session_identities_are_unique() {
+            let counter = AtomicU32::new(1);
+            let ids = std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..8)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            (0..100)
+                                .map(|_| next_session_id(&counter).unwrap())
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .flat_map(|handle| handle.join().unwrap())
+                    .collect::<std::collections::HashSet<_>>()
+            });
+            assert_eq!(ids.len(), 800);
+            assert_eq!(counter.load(Ordering::Relaxed), 801);
+        }
+
         use std::io::Write;
 
         fn player_with(bytes: &[u8]) -> (LinuxAudiobook, tempfile::NamedTempFile) {

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rust compiler compatibility** — Allocate native audiobook session IDs with a checked atomic compare/exchange loop, preserving unique IDs without relying on the deprecated atomic update method.
+
 - **Ubuntu build dependencies** — Explicitly select the system libunwind development package required by GStreamer so hosted CI, CodeQL and release builds resolve conflicts with the runner’s preinstalled LLVM variant.
 
 - **Linux audiobook playback** — Stream attached recordings through native GStreamer so WebKitGTK can play them, while keeping seeking, speed and saved listening position.

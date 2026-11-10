@@ -83,7 +83,8 @@ completion; while `get_state()` reports an asynchronous transition, the player
 retains the requested position rather than querying a transient one. See the
 [GStreamer seeking guide](https://gstreamer.freedesktop.org/documentation/application-development/advanced/queryevents.html).
 `scaletempo` is used when available to preserve pitch at other speeds. Closing
-the player releases its pipeline. GStreamer plugins and codecs for the recording
+the player releases its pipeline. Session IDs use a checked atomic compare/exchange
+loop; concurrent opens cannot reuse an ID and exhaustion never wraps to zero. GStreamer plugins and codecs for the recording
 must be installed, as described in [the Linux guide](user/linux.md).
 
 ## Save as Audiobook (desktop)
