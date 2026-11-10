@@ -77,7 +77,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libasound2-dev \
-            libgstreamer1.0-dev
+            libunwind-dev libgstreamer1.0-dev
 
       - name: Setup Rust
         if: matrix.language == 'rust'

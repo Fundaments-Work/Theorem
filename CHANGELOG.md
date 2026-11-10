@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ubuntu build dependencies** — Explicitly select the system libunwind development package required by GStreamer so hosted CI, CodeQL and release builds resolve conflicts with the runner’s preinstalled LLVM variant.
+
 - **Linux audiobook playback** — Stream attached recordings through native GStreamer so WebKitGTK can play them, while keeping seeking, speed and saved listening position.
 - **Audiobook player width** — The in-reader audiobook player used a width class that resolves to the spacing scale, so it collapsed to about 3.6rem and its controls spilled over the page. It now uses the design system's container width.
 - **Reader notifications** — Show notifications while a book is open, including the next-in-series prompt, and dismiss the prompt when its Read Next action opens the next book.

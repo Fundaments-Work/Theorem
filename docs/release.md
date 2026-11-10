@@ -185,3 +185,12 @@ only the studio docs refresh. Releases and manual notification requests also
 refresh the product landing page, through one shared notification action. The
 release workflow calls it explicitly because releases published using
 `GITHUB_TOKEN` do not trigger another workflow ([GitHub event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
+
+### Ubuntu GStreamer build dependencies
+
+CI, CodeQL and release builds explicitly request `libunwind-dev` alongside
+`libgstreamer1.0-dev`. GitHub runners can ship an LLVM-specific libunwind
+development package that conflicts with the system package; requesting the
+system package directly lets APT resolve that replacement instead of reporting
+an unsatisfied transitive dependency. Keep this selection in all three workflows.
+See the [runner-image diagnosis](https://github.com/actions/runner-images/issues/9546).
