@@ -160,7 +160,7 @@ jobs:
       # clippy --all-targets already type-checks everything, so no separate `cargo check`.
       - name: Check Rust formatting
         if: needs.changes.outputs.rust == 'true'
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
 
       - name: Restore verified frontend
         uses: actions/download-artifact@v8
@@ -193,6 +193,16 @@ jobs:
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v7
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+      # Tauri also bundles PDF.js resources directly from node_modules.
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Restore verified frontend

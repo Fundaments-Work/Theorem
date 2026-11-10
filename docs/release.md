@@ -131,7 +131,12 @@ Local actionlint validation must have ShellCheck on PATH (or pass its path with
 `actionlint` (v1.7.12) or `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`.
 
 The web job uploads one verified `dist` artifact. The Rust job restores it for
-all-feature linting without building a runnable E2E executable. GitHub has no
+all-feature linting without building a runnable E2E executable. Windows import
+regressions restore the same artifact and install frozen frontend dependencies:
+Tauri bundles PDF.js resources directly from `node_modules` even for Rust unit
+tests, so restoring `dist` alone is insufficient. The Rust formatting step uses
+Cargo's `--check` option, matching the local gate and including path dependencies.
+GitHub has no
 native E2E job, nightly schedule or manual E2E mode. Frontend-only changes do
 not trigger native E2E builds. Fast Node helper tests still protect workflow
 selection and the local E2E tooling. Run the complete native suite locally on

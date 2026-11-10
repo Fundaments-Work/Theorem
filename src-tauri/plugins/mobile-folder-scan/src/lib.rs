@@ -247,7 +247,11 @@ pub fn materialize_content_uri<R: Runtime>(
         .handle
         .run_mobile_plugin::<MaterializeContentUriResponse>(
             "materializeContentUri",
-            MaterializeContentUriPayload { uri, file_name, managed_import: false },
+            MaterializeContentUriPayload {
+                uri,
+                file_name,
+                managed_import: false,
+            },
         )
         .map_err(|error| error.to_string())?;
 
@@ -349,7 +353,6 @@ pub fn system_insets<R: Runtime>(app: &AppHandle<R>) -> Result<SystemInsets, Str
         .map_err(|error| error.to_string())
 }
 
-
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportServiceStatus {
@@ -361,36 +364,67 @@ pub struct ImportServiceStatus {
 
 #[cfg(target_os = "android")]
 pub fn start_import_service<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    get_scan_state(app)?.handle.run_mobile_plugin::<serde_json::Value>("startImportService", serde_json::json!({})).map_err(|error| error.to_string())?;
+    get_scan_state(app)?
+        .handle
+        .run_mobile_plugin::<serde_json::Value>("startImportService", serde_json::json!({}))
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
 #[cfg(target_os = "android")]
 pub fn stop_import_service<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    get_scan_state(app)?.handle.run_mobile_plugin::<serde_json::Value>("stopImportService", serde_json::json!({})).map_err(|error| error.to_string())?;
+    get_scan_state(app)?
+        .handle
+        .run_mobile_plugin::<serde_json::Value>("stopImportService", serde_json::json!({}))
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
 #[cfg(target_os = "android")]
-pub fn import_service_status<R: Runtime>(app: &AppHandle<R>) -> Result<ImportServiceStatus, String> {
-    get_scan_state(app)?.handle.run_mobile_plugin("importServiceStatus", serde_json::json!({})).map_err(|error| error.to_string())
+pub fn import_service_status<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<ImportServiceStatus, String> {
+    get_scan_state(app)?
+        .handle
+        .run_mobile_plugin("importServiceStatus", serde_json::json!({}))
+        .map_err(|error| error.to_string())
 }
 
-
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct ImportDocument { pub source: Box<str>, pub name: Box<str> }
+pub struct ImportDocument {
+    pub source: Box<str>,
+    pub name: Box<str>,
+}
 
 #[cfg(target_os = "android")]
 pub fn pick_import_books<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<ImportDocument>, String> {
     #[derive(serde::Deserialize)]
-    struct Response { documents: Vec<ImportDocument> }
-    let response: Response = get_scan_state(app)?.handle.run_mobile_plugin("pickImportBooks", serde_json::json!({})).map_err(|error| error.to_string())?;
+    struct Response {
+        documents: Vec<ImportDocument>,
+    }
+    let response: Response = get_scan_state(app)?
+        .handle
+        .run_mobile_plugin("pickImportBooks", serde_json::json!({}))
+        .map_err(|error| error.to_string())?;
     Ok(response.documents)
 }
 
-
 #[cfg(target_os = "android")]
-pub fn materialize_import_document<R: Runtime>(app: &AppHandle<R>, uri: &str, file_name: &str) -> Result<String, String> {
-    let response = get_scan_state(app)?.handle.run_mobile_plugin::<MaterializeContentUriResponse>("materializeContentUri", MaterializeContentUriPayload { uri, file_name, managed_import: true }).map_err(|error| error.to_string())?;
+pub fn materialize_import_document<R: Runtime>(
+    app: &AppHandle<R>,
+    uri: &str,
+    file_name: &str,
+) -> Result<String, String> {
+    let response = get_scan_state(app)?
+        .handle
+        .run_mobile_plugin::<MaterializeContentUriResponse>(
+            "materializeContentUri",
+            MaterializeContentUriPayload {
+                uri,
+                file_name,
+                managed_import: true,
+            },
+        )
+        .map_err(|error| error.to_string())?;
     Ok(response.path)
 }
