@@ -3,9 +3,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { ListMusic, Moon, Pause, Play, Rewind, FastForward, X } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import { isSafeImageUrl } from "../../../core/lib/url-safety";
+import { isWebKitGTK } from "../../../core/lib/env";
 import { useLibraryStore } from "../../../core/store";
 import type { BookAudioTrack } from "../../../core/types";
 import type { AudioChapter } from "../../../core/types";
+import { NativeAudiobookAudio, type AudiobookAudio } from "./native-audiobook";
 
 const SKIP_SECONDS = 15;
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
@@ -15,7 +17,7 @@ const KEYBOARD_SEEK_SECONDS = 5;
 /** A recording saved this close to the end counts as finished and restarts. */
 const RESTART_WITHIN_SECONDS = 3;
 
-function updateMediaPosition(audio: HTMLAudioElement): void {
+function updateMediaPosition(audio: AudiobookAudio): void {
     if (!("mediaSession" in navigator) || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
     if (!Number.isFinite(audio.currentTime) || !Number.isFinite(audio.playbackRate) || audio.playbackRate <= 0) return;
     try {
@@ -27,7 +29,7 @@ function updateMediaPosition(audio: HTMLAudioElement): void {
     } catch { /* Some webviews expose only part of MediaSession. */ }
 }
 
-function describeMediaError(audio: HTMLAudioElement): string {
+function describeMediaError(audio: AudiobookAudio): string {
     // MEDIA_ERR_SRC_NOT_SUPPORTED also covers a file that moved or never existed on this device.
     return audio.error?.code === 4
         ? "Can't play this file here. It may have moved, or this device can't decode the format. Detach and attach it again from the library menu."
@@ -57,7 +59,7 @@ interface AudiobookBarProps {
 
 export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visible = true, replacesBookNarration = false, onClose }: AudiobookBarProps) {
     const bookCover = useLibraryStore(s => s.getBook(bookId)?.coverPath);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioRef = useRef<AudiobookAudio | null>(null);
     const [playing, setPlaying] = useState(false);
     const [ready, setReady] = useState(false);
     const [currentTime, setCurrentTime] = useState(audioTrack.currentPositionSec);
@@ -87,7 +89,9 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
     const filePath = audioTrack.filePath;
     const hasChapters = audioTrack.chapters.length > 0;
     useEffect(() => {
-        const audio = new Audio(convertFileSrc(filePath));
+        const audio: AudiobookAudio = isWebKitGTK()
+            ? new NativeAudiobookAudio(filePath)
+            : new Audio(convertFileSrc(filePath));
         audio.preload = "metadata";
         audio.playbackRate = trackRef.current.playbackSpeed || 1;
         audioRef.current = audio;

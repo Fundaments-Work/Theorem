@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Linux audiobook playback** — Stream attached recordings through native GStreamer so WebKitGTK can play them, while keeping seeking, speed and saved listening position.
 - **Audiobook player width** — The in-reader audiobook player used a width class that resolves to the spacing scale, so it collapsed to about 3.6rem and its controls spilled over the page. It now uses the design system's container width.
 - **Reader notifications** — Show notifications while a book is open, including the next-in-series prompt, and dismiss the prompt when its Read Next action opens the next book.
 - **Slow Android imports** — Wait for native document materialization and import results instead of reporting a timeout while the native operation is still running.

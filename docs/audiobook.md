@@ -45,9 +45,12 @@ its recording with a different file, cleans up the same way.
 Opening a book with an attached track and toggling immersion mode swaps the
 reader's TTS row for `src/features/reader/audio/AudiobookBar.tsx`:
 
-- Streaming playback from the local file via `HTMLAudioElement` through the
-  Tauri asset protocol; container duration is replaced by the real decoded
-  duration once known.
+- Streaming playback from the local file. On Linux desktop, a native GStreamer
+  `playbin` reads the selected file directly: WebKitGTK's GStreamer player does
+  not load Tauri's `asset://` scheme. Other platforms use `HTMLAudioElement`
+  through the Tauri asset protocol. No whole-audiobook copy enters the webview.
+  Container duration is replaced by the decoded duration once known.
+
 - Scrubber over the actual duration (click, drag, or arrow keys / Home / End
   when focused), ±15s skip buttons, speed chips (0.75–2×, `aria-pressed`),
   chapter menu with jump-to-chapter, sleep timer (15/30/45 min, or end of
@@ -70,6 +73,18 @@ reader's TTS row for `src/features/reader/audio/AudiobookBar.tsx`:
   controls do not add Android's separate foreground playback service.
 - Platform/neural TTS narration is stopped automatically while the audiobook
   player is active.
+
+On Linux, `linux_audiobook.rs` converts a canonical local path to a file URI
+and keeps one GStreamer pipeline per open player. The native `playbin` reads
+the file directly, without a local HTTP server. Its seek uses GStreamer's
+`FLUSH | ACCURATE` flags and a time position. GStreamer documents that a seek
+can finish asynchronously and that `get_state()` or `ASYNC_DONE` can observe
+completion; while `get_state()` reports an asynchronous transition, the player
+retains the requested position rather than querying a transient one. See the
+[GStreamer seeking guide](https://gstreamer.freedesktop.org/documentation/application-development/advanced/queryevents.html).
+`scaletempo` is used when available to preserve pitch at other speeds. Closing
+the player releases its pipeline. GStreamer plugins and codecs for the recording
+must be installed, as described in [the Linux guide](user/linux.md).
 
 ## Save as Audiobook (desktop)
 

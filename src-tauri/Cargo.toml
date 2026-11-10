@@ -160,6 +160,7 @@ jni = { version = "0.22.4", default-features = false, features = ["invocation"] 
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = "0.24"
 libc = "0.2"
 
 [features]

@@ -40,6 +40,43 @@ where
 }
 
 #[tauri::command]
+pub async fn linux_audiobook_open(path: String) -> Result<u32, AppError> {
+    offload(move || crate::linux_audiobook::open(path)).await
+}
+
+#[tauri::command]
+pub async fn linux_audiobook_snapshot(
+    id: u32,
+) -> Result<crate::linux_audiobook::PlaybackSnapshot, AppError> {
+    offload(move || crate::linux_audiobook::snapshot(id)).await
+}
+
+#[tauri::command]
+pub async fn linux_audiobook_play(id: u32) -> Result<(), AppError> {
+    offload(move || crate::linux_audiobook::play(id)).await
+}
+
+#[tauri::command]
+pub async fn linux_audiobook_pause(id: u32) -> Result<(), AppError> {
+    offload(move || crate::linux_audiobook::pause(id)).await
+}
+
+#[tauri::command]
+pub async fn linux_audiobook_seek(id: u32, seconds: f64) -> Result<(), AppError> {
+    offload(move || crate::linux_audiobook::seek(id, seconds)).await
+}
+
+#[tauri::command]
+pub async fn linux_audiobook_set_rate(id: u32, rate: f64) -> Result<(), AppError> {
+    offload(move || crate::linux_audiobook::set_rate(id, rate)).await
+}
+
+#[tauri::command]
+pub async fn linux_audiobook_close(id: u32) -> Result<(), AppError> {
+    offload(move || crate::linux_audiobook::close(id)).await
+}
+
+#[tauri::command]
 pub async fn prefetch_pdf_structure(path: String) -> Result<crate::PdfStructure, AppError> {
     offload(move || crate::prefetch_pdf_structure(path)).await
 }

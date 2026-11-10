@@ -152,6 +152,9 @@ that must not be broken:
   their own path from `main.tsx`/`App.tsx`, not through the barrel.
 - **URL safety**: every off-device URL goes through `src/core/lib/url-safety.ts`; HTML through
   `sanitizeHtml`. Never hand-roll a scheme check.
+- **Linux audiobooks**: `linux_audiobook.rs` streams selected files through GStreamer;
+  `native-audiobook.ts` adapts its session commands to the reader controls. Keep playback
+  bounded in memory and release each native session when its reader closes.
 - **Sync**: follow the rules in [docs/sync.md](docs/sync.md); every change gets a scenario in
   `sync_scenarios.rs`.
 - **Reading rhythm**: Rust `theorem-core::reading_rhythm` owns goal/XP rules and merging;

@@ -37,6 +37,7 @@ pub mod fuzzy_search;
 pub(crate) mod http;
 pub mod image_ops;
 mod iroh_sync;
+pub mod linux_audiobook;
 pub mod mdict;
 pub mod mobi_parser;
 mod offload_commands;
@@ -243,6 +244,13 @@ pub fn run() {
             offload_commands::tts_model_remove,
             supertonic::tts_synthesize,
             offload_commands::extract_audiobook_metadata,
+            offload_commands::linux_audiobook_open,
+            offload_commands::linux_audiobook_snapshot,
+            offload_commands::linux_audiobook_play,
+            offload_commands::linux_audiobook_pause,
+            offload_commands::linux_audiobook_seek,
+            offload_commands::linux_audiobook_set_rate,
+            offload_commands::linux_audiobook_close,
             audio_player::tts_audio_play,
             audio_player::tts_audio_append,
             supertonic::tts_engine_preload,
