@@ -267,7 +267,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@v9
         with:
           script: |
             const { assertCiResult } = require('./scripts/ci-result.cjs');
