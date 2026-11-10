@@ -32,6 +32,12 @@ Web fallback (non-Tauri):
   └─ CBR → CBZ conversion unavailable (imported as .cbr)
 ```
 
+Android content URIs are materialized by the native plugin, then supported
+files are imported through `import_book_path`. Neither operation has a fixed
+JavaScript deadline: rejecting a promise would not cancel the native work and
+could falsely report failure while it continues. This does not yet make Android
+imports durable across process death or move queue ownership out of the UI.
+
 **Dedup logic:**
 - Books with the same `contentHash` (SHA-256 of file contents) are treated as duplicates
 - The first import wins — subsequent imports are skipped

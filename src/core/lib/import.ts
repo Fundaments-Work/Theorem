@@ -16,7 +16,6 @@ let tauriFs: typeof import('@tauri-apps/plugin-fs') | null = null;
 const DEFAULT_IMPORT_CONCURRENCY = 4;
 const MAX_IMPORT_CONCURRENCY = 8;
 const INSTANT_IMPORT_MODE = true;
-const CONTENT_URI_READ_TIMEOUT_MS = 20000;
 const IMPORT_ENTRY_TIMEOUT_MS = 90000;
 const SUPPORTED_IMPORT_EXTENSIONS = ['epub', 'mobi', 'azw', 'azw3', 'fb2', 'fbz', 'fb2.zip', 'cbz', 'cbr', 'pdf'];
 const SUPPORTED_IMPORT_SUFFIXES = SUPPORTED_IMPORT_EXTENSIONS.map((extension) => `.${extension}`);
@@ -681,14 +680,10 @@ export async function createBookEntry(filePath: string): Promise<Book | null> {
             extractFilenameFromPath(normalizedFilePath),
             format || 'epub',
         );
-        readPath = await withTimeout(
-            invoke<string>('materialize_android_content_uri', {
-                uri: normalizedFilePath,
-                fileName: resolvedFilename,
-            }),
-            CONTENT_URI_READ_TIMEOUT_MS,
-            `materializing Android content URI: ${normalizedFilePath}`,
-        );
+        readPath = await invoke<string>('materialize_android_content_uri', {
+            uri: normalizedFilePath,
+            fileName: resolvedFilename,
+        });
     }
 
     try {
@@ -922,11 +917,13 @@ export async function importBooksIncremental(
         getImportConcurrency(),
         async (filePath): Promise<void> => {
             try {
-                const book = await withTimeout(
-                    createBookEntry(filePath),
-                    IMPORT_ENTRY_TIMEOUT_MS,
-                    `importing file: ${filePath}`,
-                );
+                const entry = createBookEntry(filePath);
+                // A timeout cannot cancel native Android work. Wait for its real
+                // result so a slow import cannot be reported as failed while it
+                // continues copying or saving in the background.
+                const book = await (isMobile() ? entry : withTimeout(
+                    entry, IMPORT_ENTRY_TIMEOUT_MS, `importing file: ${filePath}`,
+                ));
                 if (book) {
                     books.push(book);
                     onBookImported?.(book);

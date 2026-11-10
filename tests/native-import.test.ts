@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const native = vi.hoisted(() => ({
     invoke: vi.fn(),
@@ -36,6 +36,7 @@ beforeEach(() => {
     native.invoke.mockReset(); native.stat.mockReset(); native.getBookData.mockReset();
     native.remove.mockReset(); native.remove.mockResolvedValue(undefined);
 });
+afterEach(() => vi.useRealTimers());
 
 describe("native desktop import", () => {
     it("routes imported, failed and duplicate files to their callbacks", async () => {
@@ -122,6 +123,66 @@ describe("JavaScript import", () => {
 });
 
 describe("Android import", () => {
+    it("does not report a slow document as failed while materialization is still running", async () => {
+        vi.useFakeTimers();
+        native.mobile = true;
+        let finish!: (path: string) => void;
+        native.invoke.mockImplementation((cmd: string) => {
+            if (cmd === "materialize_android_content_uri") return new Promise<string>(resolve => { finish = resolve; });
+            throw new Error(`unexpected ${cmd}`);
+        });
+        native.stat.mockResolvedValue({ size: 0 });
+        const failed = vi.fn();
+        const pending = importBooksIncremental(["content://provider/document/slow.epub"], vi.fn(), failed);
+        await vi.advanceTimersByTimeAsync(21_000);
+        expect(failed).not.toHaveBeenCalled();
+        finish("/data/user/0/app/files/theorem_import/slow.epub");
+        await pending;
+        expect((failed.mock.calls[0][1] as Error).message).toBe("The file is empty");
+        expect(native.remove).toHaveBeenCalledWith("/data/user/0/app/files/theorem_import/slow.epub");
+    });
+
+    it("waits for a slow native import before reporting its result", async () => {
+        vi.useFakeTimers();
+        native.mobile = true;
+        let finish!: (result: { storagePath: string; format: string; contentHash: string }) => void;
+        native.invoke.mockImplementation((cmd: string) => {
+            if (cmd === "import_book_path") return new Promise(resolve => { finish = resolve; });
+            throw new Error(`unexpected ${cmd}`);
+        });
+        native.stat.mockResolvedValue({ size: 10 });
+        const imported = vi.fn();
+        const failed = vi.fn();
+        const pending = importBooksIncremental(["/storage/slow.epub"], imported, failed);
+        await vi.advanceTimersByTimeAsync(91_000);
+        expect(failed).not.toHaveBeenCalled();
+        finish({ storagePath: "/library/slow.epub", format: "epub", contentHash: "hash" });
+        const books = await pending;
+        expect(books).toHaveLength(1);
+        expect(imported).toHaveBeenCalledOnce();
+    });
+
+    it("reports the native error when a slow import eventually fails", async () => {
+        vi.useFakeTimers();
+        native.mobile = true;
+        let fail!: (error: Error) => void;
+        native.invoke.mockImplementation((cmd: string) => {
+            if (cmd === "import_book_path") return new Promise((_resolve, reject) => { fail = reject; });
+            throw new Error(`unexpected ${cmd}`);
+        });
+        native.stat.mockResolvedValue({ size: 10 });
+        const imported = vi.fn();
+        const failed = vi.fn();
+        const pending = importBooksIncremental(["/storage/slow.epub"], imported, failed);
+        await vi.advanceTimersByTimeAsync(91_000);
+        expect(failed).not.toHaveBeenCalled();
+        fail(new Error("The document provider revoked access"));
+        await pending;
+        expect(imported).not.toHaveBeenCalled();
+        expect(failed).toHaveBeenCalledOnce();
+        expect((failed.mock.calls[0][1] as Error).message).toContain("The document provider revoked access");
+    });
+
     it("removes the temporary copy of a document it could not import", async () => {
         native.mobile = true;
         const uri = "content://provider/tree/t/document/Junk%2Fempty.epub";
