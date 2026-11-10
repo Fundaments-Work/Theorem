@@ -26,7 +26,7 @@ import {
     getThemeColors,
     getHighlightSolidColor,
 } from '../../../core/lib/design-tokens';
-import { isTauri } from '../../../core/lib/env';
+import { isTauri, isWebKitGTK } from '../../../core/lib/env';
 import { toDocMetadata } from './doc-metadata';
 import { collectAudioSections } from './audio-sections';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
@@ -49,6 +49,17 @@ const BOOK_MODEL_CACHE_LIMIT = 2;
 const SELECTION_OVERLAY_CLASS = 'theorem-selection-overlay';
 /** Same look as PDF selection (see .textLayer ::selection). */
 const SELECTION_FILL = 'color-mix(in srgb, var(--color-accent) 35%, transparent)';
+/** `MediaOverlay` in foliate-js-runtime/epub.js. Fires `highlight`, `unhighlight`, `finished`, `error`. */
+export interface MediaOverlayPlayer extends EventTarget {
+    pause(): void;
+    resume(): void;
+    stop(): void;
+    prev(): void;
+    next(): void;
+    setVolume(volume: number): void;
+    setRate(rate: number): void;
+}
+
 const bookModelCache = new Map<string, { book: unknown; cleanup: () => void }>();
 
 interface ReaderSearchExcerpt {
@@ -220,6 +231,16 @@ export class FoliateEngine {
         });
     }
 
+    /** The book's Media Overlay player, or null when it has no synced narration. */
+    public getMediaOverlay(): MediaOverlayPlayer | null {
+        return this.view?.mediaOverlay ?? null;
+    }
+
+    /** Starts synced narration at the beginning of the current section. */
+    public async startMediaOverlay(): Promise<void> {
+        if (this.view?.mediaOverlay) await this.view.startMediaOverlay();
+    }
+
     public getVisibleTextForTts(): { text: string; startWordId: string } | null {
         if (!this.view?.renderer?.getContents) return null;
         
@@ -387,6 +408,12 @@ export class FoliateEngine {
                 READER_OPEN_TIMEOUT_MS,
                 'opening the book',
             );
+
+            if (this.view.mediaOverlay) {
+                // Changing the rate of playing audio silences WebKitGTK; the overlay
+                // restarts the phrase at the new rate there instead.
+                this.view.mediaOverlay.restartOnRateChange = isWebKitGTK();
+            }
 
             this.sectionFractions = this.view.getSectionFractions() || [];
             this.sectionPageCounts.clear();
@@ -921,6 +948,9 @@ export class FoliateEngine {
             invert: false,
             theme,
             overrideFont: currentSettings.forcePublisherStyles,
+            // The theme forces every element's background, so the book's own
+            // rule for this class can't show. getCSS styles it instead.
+            mediaActiveClass: this.book?.media?.activeClass,
         };
         
         if (renderer.setStyles) {

@@ -259,4 +259,20 @@ describe("AudiobookBar", () => {
         const pressed = Array.from(host.querySelectorAll('button[aria-pressed="true"]')).map((b) => b.textContent);
         expect(pressed).toEqual(["1.5×"]);
     });
+
+    it("says when it plays instead of the book's own narration", () => {
+        mount();
+        expect(host.textContent).not.toContain("instead of the book's narration");
+        act(() => root.render(<AudiobookBar bookId="b1" audioTrack={track()} replacesBookNarration onClose={() => {}} />));
+        expect(host.textContent).toContain("Playing your audiobook instead of the book's narration");
+    });
+
+    it("uses a container width, not a named max-w that resolves to spacing", () => {
+        // docs/design-system.md: named max-w-* classes resolve to the spacing scale
+        // here, so max-w-2xl squeezed the player to 3.6rem.
+        mount();
+        const classes = Array.from(host.querySelectorAll("[class]")).flatMap(el => Array.from(el.classList));
+        expect(classes).toContain("max-w-[var(--container-width-sm)]");
+        expect(classes.filter(c => /^max-w-(xs|sm|md|lg|xl|\dxl)$/.test(c))).toEqual([]);
+    });
 });

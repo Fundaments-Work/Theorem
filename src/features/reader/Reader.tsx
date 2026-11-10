@@ -71,8 +71,10 @@ import { immersionPlayer, getNeuralStatus, resolveNeuralVoice } from "./audio/Im
 import { showTtsError } from "./audio/tts-errors";
 import { toast } from "sonner";
 import { AudiobookBar } from "./audio/AudiobookBar";
+import { MediaOverlayBar } from "./audio/MediaOverlayBar";
 import { SpeedReader } from "./components/SpeedReader";
 import { resumeDecision } from "./lib/resume-progress";
+import { immersionSource, immersionUsesTts } from "./lib/immersion-source";
 
 const MOBILE_READER_MEDIA_QUERY = '(max-width: 768px)';
 const MIN_READER_ZOOM = 50;
@@ -301,13 +303,6 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [speedReadText, setSpeedReadText] = useState("");
     // Keep ref in sync
     useEffect(() => { immersionModeRef.current = immersionMode; }, [immersionMode]);
-    // Exit immersion mode if TTS is disabled while active
-    useEffect(() => {
-        if (!ttsEnabled && immersionMode) {
-            setImmersionMode(false);
-            immersionPlayer.stop();
-        }
-    }, [ttsEnabled, immersionMode]);
 
     useEffect(() => {
         if (!immersionMode) return;
@@ -362,12 +357,28 @@ const BookReaderPage = memo(function BookReaderPage() {
         [currentBook?.filePath, currentBook?.format],
     );
     const audioTrack = currentBook?.audioTrack;
-    // Pause platform/neural narration while the human-narrated player is active.
+    // A book's own synced narration replaces generated speech. An audiobook the
+    // user attached on purpose still wins over it.
+    const [isBookReady, setIsBookReady] = useState(false);
+    const bookMediaOverlay = useMemo(
+        () => (isBookReady ? readerRef.current?.getMediaOverlay?.() ?? null : null),
+        [currentBookId, isBookReady],
+    );
+    const bookImmersionSource = immersionSource({ hasAudiobook: !!audioTrack, hasMediaOverlay: !!bookMediaOverlay });
+    const mediaOverlay = immersionMode && bookImmersionSource === "book-narration" ? bookMediaOverlay : null;
+    // Exit immersion mode if TTS is disabled while generated speech is the source.
     useEffect(() => {
-        if (immersionMode && audioTrack) {
+        if (!ttsEnabled && immersionMode && immersionUsesTts(bookImmersionSource)) {
+            setImmersionMode(false);
             immersionPlayer.stop();
         }
-    }, [immersionMode, audioTrack]);
+    }, [ttsEnabled, immersionMode, bookImmersionSource]);
+    // Pause platform/neural narration while a human-narrated player is active.
+    useEffect(() => {
+        if (immersionMode && (audioTrack || mediaOverlay)) {
+            immersionPlayer.stop();
+        }
+    }, [immersionMode, audioTrack, mediaOverlay]);
 
     const isPdfFormat = currentBook?.format === 'pdf';
 
@@ -1591,10 +1602,10 @@ const BookReaderPage = memo(function BookReaderPage() {
     // Neural voice: warm the next page's first synthesized chunks while the
     // current page reads, so turning the page doesn't wait on synthesis.
     useEffect(() => {
-        if (isPdfFormat || !ttsEnabled || !immersionMode || !ttsData) return;
+        if (isPdfFormat || !ttsEnabled || !immersionMode || !ttsData || mediaOverlay) return;
         const next = readerRef.current?.getNextPageTextForTts?.();
         if (next?.text) void immersionPlayer.prefetch(next.text, ttsSpeakOptions());
-    }, [ttsData, isPdfFormat, ttsEnabled, immersionMode, ttsSpeakOptions]);
+    }, [ttsData, isPdfFormat, ttsEnabled, immersionMode, mediaOverlay, ttsSpeakOptions]);
 
     useEffect(() => {
         if (!isPdfFormat || !currentBookId || pdfTotalPages <= 0) {
@@ -2115,7 +2126,6 @@ const BookReaderPage = memo(function BookReaderPage() {
 
     const isPdfPageBookmarked = bookmarkByPage.has(pdfCurrentPage);
 
-    const [isBookReady, setIsBookReady] = useState(false);
 
     const isCurrentPageBookmarked = location?.cfi ? bookmarkByLocation.has(location.cfi) : false;
 
@@ -2997,7 +3007,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                     onPrint={isPdfFormat && !isTauriMobile() ? () => { void handlePrint(); } : undefined}
                     immersionMode={immersionMode}
                     onToggleImmersion={!isPdfFormat ? () => {
-                        if (!ttsEnabled) {
+                        if (!ttsEnabled && immersionUsesTts(bookImmersionSource)) {
                             updateTtsSettings({ enabled: true });
                         }
                         setImmersionMode(v => !v);
@@ -3143,7 +3153,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onSeek={handleSeek}
                         totalPages={location?.pageInfo?.totalPages}
                         onToggleToc={() => togglePanel('toc')}
-                        immersionMode={immersionMode && !audioTrack}
+                        immersionMode={immersionMode && !audioTrack && !mediaOverlay}
                         ttsState={ttsState}
                         onTtsPlay={handleTtsPlay}
                         onTtsPause={handleTtsPause}
@@ -3166,6 +3176,19 @@ const BookReaderPage = memo(function BookReaderPage() {
                         )}
                     />
 
+                    {mediaOverlay && currentBook && (
+                        <MediaOverlayBar
+                            key={currentBook.id}
+                            overlay={mediaOverlay}
+                            onStart={() => readerRef.current?.startMediaOverlay?.() ?? Promise.resolve()}
+                            bookTitle={currentBook.title}
+                            bookAuthor={currentBook.author}
+                            bookCover={currentBook.coverPath}
+                            visible={shouldShowReaderChrome}
+                            onClose={() => setImmersionMode(false)}
+                        />
+                    )}
+
                     {immersionMode && audioTrack && (
                         <AudiobookBar
                             bookId={currentBook.id}
@@ -3173,6 +3196,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                             bookAuthor={currentBook.author}
                             audioTrack={audioTrack}
                             visible={shouldShowReaderChrome}
+                            replacesBookNarration={!!bookMediaOverlay}
                             onClose={() => setImmersionMode(false)}
                         />
                     )}

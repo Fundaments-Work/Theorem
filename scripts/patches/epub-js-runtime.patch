@@ -148,17 +148,224 @@
          const result = { label, href, subitems: parseOL($ol) }
          if (getType) result.type = $a?.getAttributeNS(NS.EPUB, 'type')?.split(/\s/)
          return result
-@@ -485,8 +474,7 @@
-             audio.currentTime = this.#activeItem.begin ?? 0
+@@ -402,20 +391,33 @@
+     #volume = 1
+     #rate = 1
+     #state
++    // Bumped by every play, start and stop, so work that an interrupted one
++    // still has in flight can tell it was abandoned.
++    #session = 0
++    // Set by the app on WebKitGTK, where changing the rate of playing audio
++    // silences it. See setRate.
++    restartOnRateChange = false
+     constructor(book, loadXML) {
+         super()
+         this.book = book
+         this.loadXML = loadXML
+     }
+-    async #loadSMIL(item) {
++    async #loadSMIL(item, session) {
+         if (this.#lastMediaOverlayItem === item) return
+         const doc = await this.loadXML(item.href)
++        if (session !== this.#session) return
+         const resolve = href => href ? resolveURL(href, item.href) : null
++        // resolveURL drops the fragment, but it is what identifies the spoken phrase.
++        const resolveText = href => {
++            const path = resolve(href)
++            const hash = href?.split('#')[1]
++            return path && hash ? `${path}#${hash}` : path
++        }
+         const { $, $$$ } = childGetter(doc, NS.SMIL)
+         this.#audioIndex = -1
+         this.#itemIndex = -1
+         this.#entries = $$$(doc, 'par').reduce((arr, $par) => {
+-            const text = resolve($($par, 'text')?.getAttribute('src'))
++            const text = resolveText($($par, 'text')?.getAttribute('src'))
+             const $audio = $($par, 'audio')
+             if (!text || !$audio) return arr
+             const src = resolve($audio.getAttribute('src'))
+@@ -429,7 +431,7 @@
+         this.#lastMediaOverlayItem = item
+     }
+     get #activeAudio() {
+-        return this.#entries[this.#audioIndex]
++        return this.#entries?.[this.#audioIndex]
+     }
+     get #activeItem() {
+         return this.#activeAudio?.items?.[this.#itemIndex]
+@@ -444,20 +446,28 @@
+     #unhighlight() {
+         this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
+     }
+-    async #play(audioIndex, itemIndex) {
++    #playFailed(audio, e) {
++        // play() rejects with AbortError whenever a pause interrupts it.
++        if (this.#audio === audio && e?.name !== 'AbortError') this.#error(e)
++    }
++    async #play(audioIndex, itemIndex, startAt) {
++        const session = ++this.#session
+         this.#stop()
+         this.#audioIndex = audioIndex
+         this.#itemIndex = itemIndex
+         const src = this.#activeAudio?.src
+         if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
+ 
+-        const url = URL.createObjectURL(await this.book.loadBlob(src))
++        const blob = await this.book.loadBlob(src)
++        if (session !== this.#session) return
++        const position = startAt ?? this.#activeItem.begin ?? 0
++        const url = URL.createObjectURL(blob)
+         const audio = new Audio(url)
+         this.#audio = audio
+         audio.volume = this.#volume
+         audio.playbackRate = this.#rate
+         audio.addEventListener('timeupdate', () => {
+-            if (audio.paused) return
++            if (audio.paused || this.#audio !== audio) return
+             const t = audio.currentTime
+             const { items } = this.#activeAudio
+             if (t > this.#activeItem?.end) {
+@@ -471,10 +481,14 @@
+             while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
+             if (this.#itemIndex !== oldIndex) this.#highlight()
+         })
+-        audio.addEventListener('error', () =>
+-            this.#error(new Error(`Failed to load ${src}`)))
+-        audio.addEventListener('playing', () => this.#highlight())
++        audio.addEventListener('error', () => {
++            if (this.#audio === audio) this.#error(new Error(`Failed to load ${src}`))
++        })
++        audio.addEventListener('playing', () => {
++            if (this.#audio === audio) this.#highlight()
++        })
+         audio.addEventListener('ended', () => {
++            if (this.#audio !== audio) return
+             this.#unhighlight()
+             URL.revokeObjectURL(url)
+             this.#audio = null
+@@ -482,26 +496,38 @@
+         })
+         if (this.#state === 'paused') {
+             this.#highlight()
+-            audio.currentTime = this.#activeItem.begin ?? 0
++            audio.currentTime = position
          }
          else audio.addEventListener('canplaythrough', () => {
 -            // for some reason need to seek in `canplaythrough`
 -            // or it won't play when skipping in WebKit
-+            
-             audio.currentTime = this.#activeItem.begin ?? 0
-             this.#state = 'playing'
-             audio.play().catch(e => this.#error(e))
-@@ -565,7 +553,6 @@
+-            audio.currentTime = this.#activeItem.begin ?? 0
+-            this.#state = 'playing'
+-            audio.play().catch(e => this.#error(e))
++            if (this.#audio !== audio) return
++            const start = () => {
++                if (this.#audio !== audio || this.#state === 'paused') return
++                this.#state = 'playing'
++                audio.play().catch(e => this.#playFailed(audio, e))
++            }
++            // Playing while the seek is still in progress appears to leave WebKitGTK
++            // silent, with its clock running as if nothing were wrong.
++            if (Math.abs(audio.currentTime - position) < 0.01) return start()
++            audio.addEventListener('seeked', start, { once: true })
++            audio.currentTime = position
+         }, { once: true })
+     }
+     async start(sectionIndex, filter = () => true) {
+         this.#audio?.pause()
+         const section = this.book.sections[sectionIndex]
+         const href = section?.id
+-        if (!href) return
++        if (!href) {
++            this.#state = 'stopped'
++            this.dispatchEvent(new CustomEvent('finished'))
++            return
++        }
+ 
+         const { mediaOverlay } = section
+         if (!mediaOverlay) return this.start(sectionIndex + 1)
+         this.#sectionIndex = sectionIndex
+-        await this.#loadSMIL(mediaOverlay)
++        const session = ++this.#session
++        await this.#loadSMIL(mediaOverlay, session)
++        if (session !== this.#session) return
+ 
+         for (let i = 0; i < this.#entries.length; i++) {
+             const { items } = this.#entries[i]
+@@ -510,6 +536,8 @@
+                     return this.#play(i, j).catch(e => this.#error(e))
+             }
+         }
++        // Nothing to read here, and nothing else would ever report that.
++        return this.start(sectionIndex + 1)
+     }
+     pause() {
+         this.#state = 'paused'
+@@ -517,29 +545,40 @@
+     }
+     resume() {
+         this.#state = 'playing'
+-        this.#audio?.play().catch(e => this.#error(e))
++        const audio = this.#audio
++        audio?.play().catch(e => this.#playFailed(audio, e))
+     }
+     #stop() {
+         if (this.#audio) {
+             this.#audio.pause()
+             URL.revokeObjectURL(this.#audio.src)
++            // Pausing keeps the media pipeline alive; this releases it.
++            this.#audio.removeAttribute('src')
++            this.#audio.load()
+             this.#audio = null
+             this.#unhighlight()
+         }
+     }
+     stop() {
++        this.#session++
+         this.#state = 'stopped'
+         this.#stop()
+     }
+     prev() {
+-        if (this.#itemIndex > 0) this.#play(this.#audioIndex, this.#itemIndex - 1)
++        const failed = e => this.#error(e)
++        if (this.#itemIndex > 0) this.#play(this.#audioIndex, this.#itemIndex - 1).catch(failed)
+         else if (this.#audioIndex > 0) this.#play(this.#audioIndex - 1,
+-            this.#entries[this.#audioIndex - 1].items.length - 1)
++            this.#entries[this.#audioIndex - 1].items.length - 1).catch(failed)
+         else if (this.#sectionIndex > 0)
+-            this.start(this.#sectionIndex - 1, (_, i, items) => i === items.length - 1)
++            this.start(this.#sectionIndex - 1, (_, i, items) => i === items.length - 1).catch(failed)
+     }
+     next() {
+-        this.#play(this.#audioIndex, this.#itemIndex + 1)
++        const items = this.#activeAudio?.items
++        if (!items) return
++        const failed = e => this.#error(e)
++        if (this.#itemIndex < items.length - 1)
++            this.#play(this.#audioIndex, this.#itemIndex + 1).catch(failed)
++        else this.#play(this.#audioIndex + 1, 0).catch(failed)
+     }
+     setVolume(volume) {
+         this.#volume = volume
+@@ -547,7 +586,18 @@
+     }
+     setRate(rate) {
+         this.#rate = rate
+-        if (this.#audio) this.#audio.playbackRate = rate
++        const audio = this.#audio
++        if (!audio) return // anything still fetching picks up #rate when it is created
++        // HAVE_FUTURE_DATA: before this the element has not started, so it can just be told.
++        if (!this.restartOnRateChange || audio.readyState < 3) {
++            audio.playbackRate = rate
++            return
++        }
++        // Changing the rate of a playing element silences WebKitGTK for a while,
++        // though its clock keeps running. A new element starting at the rate is
++        // fine, at the cost of a short gap while it loads.
++        this.#play(this.#audioIndex, this.#itemIndex, audio.currentTime)
++            .catch(e => this.#error(e))
+     }
+ }
+ 
+@@ -565,7 +615,6 @@
      opf.getElementById(opf.documentElement.getAttribute('unique-identifier'))
      ?? opf.getElementsByTagNameNS(NS.DC, 'identifier')[0])
  
@@ -166,7 +373,7 @@
  const deobfuscate = async (key, length, blob) => {
      const array = new Uint8Array(await blob.slice(0, length).arrayBuffer())
      length = Math.min(length, array.length)
-@@ -582,7 +569,7 @@
+@@ -582,7 +631,7 @@
  const deobfuscators = (sha1 = WebCryptoSHA1) => ({
      'http://www.idpf.org/2008/embedding': {
          key: opf => sha1(getIdentifier(opf)
@@ -175,7 +382,7 @@
              .replaceAll(/[\u0020\u0009\u000d\u000a]/g, '')),
          decode: (key, blob) => deobfuscate(key, 1040, blob),
      },
-@@ -667,7 +654,7 @@
+@@ -667,7 +716,7 @@
              }))
  
          this.cover = this.getItemByProperty('cover-image')
@@ -184,7 +391,7 @@
              ?? this.getItemByID($$$(opf, 'meta')
                  .find(filterAttribute('name', 'cover'))
                  ?.getAttribute('content'))
-@@ -689,9 +676,7 @@
+@@ -689,9 +738,7 @@
          const parts = CFI.parse(cfi)
          const top = (parts.parent ?? parts).shift()
          let $itemref = CFI.toElement(this.opf, top)
@@ -195,7 +402,7 @@
          if ($itemref && $itemref.nodeName !== 'idref') {
              top.at(-1).id = null
              $itemref = CFI.toElement(this.opf, top)
-@@ -713,32 +698,36 @@
+@@ -713,32 +760,36 @@
          this.loadBlob = loadBlob
          this.manifest = resources.manifest
          this.assets = resources.manifest
@@ -246,7 +453,7 @@
              if (childList) childList.push(href)
              else this.#children.set(parent, [href])
          }
-@@ -747,19 +736,17 @@
+@@ -747,19 +798,17 @@
      unref(href) {
          if (!this.#refCount.has(href)) return
          const count = this.#refCount.get(href) - 1
@@ -268,7 +475,7 @@
      async loadItem(item, parents = []) {
          if (!item) return null
          const { href, mediaType } = item
-@@ -776,18 +763,48 @@
+@@ -776,18 +825,48 @@
  
          const shouldReplace =
              (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
@@ -322,7 +529,7 @@
          return this.loadItem(item, parents.concat(base))
      }
      async loadReplaced(item, parents = []) {
-@@ -801,27 +818,16 @@
+@@ -801,27 +880,16 @@
          }
          if (!str) return null
  
@@ -352,7 +559,7 @@
              if ([MIME.XHTML, MIME.SVG].includes(item.mediaType)) {
                  let child = doc.firstChild
                  while (child instanceof ProcessingInstruction) {
-@@ -836,29 +842,34 @@
+@@ -836,29 +904,34 @@
                      child = child.nextSibling
                  }
              }
@@ -393,7 +600,7 @@
              const result = new XMLSerializer().serializeToString(doc)
              return this.createURL(href, result, item.mediaType, parent)
          }
-@@ -873,19 +884,19 @@
+@@ -873,19 +946,19 @@
              /url\(\s*["']?([^'"\n]*?)\s*["']?\s*\)/gi,
              (_, url) => this.loadHref(url, href, parents)
                  .then(url => `url("${url}")`))
@@ -417,7 +624,7 @@
              const relative = pathRelative(pathDirname(href), asset.href)
              const relativeEnc = encodeURI(relative)
              const rootRelative = '/' + asset.href
-@@ -934,7 +945,14 @@
+@@ -934,7 +1007,14 @@
      #loader
      #encryption
      constructor({ loadText, loadBlob, getSize, sha1 }) {

@@ -23,6 +23,8 @@ The v1.5.9 release is built on Ubuntu 24.04. The program in the `.deb` needs gli
 
 For read-aloud with your system voice you also need speech-dispatcher, which provides the `spd-say` command. See [What works offline](#what-works-offline).
 
+Books with their own synced narration (read along, added after v1.5.9) play it through GStreamer, which WebKitGTK uses for audio. Narration recorded as AAC in an MP4 file, as in the Moby-Dick sample from IDPF's EPUB 3 samples, needs the MP4 demuxer from gst-plugins-good and an AAC decoder, such as the one in gst-libav. On Arch these are the `gst-plugins-good` and `gst-libav` packages. This was checked on Arch, in the app and by disabling each plugin in GStreamer. On Debian and Ubuntu the matching packages should be `gstreamer1.0-plugins-good` and `gstreamer1.0-libav`, but that was not tested. Other audio formats were not checked.
+
 ## How do I install it with the script?
 
 1. Open a terminal and run:

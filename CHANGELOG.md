@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Audiobook player width** — The in-reader audiobook player used a width class that resolves to the spacing scale, so it collapsed to about 3.6rem and its controls spilled over the page. It now uses the design system's container width.
 - **Release targeting** — Refuse an existing release or draft before building, target desktop uploads and publication by release ID, and document the limits of release recovery and repository protection.
+
+### Features & Enhancements
+
+- **Read along with EPUB 3 Media Overlays** — Books that ship synced narration play it in immersion mode, with the spoken phrase highlighted, pages following along, and controls for speed, skipping, a sleep timer and system media keys.
 
 ### Maintenance
 

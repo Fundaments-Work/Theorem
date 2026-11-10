@@ -1,6 +1,18 @@
 --- view.js
 +++ view.js
-@@ -27,19 +27,172 @@
+@@ -5,6 +5,11 @@
+ 
+ const SEARCH_PREFIX = 'foliate-search:'
+ 
++// Used when a book declares no media:active-class: getCSS styles the same default.
++export const DEFAULT_MEDIA_ACTIVE_CLASS = 'media-active'
++export const getMediaActiveClass = book =>
++    book.media?.activeClass ?? DEFAULT_MEDIA_ACTIVE_CLASS
++
+ const isZip = async file => {
+     const arr = new Uint8Array(await file.slice(0, 4).arrayBuffer())
+     return arr[0] === 0x50 && arr[1] === 0x4b && arr[2] === 0x03 && arr[3] === 0x04
+@@ -27,19 +32,172 @@
      type === 'application/x-zip-compressed-fb2'
      || name.endsWith('.fb2.zip') || name.endsWith('.fbz')
  
@@ -186,7 +198,7 @@
  }
  
  const getFileEntries = async entry => entry.isFile ? entry
-@@ -76,7 +229,7 @@
+@@ -76,7 +234,7 @@
      return new File([await res.blob()], new URL(res.url).pathname)
  }
  
@@ -195,7 +207,7 @@
      if (typeof file === 'string') file = await fetchFile(file)
      let book
      if (file.isDirectory) {
-@@ -86,14 +239,14 @@
+@@ -86,14 +244,14 @@
      }
      else if (!file.size) throw new NotFoundError('File not found')
      else if (await isZip(file)) {
@@ -213,7 +225,7 @@
              const entry = entries.find(entry => entry.filename.endsWith('.fb2'))
              const blob = await loader.loadBlob((entry ?? entries[0]).filename)
              book = await makeFB2(blob)
-@@ -101,6 +254,9 @@
+@@ -101,6 +259,9 @@
          else {
              const { EPUB } = await import('./epub.js')
              book = await new EPUB(loader).init()
@@ -223,7 +235,7 @@
          }
      }
      else if (await isPDF(file)) {
-@@ -110,7 +266,7 @@
+@@ -110,7 +271,7 @@
      else {
          const { isMOBI, MOBI } = await import('./mobi.js')
          if (await isMOBI(file)) {
@@ -232,7 +244,7 @@
              book = await new MOBI({ unzlib: fflate.unzlibSync }).open(file)
          }
          else if (isFB2(file)) {
-@@ -133,7 +289,7 @@
+@@ -133,7 +294,7 @@
          this.#state = state
          if (this.#state.hidden) this.hide()
          this.#el.addEventListener('mousemove', ({ screenX, screenY }) => {
@@ -241,7 +253,7 @@
              if (screenX === this.#state.x && screenY === this.#state.y) return
              this.#state.x = screenX, this.#state.y = screenY
              this.show()
-@@ -210,6 +366,56 @@
+@@ -210,6 +371,56 @@
      }
  }
  
@@ -298,7 +310,7 @@
  export class View extends HTMLElement {
      #root = this.attachShadow({ mode: 'closed' })
      #sectionProgress
-@@ -254,6 +460,8 @@
+@@ -254,6 +465,8 @@
          if (this.isFixedLayout) {
              await import('./fixed-layout.js')
              this.renderer = document.createElement('foliate-fxl')
@@ -307,16 +319,48 @@
          } else {
              await import('./paginator.js')
              this.renderer = document.createElement('foliate-paginator')
-@@ -276,7 +484,7 @@
+@@ -267,17 +480,22 @@
+         this.#root.append(this.renderer)
+ 
+         if (book.sections.some(section => section.mediaOverlay)) {
+-            const activeClass = book.media.activeClass
++            const activeClass = getMediaActiveClass(book)
+             const playbackActiveClass = book.media.playbackActiveClass
+             this.mediaOverlay = book.getMediaOverlay()
+             let lastActive
++            let highlightId = 0
+             this.mediaOverlay.addEventListener('highlight', e => {
++                const id = ++highlightId
+                 const resolved = this.resolveNavigation(e.detail.text)
                  this.renderer.goTo(resolved)
                      .then(() => {
++                        // A later phrase may have started while the page was turning.
++                        if (id !== highlightId) return
                          const { doc } = this.renderer.getContents()
 -                            .find(x => x.index = resolved.index)
 +                            .find(x => x.index === resolved.index)
                          const el = resolved.anchor(doc)
++                        if (!el?.classList) return
                          el.classList.add(activeClass)
                          if (playbackActiveClass) el.ownerDocument
-@@ -334,10 +542,12 @@
+                             .documentElement.classList.add(playbackActiveClass)
+@@ -285,6 +503,7 @@
+                     })
+             })
+             this.mediaOverlay.addEventListener('unhighlight', () => {
++                highlightId++
+                 const el = lastActive?.deref()
+                 if (el) {
+                     el.classList.remove(activeClass)
+@@ -304,6 +523,7 @@
+         this.lastLocation = null
+         this.history.clear()
+         this.tts = null
++        this.mediaOverlay?.stop()
+         this.mediaOverlay = null
+     }
+     goToTextStart() {
+@@ -334,10 +554,12 @@
          this.lastLocation = { ...progress, tocItem, pageItem, cfi, range }
          if (reason === 'snap' || reason === 'page' || reason === 'scroll')
              this.history.replaceState(cfi)
@@ -331,7 +375,7 @@
          doc.documentElement.lang ||= this.language.canonical ?? ''
          if (!this.language.isCJK)
              doc.documentElement.dir ||= this.language.direction ?? ''
-@@ -350,17 +560,74 @@
+@@ -350,17 +572,74 @@
      #handleLinks(doc, index) {
          const { book } = this
          const section = book.sections[index]
@@ -409,7 +453,7 @@
                  .then(x => x ? this.goTo(href) : null)
                  .catch(e => console.error(e))
          })
-@@ -388,9 +655,25 @@
+@@ -388,9 +667,25 @@
              const { overlayer, doc } = obj
              overlayer.remove(value)
              if (!remove) {
@@ -438,7 +482,7 @@
              }
          }
          const label = this.#tocProgress.getProgress(index)?.label ?? ''
-@@ -405,7 +688,40 @@
+@@ -405,7 +700,40 @@
      }
      #createOverlayer({ doc, index }) {
          const overlayer = new Overlayer()
@@ -479,7 +523,7 @@
              const [value, range] = overlayer.hitTest(e)
              if (value && !value.startsWith(SEARCH_PREFIX)) {
                  this.#emit('show-annotation', { value, index, range })
-@@ -423,9 +739,17 @@
+@@ -423,9 +751,17 @@
          const resolved = await this.goTo(value)
          if (resolved) {
              const { index, anchor } = resolved
