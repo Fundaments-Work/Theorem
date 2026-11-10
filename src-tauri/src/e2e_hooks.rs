@@ -136,3 +136,22 @@ pub fn dialog_plugin() -> TauriPlugin<Wry> {
         })
         .build()
 }
+
+/// A deterministic test barrier between checkpointing a file and ingesting it.
+/// The real queue, database and file operations run after the test releases it.
+pub(crate) fn wait_for_import_gate(index: usize, cancel: &std::sync::atomic::AtomicBool) {
+    let Some(directory) = queue_dir() else { return };
+    let flag = directory.join("hold-import");
+    let Some(threshold) = fs::read_to_string(&flag)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+    else {
+        return;
+    };
+    if index < threshold {
+        return;
+    }
+    while flag.exists() && !cancel.load(std::sync::atomic::Ordering::Acquire) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}

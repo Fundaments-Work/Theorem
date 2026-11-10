@@ -1,6 +1,9 @@
 use std::io::{Cursor, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use crate::batch_ingest::{
     downsample_cover_to_data_url, extract_xml_tag_text, parse_title_author_from_filename,
@@ -8,17 +11,27 @@ use crate::batch_ingest::{
 };
 
 /// Write each extracted member straight into ZIP, without retaining all pages.
-struct ZipEntryWriter<W: Write + std::io::Seek>(Arc<Mutex<zip::ZipWriter<W>>>);
+struct ZipEntryWriter<W: Write + std::io::Seek> {
+    writer: Arc<Mutex<zip::ZipWriter<W>>>,
+    cancel: Option<Arc<AtomicBool>>,
+}
 
 impl<W: Write + std::io::Seek> Write for ZipEntryWriter<W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0
+        if self
+            .cancel
+            .as_ref()
+            .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
+        {
+            return Err(std::io::Error::other("Archive conversion cancelled"));
+        }
+        self.writer
             .lock()
             .map_err(|_| std::io::Error::other("ZIP writer poisoned"))?
             .write(bytes)
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        self.0
+        self.writer
             .lock()
             .map_err(|_| std::io::Error::other("ZIP writer poisoned"))?
             .flush()
@@ -28,6 +41,7 @@ impl<W: Write + std::io::Seek> Write for ZipEntryWriter<W> {
 fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
     path: &Path,
     output: W,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<W, String> {
     let archive =
         rars::ArchiveReader::read_path(path).map_err(|e| format!("Failed to open CBR: {e}"))?;
@@ -36,6 +50,12 @@ fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
     let mut count = 0usize;
     archive
         .extract_to(None, |meta| {
+            if cancel
+                .as_ref()
+                .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
+            {
+                return Err(std::io::Error::other("Archive conversion cancelled").into());
+            }
             if meta.is_directory {
                 return Ok(Box::new(std::io::sink()));
             }
@@ -47,7 +67,10 @@ fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
                 .start_file(meta.name_lossy(), options)
                 .map_err(std::io::Error::other)?;
             count += 1;
-            Ok(Box::new(ZipEntryWriter(shared.clone())))
+            Ok(Box::new(ZipEntryWriter {
+                writer: shared.clone(),
+                cancel: cancel.clone(),
+            }))
         })
         .map_err(|e| format!("CBR extraction failed: {e}"))?;
     if count == 0 {
@@ -64,13 +87,21 @@ fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
 
 /// Legacy binary reader response; imports use the disk-backed conversion below.
 pub fn convert_cbr_to_cbz(path: &Path) -> Result<Vec<u8>, String> {
-    Ok(convert_cbr_into(path, Cursor::new(Vec::new()))?.into_inner())
+    Ok(convert_cbr_into(path, Cursor::new(Vec::new()), None)?.into_inner())
 }
 
 pub fn convert_cbr_to_cbz_file(source: &Path, dest: &Path) -> Result<(), String> {
+    convert_cbr_to_cbz_file_cancellable(source, dest, None)
+}
+
+pub(crate) fn convert_cbr_to_cbz_file_cancellable(
+    source: &Path,
+    dest: &Path,
+    cancel: Option<Arc<AtomicBool>>,
+) -> Result<(), String> {
     let output = std::fs::File::create(dest).map_err(|e| format!("Failed to create CBZ: {e}"))?;
     let output = std::io::BufWriter::with_capacity(64 * 1024, output);
-    match convert_cbr_into(source, output) {
+    match convert_cbr_into(source, output, cancel) {
         Ok(output) => output
             .into_inner()
             .map_err(|e| format!("Failed to flush CBZ: {e}"))?
@@ -172,6 +203,24 @@ mod tests {
     use rars::builder::Builder;
     use rars::version::ArchiveVersion;
     use std::io::Read;
+
+    #[test]
+    fn archive_writer_observes_cancellation_between_writes() {
+        let writer = Arc::new(Mutex::new(zip::ZipWriter::new(Cursor::new(Vec::new()))));
+        writer
+            .lock()
+            .unwrap()
+            .start_file("page.jpg", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut output = ZipEntryWriter {
+            writer,
+            cancel: Some(cancel.clone()),
+        };
+        output.write_all(b"first block").unwrap();
+        cancel.store(true, Ordering::Relaxed);
+        assert!(output.write_all(b"next block").is_err());
+    }
 
     #[test]
     fn test_cbr_conversion_and_metadata() {

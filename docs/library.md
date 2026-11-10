@@ -8,35 +8,67 @@ The `BookCard` component is wrapped in `React.memo` with a custom comparator tha
 
 ## Import Pipeline
 
-```
-User action (drop file / pick dialog / scan folder)
-  │
-  ▼
-importBooksIncremental()
-  ├─ Desktop (Tauri): invoke ingest_books_native
-  │    └─ Rust batch ingest: parallel read, SHA-256 dedup, per-format
-  │       metadata + SIMD cover extraction → book-cache/ + books row + FTS
-  └─ Mobile / web: JS path
-       ├─ read_file (Tauri) → ArrayBuffer
-       ├─ contentHash = SHA-256(buffer) → dedup check against existing books
-       ├─ Detect format from extension
-       ├─ CBR → read_cbr_as_cbz (Rust `rars` RAR → stored-ZIP conversion; Tauri only)
-       ├─ Extract metadata via cover-extractor.ts (per-format strategy)
-       ├─ Extract cover image
-       ├─ addBook() → libraryStore mutation (batched for multi-import)
-       ├─ sqlite_save_book_data → writes to book-cache/ (books.data is a stub)
-       └─ sqlite_index_book_fts → FTS5 index update
+Library **Add Books** and folder imports submit a whole batch to the native
+queue (`src-tauri/src/import_jobs/`). Rust advances the queue independently of
+the Library view and WebView execution. The durable worker handles one file at a
+time; the existing parallel batch entry point remains available for legacy callers.
+`native-import-jobs.ts` submits requests
+and consumes saved results; `importStore.ts` retains the current progress for the
+application shell. Existing `ingest_books_native` and browser import entry points
+remain available to callers that do not opt into durable jobs.
 
-Web fallback (non-Tauri):
-  ├─ IndexedDB via idb-keyval
-  └─ CBR → CBZ conversion unavailable (imported as .cbr)
+```
+Add Books / folder scan
+  → native_import_start (stable book IDs + source-folder options)
+  → device-local checkpoint in SQLite
+  → Rust worker: materialize → check → metadata / archive conversion → save
+  → one transaction: book metadata + checkpoint acknowledgment
+  → UI consumes saved results; opening a reader hides only the progress panel
 ```
 
-Android content URIs are materialized by the native plugin, then supported
-files are imported through `import_book_path`. Neither operation has a fixed
-JavaScript deadline: rejecting a promise would not cancel the native work and
-could falsely report failure while it continues. This does not yet make Android
-imports durable across process death or move queue ownership out of the UI.
+The progress panel is outside the Library scrolling/containment surface.
+It shows file counts, copying/checking bytes, per-file errors, and indeterminate
+progress for stages without measurable totals. Copying 100% does not complete a
+file: its metadata must be saved. Archive preparation and metadata extraction
+are indeterminate. Native archive bytes never enter JSON IPC.
+
+Android uses our `ACTION_OPEN_DOCUMENT` picker and retains read permissions for
+recovery; the scanner's display filename determines format for opaque document
+URIs. An explicit import or Resume starts a `dataSync` foreground service and
+notification. Stop and Android's service timeout cancel native work; the service
+is not restarted automatically. A temporary provider copy is moved into the
+library cache, preserving the existing single-copy ingestion behavior. The queue
+tracks that ownership explicitly; an external directory named `theorem_import`
+is never enough to make its files disposable. The legacy bridge verifies the
+canonical app-owned staging directory before moving a copy. Unknown
+source sizes remain indeterminate; revoked permissions and provider failures are
+reported per file. Force-stop does not promise continued execution.
+
+The checkpoint is versioned (`native-import-job:v1`, device-local `kv_store` key)
+and is never synced. Metadata and completion acknowledgment commit together;
+a failure rolls both back. Resume skips saved/duplicate entries, retains errors,
+and restarts the interrupted file under its original book ID. It never rewrites
+already completed books, so their reading progress and manual edits survive.
+Corrupt or unsupported recovery data is retained and reported instead of being
+replaced. Checkpoint outcomes deliberately use empty struct variants. Locked
+Serde 1.0.229's `InternallyTaggedUnitVisitor::visit_map` consumes remaining entries
+as `IgnoredAny`, even with `deny_unknown_fields`; `serde_derive` routes struct
+variants through its struct visitor instead. This preserves strict rejection of
+unknown recovery fields without adding payload to the outcome variants. Discard pending import removes the valid pending job and its uncommitted
+cache files while retaining saved books and source documents.
+
+The locked Tauri 2.12.2 `PluginHandle::run_mobile_plugin` sends its command through
+the native bridge and waits on a Rust channel (`rx.recv()`), without a JavaScript
+continuation or built-in timeout. This is the rule the native Android worker
+relies on. The locked dialog plugin still uses `ACTION_GET_CONTENT`, so it cannot
+supply persistent recovery permissions; our picker owns that requirement.
+Android's [foreground-service timeout rules](https://developer.android.com/develop/background-work/services/fgs/timeout)
+require stopping after `Service.onTimeout`; the service handles that callback and
+native conversion checks cancellation between archive writes.
+
+The browser keeps its IndexedDB import fallback. Legacy Android content-URI
+materialization and `import_book_path` also retain their real-result lifetime:
+a JavaScript timeout would not cancel their native work.
 
 **Dedup logic:**
 - Books with the same `contentHash` (SHA-256 of file contents) are treated as duplicates
@@ -160,3 +192,16 @@ restoration uses the real visible container without a custom frame delay.
 compares Library's bounds before and after returning at desktop and phone
 widths. It asserts the viewport position as well as the container size: a grid
 can have the correct height while being positioned off-screen.
+
+## Import regression checks
+
+Native checkpoint, stable-identity ingestion and CBR cancellation tests run in
+Linux validation and the selected Windows import job in CI. Android changes also
+run Rust checks for both shipped architectures. The dedicated Android library
+project runs `:folder:testDebugUnitTest` without app packaging or signing.
+The real-app `native-import-jobs` suite covers panel containment and reader
+navigation, abrupt process interruption, explicit resume, cancellation/discard,
+saved reading position, and corrupt recovery data. Its file barrier holds the
+real worker at a checkpoint boundary; the queue, database and file operations
+remain real. Physical Android large-file/background acceptance must be recorded
+separately from these checks.

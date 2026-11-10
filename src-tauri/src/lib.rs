@@ -36,6 +36,7 @@ pub mod folder_walk;
 pub mod fuzzy_search;
 pub(crate) mod http;
 pub mod image_ops;
+mod import_jobs;
 mod iroh_sync;
 pub mod linux_audiobook;
 pub mod mdict;
@@ -244,6 +245,13 @@ pub fn run() {
             offload_commands::tts_model_remove,
             supertonic::tts_synthesize,
             offload_commands::extract_audiobook_metadata,
+            offload_commands::pick_native_import_documents,
+            offload_commands::native_import_start,
+            offload_commands::native_import_resume,
+            offload_commands::native_import_cancel,
+            offload_commands::native_import_discard,
+            offload_commands::native_import_snapshot,
+            offload_commands::native_import_results,
             offload_commands::linux_audiobook_open,
             offload_commands::linux_audiobook_snapshot,
             offload_commands::linux_audiobook_play,

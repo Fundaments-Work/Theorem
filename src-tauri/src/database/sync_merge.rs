@@ -1322,6 +1322,7 @@ mod tests {
             "persist:theorem-settings",
             "theorem-opds",
             "anything-else",
+            "native-import-job:v1",
         ] {
             entries.insert(key.to_string(), r#"{"planted":true}"#.to_string());
         }
@@ -1341,6 +1342,7 @@ mod tests {
             "persist:theorem-settings",
             "theorem-opds",
             "anything-else",
+            "native-import-job:v1",
         ] {
             assert!(
                 kv_value(&conn, key).is_none(),

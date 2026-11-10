@@ -86,7 +86,18 @@ function scheduleIdleTask(task: () => void, fallbackDelayMs = 1500): () => void 
     return () => window.clearTimeout(handle);
 }
 
+const ImportProgressPanel = lazy(() => import("./features/library/components/ImportProgressPanel"));
+
 function App() {
+    useEffect(() => {
+        if (!isTauri()) return;
+        let disposed = false;
+        let stop: (() => void) | undefined;
+        void import("./core/lib/native-import-jobs").then(({ pollNativeImports }) => {
+            if (!disposed) stop = pollNativeImports();
+        });
+        return () => { disposed = true; stop?.(); };
+    }, []);
     const currentRoute = useUIStore((state) => state.currentRoute);
     const setRoute = useUIStore((state) => state.setRoute);
     const setLoading = useUIStore((state) => state.setLoading);
@@ -471,6 +482,7 @@ function App() {
                             message: error instanceof Error ? error.message : String(error),
                         });
                     },
+                    { durable: true },
                 );
 
                 if (cancelled) {
@@ -692,6 +704,7 @@ function App() {
             <div className="relative flex-1 flex flex-col min-w-0">
                 <AppTitlebar title="Theorem" />
                 <AnnouncementBar />
+                {showLibraryRoute && <Suspense fallback={null}><ImportProgressPanel /></Suspense>}
 
                 <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg))] md:pb-0 md:px-8 md:py-6 scrollbar-solid overscroll-contain">
                     <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>

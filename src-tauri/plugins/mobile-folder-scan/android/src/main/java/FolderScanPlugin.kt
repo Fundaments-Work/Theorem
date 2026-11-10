@@ -26,6 +26,14 @@ import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
 
+/** A failed stream constructor must not leak the provider's descriptor. */
+internal fun openImportDescriptor(descriptor: android.content.res.AssetFileDescriptor?): java.io.FileInputStream? {
+  return try { descriptor?.createInputStream() } catch (error: Exception) {
+    runCatching { descriptor?.close() }
+    throw error
+  }
+}
+
 @InvokeArg
 class ConfigureReminderArgs {
   var enabled: Boolean = false
@@ -58,6 +66,7 @@ class SaveFileFromPathArgs {
 class MaterializeContentUriArgs {
   lateinit var uri: String
   lateinit var fileName: String
+  var managedImport: Boolean = false
 }
 
 @TauriPlugin
@@ -525,6 +534,76 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  fun pickImportBooks(invoke: Invoke) {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+      addCategory(Intent.CATEGORY_OPENABLE)
+      type = "*/*"
+      putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+    }
+    startActivityForResult(invoke, intent, "importBooksPicked")
+  }
+
+  @ActivityCallback
+  fun importBooksPicked(invoke: Invoke, result: ActivityResult) {
+    val documents = JSArray()
+    if (result.resultCode != Activity.RESULT_OK) {
+      val response = JSObject()
+      response.put("documents", documents)
+      invoke.resolve(response)
+      return
+    }
+    try {
+      val data = result.data ?: throw IllegalArgumentException("The document provider returned no documents")
+      val uris = mutableListOf<Uri>()
+      data.data?.let { uris.add(it) }
+      data.clipData?.let { clips -> for (index in 0 until clips.itemCount) uris.add(clips.getItemAt(index).uri) }
+      for (uri in uris.distinct()) {
+        activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val name = activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+          if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        } ?: throw IllegalArgumentException("The document provider did not supply a filename")
+        val document = JSObject()
+        document.put("source", uri.toString())
+        document.put("name", name)
+        documents.put(document)
+      }
+      val response = JSObject()
+      response.put("documents", documents)
+      invoke.resolve(response)
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Cannot retain access to the selected documents")
+    }
+  }
+
+  @Command
+  fun startImportService(invoke: Invoke) {
+    try {
+      ImportService.start(activity.applicationContext)
+      invoke.resolve()
+    } catch (error: Exception) {
+      invoke.reject(error.message ?: "Cannot start the import service")
+    }
+  }
+
+  @Command
+  fun stopImportService(invoke: Invoke) {
+    ImportService.finish(activity.applicationContext)
+    invoke.resolve()
+  }
+
+  @Command
+  fun importServiceStatus(invoke: Invoke) {
+    val response = JSObject()
+    response.put("stopped", ImportService.isStopped())
+    response.put("copying", ImportService.copying)
+    response.put("completedBytes", ImportService.completedBytes.get())
+    val total = ImportService.totalBytes.get()
+    if (total >= 0) response.put("totalBytes", total)
+    invoke.resolve(response)
+  }
+
+  @Command
   fun materializeContentUri(invoke: Invoke) {
     scanExecutor.execute {
       try {
@@ -532,8 +611,18 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
         val uri = Uri.parse(args.uri)
         val fileName = args.fileName
 
-        val inputStream = activity.contentResolver.openInputStream(uri)
+        if (args.managedImport && ImportService.isStopped()) throw java.io.InterruptedIOException("Import stopped")
+        val signal = if (args.managedImport) android.os.CancellationSignal() else null
+        if (signal != null && !ImportService.attachCancellation(signal)) throw java.io.InterruptedIOException("Import stopped")
+        val inputStream = try {
+          if (signal != null) openImportDescriptor(activity.contentResolver.openAssetFileDescriptor(uri, "r", signal))
+          else activity.contentResolver.openInputStream(uri)
+        } catch (error: Exception) {
+          if (signal != null) ImportService.detachCancellation(signal)
+          throw error
+        }
         if (inputStream == null) {
+          if (signal != null) ImportService.detachCancellation(signal)
           invoke.reject("Cannot open content URI for reading")
           return@execute
         }
@@ -551,14 +640,41 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
 
         try {
           inputStream.use { input ->
+            if (args.managedImport && !ImportService.attachInput(input)) throw java.io.InterruptedIOException("Import stopped")
             FileOutputStream(outFile).use { output ->
-              input.copyTo(output)
+              val managedCopy = args.managedImport
+              ImportService.completedBytes.set(0)
+              val total = runCatching {
+                activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null, signal)?.use { cursor ->
+                  if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
+                } ?: -1L
+              }.getOrDefault(-1L)
+              ImportService.totalBytes.set(total)
+              ImportService.copying = true
+              try {
+                val buffer = ByteArray(256 * 1024)
+                while (true) {
+                  if (managedCopy && ImportService.isStopped()) throw java.io.InterruptedIOException("Import stopped")
+                  val count = input.read(buffer)
+                  if (count < 0) break
+                  if (count == 0) continue
+                  output.write(buffer, 0, count)
+                  ImportService.completedBytes.addAndGet(count.toLong())
+                }
+                output.fd.sync()
+              } finally {
+                ImportService.copying = false
+                if (managedCopy) ImportService.detachInput(input)
+              }
             }
           }
         } catch (error: Exception) {
           // A half-written copy (provider error, disk full) is never used.
           outFile.delete()
           throw error
+        } finally {
+          if (args.managedImport) ImportService.detachInput(inputStream)
+          if (signal != null) ImportService.detachCancellation(signal)
         }
 
         val response = JSObject()

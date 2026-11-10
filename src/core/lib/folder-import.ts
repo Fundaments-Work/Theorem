@@ -161,10 +161,18 @@ export async function importFolder(
     };
     report(0, toImport.length, true);
 
+    let nativeCancelled = false;
+    let completedInBatch = 0;
     const options: ImportOptions = {
+        onCancelled: () => { nativeCancelled = true; },
+        sourceNames: Object.fromEntries(toImport.map((path) => [path, sources.get(pathKey(path))!.relativePath])),
+        sourceFolders: preserve ? Object.fromEntries(toImport.map((path) => {
+            const source = sources.get(pathKey(path))!;
+            return [path, { root, rootName: source.rootName, relativePath: source.relativePath }];
+        })) : undefined,
         signal,
         known,
-        onProgress: (completed, total) => report(completed, total),
+        onProgress: (completed, total) => { completedInBatch = completed; report(completed, total); },
         onDuplicate: (source, contentHash) => {
             result.alreadyInLibrary += 1;
             // The same bytes are in the library, or were imported earlier in this run.
@@ -206,8 +214,8 @@ export async function importFolder(
         if (updates.size > 0) deps.updateBooks([...updates]);
     }
 
-    report(toImport.length, toImport.length, true);
-    result.cancelled = signal?.aborted === true;
+    result.cancelled = signal?.aborted === true || nativeCancelled;
+    report(result.cancelled ? completedInBatch : toImport.length, toImport.length, true);
     return result;
 }
 

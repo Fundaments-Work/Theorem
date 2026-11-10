@@ -241,13 +241,28 @@ describe("importFolder", () => {
         ]);
     });
 
+    it("reports a native Stop without pretending pending files were completed", async () => {
+        const { deps } = harness([], scanOf([file("a.epub"), file("b.epub")]));
+        deps.importBooks = async (_paths, onBook, _onFailure, options) => {
+            const saved = book("a");
+            onBook?.(saved);
+            options?.onProgress?.(1, 2);
+            options?.onCancelled?.();
+            return [saved];
+        };
+        const result = await importFolder("/Books", false, deps);
+        expect(result.cancelled).toBe(true);
+        expect(result.imported).toBe(1);
+        expect(deps.onProgress).toHaveBeenLastCalledWith({ phase: "importing", completed: 1, total: 2 });
+    });
+
     it("throttles progress", async () => {
         const files = Array.from({ length: 300 }, (_, i) => file(`${i}.epub`, i + 1));
         const { deps } = harness([], scanOf(files));
         await importFolder("/Books", false, deps);
         const calls = (deps.onProgress as ReturnType<typeof vi.fn>).mock.calls.map(([p]) => p);
         expect(calls.length).toBeLessThan(10);
-        expect(calls.at(-1)).toEqual({ phase: "importing", completed: 300, total: 300 });
+        expect(calls[calls.length - 1]).toEqual({ phase: "importing", completed: 300, total: 300 });
     });
 });
 

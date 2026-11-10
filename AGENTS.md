@@ -71,6 +71,8 @@ If clippy is noisy, try `cargo clippy --fix --lib` first, then read what it chan
 - Pick the layer that can actually see the bug: Vitest (`tests/`) for TS logic; Rust unit tests next to the code; `src-tauri/src/sync_scenarios.rs` for anything about sync between devices (real iroh nodes, own data folders, loopback and a local relay); `e2e/specs/` for what a person does in the real app. The e2e specs are also the behaviour spec for the 2.0 Svelte UI, so they assert on what is on screen, never on React internals.
 - Source-reading tests (tests that read a `.rs`/`.ts` file and assert on its text) follow the code when it moves: point them at the new file with the same assertions.
 
+CI includes a Windows job for the native import journal, ingestion and archive-cancellation regressions when Rust paths change; keep it in the `CI result` aggregate.
+
 CI (`ci.yml`) runs automatically on `main` pushes and pull requests targeting `main`; use manual CI for any maintainer-designated release branch before integration. Relevant paths select web, Rust, Android and workflow checks. GitHub does not build or run native E2E and has no E2E schedule or manual mode. Keep local `pnpm e2e` coverage and run the full suite on the exact final release commit before tagging. Fast Node helper tests for E2E tooling still run in CI. Push selection compares against the last successful main run so cancelled runs cannot lose coverage. `node --test scripts/ci-changes.test.mjs scripts/release-tag.test.mjs scripts/check-release-assets.test.mjs e2e/lib/specs.test.mjs e2e/lib/webdriver.test.mjs` checks workflow selection and local harness logic. See `docs/release.md` for shared artifacts and release build rules.
 
 CodeQL's Java/Kotlin job uses `.github/codeql/android` to compile our two Android
@@ -163,6 +165,7 @@ that must not be broken:
 - **Errors**: return `Result<T, AppError>` and branch on `kind()`, never on message text.
 - **SQLite**: always `with_connection()`; migrations bump the version and keep a
   `migrate` path.
+- **Native import jobs**: `src-tauri/src/import_jobs/` owns queue advancement and recovery. Keep the versioned `native-import-job:v1` checkpoint device-local and commit each book's metadata with its acknowledgment in one transaction. The app-wide progress panel hides in the reader; unmounting Library must never cancel a job. Android service timeout/Stop must cancel native copying and archive conversion.
 
 ## Rust-First Engineering, Memory & Search Architecture
 

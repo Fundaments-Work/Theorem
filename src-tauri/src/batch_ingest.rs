@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -887,7 +888,164 @@ struct Batch<'a> {
     cancel: &'a AtomicBool,
 }
 
+/// Measurable byte stages and indeterminate metadata/archive work.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportStage {
+    Checking,
+    Copying,
+    Preparing,
+    Metadata,
+    Saving,
+}
+
+type ImportReporter<'a> = dyn Fn(ImportStage, u64, Option<u64>) + Sync + 'a;
+
+fn hash_with_progress(
+    path: &Path,
+    cancel: &AtomicBool,
+    report: &ImportReporter<'_>,
+) -> Result<String, FileError> {
+    let mut input = File::open(path).map_err(|error| describe_io(&error))?;
+    let total = input.metadata().ok().map(|metadata| metadata.len());
+    let mut buffer = vec![0; 256 * 1024];
+    let mut hasher = Sha256::new();
+    let mut completed = 0u64;
+    report(ImportStage::Checking, completed, total);
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(FileError::Cancelled);
+        }
+        let length = match input.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(length) => length,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(describe_io(&error).into()),
+        };
+        hasher.update(&buffer[..length]);
+        completed += length as u64;
+        report(ImportStage::Checking, completed, total);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn copy_with_progress(
+    source: &Path,
+    dest: &Path,
+    known_hash: Option<&str>,
+    cancel: &AtomicBool,
+    report: &ImportReporter<'_>,
+) -> Result<String, FileError> {
+    let hash = match known_hash {
+        Some(hash) => hash.to_owned(),
+        None => hash_with_progress(source, cancel, report)?,
+    };
+    let mut input = File::open(source).map_err(|error| describe_io(&error))?;
+    let total = input.metadata().ok().map(|metadata| metadata.len());
+    let mut output = File::create(dest).map_err(|error| describe_io(&error))?;
+    let mut buffer = vec![0; 256 * 1024];
+    let mut completed = 0u64;
+    report(ImportStage::Copying, completed, total);
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(FileError::Cancelled);
+        }
+        let length = match input.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(length) => length,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(describe_io(&error).into()),
+        };
+        output
+            .write_all(&buffer[..length])
+            .map_err(|error| describe_io(&error))?;
+        completed += length as u64;
+        report(ImportStage::Copying, completed, total);
+    }
+    output.sync_all().map_err(|error| describe_io(&error))?;
+    Ok(hash)
+}
+
+/// A durable job supplies its checkpointed identity; regular batch imports retain
+/// their existing kernel-copy path. `move_source` is reserved for copies created
+/// and owned by this job's document materializer. No archive bytes cross JSON IPC.
+pub fn ingest_job_file(
+    raw_path: &str,
+    cache_dir: &Path,
+    book_id: &str,
+    known: &[KnownBook],
+    move_source: bool,
+    cancel: &Arc<AtomicBool>,
+    report: &ImportReporter<'_>,
+) -> Result<Option<IngestItem>, crate::error::AppError> {
+    uuid::Uuid::parse_str(book_id)
+        .map_err(|_| crate::error::AppError::invalid_input("Invalid import book identity"))?;
+    std::fs::create_dir_all(cache_dir)?;
+    let size = std::fs::metadata(raw_path)?.len();
+    let batch = Batch {
+        known_hashes: known.iter().map(|book| &*book.hash).collect(),
+        shared_sizes: known.iter().map(|book| book.size).collect(),
+        claimed: Default::default(),
+        cache_dir,
+        cancel,
+    };
+    match ingest_one_with_id(
+        raw_path,
+        size,
+        &batch,
+        book_id,
+        Some(report),
+        Some(cancel.clone()),
+        move_source,
+    ) {
+        Ok(item) => Ok(Some(item)),
+        Err(FileError::Cancelled) => Ok(None),
+        Err(FileError::Failed(message)) => Err(crate::error::AppError::io(message)),
+    }
+}
+
 fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, FileError> {
+    ingest_one_with_id(
+        raw_path,
+        size,
+        batch,
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+        None,
+        false,
+    )
+}
+
+fn ingest_one_with_id(
+    raw_path: &str,
+    size: u64,
+    batch: &Batch,
+    book_id: &str,
+    reporter: Option<&ImportReporter<'_>>,
+    conversion_cancel: Option<Arc<AtomicBool>>,
+    move_source: bool,
+) -> Result<IngestItem, FileError> {
+    let hash = |path: &Path| match reporter {
+        Some(report) => hash_with_progress(path, batch.cancel, report),
+        None => hash_file(path, batch.cancel),
+    };
+    let copy = |source: &Path, dest: &Path, known: Option<&str>| {
+        if move_source {
+            let content_hash = match known {
+                Some(value) => value.to_owned(),
+                None => hash(source)?,
+            };
+            if batch.cancel.load(Ordering::Relaxed) {
+                return Err(FileError::Cancelled);
+            }
+            std::fs::rename(source, dest).map_err(|error| describe_io(&error))?;
+            return Ok(content_hash);
+        }
+        match reporter {
+            Some(report) => copy_with_progress(source, dest, known, batch.cancel, report),
+            None => copy_with_hash(source, dest, known, batch.cancel),
+        }
+    };
     let path = Path::new(raw_path);
     let name = path
         .file_name()
@@ -911,7 +1069,7 @@ fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, Fi
     // matches another book can have the same bytes, so only those are hashed.
     let mut content_hash = None;
     if batch.shared_sizes.contains(&size) {
-        let hash = hash_file(path, batch.cancel)?;
+        let hash = hash(path)?;
         if batch.known_hashes.contains(hash.as_str()) {
             return Ok(IngestItem::Duplicate {
                 path: raw_path.into(),
@@ -935,6 +1093,9 @@ fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, Fi
     if batch.cancel.load(Ordering::Relaxed) {
         return Err(FileError::Cancelled);
     }
+    if let Some(report) = reporter {
+        report(ImportStage::Metadata, 0, None);
+    }
     let metadata = match format {
         "epub" => parse_epub_native(path),
         "cbz" => parse_cbz_native(path),
@@ -943,7 +1104,7 @@ fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, Fi
     }
     .map_err(|e| format!("Could not read this book: {e}"))?;
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = book_id.to_owned();
     let part = batch.cache_dir.join(format!("{id}.part"));
     let dest = batch.cache_dir.join(format!("{id}.book"));
     let written = (|| -> Result<(String, String), FileError> {
@@ -951,33 +1112,36 @@ fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, Fi
             if batch.cancel.load(Ordering::Relaxed) {
                 return Err(FileError::Cancelled);
             }
-            match crate::cbr::convert_cbr_to_cbz_file(path, &part) {
+            if let Some(report) = reporter {
+                report(ImportStage::Preparing, 0, None);
+            }
+            match crate::cbr::convert_cbr_to_cbz_file_cancellable(
+                path,
+                &part,
+                conversion_cancel.clone(),
+            ) {
                 Ok(()) => {
                     if content_hash.is_none() {
-                        content_hash = Some(hash_file(path, batch.cancel)?);
+                        content_hash = Some(hash(path)?);
                     }
                     "cbz"
                 }
                 Err(error) => {
+                    if batch.cancel.load(Ordering::Relaxed) {
+                        return Err(FileError::Cancelled);
+                    }
                     log::warn!("[batch_ingest] CBR to CBZ failed for '{raw_path}': {error}");
-                    content_hash = Some(copy_with_hash(
-                        path,
-                        &part,
-                        content_hash.as_deref(),
-                        batch.cancel,
-                    )?);
+                    content_hash = Some(copy(path, &part, content_hash.as_deref())?);
                     "cbr"
                 }
             }
         } else {
-            content_hash = Some(copy_with_hash(
-                path,
-                &part,
-                content_hash.as_deref(),
-                batch.cancel,
-            )?);
+            content_hash = Some(copy(path, &part, content_hash.as_deref())?);
             format
         };
+        if let Some(report) = reporter {
+            report(ImportStage::Saving, 0, None);
+        }
         std::fs::rename(&part, &dest)
             .map_err(|e| format!("Could not save the book: {}", describe_io(&e)))?;
         Ok((
@@ -1515,6 +1679,138 @@ mod tests {
                 _ => None,
             })
             .unwrap_or_else(|| panic!("no failure for {path}: {items:?}"))
+    }
+
+    #[test]
+    fn native_job_retains_the_checkpointed_identity_and_reports_measured_bytes() {
+        let source = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let bytes = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        let path = put(source.path(), "book.epub", &bytes);
+        let id = uuid::Uuid::new_v4().to_string();
+        let reports = std::sync::Mutex::new(Vec::new());
+        let item = ingest_job_file(
+            &path,
+            cache.path(),
+            &id,
+            &[],
+            false,
+            &Arc::new(AtomicBool::new(false)),
+            &|stage, completed, total| {
+                reports.lock().unwrap().push((stage, completed, total));
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let IngestItem::Imported { book, .. } = item else {
+            panic!("expected imported book")
+        };
+        assert_eq!(book.id, id);
+        assert_eq!(
+            std::fs::read(cache.path().join(format!("{id}.book"))).unwrap(),
+            bytes
+        );
+        let reports = reports.lock().unwrap();
+        for stage in [ImportStage::Checking, ImportStage::Copying] {
+            let completed = reports
+                .iter()
+                .rfind(|(actual, _, _)| {
+                    std::mem::discriminant(actual) == std::mem::discriminant(&stage)
+                })
+                .unwrap();
+            assert_eq!(completed.1, bytes.len() as u64);
+            assert_eq!(completed.2, Some(bytes.len() as u64));
+        }
+        assert!(matches!(
+            reports.last(),
+            Some((ImportStage::Saving, 0, None))
+        ));
+    }
+
+    #[test]
+    fn native_job_cancellation_during_copy_removes_partial_and_final_files() {
+        let source = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let bytes = vec![b'x'; 1024 * 1024];
+        let path = put(source.path(), "large.pdf", &bytes);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let id = uuid::Uuid::new_v4().to_string();
+        let item = ingest_job_file(
+            &path,
+            cache.path(),
+            &id,
+            &[],
+            false,
+            &cancel,
+            &|stage, completed, _| {
+                if matches!(stage, ImportStage::Copying) && completed > 0 {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            },
+        )
+        .unwrap();
+        assert!(item.is_none());
+        assert!(cache_files(cache.path()).is_empty());
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn native_job_moves_only_sources_explicitly_owned_by_the_materializer() {
+        let bytes = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        for move_source in [false, true] {
+            let source = tempfile::tempdir().unwrap();
+            let cache = tempfile::tempdir().unwrap();
+            let folder = source.path().join("theorem_import");
+            std::fs::create_dir_all(&folder).unwrap();
+            let path = folder.join("book.epub");
+            std::fs::write(&path, &bytes).unwrap();
+            let id = uuid::Uuid::new_v4().to_string();
+            let item = ingest_job_file(
+                path.to_str().unwrap(),
+                cache.path(),
+                &id,
+                &[],
+                move_source,
+                &Arc::new(AtomicBool::new(false)),
+                &|_, _, _| {},
+            )
+            .unwrap()
+            .unwrap();
+            assert!(matches!(item, IngestItem::Imported { .. }));
+            assert_eq!(path.exists(), !move_source);
+            assert_eq!(
+                std::fs::read(cache.path().join(format!("{id}.book"))).unwrap(),
+                bytes
+            );
+        }
+    }
+
+    #[test]
+    fn native_job_detects_existing_bytes_without_copying_or_replacing_them() {
+        let source = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let bytes = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        let path = put(source.path(), "book.epub", &bytes);
+        let hash = compute_file_sha256(Path::new(&path)).unwrap();
+        let known = [KnownBook {
+            size: bytes.len() as u64,
+            hash: hash.clone().into(),
+        }];
+        let item = ingest_job_file(
+            &path,
+            cache.path(),
+            &uuid::Uuid::new_v4().to_string(),
+            &known,
+            false,
+            &Arc::new(AtomicBool::new(false)),
+            &|_, _, _| {},
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(item, IngestItem::Duplicate { content_hash, .. } if *content_hash == hash)
+        );
+        assert!(cache_files(cache.path()).is_empty());
     }
 
     #[test]

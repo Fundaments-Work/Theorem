@@ -8,6 +8,7 @@ function assertCiResult(needs) {
         'workflow-check': selected.workflows === 'true',
         web: selected.web === 'true' || selected.rust === 'true',
         'rust-check': selected.rust === 'true',
+        'rust-windows-import': selected.rust === 'true',
         'rust-android-check': selected.android === 'true',
     };
     for (const [job, required] of Object.entries(expected)) {

@@ -7,6 +7,7 @@ const jobs = (selected, overrides = {}) => ({
     'workflow-check': { result: selected.workflows === 'true' ? 'success' : 'skipped' },
     web: { result: selected.web === 'true' || selected.rust === 'true' ? 'success' : 'skipped' },
     'rust-check': { result: selected.rust === 'true' ? 'success' : 'skipped' },
+    'rust-windows-import': { result: selected.rust === 'true' ? 'success' : 'skipped' },
     'rust-android-check': { result: selected.android === 'true' ? 'success' : 'skipped' },
     ...overrides,
 });
@@ -23,4 +24,12 @@ test('rejects failed, cancelled, or unexpectedly skipped selected jobs', () => {
     }
     assert.throws(() => assertCiResult(jobs(none, { changes: { result: 'failure', outputs: {} } })));
     assert.throws(() => assertCiResult(jobs({ ...none, web: '' })));
+});
+
+
+test('requires the selected Windows import regressions to succeed', () => {
+    for (const result of ['failure', 'cancelled', 'skipped']) {
+        assert.throws(() => assertCiResult(jobs({ ...none, rust: 'true' }, { 'rust-windows-import': { result } })));
+    }
+    assert.throws(() => assertCiResult(jobs({ ...none, rust: 'true' }, { 'rust-windows-import': undefined })));
 });

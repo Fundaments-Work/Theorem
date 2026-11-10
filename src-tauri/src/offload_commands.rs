@@ -720,3 +720,68 @@ pub async fn evaluate_reading_rhythm(
 pub async fn fetch_cover_image(url: String) -> Result<Box<str>, AppError> {
     offload(move || crate::web_fetch::fetch_cover_image(url)).await
 }
+
+#[tauri::command]
+pub async fn native_import_start(
+    app: AppHandle,
+    requests: Vec<crate::import_jobs::checkpoint::Request>,
+) -> Result<Box<str>, AppError> {
+    offload(move || crate::import_jobs::start(app, requests)).await
+}
+
+#[tauri::command]
+pub async fn native_import_resume(app: AppHandle, job_id: String) -> Result<Box<str>, AppError> {
+    offload(move || crate::import_jobs::resume(app, &job_id)).await
+}
+
+#[tauri::command]
+pub async fn native_import_cancel(app: AppHandle, job_id: String) -> Result<(), AppError> {
+    offload(move || {
+        crate::import_jobs::cancel(&job_id)?;
+        #[cfg(target_os = "android")]
+        tauri_plugin_mobile_folder_scan::stop_import_service(&app).map_err(AppError::io)?;
+        #[cfg(not(target_os = "android"))]
+        let _ = app;
+        Ok::<_, AppError>(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn native_import_snapshot(
+    app: AppHandle,
+) -> Result<crate::import_jobs::Snapshot, AppError> {
+    offload(move || crate::import_jobs::snapshot(&app)).await
+}
+
+#[tauri::command]
+pub async fn pick_native_import_documents(
+    app: AppHandle,
+) -> Result<Vec<tauri_plugin_mobile_folder_scan::ImportDocument>, AppError> {
+    #[cfg(target_os = "android")]
+    {
+        offload(move || tauri_plugin_mobile_folder_scan::pick_import_books(&app)).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(AppError::invalid_input(
+            "This picker is only available on Android",
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn native_import_results(
+    app: AppHandle,
+    job_id: String,
+    offset: usize,
+    limit: usize,
+) -> Result<crate::import_jobs::ResultPage, AppError> {
+    offload(move || crate::import_jobs::results(&app, &job_id, offset, limit)).await
+}
+
+#[tauri::command]
+pub async fn native_import_discard(app: AppHandle, job_id: String) -> Result<(), AppError> {
+    offload(move || crate::import_jobs::discard(&app, &job_id)).await
+}

@@ -1227,7 +1227,10 @@ export function LibraryPage() {
         setIsImporting(true);
         const failedImports: Array<{ source: string; message: string }> = [];
         try {
-            await pickAndImportBooksIncremental(
+            const importBooks = isTauri()
+                ? (await import("../../core/lib/native-import-jobs")).pickAndImportNativeJob
+                : pickAndImportBooksIncremental;
+            await importBooks(
                 (book) => {
                     addBook(book);
                     void extractImportedBookMetadata(book);
@@ -1240,6 +1243,7 @@ export function LibraryPage() {
                 },
             );
         } catch (err) {
+            failedImports.push({ source: "Import", message: err instanceof Error ? err.message : String(err) });
         } finally {
             setIsImporting(false);
         }
@@ -1263,13 +1267,17 @@ export function LibraryPage() {
         try {
             const result = await importFolder(root, preserve, {
                 scan,
+                importBooks: async (paths, onBook, onFailure, options) => {
+                    const { importBooksIncremental } = await import("../../core/lib/import");
+                    return importBooksIncremental(paths, onBook, onFailure, { ...options, durable: true });
+                },
                 getBooks: () => useLibraryStore.getState().books,
                 addBooks: (batch) => useLibraryStore.getState().addBooks(batch),
                 updateBooks: (updates) => useLibraryStore.getState().updateBooks(updates),
                 onBooksAdded: (batch) => {
                     for (const book of batch) void extractImportedBookMetadata(book);
                 },
-                onProgress: setFolderImportProgress,
+                onProgress: (progress) => setFolderImportProgress(progress.phase === "scanning" ? progress : null),
             }, controller.signal);
             if (!result.cancelled) setLastScannedAt(new Date());
             if (preserve && result.imported + result.alreadyInLibrary > 0) {

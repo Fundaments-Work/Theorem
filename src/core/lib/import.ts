@@ -25,6 +25,9 @@ export const MAX_IN_MEMORY_IMPORT_BYTES = 1024 * 1024 * 1024;
 type ImportFailureHandler = (source: string, error: unknown) => void;
 
 export interface ImportOptions {
+    durable?: boolean;
+    sourceNames?: Record<string, string>;
+    sourceFolders?: Record<string, { root: string; rootName: string; relativePath: string }>;
     /** Stops the import: files not yet started are left alone. */
     signal?: AbortSignal;
     /** Books already in the library; a file with the same bytes is skipped before copying. */
@@ -33,6 +36,8 @@ export interface ImportOptions {
     onDuplicate?: (source: string, contentHash: string) => void;
     /** Files handled so far, out of `total`. */
     onProgress?: (completed: number, total: number) => void;
+    /** Native work stopped with pending requests retained for explicit recovery. */
+    onCancelled?: () => void;
 }
 
 type NativeIngestItem =
@@ -894,6 +899,10 @@ export async function importBooksIncremental(
     onBookFailed?: ImportFailureHandler,
     options: ImportOptions = {},
 ): Promise<Book[]> {
+    if (options.durable && isTauri()) {
+        const { importPathsAsNativeJob } = await import("./native-import-jobs");
+        return importPathsAsNativeJob(filePaths, onBookImported, onBookFailed, options);
+    }
     const books: Book[] = [];
     let remaining = filePaths;
 

@@ -87,7 +87,8 @@ pub fn import_book_path(
     // Android hands over a temporary copy of a content:// document. It is
     // moved into place (same filesystem, no second copy of the bytes) and
     // never left behind.
-    let temporary = cfg!(target_os = "android") && is_materialized_temp(Path::new(&path));
+    let temporary =
+        cfg!(target_os = "android") && is_owned_materialized_temp(Path::new(&path), &destination);
     let size = match place_book_file(Path::new(&path), &destination, temporary) {
         Ok(size) => size,
         Err(e) => {
@@ -114,9 +115,30 @@ fn place_book_file(source: &Path, destination: &Path, temporary: bool) -> std::i
 }
 
 /// A file `materializeContentUri` wrote into the app's `theorem_import` folder.
+fn is_owned_materialized_temp(path: &Path, destination: &Path) -> bool {
+    if !is_materialized_temp(path) {
+        return false;
+    }
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let Some(app_data) = destination.parent().and_then(Path::parent) else {
+        return false;
+    };
+    match (
+        parent.canonicalize(),
+        app_data.join(MATERIALIZED_IMPORT_DIR).canonicalize(),
+    ) {
+        (Ok(parent), Ok(owned)) => parent == owned,
+        _ => false,
+    }
+}
+
+// This directory-name check is only a candidate check. Disposal also requires
+// is_owned_materialized_temp to verify the canonical app-owned directory.
 fn is_materialized_temp(path: &Path) -> bool {
     path.parent()
-        .and_then(|dir| dir.file_name())
+        .and_then(|directory| directory.file_name())
         .is_some_and(|name| name == MATERIALIZED_IMPORT_DIR)
 }
 
@@ -125,6 +147,33 @@ const MATERIALIZED_IMPORT_DIR: &str = "theorem_import";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_app_owned_materialization_directory_is_disposable() {
+        let directory = tempfile::tempdir().unwrap();
+        let app_data = directory.path().join("app");
+        let staging = app_data.join("theorem_import");
+        let cache = app_data.join("book-cache");
+        let external = directory.path().join("user/theorem_import");
+        for path in [&staging, &cache, &external] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        let owned = staging.join("owned.epub");
+        let original = external.join("original.epub");
+        std::fs::write(&owned, b"owned").unwrap();
+        std::fs::write(&original, b"original").unwrap();
+        let destination = cache.join("book.import");
+        assert!(is_owned_materialized_temp(&owned, &destination));
+        assert!(!is_owned_materialized_temp(&original, &destination));
+        place_book_file(
+            &original,
+            &destination,
+            is_owned_materialized_temp(&original, &destination),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+        assert_eq!(std::fs::read(&destination).unwrap(), b"original");
+    }
 
     #[test]
     fn temporary_copies_are_moved_and_other_files_copied() {

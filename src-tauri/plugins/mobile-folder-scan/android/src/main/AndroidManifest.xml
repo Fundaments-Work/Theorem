@@ -6,7 +6,12 @@
     <!-- Alarms are dropped on reboot; the reminder is scheduled again at boot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application>
+        <service android:name="work.fundamentals.theorem.libraryscan.ImportService"
+            android:exported="false" android:foregroundServiceType="dataSync" />
         <receiver
             android:name="work.fundamentals.theorem.libraryscan.ReminderReceiver"
             android:exported="false" />

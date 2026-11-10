@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features & Enhancements
 
+- **Recoverable native Library imports** — Show app-wide file and byte/stage progress, keep the queue running while reading, and offer explicit recovery after an interrupted process. Android uses persistent document access and a cancellable foreground import service; completed books keep their metadata and reading progress.
+
 - **Read along with EPUB 3 Media Overlays** — Books that ship synced narration play it in immersion mode, with the spoken phrase highlighted, pages following along, and controls for speed, skipping, a sleep timer and system media keys.
 
 ### Maintenance

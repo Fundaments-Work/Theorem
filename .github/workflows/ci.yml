@@ -179,6 +179,46 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         run: cargo test --manifest-path src-tauri/Cargo.toml --workspace --lib --tests
 
+  rust-windows-import:
+    name: Native import regressions (Windows)
+    needs: [changes, web]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Restore verified frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-frontend
+          path: dist
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-import-regressions-v1-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-import-regressions-v1-cargo-
+      - name: Test native queue and recovery
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --lib import_jobs::
+      - name: Test native file ingestion
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib native_job
+      - name: Test archive conversion and cancellation
+        run: >-
+          cargo test --manifest-path src-tauri/Cargo.toml --lib cbr::
+
   rust-android-check:
     # Desktop CI does not compile the `cfg(target_os = "android")` code; the
     # jni 0.22 bump once broke Android while every desktop check passed.
@@ -262,7 +302,7 @@ jobs:
   required-check:
     name: CI result
     if: always()
-    needs: [changes, workflow-check, web, rust-check, rust-android-check]
+    needs: [changes, workflow-check, web, rust-check, rust-windows-import, rust-android-check]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
