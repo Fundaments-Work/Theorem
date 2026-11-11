@@ -138,6 +138,9 @@ impl DictZipHeader {
 
         let (chunk_len, chunk_sizes) =
             dictzip_info.ok_or_else(|| "DictZip 'RA' extra field not found".to_string())?;
+        if chunk_len == 0 {
+            return Err("Invalid DictZip chunk_len (0)".to_string());
+        }
 
         // Skip remaining headers (FNAME, FCOMMENT, FHCRC)
         if has_name {
@@ -181,11 +184,20 @@ impl DictZipHeader {
         if size == 0 {
             return Ok(Vec::new());
         }
+        if self.chunk_len == 0 {
+            return Err("Invalid DictZip chunk_len (0)".to_string());
+        }
 
-        let start_chunk = (offset as usize) / self.chunk_len;
-        let end_pos = (offset as usize) + size;
-        let end_chunk = (end_pos - 1) / self.chunk_len;
+        let chunk_len_u64 = self.chunk_len as u64;
+        let end_pos = offset
+            .checked_add(size as u64)
+            .ok_or_else(|| "DictZip range overflow".to_string())?;
+        let start_chunk = usize::try_from(offset / chunk_len_u64)
+            .map_err(|_| "DictZip start chunk out of range".to_string())?;
+        let end_chunk = usize::try_from((end_pos - 1) / chunk_len_u64)
+            .map_err(|_| "DictZip end chunk out of range".to_string())?;
 
+        let max_chunk_decomp = self.chunk_len.max(64 * 1024).saturating_mul(2);
         let mut decompressed = Vec::new();
 
         for chunk_idx in start_chunk..=end_chunk {
@@ -205,17 +217,25 @@ impl DictZipHeader {
                 .read_exact(&mut comp_data)
                 .map_err(|e| format!("Failed to read chunk {chunk_idx}: {e}"))?;
 
-            let mut decoder = DeflateDecoder::new(&comp_data[..]);
+            let mut decoder = DeflateDecoder::new(&comp_data[..])
+                .take((max_chunk_decomp as u64).saturating_add(1));
             let mut chunk_out = Vec::with_capacity(self.chunk_len);
             decoder
                 .read_to_end(&mut chunk_out)
                 .map_err(|e| format!("Deflate chunk {chunk_idx} failed: {e}"))?;
+            if chunk_out.len() > max_chunk_decomp {
+                return Err(format!("DictZip chunk {chunk_idx} exceeds expected size"));
+            }
 
             decompressed.extend_from_slice(&chunk_out);
         }
 
-        let slice_start = (offset as usize) - (start_chunk * self.chunk_len);
-        let slice_end = slice_start + size;
+        let slice_start_u64 = offset - (start_chunk as u64) * chunk_len_u64;
+        let slice_start = usize::try_from(slice_start_u64)
+            .map_err(|_| "DictZip slice start out of range".to_string())?;
+        let slice_end = slice_start
+            .checked_add(size)
+            .ok_or_else(|| "DictZip slice end overflow".to_string())?;
 
         if slice_end > decompressed.len() {
             return Err(format!(
@@ -1209,6 +1229,17 @@ author=Wiktionary Contributors
 
         // Non-existent word
         assert!(dict.lookup("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn dictzip_rejects_zero_chunk_len() {
+        let header = DictZipHeader {
+            chunk_len: 0,
+            chunk_offsets: Box::new([0]),
+            chunk_sizes: Box::new([0]),
+        };
+        let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
+        assert!(header.read_uncompressed_range(&mut cursor, 0, 10).is_err());
     }
 
     #[test]

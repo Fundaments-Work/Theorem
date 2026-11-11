@@ -11,6 +11,9 @@
 //! the caller as an error, never a panic, and remembered, so each request
 //! does not retry the build.
 
+use futures::StreamExt;
+use std::io::Read;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -32,6 +35,157 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_REDIRECTS: usize = 10;
 /// Whole-request deadline of the blocking client (requests may set a shorter one).
 const BLOCKING_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn is_ipv4_private_or_local(ip: Ipv4Addr) -> bool {
+    ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+}
+
+fn is_ipv6_link_local(ip: Ipv6Addr) -> bool {
+    (ip.segments()[0] & 0xffc0) == 0xfe80
+}
+
+fn is_ipv6_private_or_local(ip: Ipv6Addr) -> bool {
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || is_ipv6_link_local(ip)
+        || (ip.segments()[0] & 0xfe00) == 0xfc00
+        || ip.to_ipv4_mapped().is_some_and(is_ipv4_private_or_local)
+}
+
+fn is_metadata_or_unspecified_url(url: &reqwest::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("metadata.google.internal"),
+        Some(url::Host::Ipv4(ip)) => ip.is_link_local() || ip.is_unspecified(),
+        Some(url::Host::Ipv6(ip)) => {
+            ip.is_unspecified()
+                || is_ipv6_link_local(ip)
+                || ip
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
+        }
+        None => true,
+    }
+}
+
+fn is_local_or_private_url(url: &reqwest::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => {
+            let lower = domain.to_ascii_lowercase();
+            lower == "localhost"
+                || lower.ends_with(".localhost")
+                || lower.ends_with(".local")
+                || lower.ends_with(".internal")
+        }
+        Some(url::Host::Ipv4(ip)) => is_ipv4_private_or_local(ip),
+        Some(url::Host::Ipv6(ip)) => is_ipv6_private_or_local(ip),
+        None => true,
+    }
+}
+
+pub(crate) fn validate_http_url(url: &str) -> Result<reqwest::Url, String> {
+    let parsed = reqwest::Url::parse(url.trim())
+        .map_err(|e| format!("Invalid URL '{}': {e}", url.trim()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!(
+            "Only http and https URLs are supported (got {}:)",
+            parsed.scheme()
+        ));
+    }
+    if is_metadata_or_unspecified_url(&parsed) {
+        return Err("Refused request to restricted host address".to_string());
+    }
+    Ok(parsed)
+}
+
+fn safe_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() > MAX_REDIRECTS {
+            return attempt.error("Too many redirects");
+        }
+        if !matches!(attempt.url().scheme(), "http" | "https") {
+            return attempt.error("Blocked redirect to unsupported URL scheme");
+        }
+        if is_metadata_or_unspecified_url(attempt.url()) {
+            return attempt.error("Blocked redirect to restricted host address");
+        }
+        let started_local = attempt
+            .previous()
+            .first()
+            .is_some_and(is_local_or_private_url);
+        if !started_local && is_local_or_private_url(attempt.url()) {
+            return attempt.error("Blocked redirect from public origin to private address");
+        }
+        attempt.follow()
+    })
+}
+
+pub(crate) async fn read_response_bytes_bounded(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = resp.content_length() {
+        if len > max_bytes as u64 {
+            return Err(format!(
+                "Response exceeds maximum allowed size ({max_bytes} bytes)"
+            ));
+        }
+    }
+    let mut body = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Failed to read response stream: {e}"))?;
+        if body.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(format!(
+                "Response exceeds maximum allowed size ({max_bytes} bytes)"
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+pub(crate) async fn read_response_text_bounded(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, String> {
+    let bytes = read_response_bytes_bounded(resp, max_bytes).await?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+pub(crate) fn read_blocking_bytes_bounded(
+    resp: reqwest::blocking::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = resp.content_length() {
+        if len > max_bytes as u64 {
+            return Err(format!(
+                "Response exceeds maximum allowed size ({max_bytes} bytes)"
+            ));
+        }
+    }
+    let mut bytes = Vec::new();
+    resp.take((max_bytes as u64).saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+    if bytes.len() > max_bytes {
+        return Err(format!(
+            "Response exceeds maximum allowed size ({max_bytes} bytes)"
+        ));
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn read_blocking_text_bounded(
+    resp: reqwest::blocking::Response,
+    max_bytes: usize,
+) -> Result<String, String> {
+    let bytes = read_blocking_bytes_bounded(resp, max_bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
 
 /// The TLS setup every client uses: rustls on the ring provider, verifying
 /// against the bundled Mozilla roots (webpki-roots), TLS 1.2 and 1.3, and
@@ -78,7 +232,7 @@ pub(crate) fn client() -> Result<&'static reqwest::Client, String> {
             .tls_backend_preconfigured(tls_config()?)
             .user_agent(THEOREM_USER_AGENT)
             .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
+            .redirect(safe_redirect_policy())
             .build()
             .map_err(|e| e.to_string())
     })
@@ -95,7 +249,7 @@ pub(crate) fn download_client() -> Result<&'static reqwest::Client, String> {
             .user_agent(BROWSER_USER_AGENT)
             .cookie_store(true)
             .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
+            .redirect(safe_redirect_policy())
             .build()
             .map_err(|e| e.to_string())
     })
@@ -113,7 +267,7 @@ pub(crate) fn blocking_client() -> Result<&'static reqwest::blocking::Client, St
             .cookie_store(true)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(BLOCKING_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::limited(MAX_REDIRECTS))
+            .redirect(safe_redirect_policy())
             .build()
             .map_err(|e| e.to_string())
     })

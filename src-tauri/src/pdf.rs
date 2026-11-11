@@ -91,27 +91,43 @@ fn find_startxref_offset(bytes: &[u8]) -> Option<u64> {
     Some(offset as u64)
 }
 
-/// Read `n` bytes from `file` at absolute position `offset` into a `Vec<u8>`.
-fn read_bytes_at(file: &mut fs::File, offset: u64, n: usize) -> std::io::Result<Vec<u8>> {
+/// Read up to `n` bytes from `file` starting at `offset`, stopping cleanly at EOF.
+fn read_up_to(file: &mut fs::File, offset: u64, n: usize) -> std::io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(offset))?;
-    let mut buf = vec![0u8; n];
-    file.read_exact(&mut buf)?;
+    let mut buf = Vec::new();
+    file.take(n as u64).read_to_end(&mut buf)?;
     Ok(buf)
 }
 
-/// Find a key like `/Count` or `/MediaBox` in a slice of PDF dictionary bytes
-/// and return the raw bytes of its value token (up to 64 bytes).
+/// Locate a PDF dictionary value by key (`key` such as `b"/Count"`),
+/// ensuring the key ends on a PDF delimiter/whitespace boundary so `/Page`
+/// never matches `/Pages`.
 fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
-    let pos = dict_bytes.windows(key.len()).position(|w| w == key)?;
-    let after = &dict_bytes[pos + key.len()..];
-    // skip whitespace
-    let skip = after
-        .iter()
-        .take_while(|&&b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
-        .count();
-    let start = skip;
-    let end = (start + 64).min(after.len());
-    Some(&after[start..end])
+    let mut search_from = 0;
+    while let Some(rel) = dict_bytes[search_from..]
+        .windows(key.len())
+        .position(|w| w == key)
+    {
+        let pos = search_from + rel;
+        let after = &dict_bytes[pos + key.len()..];
+        let boundary = after.first().copied().is_none_or(|b| {
+            matches!(
+                b,
+                b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'[' | b'<' | b'(' | b'>' | b']'
+            )
+        });
+        if boundary {
+            let skip = after
+                .iter()
+                .take_while(|&&b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+                .count();
+            let start = skip;
+            let end = (start + 128).min(after.len());
+            return Some(&after[start..end]);
+        }
+        search_from = pos + key.len();
+    }
+    None
 }
 
 /// Extract `/Count` integer from a `/Pages` object body.
@@ -171,100 +187,395 @@ fn extract_mediabox(object_bytes: &[u8]) -> Option<(f32, f32)> {
     }
 }
 
-/// Parse the cross-reference table (classic `xref` … `trailer`) that begins
-/// at `xref_offset` inside the file and return every object's byte offset.
-/// Returns `(offsets_map, root_obj_num, root_gen_num)`.
-fn parse_xref_table(
-    file: &mut fs::File,
-    file_size: u64,
-    xref_offset: u64,
-) -> Option<(std::collections::HashMap<u32, u64>, u32)> {
-    // Read up to 512 KiB starting at the xref table — enough for large docs
-    let read_len = (512 * 1024).min((file_size.saturating_sub(xref_offset)) as usize);
-    if read_len == 0 {
-        return None;
-    }
-    let buf = read_bytes_at(file, xref_offset, read_len).ok()?;
+const MAX_XREF_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_OBJSTM_BYTES: u64 = 8 * 1024 * 1024;
 
-    // Determine if this is a cross-reference stream (PDF 1.5+) or classic table
-    let is_xref_stream = !buf.starts_with(b"xref");
+#[derive(Clone, Copy)]
+enum ObjLoc {
+    Offset(u64),
+    Compressed { stream_obj: u32, obj_index: u32 },
+}
 
-    if is_xref_stream {
-        // For XRef streams we fall back to returning only an empty map and
-        // try to find the root object from a linearisation hint or brute-force
-        // count from the metadata.  The page-count fallback in the caller
-        // handles this gracefully.
-        return None;
-    }
-
-    let mut offsets: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
-
-    // Parse "xref\n<first_obj> <count>\n …"
-    let text = std::str::from_utf8(&buf).ok()?;
-    let mut lines = text.lines().peekable();
-    // First line must be "xref"
-    let first = lines.next()?;
-    if first.trim() != "xref" {
-        return None;
-    }
-
-    while let Some(h) = lines.next() {
-        let header = h.trim();
-        if header.starts_with("trailer") {
+fn parse_pdf_int_array(bytes: &[u8]) -> Option<Vec<i64>> {
+    let start = bytes.iter().position(|&b| b == b'[')?;
+    let rest = &bytes[start + 1..];
+    let end = rest.iter().position(|&b| b == b']')?;
+    let mut vals = Vec::new();
+    let mut i = 0;
+    let slice = &rest[..end];
+    while i < slice.len() {
+        while i < slice.len() && matches!(slice[i], b' ' | b'\t' | b'\r' | b'\n') {
+            i += 1;
+        }
+        if i >= slice.len() {
             break;
         }
-        let mut parts = header.split_ascii_whitespace();
-        let first_obj: u32 = parts.next()?.parse().ok()?;
-        let count: u32 = parts.next()?.parse().ok()?;
-        for i in 0..count {
-            let entry = match lines.next() {
-                Some(e) => e,
-                None => break,
-            };
-            let mut eparts = entry.split_ascii_whitespace();
-            let offset_str = eparts.next().unwrap_or("0");
-            let _gen = eparts.next();
-            let in_use = eparts.next().unwrap_or("f");
-            if in_use == "n" {
-                if let Ok(off) = offset_str.parse::<u64>() {
-                    offsets.insert(first_obj + i, off);
+        let (v, consumed) = parse_pdf_integer(slice, i)?;
+        vals.push(v);
+        i += consumed;
+    }
+    Some(vals)
+}
+
+fn read_be_u64(bytes: &[u8]) -> u64 {
+    let mut v = 0u64;
+    for &b in bytes {
+        v = (v << 8) | u64::from(b);
+    }
+    v
+}
+
+fn unfilter_png_rows(raw: &[u8], row_len: usize) -> Option<Vec<u8>> {
+    if row_len == 0 {
+        return None;
+    }
+    let stride = row_len.checked_add(1)?;
+    if raw.is_empty() || !raw.len().is_multiple_of(stride) {
+        return None;
+    }
+    let row_count = raw.len() / stride;
+    let mut out = Vec::with_capacity(row_count.saturating_mul(row_len));
+    let mut prev = vec![0u8; row_len];
+    for r in 0..row_count {
+        let row_slice = &raw[r * stride..(r + 1) * stride];
+        let filter = row_slice[0];
+        let src = &row_slice[1..];
+        let mut cur = vec![0u8; row_len];
+        for i in 0..row_len {
+            let a = if i > 0 { cur[i - 1] } else { 0 };
+            let b = prev[i];
+            let c = if i > 0 { prev[i - 1] } else { 0 };
+            let recon = match filter {
+                0 => src[i],
+                1 => src[i].wrapping_add(a),
+                2 => src[i].wrapping_add(b),
+                3 => src[i].wrapping_add(((u16::from(a) + u16::from(b)) / 2) as u8),
+                4 => {
+                    let p = i32::from(a) + i32::from(b) - i32::from(c);
+                    let pa = (p - i32::from(a)).abs();
+                    let pb = (p - i32::from(b)).abs();
+                    let pc = (p - i32::from(c)).abs();
+                    let pr = if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        b
+                    } else {
+                        c
+                    };
+                    src[i].wrapping_add(pr)
                 }
+                _ => return None,
+            };
+            cur[i] = recon;
+        }
+        out.extend_from_slice(&cur);
+        prev = cur;
+    }
+    Some(out)
+}
+
+fn decode_pdf_stream(header: &[u8], payload: &[u8], max_decoded: u64) -> Option<Vec<u8>> {
+    let raw = if let Some(filter) = find_dict_value(header, b"/Filter") {
+        let trimmed = filter.trim_ascii_start();
+        if trimmed.starts_with(b"/FlateDecode") {
+            let mut decoder = flate2::read::ZlibDecoder::new(payload);
+            let mut decoded = Vec::new();
+            let mut limited = (&mut decoder).take(max_decoded.saturating_add(1));
+            limited.read_to_end(&mut decoded).ok()?;
+            if decoded.len() as u64 > max_decoded {
+                return None;
+            }
+            decoded
+        } else {
+            return None;
+        }
+    } else {
+        payload.to_vec()
+    };
+
+    if let Some(pred_bytes) = find_dict_value(header, b"/Predictor") {
+        if let Some((pred, _)) = parse_pdf_integer(pred_bytes, 0) {
+            if pred >= 10 {
+                let cols = find_dict_value(header, b"/Columns")
+                    .and_then(|v| parse_pdf_integer(v, 0))
+                    .map(|(n, _)| n)
+                    .unwrap_or(1);
+                if cols <= 0 {
+                    return None;
+                }
+                return unfilter_png_rows(&raw, cols as usize);
+            }
+        }
+    }
+    Some(raw)
+}
+
+fn extract_stream_slices(buf: &[u8]) -> Option<(&[u8], &[u8])> {
+    let stream_pos = buf.windows(6).position(|w| w == b"stream")?;
+    let header = &buf[..stream_pos];
+    let mut data_start = stream_pos + 6;
+    if buf.get(data_start) == Some(&b'\r') && buf.get(data_start + 1) == Some(&b'\n') {
+        data_start += 2;
+    } else if matches!(buf.get(data_start), Some(&b'\n' | &b'\r')) {
+        data_start += 1;
+    }
+    let payload_after_kw = &buf[data_start..];
+    let declared_len = find_dict_value(header, b"/Length")
+        .and_then(|v| parse_pdf_integer(v, 0))
+        .and_then(|(n, _)| (n >= 0).then_some(n as usize));
+    if let Some(len) = declared_len {
+        if len <= payload_after_kw.len() {
+            return Some((header, &payload_after_kw[..len]));
+        }
+    }
+    let end_rel = payload_after_kw
+        .windows(9)
+        .position(|w| w == b"endstream")?;
+    let trimmed = payload_after_kw[..end_rel]
+        .strip_suffix(b"\r\n")
+        .or_else(|| payload_after_kw[..end_rel].strip_suffix(b"\n"))
+        .or_else(|| payload_after_kw[..end_rel].strip_suffix(b"\r"))
+        .unwrap_or(&payload_after_kw[..end_rel]);
+    Some((header, trimmed))
+}
+
+fn parse_xref_stream_section(
+    buf: &[u8],
+    offsets: &mut std::collections::HashMap<u32, ObjLoc>,
+) -> Option<(Option<u32>, Option<u64>)> {
+    let (header, stream_payload) = extract_stream_slices(buf)?;
+    let typ = find_dict_value(header, b"/Type")?;
+    if !typ.trim_ascii_start().starts_with(b"/XRef") {
+        return None;
+    }
+
+    let w_vals = parse_pdf_int_array(find_dict_value(header, b"/W")?)?;
+    if w_vals.len() != 3 || w_vals.iter().any(|&w| !(0..=8).contains(&w)) {
+        return None;
+    }
+    let w0 = w_vals[0] as usize;
+    let w1 = w_vals[1] as usize;
+    let w2 = w_vals[2] as usize;
+    let entry_size = w0 + w1 + w2;
+    if entry_size == 0 || entry_size > 24 {
+        return None;
+    }
+
+    let size = find_dict_value(header, b"/Size")
+        .and_then(|v| parse_pdf_integer(v, 0))
+        .and_then(|(n, _)| (n >= 0).then_some(n))?;
+    let index_pairs = find_dict_value(header, b"/Index")
+        .and_then(parse_pdf_int_array)
+        .unwrap_or_else(|| vec![0, size]);
+    if !index_pairs.len().is_multiple_of(2) {
+        return None;
+    }
+
+    let decoded = decode_pdf_stream(header, stream_payload, MAX_XREF_BYTES)?;
+    let mut pos = 0usize;
+    for pair in index_pairs.chunks_exact(2) {
+        let Ok(first_obj) = u32::try_from(pair[0]) else {
+            return None;
+        };
+        let Ok(count) = u32::try_from(pair[1]) else {
+            return None;
+        };
+        for idx in 0..count {
+            let end = pos.checked_add(entry_size)?;
+            if end > decoded.len() {
+                break;
+            }
+            let row = &decoded[pos..end];
+            pos = end;
+            let entry_type = if w0 == 0 { 1 } else { read_be_u64(&row[..w0]) };
+            let field1 = read_be_u64(&row[w0..w0 + w1]);
+            let field2 = read_be_u64(&row[w0 + w1..w0 + w1 + w2]);
+            let obj_num = first_obj.saturating_add(idx);
+            match entry_type {
+                1 => {
+                    offsets.entry(obj_num).or_insert(ObjLoc::Offset(field1));
+                }
+                2 => {
+                    if let (Ok(stream_obj), Ok(obj_index)) =
+                        (u32::try_from(field1), u32::try_from(field2))
+                    {
+                        offsets.entry(obj_num).or_insert(ObjLoc::Compressed {
+                            stream_obj,
+                            obj_index,
+                        });
+                    }
+                }
+                _ => {}
             }
         }
     }
 
-    // Find /Root in trailer dictionary
-    let trailer_pos = buf.windows(7).position(|w| w == b"trailer")?;
-    let trailer_slice = &buf[trailer_pos..];
-    let root_bytes = find_dict_value(trailer_slice, b"/Root")?;
-    // /Root value is "<obj_num> <gen_num> R"
-    let (root_obj_num, _) = parse_pdf_integer(root_bytes, 0)?;
-    if root_obj_num <= 0 {
-        return None;
-    }
+    let root_obj = find_dict_value(header, b"/Root")
+        .and_then(|v| parse_pdf_integer(v, 0))
+        .and_then(|(n, _)| u32::try_from(n).ok().filter(|&id| id > 0));
+    let prev_off = find_dict_value(header, b"/Prev")
+        .and_then(|v| parse_pdf_integer(v, 0))
+        .and_then(|(n, _)| u64::try_from(n).ok());
 
-    Some((offsets, root_obj_num as u32))
+    Some((root_obj, prev_off))
 }
 
-/// Read and return the body of object `obj_num` (everything between `obj` …
-/// `endobj` keywords) given a pre-built offset table.
+/// Parse the cross-reference table (`xref` … `trailer`) or PDF 1.5+ `/Type /XRef`
+/// stream starting at `xref_offset` and follow up to 8 `/Prev` revisions.
+fn parse_xref_table(
+    file: &mut fs::File,
+    file_size: u64,
+    xref_offset: u64,
+) -> Option<(std::collections::HashMap<u32, ObjLoc>, u32)> {
+    let mut offsets: std::collections::HashMap<u32, ObjLoc> = std::collections::HashMap::new();
+    let mut root_obj_num: Option<u32> = None;
+    let mut current_off = Some(xref_offset);
+
+    for _hop in 0..8 {
+        let Some(off) = current_off else { break };
+        if off >= file_size {
+            break;
+        }
+        let read_len = file_size.saturating_sub(off).min(1024 * 1024) as usize;
+        if read_len == 0 {
+            break;
+        }
+        let buf = read_up_to(file, off, read_len).ok()?;
+
+        if !buf.starts_with(b"xref") {
+            let (root_opt, prev_opt) = parse_xref_stream_section(&buf, &mut offsets)?;
+            if root_obj_num.is_none() {
+                root_obj_num = root_opt;
+            }
+            current_off = prev_opt;
+            continue;
+        }
+
+        let text = std::str::from_utf8(&buf).ok()?;
+        let mut lines = text.lines();
+        if lines.next()?.trim() != "xref" {
+            return None;
+        }
+
+        while let Some(h) = lines.next() {
+            let header = h.trim();
+            if header.starts_with("trailer") {
+                break;
+            }
+            let mut parts = header.split_ascii_whitespace();
+            let Some(first_s) = parts.next() else {
+                continue;
+            };
+            let Some(count_s) = parts.next() else {
+                continue;
+            };
+            let first_obj: u32 = first_s.parse().ok()?;
+            let count: u32 = count_s.parse().ok()?;
+            for i in 0..count {
+                let Some(entry) = lines.next() else { break };
+                let mut eparts = entry.split_ascii_whitespace();
+                let offset_str = eparts.next().unwrap_or("0");
+                let _gen = eparts.next();
+                let in_use = eparts.next().unwrap_or("f");
+                if in_use == "n" {
+                    if let Ok(obj_off) = offset_str.parse::<u64>() {
+                        offsets
+                            .entry(first_obj + i)
+                            .or_insert(ObjLoc::Offset(obj_off));
+                    }
+                }
+            }
+        }
+
+        let trailer_pos = buf.windows(7).position(|w| w == b"trailer")?;
+        let trailer_slice = &buf[trailer_pos..];
+        if root_obj_num.is_none() {
+            root_obj_num = find_dict_value(trailer_slice, b"/Root")
+                .and_then(|v| parse_pdf_integer(v, 0))
+                .and_then(|(n, _)| u32::try_from(n).ok().filter(|&id| id > 0));
+        }
+        current_off = find_dict_value(trailer_slice, b"/Prev")
+            .and_then(|v| parse_pdf_integer(v, 0))
+            .and_then(|(n, _)| u64::try_from(n).ok());
+    }
+
+    root_obj_num.map(|root| (offsets, root))
+}
+
+/// Read and return the body of object `obj_num` (classic offset or PDF 1.5+ `/ObjStm`).
 fn read_object_body(
     file: &mut fs::File,
-    offsets: &std::collections::HashMap<u32, u64>,
+    offsets: &std::collections::HashMap<u32, ObjLoc>,
     obj_num: u32,
 ) -> Option<Vec<u8>> {
-    let &offset = offsets.get(&obj_num)?;
-    // Read up to 4 KiB — enough for any reasonable dictionary
-    let buf = read_bytes_at(file, offset, 4096).ok()?;
-    // Skip past "<obj_num> <gen> obj"
-    let obj_marker = b"obj";
-    let obj_pos = buf.windows(3).position(|w| w == obj_marker)?;
-    let body_start = obj_pos + 3;
-    let end = buf
-        .windows(6)
-        .position(|w| w == b"endobj")
-        .unwrap_or(buf.len());
-    Some(buf[body_start..end].to_vec())
+    match *offsets.get(&obj_num)? {
+        ObjLoc::Offset(offset) => {
+            let buf = read_up_to(file, offset, 8192).ok()?;
+            let obj_pos = buf.windows(3).position(|w| w == b"obj")?;
+            let body_start = obj_pos + 3;
+            let body_slice = &buf[body_start..];
+            let end_rel = body_slice
+                .windows(6)
+                .position(|w| w == b"endobj")
+                .unwrap_or(body_slice.len());
+            Some(body_slice[..end_rel].to_vec())
+        }
+        ObjLoc::Compressed {
+            stream_obj,
+            obj_index,
+        } => {
+            let ObjLoc::Offset(stm_off) = *offsets.get(&stream_obj)? else {
+                return None;
+            };
+            let stm_buf = read_up_to(file, stm_off, 512 * 1024).ok()?;
+            let (header, stream_payload) = extract_stream_slices(&stm_buf)?;
+            let n = find_dict_value(header, b"/N")
+                .and_then(|v| parse_pdf_integer(v, 0))
+                .and_then(|(v, _)| u32::try_from(v).ok())?;
+            let first = find_dict_value(header, b"/First")
+                .and_then(|v| parse_pdf_integer(v, 0))
+                .and_then(|(v, _)| usize::try_from(v).ok())?;
+            if obj_index >= n {
+                return None;
+            }
+            let decoded = decode_pdf_stream(header, stream_payload, MAX_OBJSTM_BYTES)?;
+            if first > decoded.len() {
+                return None;
+            }
+            let header_slice = &decoded[..first];
+            let mut cur = 0usize;
+            let mut entries = Vec::with_capacity(n as usize);
+            for _ in 0..n {
+                while cur < header_slice.len()
+                    && matches!(header_slice[cur], b' ' | b'\t' | b'\r' | b'\n')
+                {
+                    cur += 1;
+                }
+                let (_id, c1) = parse_pdf_integer(header_slice, cur)?;
+                cur += c1;
+                while cur < header_slice.len()
+                    && matches!(header_slice[cur], b' ' | b'\t' | b'\r' | b'\n')
+                {
+                    cur += 1;
+                }
+                let (rel_off, c2) = parse_pdf_integer(header_slice, cur)?;
+                cur += c2;
+                entries.push(usize::try_from(rel_off).ok()?);
+            }
+            let start = first.checked_add(*entries.get(obj_index as usize)?)?;
+            let end = if (obj_index as usize + 1) < entries.len() {
+                first
+                    .checked_add(entries[obj_index as usize + 1])?
+                    .min(decoded.len())
+            } else {
+                decoded.len()
+            };
+            if start >= end || end > decoded.len() {
+                return None;
+            }
+            Some(decoded[start..end].to_vec())
+        }
+    }
 }
 
 pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, String> {
@@ -285,14 +596,14 @@ pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, Strin
     // --- Step 1: Extract best-effort metadata from head + tail chunks ----------
     const HEAD: u64 = 65536;
     let head_len = HEAD.min(file_size) as usize;
-    let head = read_bytes_at(&mut file, 0, head_len)
+    let head = read_up_to(&mut file, 0, head_len)
         .map_err(|e| format!("prefetch_pdf_structure: head read failed: {e}"))?;
     let head_meta = extract_pdf_metadata(&head);
 
     let tail_meta = if file_size > HEAD {
         let tail_start = file_size.saturating_sub(HEAD);
         let tail_len = (file_size - tail_start) as usize;
-        let tail = read_bytes_at(&mut file, tail_start, tail_len)
+        let tail = read_up_to(&mut file, tail_start, tail_len)
             .map_err(|e| format!("prefetch_pdf_structure: tail read failed: {e}"))?;
         extract_pdf_metadata(&tail)
     } else {
@@ -304,9 +615,9 @@ pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, Strin
 
     // --- Step 2: Locate %%EOF trailer and startxref offset --------------------
     // Read the last 2 KiB to find "startxref"
-    let eof_read_len = 2048.min(file_size as usize);
+    let eof_read_len = file_size.min(2048) as usize;
     let eof_start = file_size.saturating_sub(eof_read_len as u64);
-    let eof_buf = read_bytes_at(&mut file, eof_start, eof_read_len)
+    let eof_buf = read_up_to(&mut file, eof_start, eof_read_len)
         .map_err(|e| format!("prefetch_pdf_structure: eof read failed: {e}"))?;
 
     // --- Step 3: Parse XRef table for accurate page count and MediaBox --------
@@ -498,7 +809,8 @@ fn extract_pdf_metadata(bytes: &[u8]) -> PdfMetadata {
     let content = String::from_utf8_lossy(bytes);
 
     let pages = content
-        .matches("/Type /Page")
+        .match_indices("/Type /Page")
+        .filter(|&(idx, _)| !content[idx..].starts_with("/Type /Pages"))
         .count()
         .try_into()
         .ok()
@@ -640,4 +952,85 @@ fn decode_hex_string(hex: &str) -> Option<String> {
                     .or_else(|| Some(String::from_utf8_lossy(&bytes).into_owned()))
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    #[test]
+    fn xref_stream_with_png_predictor_and_objstm_resolves_exact_page_count() {
+        // Object 1 (/Catalog -> /Pages 2 0 R) and Object 2 (/Pages -> /Count 42)
+        // live inside compressed /ObjStm object 3; Object 4 is the /Type /XRef stream.
+        let stm_header = b"1 0 2 34 ";
+        let obj1 = b"<< /Type /Catalog /Pages 2 0 R >>\n";
+        let obj2 = b"<< /Type /Pages /Count 42 >>\n";
+        let mut objstm_plain = Vec::new();
+        objstm_plain.extend_from_slice(stm_header);
+        objstm_plain.extend_from_slice(obj1);
+        objstm_plain.extend_from_slice(obj2);
+
+        let mut pdf = b"%PDF-1.5\n%\xE2\xE3\xCF\xD3\n".to_vec();
+        let obj3_off = pdf.len();
+        pdf.extend_from_slice(
+            format!(
+                "3 0 obj\n<< /Type /ObjStm /N 2 /First {} /Length {} >>\nstream\n",
+                stm_header.len(),
+                objstm_plain.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&objstm_plain);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+
+        // XRef rows for objs 0..=4 with W = [1 4 2] (row_len = 7) encoded with PNG Up filter (0x02)
+        let xref_rows: [[u8; 7]; 5] = [
+            [0, 0, 0, 0, 0, 255, 255],
+            [2, 0, 0, 0, 3, 0, 0], // obj 1 -> compressed in obj 3 index 0
+            [2, 0, 0, 0, 3, 0, 1], // obj 2 -> compressed in obj 3 index 1
+            [
+                1,
+                ((obj3_off >> 24) & 0xff) as u8,
+                ((obj3_off >> 16) & 0xff) as u8,
+                ((obj3_off >> 8) & 0xff) as u8,
+                (obj3_off & 0xff) as u8,
+                0,
+                0,
+            ],
+            [0, 0, 0, 0, 0, 0, 0],
+        ];
+        let mut unfiltered = Vec::new();
+        let mut prev = [0u8; 7];
+        for row in xref_rows {
+            unfiltered.push(2); // PNG Up filter byte
+            for i in 0..7 {
+                unfiltered.push(row[i].wrapping_sub(prev[i]));
+            }
+            prev = row;
+        }
+        let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(&unfiltered).unwrap();
+        let xref_compressed = enc.finish().unwrap();
+
+        let xref_off = pdf.len();
+        pdf.extend_from_slice(
+            format!(
+                "4 0 obj\n<< /Type /XRef /Size 5 /W [1 4 2] /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 7 >> /Root 1 0 R /Length {} >>\nstream\n",
+                xref_compressed.len()
+            )
+            .as_bytes(),
+        );
+        pdf.extend_from_slice(&xref_compressed);
+        pdf.extend_from_slice(
+            format!("\nendstream\nendobj\nstartxref\n{xref_off}\n%%EOF\n").as_bytes(),
+        );
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &pdf).unwrap();
+        let structure = prefetch_pdf_structure(tmp.path().to_string_lossy().into_owned()).unwrap();
+        assert_eq!(structure.total_pages, 42);
+    }
 }

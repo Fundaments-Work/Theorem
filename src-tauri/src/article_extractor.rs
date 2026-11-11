@@ -107,8 +107,12 @@ fn clean_html_content(raw: &str, base_url: &str) -> String {
         let open_pat = format!("<{tag}");
         let close_pat = format!("</{tag}>");
 
-        while let Some(start) = s.to_lowercase().find(&open_pat) {
-            if let Some(end) = s.to_lowercase()[start..].find(&close_pat) {
+        loop {
+            let lower = s.to_ascii_lowercase();
+            let Some(start) = lower.find(&open_pat) else {
+                break;
+            };
+            if let Some(end) = lower[start..].find(&close_pat) {
                 s.replace_range(start..start + end + close_pat.len(), " ");
             } else if let Some(tag_end) = s[start..].find('>') {
                 s.replace_range(start..=start + tag_end, " ");
@@ -119,11 +123,11 @@ fn clean_html_content(raw: &str, base_url: &str) -> String {
     }
 
     // Extract main container if present (<article>, <main>, or entire body)
-    let body_start = s
-        .to_lowercase()
+    let lower_body = s.to_ascii_lowercase();
+    let body_start = lower_body
         .find("<article")
-        .or_else(|| s.to_lowercase().find("<main"))
-        .or_else(|| s.to_lowercase().find("<body"))
+        .or_else(|| lower_body.find("<main"))
+        .or_else(|| lower_body.find("<body"))
         .unwrap_or(0);
 
     let content_slice = &s[body_start..];
@@ -196,9 +200,10 @@ fn resolve_url(base: &str, relative: &str) -> Option<String> {
 }
 
 fn extract_meta_content(html: &str, property: &str) -> Option<String> {
-    let lower = html.to_lowercase();
-    let pat1 = format!("name=\"{property}\"");
-    let pat2 = format!("property=\"{property}\"");
+    let lower = html.to_ascii_lowercase();
+    let prop_lower = property.to_ascii_lowercase();
+    let pat1 = format!("name=\"{prop_lower}\"");
+    let pat2 = format!("property=\"{prop_lower}\"");
 
     let pos = lower.find(&pat1).or_else(|| lower.find(&pat2))?;
     // Find the enclosing <meta ... > tag
@@ -207,19 +212,21 @@ fn extract_meta_content(html: &str, property: &str) -> Option<String> {
     let meta_tag = &html[tag_start..=tag_end];
 
     // Find content="..."
-    let content_pos = meta_tag.to_lowercase().find("content=\"")?;
+    let content_pos = meta_tag.to_ascii_lowercase().find("content=\"")?;
     let val_start = content_pos + 9;
     let val_end = val_start + meta_tag[val_start..].find('\"')?;
     Some(meta_tag[val_start..val_end].trim().to_string())
 }
 
 fn extract_tag_content(html: &str, tag: &str) -> Option<String> {
-    let open = format!("<{tag}");
-    let close = format!("</{tag}>");
+    let tag_lower = tag.to_ascii_lowercase();
+    let open = format!("<{tag_lower}");
+    let close = format!("</{tag_lower}>");
 
-    let start_tag = html.to_lowercase().find(&open)?;
+    let lower = html.to_ascii_lowercase();
+    let start_tag = lower.find(&open)?;
     let after_tag = start_tag + html[start_tag..].find('>')? + 1;
-    let end_tag = after_tag + html[after_tag..].to_lowercase().find(&close)?;
+    let end_tag = after_tag + lower[after_tag..].find(&close)?;
     Some(html[after_tag..end_tag].trim().to_string())
 }
 
@@ -248,9 +255,13 @@ fn strip_all_tags(html: &str) -> String {
 #[tauri::command]
 pub async fn fetch_and_extract_article_native(
     url: String,
-) -> Result<NativeExtractedArticle, String> {
-    let res = crate::http::client()?
-        .get(&url)
+) -> Result<NativeExtractedArticle, crate::error::AppError> {
+    const MAX_ARTICLE_BYTES: usize = 25 * 1024 * 1024;
+    let parsed =
+        crate::http::validate_http_url(&url).map_err(crate::error::AppError::invalid_input)?;
+    let res = crate::http::client()
+        .map_err(crate::error::AppError::network)?
+        .get(parsed)
         .timeout(Duration::from_secs(6))
         // Article sites often refuse clients that are not a browser.
         .header(reqwest::header::USER_AGENT, crate::http::BROWSER_USER_AGENT)
@@ -260,20 +271,19 @@ pub async fn fetch_and_extract_article_native(
         )
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch URL: {e}"))?;
+        .map_err(|e| crate::error::AppError::network(format!("Failed to fetch URL: {e}")))?;
 
     if !res.status().is_success() {
-        return Err(format!(
+        return Err(crate::error::AppError::network(format!(
             "HTTP error {}: {}",
             res.status().as_u16(),
             res.status()
-        ));
+        )));
     }
 
-    let body = res
-        .text()
+    let body = crate::http::read_response_text_bounded(res, MAX_ARTICLE_BYTES)
         .await
-        .map_err(|e| format!("Failed to read body: {e}"))?;
+        .map_err(crate::error::AppError::network)?;
     let extracted = extract_article_from_html(&body, &url);
     Ok(extracted)
 }
@@ -281,7 +291,7 @@ pub async fn fetch_and_extract_article_native(
 pub fn extract_article_from_html_native(
     html: String,
     base_url: Option<String>,
-) -> Result<NativeExtractedArticle, String> {
+) -> Result<NativeExtractedArticle, crate::error::AppError> {
     let base = base_url.as_deref().unwrap_or("");
     Ok(extract_article_from_html(&html, base))
 }
@@ -320,5 +330,16 @@ mod tests {
             Some("https://example.com/cover.jpg")
         );
         assert!(article.content.contains("Scientists have demonstrated"));
+    }
+
+    #[test]
+    fn handles_unicode_uppercase_byte_expansion_without_panicking() {
+        let html = "<html><head><title>İİ</title><meta name=\"author\" content=\"Ada\"></head><body>İİa<script>bad()</script>İ<article><p>İçerik ok</p></article></body></html>";
+        let article = extract_article_from_html(html, "https://example.com/tr");
+        assert_eq!(&*article.title, "İİ");
+        assert_eq!(article.byline.as_deref(), Some("Ada"));
+        assert!(!article.content.contains("bad()"));
+        assert!(!article.content.contains('<') || article.content.contains("<p>İçerik ok</p>"));
+        assert!(article.content.contains("<p>İçerik ok</p>"));
     }
 }

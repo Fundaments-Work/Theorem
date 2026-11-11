@@ -113,7 +113,10 @@ pub fn parse(cfi: &str) -> Result<CfiLocation, String> {
     for step in parse_steps(spine_part)? {
         let (number, _) = step;
         if number % 2 == 0 {
-            spine_index = Some(number as usize / 2 - 1);
+            if number < 2 {
+                return Err(format!("invalid CFI spine step /{number}"));
+            }
+            spine_index = Some((number as usize / 2) - 1);
         }
     }
     let spine_index = spine_index
@@ -326,7 +329,10 @@ pub fn resolve_text(root: &XmlNode, location: &CfiLocation) -> Result<String, St
     for (index, &(number, is_text)) in remaining.iter().enumerate() {
         let last = index + 1 == remaining.len();
         if is_text {
-            let text_index = (number as usize).div_ceil(2) - 1;
+            let text_index = (number as usize)
+                .div_ceil(2)
+                .checked_sub(1)
+                .ok_or_else(|| format!("CFI text step /{number} out of range"))?;
             let texts = current.text_nodes();
             let content = texts
                 .get(text_index)
@@ -341,7 +347,9 @@ pub fn resolve_text(root: &XmlNode, location: &CfiLocation) -> Result<String, St
                 _ => Ok(content.trim().to_string()),
             };
         }
-        let element_index = number as usize / 2 - 1;
+        let element_index = (number as usize / 2)
+            .checked_sub(1)
+            .ok_or_else(|| format!("CFI element step /{number} out of range"))?;
         let children = current.element_children();
         current = children
             .get(element_index)
@@ -425,5 +433,17 @@ mod tests {
         assert_eq!(range.end.spine_index, 1);
         assert_eq!(range.end.offset, Some(50));
         assert!(range.start < range.end);
+    }
+
+    #[test]
+    fn zero_step_number_does_not_underflow() {
+        assert!(parse("epubcfi(/6/0!/0)").is_err());
+        let tree = sample_tree();
+        let bad_loc = CfiLocation {
+            spine_index: 0,
+            steps: vec![(0, false)],
+            offset: None,
+        };
+        assert!(resolve_text(&tree, &bad_loc).is_err());
     }
 }

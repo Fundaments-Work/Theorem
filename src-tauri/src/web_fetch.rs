@@ -7,9 +7,13 @@ use crate::error::AppError;
 use crate::shared_http_client;
 use tauri::ipc::Response;
 
+const MAX_FEED_OR_HTML_BYTES: usize = 25 * 1024 * 1024;
+const MAX_BINARY_FETCH_BYTES: usize = 128 * 1024 * 1024;
+
 pub(crate) fn fetch_rss_feed(url: String) -> Result<String, AppError> {
+    let parsed_url = crate::http::validate_http_url(&url).map_err(AppError::invalid_input)?;
     let response = shared_http_client()?
-        .get(&url)
+        .get(parsed_url)
         .timeout(std::time::Duration::from_secs(30))
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .header("Accept", "application/atom+xml;profile=opds-catalog, application/atom+xml, application/rss+xml, application/xml, text/xml, */*")
@@ -24,14 +28,12 @@ pub(crate) fn fetch_rss_feed(url: String) -> Result<String, AppError> {
         )));
     }
 
-    response
-        .text()
-        .map_err(|e| AppError::network(format!("Failed to read response: {}", e)))
+    crate::http::read_blocking_text_bounded(response, MAX_FEED_OR_HTML_BYTES)
+        .map_err(AppError::network)
 }
 
 pub(crate) fn fetch_url_content(url: String) -> Result<String, AppError> {
-    let parsed_url = reqwest::Url::parse(&url)
-        .map_err(|e| AppError::invalid_input(format!("Invalid URL '{}': {}", url, e)))?;
+    let parsed_url = crate::http::validate_http_url(&url).map_err(AppError::invalid_input)?;
     let referer = {
         let mut origin = parsed_url.clone();
         origin.set_path("/");
@@ -76,9 +78,8 @@ pub(crate) fn fetch_url_content(url: String) -> Result<String, AppError> {
         };
 
         if response.status().is_success() {
-            return response
-                .text()
-                .map_err(|e| AppError::network(format!("Failed to read response: {}", e)));
+            return crate::http::read_blocking_text_bounded(response, MAX_FEED_OR_HTML_BYTES)
+                .map_err(AppError::network);
         }
 
         let status = response.status();
@@ -120,8 +121,7 @@ pub(crate) fn fetch_url_content(url: String) -> Result<String, AppError> {
 }
 
 pub(crate) fn fetch_binary_content(url: String) -> Result<Response, AppError> {
-    let parsed_url = reqwest::Url::parse(&url)
-        .map_err(|e| AppError::invalid_input(format!("Invalid URL '{}': {}", url, e)))?;
+    let parsed_url = crate::http::validate_http_url(&url).map_err(AppError::invalid_input)?;
     let referer = {
         let mut origin = parsed_url.clone();
         origin.set_path("/");
@@ -152,22 +152,16 @@ pub(crate) fn fetch_binary_content(url: String) -> Result<Response, AppError> {
         )));
     }
 
-    let bytes = response
-        .bytes()
-        .map_err(|e| AppError::network(format!("Failed to read binary response: {}", e)))?;
-    Ok(Response::new(bytes.to_vec()))
+    let bytes = crate::http::read_blocking_bytes_bounded(response, MAX_BINARY_FETCH_BYTES)
+        .map_err(AppError::network)?;
+    Ok(Response::new(bytes))
 }
 
 /// Fetch cover bytes outside WebView CORS, then validate and normalize in Rust.
 pub(crate) fn fetch_cover_image(url: String) -> Result<Box<str>, AppError> {
     use std::io::Read;
-    let parsed = reqwest::Url::parse(&url)
+    let parsed = crate::http::validate_http_url(&url)
         .map_err(|_| AppError::invalid_input("Enter a complete HTTP or HTTPS image URL"))?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(AppError::invalid_input(
-            "Only HTTP and HTTPS image URLs are supported",
-        ));
-    }
     let referer = format!("{}/", parsed.origin().ascii_serialization());
     let response = shared_http_client()?
         .get(parsed)

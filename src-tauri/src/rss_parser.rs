@@ -112,11 +112,11 @@ enum FeedType {
 }
 
 fn extract_image_src_from_html(html: &str) -> Option<String> {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let img_idx = lower.find("<img")?;
     let after_img = &html[img_idx..];
-    let src_idx = after_img.to_lowercase().find("src=")?;
-    let after_src = &after_img[src_idx + 4..].trim_start();
+    let src_idx = after_img.to_ascii_lowercase().find("src=")?;
+    let after_src = after_img[src_idx + 4..].trim_start();
     let quote = after_src.chars().next()?;
     if quote == '"' || quote == '\'' {
         let rest = &after_src[1..];
@@ -549,29 +549,34 @@ fn parse_rdf(bytes: &[u8]) -> Result<ParsedFeed, String> {
 }
 
 #[tauri::command]
-pub async fn parse_rss_feed_native(xml: String) -> Result<ParsedFeed, String> {
+pub async fn parse_rss_feed_native(xml: String) -> Result<ParsedFeed, crate::error::AppError> {
     tokio::task::spawn_blocking(move || parse_feed_bytes(xml.as_bytes()))
         .await
-        .map_err(|e| format!("Join error: {e}"))?
+        .map_err(|e| crate::error::AppError::internal(format!("Join error: {e}")))?
+        .map_err(crate::error::AppError::invalid_input)
 }
 
 #[tauri::command]
-pub async fn fetch_and_parse_rss_feed(url: String) -> Result<ParsedFeed, String> {
-    let resp = crate::http::client()?
-        .get(&url)
+pub async fn fetch_and_parse_rss_feed(url: String) -> Result<ParsedFeed, crate::error::AppError> {
+    const MAX_RSS_BYTES: usize = 25 * 1024 * 1024;
+    let parsed =
+        crate::http::validate_http_url(&url).map_err(crate::error::AppError::invalid_input)?;
+    let resp = crate::http::client()
+        .map_err(crate::error::AppError::network)?
+        .get(parsed)
         .timeout(std::time::Duration::from_secs(15))
         .send()
         .await
-        .map_err(|e| format!("Network request failed: {e}"))?;
+        .map_err(|e| crate::error::AppError::network(format!("Network request failed: {e}")))?;
 
-    let bytes = resp
-        .bytes()
+    let bytes = crate::http::read_response_bytes_bounded(resp, MAX_RSS_BYTES)
         .await
-        .map_err(|e| format!("Failed to read response bytes: {e}"))?;
+        .map_err(crate::error::AppError::network)?;
 
     tokio::task::spawn_blocking(move || parse_feed_bytes(&bytes))
         .await
-        .map_err(|e| format!("Join error: {e}"))?
+        .map_err(|e| crate::error::AppError::internal(format!("Join error: {e}")))?
+        .map_err(crate::error::AppError::invalid_input)
 }
 
 /// Convert markdown text into HTML using pulldown-cmark
@@ -619,7 +624,14 @@ pub fn markdown_to_html(markdown: &str) -> String {
 }
 
 fn is_safe_url(url: &str) -> bool {
-    let lower = url.trim_start().to_ascii_lowercase();
+    let normalized: String = url
+        .chars()
+        .filter(|c| !c.is_control() && !c.is_ascii_whitespace())
+        .collect();
+    if normalized.is_empty() || normalized.starts_with("//") {
+        return false;
+    }
+    let lower = normalized.to_ascii_lowercase();
     match lower.find(':') {
         // Relative URLs, fragments and paths have no scheme before a `/`, `?` or `#`.
         Some(colon) if !lower[..colon].contains(['/', '?', '#']) => {
@@ -828,5 +840,23 @@ mod tests {
             parsed.icon_url.as_deref(),
             Some("https://www.themarginalian.org/icon.png")
         );
+    }
+
+    #[test]
+    fn extract_image_src_handles_unicode_expansion_without_panicking() {
+        let html = "<p>İ</p><img SRC=\"https://example.com/a.jpg\" alt=\"İ\">";
+        assert_eq!(
+            extract_image_src_from_html(html).as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+    }
+
+    #[test]
+    fn markdown_blocks_protocol_relative_and_control_char_urls() {
+        let html = markdown_to_html(
+            "[proto](//attacker.example/p) [ctrl](java\tscript:alert(1)) ![img](//attacker.example/i.png)",
+        );
+        assert!(!html.contains("//attacker.example"), "{html}");
+        assert!(!html.to_ascii_lowercase().contains("javascript"), "{html}");
     }
 }

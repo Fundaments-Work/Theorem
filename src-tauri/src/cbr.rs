@@ -10,10 +10,27 @@ use crate::batch_ingest::{
     ParsedMetadata,
 };
 
+const MAX_CBR_EXTRACT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const MAX_CBR_META_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_CBR_COVER_BYTES: u64 = 64 * 1024 * 1024;
+
+fn sanitize_zip_entry_name(raw: &str) -> String {
+    let normalized = raw.replace('\\', "/");
+    let mut parts = Vec::new();
+    for segment in normalized.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            continue;
+        }
+        parts.push(segment);
+    }
+    parts.join("/")
+}
+
 /// Write each extracted member straight into ZIP, without retaining all pages.
 struct ZipEntryWriter<W: Write + std::io::Seek> {
     writer: Arc<Mutex<zip::ZipWriter<W>>>,
     cancel: Option<Arc<AtomicBool>>,
+    total_written: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl<W: Write + std::io::Seek> Write for ZipEntryWriter<W> {
@@ -24,6 +41,14 @@ impl<W: Write + std::io::Seek> Write for ZipEntryWriter<W> {
             .is_some_and(|cancel| cancel.load(Ordering::Relaxed))
         {
             return Err(std::io::Error::other("Archive conversion cancelled"));
+        }
+        let prev = self
+            .total_written
+            .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+        if prev.saturating_add(bytes.len() as u64) > MAX_CBR_EXTRACT_BYTES {
+            return Err(std::io::Error::other(
+                "CBR extracted size exceeds maximum limit",
+            ));
         }
         self.writer
             .lock()
@@ -45,8 +70,14 @@ fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
 ) -> Result<W, String> {
     let archive =
         rars::ArchiveReader::read_path(path).map_err(|e| format!("Failed to open CBR: {e}"))?;
+    let large_entries: std::collections::HashSet<Vec<u8>> = archive
+        .members()
+        .filter(|m| !m.meta.is_directory && m.meta.unpacked_size >= u32::MAX as u64)
+        .map(|m| m.meta.name.clone())
+        .collect();
     let writer = Arc::new(Mutex::new(zip::ZipWriter::new(output)));
     let shared = writer.clone();
+    let total_written = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut count = 0usize;
     archive
         .extract_to(None, |meta| {
@@ -59,17 +90,23 @@ fn convert_cbr_into<W: Write + std::io::Seek + 'static>(
             if meta.is_directory {
                 return Ok(Box::new(std::io::sink()));
             }
+            let safe_name = sanitize_zip_entry_name(&meta.name_lossy());
+            if safe_name.is_empty() {
+                return Ok(Box::new(std::io::sink()));
+            }
             let options = zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Stored);
+                .compression_method(zip::CompressionMethod::Stored)
+                .large_file(large_entries.contains(&meta.name));
             shared
                 .lock()
                 .map_err(|_| std::io::Error::other("ZIP writer poisoned"))?
-                .start_file(meta.name_lossy(), options)
+                .start_file(safe_name, options)
                 .map_err(std::io::Error::other)?;
             count += 1;
             Ok(Box::new(ZipEntryWriter {
                 writer: shared.clone(),
                 cancel: cancel.clone(),
+                total_written: total_written.clone(),
             }))
         })
         .map_err(|e| format!("CBR extraction failed: {e}"))?;
@@ -126,7 +163,7 @@ pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
 
     // Scan members for ComicInfo.xml and candidate image files
     let mut comic_info_idx = None;
-    let mut image_entries: Vec<(String, usize)> = Vec::new();
+    let mut image_entries: Vec<(String, usize, u64)> = Vec::new();
 
     for (idx, member) in archive.members().enumerate() {
         if member.meta.is_directory {
@@ -136,35 +173,38 @@ pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
         let lower = name.to_lowercase();
         let base_name = lower.rsplit('/').next().unwrap_or(&lower);
 
-        if base_name == "comicinfo.xml" {
+        if base_name == "comicinfo.xml" && member.meta.unpacked_size <= MAX_CBR_META_BYTES {
             comic_info_idx = Some(idx);
-        } else if lower.ends_with(".jpg")
+        } else if (lower.ends_with(".jpg")
             || lower.ends_with(".jpeg")
             || lower.ends_with(".png")
             || lower.ends_with(".webp")
-            || lower.ends_with(".avif")
+            || lower.ends_with(".avif"))
+            && member.meta.unpacked_size <= MAX_CBR_COVER_BYTES
         {
-            image_entries.push((name, idx));
+            image_entries.push((name, idx, member.meta.unpacked_size));
         }
     }
 
     // Parse ComicInfo.xml if present
     if let Some(idx) = comic_info_idx {
         if let Ok(Some(data)) = archive.read_member_at(idx, None) {
-            if let Ok(xml_str) = String::from_utf8(data) {
-                if let Some(t) = extract_xml_tag_text(&xml_str, "Title") {
-                    if !t.trim().is_empty() {
-                        title = t;
+            if data.len() as u64 <= MAX_CBR_META_BYTES {
+                if let Ok(xml_str) = String::from_utf8(data) {
+                    if let Some(t) = extract_xml_tag_text(&xml_str, "Title") {
+                        if !t.trim().is_empty() {
+                            title = t;
+                        }
                     }
-                }
-                if let Some(s) = extract_xml_tag_text(&xml_str, "Series") {
-                    if !s.trim().is_empty() {
-                        series = Some(s);
+                    if let Some(s) = extract_xml_tag_text(&xml_str, "Series") {
+                        if !s.trim().is_empty() {
+                            series = Some(s);
+                        }
                     }
-                }
-                if let Some(num_str) = extract_xml_tag_text(&xml_str, "Number") {
-                    if let Ok(parsed_num) = num_str.trim().parse::<f64>() {
-                        series_index = Some(parsed_num);
+                    if let Some(num_str) = extract_xml_tag_text(&xml_str, "Number") {
+                        if let Ok(parsed_num) = num_str.trim().parse::<f64>() {
+                            series_index = Some(parsed_num);
+                        }
                     }
                 }
             }
@@ -174,12 +214,14 @@ pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
     // Sort images alphabetically by filename to find the cover (first page)
     image_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-    if let Some((name, cover_idx)) = image_entries.first() {
+    if let Some((name, cover_idx, _)) = image_entries.first() {
         let read_res = archive
             .read_member(name.as_bytes(), None)
             .or_else(|_| archive.read_member_at(*cover_idx, None));
         if let Ok(Some(img_bytes)) = read_res {
-            cover_data_url = downsample_cover_to_data_url(&img_bytes);
+            if img_bytes.len() as u64 <= MAX_CBR_COVER_BYTES {
+                cover_data_url = downsample_cover_to_data_url(&img_bytes);
+            }
         }
     }
 
@@ -216,6 +258,7 @@ mod tests {
         let mut output = ZipEntryWriter {
             writer,
             cancel: Some(cancel.clone()),
+            total_written: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
         output.write_all(b"first block").unwrap();
         cancel.store(true, Ordering::Relaxed);
@@ -296,5 +339,15 @@ mod tests {
         std::fs::write(&source, b"not a RAR archive").unwrap();
         assert!(convert_cbr_to_cbz_file(&source, &destination).is_err());
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn sanitizes_rar_entry_traversal_segments() {
+        assert_eq!(
+            sanitize_zip_entry_name("../evil\\..\\page_01.jpg"),
+            "evil/page_01.jpg"
+        );
+        assert_eq!(sanitize_zip_entry_name("/abs/./02.png"), "abs/02.png");
+        assert_eq!(sanitize_zip_entry_name(".."), "");
     }
 }

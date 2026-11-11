@@ -2,10 +2,15 @@
 
 use crate::database;
 use crate::http;
+use std::io::Read;
 use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
+
+const MAX_DICT_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
+const MAX_DICT_ENTRY_BYTES: usize = 256 * 1024 * 1024;
+const MAX_DICT_TAR_BYTES: usize = 512 * 1024 * 1024;
 
 #[tauri::command]
 pub(crate) async fn download_and_extract_stardict(
@@ -14,8 +19,9 @@ pub(crate) async fn download_and_extract_stardict(
 ) -> Result<serde_json::Value, String> {
     use futures::StreamExt;
 
+    let parsed_url = http::validate_http_url(&url)?;
     let response = http::download_client()?
-        .get(&url)
+        .get(parsed_url)
         .timeout(std::time::Duration::from_secs(300))
         .send()
         .await
@@ -27,13 +33,23 @@ pub(crate) async fn download_and_extract_stardict(
     }
 
     let total_size = response.content_length().unwrap_or(0);
+    if total_size > MAX_DICT_DOWNLOAD_BYTES as u64 {
+        return Err(format!(
+            "Dictionary download exceeds maximum allowed size ({MAX_DICT_DOWNLOAD_BYTES} bytes)"
+        ));
+    }
     let mut downloaded: u64 = 0;
     let mut body = Vec::new();
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Stream error: {e}"))?;
-        downloaded += chunk.len() as u64;
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        if downloaded > MAX_DICT_DOWNLOAD_BYTES as u64 {
+            return Err(format!(
+                "Dictionary download exceeds maximum allowed size ({MAX_DICT_DOWNLOAD_BYTES} bytes)"
+            ));
+        }
         body.extend_from_slice(&chunk);
 
         if total_size > 0 {
@@ -122,8 +138,10 @@ pub(crate) async fn download_and_extract_stardict(
         }
     }
 
-    let size_bytes =
-        (ifo.len() + idx.len() + dict.len() + syn.as_ref().map_or(0, |s| s.len())) as u64;
+    let size_bytes = (ifo.len() as u64)
+        .saturating_add(idx.len() as u64)
+        .saturating_add(dict.len() as u64)
+        .saturating_add(syn.as_ref().map_or(0, |s| s.len() as u64));
 
     let manifest_key = format!("theorem-stardict:{id}:manifest");
     let manifest = serde_json::json!({
@@ -160,6 +178,23 @@ pub(crate) async fn download_and_extract_stardict(
 
 type StardictParts = (Vec<u8>, Vec<u8>, Vec<u8>, Option<Vec<u8>>);
 
+fn read_bounded_entry<R: std::io::Read>(
+    reader: &mut R,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    let mut data = Vec::new();
+    std::io::Read::take(reader, (max_bytes as u64).saturating_add(1))
+        .read_to_end(&mut data)
+        .map_err(|e| format!("Failed to read {label}: {e}"))?;
+    if data.len() > max_bytes {
+        return Err(format!(
+            "{label} exceeds maximum allowed size ({max_bytes} bytes)"
+        ));
+    }
+    Ok(data)
+}
+
 fn extract_stardict_parts_from_zip(data: &[u8]) -> Result<StardictParts, String> {
     let reader = std::io::Cursor::new(data);
     let mut archive = crate::zip_util::open_zip_archive(reader)
@@ -178,9 +213,22 @@ fn extract_stardict_parts_from_zip(data: &[u8]) -> Result<StardictParts, String>
             .name()
             .map_err(|e| format!("ZIP entry name error: {e}"))?
             .into_owned();
-        let mut data = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut data)
-            .map_err(|e| format!("Failed to read ZIP entry '{name}': {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let wanted = name.ends_with(".ifo")
+            || (name.ends_with(".idx") && !name.ends_with(".idx.gz"))
+            || name.ends_with(".dict.dz")
+            || name.ends_with(".dict")
+            || name.ends_with(".syn");
+        if !wanted {
+            continue;
+        }
+        let data = read_bounded_entry(
+            &mut entry,
+            MAX_DICT_ENTRY_BYTES,
+            &format!("ZIP entry '{name}'"),
+        )?;
 
         if name.ends_with(".ifo") {
             ifo_bytes = Some(data);
@@ -203,10 +251,7 @@ fn extract_stardict_parts_from_zip(data: &[u8]) -> Result<StardictParts, String>
 fn extract_stardict_parts_from_tar_bz2(data: &[u8]) -> Result<StardictParts, String> {
     let decompressed = {
         let mut decoder = bzip2::read::BzDecoder::new(data);
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut decoder, &mut buf)
-            .map_err(|e| format!("Bzip2 decompression failed: {e}"))?;
-        buf
+        read_bounded_entry(&mut decoder, MAX_DICT_TAR_BYTES, "Bzip2 archive")?
     };
 
     let mut archive = tar::Archive::new(&decompressed[..]);
@@ -228,10 +273,19 @@ fn extract_stardict_parts_from_tar_bz2(data: &[u8]) -> Result<StardictParts, Str
                 .unwrap_or("")
                 .to_owned()
         };
-
-        let mut data = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut data)
-            .map_err(|e| format!("Failed to read tar entry '{name}': {e}"))?;
+        let wanted = name.ends_with(".ifo")
+            || (name.ends_with(".idx") && !name.ends_with(".idx.gz"))
+            || name.ends_with(".dict.dz")
+            || name.ends_with(".dict")
+            || name.ends_with(".syn");
+        if !wanted {
+            continue;
+        }
+        let data = read_bounded_entry(
+            &mut entry,
+            MAX_DICT_ENTRY_BYTES,
+            &format!("tar entry '{name}'"),
+        )?;
 
         if name.ends_with(".ifo") {
             ifo_bytes = Some(data);

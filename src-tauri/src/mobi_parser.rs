@@ -297,13 +297,16 @@ impl HuffCdic {
         }
         let off1 = be32(&huff[8..12]) as usize;
         let off2 = be32(&huff[12..16]) as usize;
-        if off1 + 1024 > huff.len() || off2 + 256 > huff.len() {
+        if off1.checked_add(1024).is_none_or(|end| end > huff.len())
+            || off2.checked_add(256).is_none_or(|end| end > huff.len())
+        {
             return Err("HUFF dictionary out of bounds".to_string());
         }
 
         let mut dict1 = [(0u8, false, 0u32); 256];
         for (i, slot) in dict1.iter_mut().enumerate() {
-            let v = be32(&huff[off1 + i * 4..off1 + i * 4 + 4]);
+            let entry_start = off1 + i * 4;
+            let v = be32(&huff[entry_start..entry_start + 4]);
             let codelen = (v & 0x1f) as u8;
             if codelen == 0 {
                 return Err(format!("HUFF dict1 entry {i} has zero codelen"));
@@ -603,5 +606,14 @@ mod tests {
         assert!(text.chars().count() > 10_000, "extracted too little text");
         println!("extracted {} chars", text.chars().count());
         println!("preview: {:?}", &text[..180.min(text.len())]);
+    }
+
+    #[test]
+    fn huff_header_rejects_wrapping_offsets() {
+        let mut huff = b"HUFF\x00\x00\x00\x18".to_vec();
+        huff.extend_from_slice(&(u32::MAX - 1020).to_be_bytes());
+        huff.extend_from_slice(&16u32.to_be_bytes());
+        huff.resize(512, 0);
+        assert!(HuffCdic::new(&huff, &[]).is_err());
     }
 }

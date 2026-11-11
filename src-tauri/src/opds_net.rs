@@ -125,6 +125,24 @@ fn map_send_error(e: reqwest::Error) -> OpdsError {
     }
 }
 
+fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str().map(str::to_ascii_lowercase) == b.host_str().map(str::to_ascii_lowercase)
+        && a.port_or_known_default() == b.port_or_known_default()
+}
+
+fn auth_for_target<'a>(
+    origin: Option<&reqwest::Url>,
+    target: &reqwest::Url,
+    auth: Option<&'a Credentials>,
+) -> Option<&'a Credentials> {
+    match origin {
+        Some(orig) if same_origin(orig, target) => auth,
+        Some(_) => None,
+        None => auth,
+    }
+}
+
 fn request(
     url: reqwest::Url,
     auth: Option<&Credentials>,
@@ -159,9 +177,14 @@ fn parse_www_authenticate(h: &str) -> (Option<String>, Option<String>) {
     (scheme, realm)
 }
 
-async fn fetch_document(url: &str, auth: Option<&Credentials>) -> Result<Fetched, OpdsError> {
+async fn fetch_document(
+    url: &str,
+    auth_origin: Option<&reqwest::Url>,
+    auth: Option<&Credentials>,
+) -> Result<Fetched, OpdsError> {
     let parsed = check_url(url)?;
-    let resp = request(parsed, auth, ACCEPT_CATALOG)?
+    let scoped_auth = auth_for_target(auth_origin, &parsed, auth);
+    let resp = request(parsed, scoped_auth, ACCEPT_CATALOG)?
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -191,7 +214,7 @@ async fn fetch_document(url: &str, auth: Option<&Credentials>) -> Result<Fetched
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
     {
-        if len as usize > MAX_FEED_BYTES {
+        if len > MAX_FEED_BYTES as u64 {
             return Err(OpdsError::TooLarge {
                 limit: MAX_FEED_BYTES as u64,
             });
@@ -246,6 +269,15 @@ pub struct Loaded {
 }
 
 pub async fn load(url: &str, auth: Option<&Credentials>) -> Result<Loaded, OpdsError> {
+    let origin = check_url(url)?;
+    load_with_origin(url, &origin, auth).await
+}
+
+async fn load_with_origin(
+    url: &str,
+    origin: &reqwest::Url,
+    auth: Option<&Credentials>,
+) -> Result<Loaded, OpdsError> {
     let mut current = url.trim().to_string();
     let mut seen: Vec<String> = Vec::new();
     for _ in 0..=MAX_HOPS {
@@ -253,7 +285,7 @@ pub async fn load(url: &str, auth: Option<&Credentials>) -> Result<Loaded, OpdsE
             break;
         }
         seen.push(current.clone());
-        let fetched = fetch_document(&current, auth).await?;
+        let fetched = fetch_document(&current, Some(origin), auth).await?;
         let final_url = fetched.final_url.clone();
         let outcome = tokio::task::spawn_blocking(move || {
             parse_catalog(&fetched.body, &fetched.content_type, &fetched.final_url)
@@ -295,6 +327,7 @@ pub async fn opds_search(
     query: String,
     auth: Option<Credentials>,
 ) -> Result<Loaded, OpdsError> {
+    let origin = check_url(&search_ref.href)?;
     let template = match search_ref.kind {
         SearchKind::Template => search_ref.href,
         SearchKind::Description => match load(&search_ref.href, auth.as_ref()).await?.outcome {
@@ -312,7 +345,12 @@ pub async fn opds_search(
             }
         },
     };
-    load(&search::expand(&template, query.trim()), auth.as_ref()).await
+    load_with_origin(
+        &search::expand(&template, query.trim()),
+        &origin,
+        auth.as_ref(),
+    )
+    .await
 }
 
 // ── downloads ────────────────────────────────────────────────────────────────
@@ -998,6 +1036,67 @@ mod tests {
         assert_eq!(
             parse_www_authenticate("Bearer"),
             (Some("Bearer".into()), None)
+        );
+    }
+
+    #[tokio::test]
+    async fn basic_auth_is_not_sent_across_cross_origin_discovery_or_search() {
+        let mut attacker_routes = HashMap::new();
+        attacker_routes.insert("/opds", reply(200, "application/atom+xml", FEED));
+        attacker_routes.insert("/search?q=test", reply(200, "application/atom+xml", FEED));
+        let (attacker_base, attacker_seen) = serve(attacker_routes).await;
+
+        let discovery_html = format!(
+            "<html><head><link rel=\"alternate\" type=\"application/atom+xml;profile=opds-catalog\" href=\"{attacker_base}/opds\"></head></html>"
+        );
+        let opensearch_xml = format!(
+            "<?xml version=\"1.0\"?><OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\"><Url type=\"application/atom+xml\" template=\"{attacker_base}/search?q={{searchTerms}}\"/></OpenSearchDescription>"
+        );
+        let mut catalog_routes = HashMap::new();
+        catalog_routes.insert("/", reply(200, "text/html", &discovery_html));
+        catalog_routes.insert(
+            "/osd.xml",
+            reply(
+                200,
+                "application/opensearchdescription+xml",
+                &opensearch_xml,
+            ),
+        );
+        let (catalog_base, catalog_seen) = serve(catalog_routes).await;
+
+        let creds = Credentials {
+            username: "reader".into(),
+            password: "s3cret".into(),
+        };
+        let loaded = load(&format!("{catalog_base}/"), Some(&creds))
+            .await
+            .unwrap();
+        assert_eq!(loaded.final_url, format!("{attacker_base}/opds"));
+        assert_eq!(
+            catalog_seen.lock().unwrap()[0].1.as_deref(),
+            Some("Basic cmVhZGVyOnMzY3JldA==")
+        );
+        assert_eq!(
+            attacker_seen.lock().unwrap()[0].1,
+            None,
+            "third-party discovery target must not receive catalog credentials"
+        );
+
+        let searched = opds_search(
+            SearchRequest {
+                href: format!("{catalog_base}/osd.xml"),
+                kind: SearchKind::Description,
+            },
+            "test".into(),
+            Some(creds),
+        )
+        .await
+        .unwrap();
+        assert_eq!(searched.final_url, format!("{attacker_base}/search?q=test"));
+        assert_eq!(
+            attacker_seen.lock().unwrap()[1].1,
+            None,
+            "third-party OpenSearch template target must not receive catalog credentials"
         );
     }
 }

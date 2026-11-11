@@ -74,10 +74,15 @@ fn find_box(data: &[u8], path: &[&str]) -> Option<(usize, usize)> {
                 if pos + 16 > data.len() {
                     break;
                 }
-                let large = u64::from_be_bytes(data[pos + 8..pos + 16].try_into().ok()?) as usize;
-                (pos + 16, pos + large.min(data.len() - pos))
+                let large = u64::from_be_bytes(data[pos + 8..pos + 16].try_into().ok()?);
+                let avail = (data.len() - pos) as u64;
+                let bounded = large.min(avail) as usize;
+                (pos + 16, pos + bounded)
             }
-            s => (pos + 8, pos + s),
+            s => {
+                let end = pos.checked_add(s)?;
+                (pos + 8, end)
+            }
         };
         if body_start > body_end || body_end > data.len() {
             break;
@@ -108,11 +113,16 @@ fn child_boxes(data: &[u8]) -> Vec<(&[u8], usize, usize)> {
                 if pos + 16 > data.len() {
                     break;
                 }
-                let large = u64::from_be_bytes(data[pos + 8..pos + 16].try_into().unwrap_or([0; 8]))
-                    as usize;
-                (pos + 16, (pos + large).min(data.len()))
+                let large =
+                    u64::from_be_bytes(data[pos + 8..pos + 16].try_into().unwrap_or([0; 8]));
+                let avail = (data.len() - pos) as u64;
+                let bounded = large.min(avail) as usize;
+                (pos + 16, pos + bounded)
             }
-            s => (pos + 8, pos + s),
+            s => match pos.checked_add(s) {
+                Some(end) => (pos + 8, end),
+                None => break,
+            },
         };
         if body_start > body_end || body_end > data.len() {
             break;
@@ -160,6 +170,8 @@ struct SampleEntry {
     start: u64,
 }
 
+const MAX_AUDIOBOOK_SAMPLES: usize = 10_000_000;
+
 /// Expand stts/stsc/stsz/stco/co64 into per-sample (offset, size, start).
 fn expand_sample_table(
     stts: &[u8],
@@ -170,21 +182,34 @@ fn expand_sample_table(
 ) -> Vec<SampleEntry> {
     // Time-to-sample: cumulative start per sample.
     let stts_entries = be_u32(stts, 4).unwrap_or(0) as usize;
+    let max_stts_entries = stts.len().saturating_sub(8) / 8;
+    if stts_entries > max_stts_entries {
+        return Vec::new();
+    }
     let mut starts: Vec<u64> = Vec::new();
     let mut t: u64 = 0;
     for i in 0..stts_entries {
         let base = 8 + i * 8;
-        let count = be_u32(stts, base).unwrap_or(0);
+        let count = be_u32(stts, base).unwrap_or(0) as usize;
         let delta = be_u32(stts, base + 4).unwrap_or(0);
+        if starts.len().saturating_add(count) > MAX_AUDIOBOOK_SAMPLES {
+            return Vec::new();
+        }
         for _ in 0..count {
             starts.push(t);
-            t += u64::from(delta);
+            t = t.saturating_add(u64::from(delta));
         }
     }
 
     // Sample sizes (uniform or table).
     let uniform = be_u32(stsz, 4).unwrap_or(0);
     let sample_count = be_u32(stsz, 8).unwrap_or(0) as usize;
+    if sample_count > MAX_AUDIOBOOK_SAMPLES {
+        return Vec::new();
+    }
+    if uniform == 0 && sample_count > stsz.len().saturating_sub(12) / 4 {
+        return Vec::new();
+    }
     let sizes: Vec<u64> = if uniform != 0 {
         vec![u64::from(uniform); sample_count]
     } else {
@@ -195,8 +220,17 @@ fn expand_sample_table(
 
     // Chunk offsets.
     let is_co64 = co64.len() >= 8;
-    let (offset_box, off_base) = if is_co64 { (co64, 8) } else { (stco, 8) };
+    let (offset_box, off_base, entry_width) = if is_co64 {
+        (co64, 8, 8usize)
+    } else {
+        (stco, 8, 4usize)
+    };
     let chunk_count = be_u32(offset_box, 4).unwrap_or(0) as usize;
+    if chunk_count > MAX_AUDIOBOOK_SAMPLES
+        || chunk_count > offset_box.len().saturating_sub(off_base) / entry_width
+    {
+        return Vec::new();
+    }
     let chunk_offsets: Vec<u64> = (0..chunk_count)
         .map(|i| {
             if is_co64 {
@@ -209,6 +243,10 @@ fn expand_sample_table(
 
     // Sample-to-chunk: walk runs of (first_chunk, samples_per_chunk).
     let stsc_entries = be_u32(stsc, 4).unwrap_or(0) as usize;
+    let max_stsc_entries = stsc.len().saturating_sub(8) / 12;
+    if stsc_entries > max_stsc_entries {
+        return Vec::new();
+    }
     let mut samples_per_chunk: Vec<u64> = vec![0; chunk_count.max(1)];
     for i in 0..stsc_entries {
         let base = 8 + i * 12;
@@ -228,7 +266,7 @@ fn expand_sample_table(
     }
 
     // Walk chunks, assigning (offset, size, start) per sample.
-    let mut out = Vec::with_capacity(sizes.len());
+    let mut out = Vec::with_capacity(sizes.len().min(starts.len()));
     let mut sample_idx = 0usize;
     for (chunk_idx, &chunk_offset) in chunk_offsets.iter().enumerate() {
         let spc = samples_per_chunk.get(chunk_idx).copied().unwrap_or(0);
@@ -242,7 +280,7 @@ fn expand_sample_table(
                 size: sizes[sample_idx],
                 start: starts[sample_idx],
             });
-            cursor += sizes[sample_idx];
+            cursor = cursor.saturating_add(sizes[sample_idx]);
             sample_idx += 1;
         }
     }
@@ -520,8 +558,27 @@ fn parse_mp3(path: &str) -> Result<AudiobookMetadata, String> {
         .or_else(|| chapters.last().map(|c| c.end_sec))
         .unwrap_or(0.0);
 
-    let cover_data_url = tag.pictures().next().map(|pic| {
-        format!("data:{};base64,{}", pic.mime_type, base64_encode(&pic.data)).into_boxed_str()
+    let cover_data_url = tag.pictures().next().and_then(|pic| {
+        let mime = pic
+            .mime_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if !matches!(
+            mime.as_str(),
+            "image/jpeg"
+                | "image/jpg"
+                | "image/png"
+                | "image/webp"
+                | "image/gif"
+                | "image/bmp"
+                | "image/avif"
+        ) {
+            return None;
+        }
+        Some(format!("data:{mime};base64,{}", base64_encode(&pic.data)).into_boxed_str())
     });
 
     Ok(AudiobookMetadata {
@@ -900,5 +957,25 @@ mod tests {
         let mut file = std::fs::File::open(&path).unwrap();
         assert!(read_top_box(&mut file, b"moov").is_none());
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn corrupt_sample_table_counts_do_not_oom_or_overflow() {
+        // stts claiming u32::MAX repetitions in a 16-byte buffer
+        let mut stts = vec![0u8; 16];
+        stts[4..8].copy_from_slice(&1u32.to_be_bytes());
+        stts[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+        stts[12..16].copy_from_slice(&1000u32.to_be_bytes());
+
+        // stsz claiming u32::MAX uniform samples
+        let mut stsz = vec![0u8; 12];
+        stsz[4..8].copy_from_slice(&128u32.to_be_bytes());
+        stsz[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+
+        let mut stco = vec![0u8; 12];
+        stco[4..8].copy_from_slice(&u32::MAX.to_be_bytes());
+
+        let samples = expand_sample_table(&stts, &[], &stsz, &stco, &[]);
+        assert!(samples.is_empty());
     }
 }

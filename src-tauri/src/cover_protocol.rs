@@ -55,6 +55,27 @@ fn empty(status: StatusCode) -> Response<Vec<u8>> {
         .unwrap_or_else(|_| Response::new(Vec::new()))
 }
 
+fn is_safe_cover_mime(mime: &str) -> Option<&'static str> {
+    let base = mime
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    match base.as_str() {
+        "image/png" => Some("image/png"),
+        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
+        "image/webp" => Some("image/webp"),
+        "image/gif" => Some("image/gif"),
+        "image/avif" => Some("image/avif"),
+        "image/bmp" => Some("image/bmp"),
+        "image/x-icon" => Some("image/x-icon"),
+        "image/vnd.microsoft.icon" => Some("image/vnd.microsoft.icon"),
+        "image/svg+xml" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
 /// Build the HTTP response for a cover request.
 pub fn respond(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let Some(book_id) = book_id_from_path(request.uri().path()) else {
@@ -67,11 +88,22 @@ pub fn respond(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>>
             Ok(None) => return empty(StatusCode::NOT_FOUND),
             Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
         };
-    Response::builder()
+    let Some(safe_mime) = is_safe_cover_mime(&mime) else {
+        return empty(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    };
+    let mut builder = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime)
+        .header(header::CONTENT_TYPE, safe_mime)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if safe_mime == "image/svg+xml" {
+        builder = builder.header(
+            header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; sandbox",
+        );
+    }
+    builder
         .body(bytes)
         .unwrap_or_else(|_| empty(StatusCode::INTERNAL_SERVER_ERROR))
 }
@@ -208,5 +240,17 @@ mod tests {
                 assert_eq!(v.updated_at, 7);
             }
         }
+    }
+
+    #[test]
+    fn allowlists_safe_cover_mime_types_only() {
+        assert_eq!(
+            is_safe_cover_mime("image/jpeg; charset=binary"),
+            Some("image/jpeg")
+        );
+        assert_eq!(is_safe_cover_mime("IMAGE/PNG"), Some("image/png"));
+        assert_eq!(is_safe_cover_mime("image/svg+xml"), Some("image/svg+xml"));
+        assert_eq!(is_safe_cover_mime("text/html"), None);
+        assert_eq!(is_safe_cover_mime("application/javascript"), None);
     }
 }

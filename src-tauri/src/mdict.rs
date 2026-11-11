@@ -19,6 +19,26 @@ pub struct MdxHeader {
     pub num_entries: u64,
 }
 
+const MAX_MDX_BLOCK_BYTES: usize = 64 * 1024 * 1024;
+
+fn checked_usize(value: u64, label: &str) -> Result<usize, String> {
+    usize::try_from(value).map_err(|_| format!("{label} exceeds addressable range"))
+}
+
+fn mmap_slice<'a>(
+    mmap: &'a [u8],
+    offset: u64,
+    len: usize,
+    label: &str,
+) -> Result<&'a [u8], String> {
+    let start = checked_usize(offset, label)?;
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| format!("{label} overflows slice range"))?;
+    mmap.get(start..end)
+        .ok_or_else(|| format!("{label} out of bounds in MDX"))
+}
+
 /// In-memory keyword block summary for fast O(log N) binary search
 #[derive(Debug, Clone)]
 struct KeyBlockMeta {
@@ -26,9 +46,9 @@ struct KeyBlockMeta {
     last_word: Box<str>,
     comp_size: usize,
     decomp_size: usize,
-    file_offset: usize,
+    file_offset: u64,
     #[allow(dead_code)]
-    num_entries: usize,
+    num_entries: u64,
 }
 
 /// In-memory record block summary
@@ -36,8 +56,8 @@ struct KeyBlockMeta {
 struct RecordBlockMeta {
     comp_size: usize,
     decomp_size: usize,
-    file_offset: usize,
-    decomp_accum_offset: usize, // Cumulative decompressed offset
+    file_offset: u64,
+    decomp_accum_offset: u64, // Cumulative decompressed offset
 }
 
 /// LRU cache for decompressed record blocks (64KB chunks)
@@ -102,78 +122,96 @@ impl MdxDictionary {
             return Err("MDX file is too small to be valid".to_string());
         }
 
-        let mut offset = 0;
+        let mut offset = 0usize;
 
         // 1. Read Header Bytes Size (4 bytes Big-Endian)
         let header_len = u32::from_be_bytes(
-            mmap[offset..offset + 4]
-                .try_into()
-                .map_err(|_| "Header read error")?,
+            mmap.get(offset..offset + 4)
+                .and_then(|s| s.try_into().ok())
+                .ok_or("Header read error")?,
         ) as usize;
         offset += 4;
 
-        if offset + header_len > mmap.len() {
+        let header_end = offset
+            .checked_add(header_len)
+            .ok_or("Corrupted MDX header length")?;
+        if header_end > mmap.len() {
             return Err("Corrupted MDX header length".to_string());
         }
 
-        let header_raw = &mmap[offset..offset + header_len];
-        offset += header_len;
-        offset += 4; // Skip 4-byte Adler32 checksum
+        let header_raw = &mmap[offset..header_end];
+        offset = header_end.checked_add(4).ok_or("Corrupted MDX header")?; // Skip 4-byte Adler32 checksum
 
         // Parse XML Header
         let (header, utf16) = parse_mdx_header(header_raw)?;
 
         // 2. Read Keyword Section Header (v2.0 64-bit offsets)
-        if offset + 40 > mmap.len() {
+        if offset.checked_add(40).is_none_or(|end| end > mmap.len()) {
             return Err("Truncated MDX keyword header".to_string());
         }
 
-        let num_key_blocks = read_u64_be(&mmap, &mut offset)? as usize;
+        let num_key_blocks = checked_usize(read_u64_be(&mmap, &mut offset)?, "num_key_blocks")?;
         let num_entries = read_u64_be(&mmap, &mut offset)?;
-        let key_block_info_decomp_size = read_u64_be(&mmap, &mut offset)? as usize;
-        let key_block_info_size = read_u64_be(&mmap, &mut offset)? as usize;
-        let key_block_size = read_u64_be(&mmap, &mut offset)? as usize;
+        let key_block_info_decomp_size = checked_usize(
+            read_u64_be(&mmap, &mut offset)?,
+            "key_block_info_decomp_size",
+        )?;
+        let key_block_info_size =
+            checked_usize(read_u64_be(&mmap, &mut offset)?, "key_block_info_size")?;
+        let key_block_size = checked_usize(read_u64_be(&mmap, &mut offset)?, "key_block_size")?;
 
-        offset += 4; // Skip 4-byte Adler32 checksum
+        offset = offset
+            .checked_add(4)
+            .ok_or("Truncated MDX keyword header")?; // Skip 4-byte Adler32 checksum
 
         // Decompress Keyword Block Info
-        if offset + key_block_info_size > mmap.len() {
+        let key_info_end = offset
+            .checked_add(key_block_info_size)
+            .ok_or("Truncated key block info in MDX")?;
+        if key_info_end > mmap.len() {
             return Err("Truncated key block info in MDX".to_string());
         }
 
-        let key_info_comp = &mmap[offset..offset + key_block_info_size];
-        offset += key_block_info_size;
+        let key_info_comp = &mmap[offset..key_info_end];
+        offset = key_info_end;
 
         let key_info_decomp = decompress_zlib_chunk(key_info_comp, key_block_info_decomp_size)?;
 
         // Parse Keyword Block Metas
-        let key_blocks_start = offset;
+        let key_blocks_start = offset as u64;
         let key_blocks =
             parse_key_block_metas(&key_info_decomp, num_key_blocks, key_blocks_start, utf16)?;
 
-        offset += key_block_size;
+        offset = offset
+            .checked_add(key_block_size)
+            .ok_or("Truncated MDX key blocks")?;
 
         // 3. Read Record Section Header
-        if offset + 32 > mmap.len() {
+        if offset.checked_add(32).is_none_or(|end| end > mmap.len()) {
             return Err("Truncated MDX record header".to_string());
         }
 
-        let num_record_blocks = read_u64_be(&mmap, &mut offset)? as usize;
+        let num_record_blocks =
+            checked_usize(read_u64_be(&mmap, &mut offset)?, "num_record_blocks")?;
         let _num_records = read_u64_be(&mmap, &mut offset)?;
-        let record_block_info_size = read_u64_be(&mmap, &mut offset)? as usize;
-        let _record_block_size = read_u64_be(&mmap, &mut offset)? as usize;
+        let record_block_info_size =
+            checked_usize(read_u64_be(&mmap, &mut offset)?, "record_block_info_size")?;
+        let _record_block_size = read_u64_be(&mmap, &mut offset)?;
 
         // Record Block Info is NOT compressed — raw sequential 16-byte entries:
         // u64 comp_size + u64 decomp_size, one per record block.
-        if offset + record_block_info_size > mmap.len() {
+        let rec_info_end = offset
+            .checked_add(record_block_info_size)
+            .ok_or("Truncated record block info in MDX")?;
+        if rec_info_end > mmap.len() {
             return Err("Truncated record block info in MDX".to_string());
         }
 
-        let rec_info_raw = &mmap[offset..offset + record_block_info_size];
-        offset += record_block_info_size;
+        let rec_info_raw = &mmap[offset..rec_info_end];
+        offset = rec_info_end;
 
         // Parse Record Block Metas
-        let record_blocks_start = offset;
+        let record_blocks_start = offset as u64;
         let record_blocks =
             parse_record_block_metas(rec_info_raw, num_record_blocks, record_blocks_start)?;
 
@@ -304,7 +342,7 @@ impl MdxDictionary {
         word: &str,
     ) -> Result<Option<MdxEntryResult>, String> {
         let kb = &self.key_blocks[block_idx];
-        let comp_bytes = &self.mmap[kb.file_offset..kb.file_offset + kb.comp_size];
+        let comp_bytes = mmap_slice(&self.mmap, kb.file_offset, kb.comp_size, "MDX key block")?;
         let decomp_bytes = decompress_zlib_chunk(comp_bytes, kb.decomp_size)?;
 
         let entries = parse_decompressed_key_block(&decomp_bytes, self.utf16)?;
@@ -335,11 +373,11 @@ impl MdxDictionary {
         }))
     }
 
-    fn read_record_definition(&self, record_offset: usize) -> Result<String, String> {
+    fn read_record_definition(&self, record_offset: u64) -> Result<String, String> {
         // Binary search for the record block spanning `record_offset`
         let block_idx = match self.record_blocks.binary_search_by(|rb| {
             let start = rb.decomp_accum_offset;
-            let end = start + rb.decomp_size;
+            let end = start.saturating_add(rb.decomp_size as u64);
 
             if record_offset < start {
                 std::cmp::Ordering::Greater
@@ -361,14 +399,18 @@ impl MdxDictionary {
             if let Some(cached) = lru.get(block_idx) {
                 cached
             } else {
-                let comp_bytes = &self.mmap[rb.file_offset..rb.file_offset + rb.comp_size];
+                let comp_bytes =
+                    mmap_slice(&self.mmap, rb.file_offset, rb.comp_size, "MDX record block")?;
                 let decomp = Arc::new(decompress_zlib_chunk(comp_bytes, rb.decomp_size)?);
                 lru.insert(block_idx, decomp.clone());
                 decomp
             }
         };
 
-        let inside_offset = record_offset - rb.decomp_accum_offset;
+        let inside_offset = checked_usize(
+            record_offset - rb.decomp_accum_offset,
+            "MDX inside record offset",
+        )?;
         if inside_offset >= decomp_data.len() {
             return Err("Record inside offset out of range".to_string());
         }
@@ -407,25 +449,31 @@ fn decompress_zlib_chunk(data: &[u8], expected_size: usize) -> Result<Vec<u8>, S
         data
     };
 
-    let mut decoder = ZlibDecoder::new(payload);
-    let mut out = Vec::with_capacity(expected_size.max(4096));
+    let max_bytes = expected_size
+        .max(4096)
+        .saturating_mul(2)
+        .min(MAX_MDX_BLOCK_BYTES);
+    let mut decoder = ZlibDecoder::new(payload).take((max_bytes as u64).saturating_add(1));
+    let mut out = Vec::with_capacity(expected_size.min(max_bytes).max(4096));
     decoder
         .read_to_end(&mut out)
         .map_err(|e| format!("Zlib decompression failed: {e}"))?;
+    if out.len() > max_bytes {
+        return Err("MDX zlib chunk exceeds maximum allowed decompressed size".to_string());
+    }
 
     Ok(out)
 }
 
 fn read_u64_be(mmap: &[u8], offset: &mut usize) -> Result<u64, String> {
-    if *offset + 8 > mmap.len() {
-        return Err("Unexpected EOF reading u64".to_string());
-    }
-    let val = u64::from_be_bytes(
-        mmap[*offset..*offset + 8]
-            .try_into()
-            .map_err(|_| "Failed to parse u64")?,
-    );
-    *offset += 8;
+    let end = offset
+        .checked_add(8)
+        .ok_or_else(|| "Unexpected EOF reading u64".to_string())?;
+    let slice = mmap
+        .get(*offset..end)
+        .ok_or_else(|| "Unexpected EOF reading u64".to_string())?;
+    let val = u64::from_be_bytes(slice.try_into().map_err(|_| "Failed to parse u64")?);
+    *offset = end;
     Ok(val)
 }
 
@@ -481,11 +529,11 @@ fn extract_xml_attr(xml: &str, attr: &str) -> Option<String> {
 fn parse_key_block_metas(
     info_bytes: &[u8],
     num_blocks: usize,
-    mut block_file_offset: usize,
+    mut block_file_offset: u64,
     utf16: bool,
 ) -> Result<Vec<KeyBlockMeta>, String> {
-    let mut metas = Vec::with_capacity(num_blocks);
-    let mut offset = 0;
+    let mut metas = Vec::with_capacity(num_blocks.min(info_bytes.len() / 16));
+    let mut offset = 0usize;
 
     // In MDict v2.0, each string in the key block info is stored as:
     // u16 length (NOT counting the null terminator) + raw bytes + null terminator
@@ -493,15 +541,20 @@ fn parse_key_block_metas(
     let null_size = if utf16 { 2 } else { 1 };
 
     for _ in 0..num_blocks {
-        if offset + 8 > info_bytes.len() {
+        if offset
+            .checked_add(8)
+            .is_none_or(|end| end > info_bytes.len())
+        {
             break;
         }
-        let num_entries =
-            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
+        let num_entries = u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap());
         offset += 8;
 
         // First word: u16 length (excl. null) + bytes + null terminator
-        if offset + 2 > info_bytes.len() {
+        if offset
+            .checked_add(2)
+            .is_none_or(|end| end > info_bytes.len())
+        {
             break;
         }
         let first_len =
@@ -509,10 +562,13 @@ fn parse_key_block_metas(
         offset += 2;
         let first_word = read_string_with_len(info_bytes, &mut offset, first_len, utf16);
         // Skip null terminator not counted in the stored length
-        offset = (offset + null_size).min(info_bytes.len());
+        offset = offset.saturating_add(null_size).min(info_bytes.len());
 
         // Last word: u16 length (excl. null) + bytes + null terminator
-        if offset + 2 > info_bytes.len() {
+        if offset
+            .checked_add(2)
+            .is_none_or(|end| end > info_bytes.len())
+        {
             break;
         }
         let last_len =
@@ -520,16 +576,20 @@ fn parse_key_block_metas(
         offset += 2;
         let last_word = read_string_with_len(info_bytes, &mut offset, last_len, utf16);
         // Skip null terminator
-        offset = (offset + null_size).min(info_bytes.len());
+        offset = offset.saturating_add(null_size).min(info_bytes.len());
 
-        if offset + 16 > info_bytes.len() {
+        if offset
+            .checked_add(16)
+            .is_none_or(|end| end > info_bytes.len())
+        {
             break;
         }
-        let comp_size =
-            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
+        let comp_size_u64 = u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap());
+        let comp_size = checked_usize(comp_size_u64, "key block comp_size")?;
         offset += 8;
-        let decomp_size =
-            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
+        let decomp_size_u64 =
+            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap());
+        let decomp_size = checked_usize(decomp_size_u64, "key block decomp_size")?;
         offset += 8;
 
         metas.push(KeyBlockMeta {
@@ -541,14 +601,16 @@ fn parse_key_block_metas(
             num_entries,
         });
 
-        block_file_offset += comp_size;
+        block_file_offset = block_file_offset
+            .checked_add(comp_size_u64)
+            .ok_or("MDX key block file offset overflow")?;
     }
 
     Ok(metas)
 }
 
 fn read_string_with_len(data: &[u8], offset: &mut usize, len: usize, utf16: bool) -> String {
-    let end = (*offset + len).min(data.len());
+    let end = offset.saturating_add(len).min(data.len());
     let slice = &data[*offset..end];
     *offset = end;
 
@@ -567,13 +629,12 @@ fn read_string_with_len(data: &[u8], offset: &mut usize, len: usize, utf16: bool
     }
 }
 
-fn parse_decompressed_key_block(data: &[u8], utf16: bool) -> Result<Vec<(String, usize)>, String> {
+fn parse_decompressed_key_block(data: &[u8], utf16: bool) -> Result<Vec<(String, u64)>, String> {
     let mut entries = Vec::new();
-    let mut offset = 0;
+    let mut offset = 0usize;
 
-    while offset + 8 < data.len() {
-        let record_offset =
-            u64::from_be_bytes(data[offset..offset + 8].try_into().unwrap()) as usize;
+    while offset.checked_add(8).is_some_and(|end| end < data.len()) {
+        let record_offset = u64::from_be_bytes(data[offset..offset + 8].try_into().unwrap());
         offset += 8;
 
         let word = if utf16 {
@@ -609,21 +670,25 @@ fn parse_decompressed_key_block(data: &[u8], utf16: bool) -> Result<Vec<(String,
 fn parse_record_block_metas(
     info_bytes: &[u8],
     num_blocks: usize,
-    mut block_file_offset: usize,
+    mut block_file_offset: u64,
 ) -> Result<Vec<RecordBlockMeta>, String> {
-    let mut metas = Vec::with_capacity(num_blocks);
-    let mut offset = 0;
-    let mut accum_decomp_offset = 0;
+    let mut metas = Vec::with_capacity(num_blocks.min(info_bytes.len() / 16));
+    let mut offset = 0usize;
+    let mut accum_decomp_offset = 0u64;
 
     for _ in 0..num_blocks {
-        if offset + 16 > info_bytes.len() {
+        if offset
+            .checked_add(16)
+            .is_none_or(|end| end > info_bytes.len())
+        {
             break;
         }
-        let comp_size =
-            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
+        let comp_size_u64 = u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap());
+        let comp_size = checked_usize(comp_size_u64, "record block comp_size")?;
         offset += 8;
-        let decomp_size =
-            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap()) as usize;
+        let decomp_size_u64 =
+            u64::from_be_bytes(info_bytes[offset..offset + 8].try_into().unwrap());
+        let decomp_size = checked_usize(decomp_size_u64, "record block decomp_size")?;
         offset += 8;
 
         metas.push(RecordBlockMeta {
@@ -633,8 +698,12 @@ fn parse_record_block_metas(
             decomp_accum_offset: accum_decomp_offset,
         });
 
-        block_file_offset += comp_size;
-        accum_decomp_offset += decomp_size;
+        block_file_offset = block_file_offset
+            .checked_add(comp_size_u64)
+            .ok_or("MDX record block file offset overflow")?;
+        accum_decomp_offset = accum_decomp_offset
+            .checked_add(decomp_size_u64)
+            .ok_or("MDX decompressed offset overflow")?;
     }
 
     Ok(metas)
@@ -657,6 +726,13 @@ fn mdx_dict_cache() -> &'static RwLock<HashMap<String, Arc<MdxDictionary>>> {
 }
 
 fn get_mdx_dictionary(app: &AppHandle, dict_id: &str) -> Result<Arc<MdxDictionary>, String> {
+    if dict_id.is_empty()
+        || dict_id == "."
+        || dict_id == ".."
+        || dict_id.contains(['/', '\\', '\0'])
+    {
+        return Err("Invalid dictionary id".to_string());
+    }
     {
         let cache = mdx_dict_cache().read().unwrap_or_else(|e| e.into_inner());
         if let Some(dict) = cache.get(dict_id) {

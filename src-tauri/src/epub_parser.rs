@@ -36,23 +36,74 @@ fn read_zip_by_name_inner<R: std::io::Read + std::io::Seek>(
             })
         })?;
 
-    let mut file = archive.by_index(target_index).ok()?;
+    let file = archive.by_index(target_index).ok()?;
     const MAX_METADATA_SIZE: usize = 32 * 1024 * 1024;
-    let size = (file.size() as usize).min(MAX_METADATA_SIZE);
+    let size = usize::try_from(file.size())
+        .unwrap_or(MAX_METADATA_SIZE)
+        .min(MAX_METADATA_SIZE);
     let mut buf = Vec::with_capacity(size);
-    file.read_to_end(&mut buf).ok()?;
+    file.take((MAX_METADATA_SIZE as u64).saturating_add(1))
+        .read_to_end(&mut buf)
+        .ok()?;
+    if buf.len() > MAX_METADATA_SIZE {
+        return None;
+    }
 
     let normalized = strip_xml_bom(&buf);
     Some(String::from_utf8_lossy(normalized.as_ref()).into_owned())
 }
 
 pub(crate) fn resolve_relative(base: &str, target: &str) -> String {
-    let base_dir = Path::new(base).parent().unwrap_or(Path::new(""));
-    base_dir
-        .join(target.split(['?', '#']).next().unwrap_or(target))
-        .to_str()
-        .unwrap_or(target)
-        .to_string()
+    let raw = target.split(['?', '#']).next().unwrap_or(target);
+    let normalized_base = base.replace('\\', "/");
+    let decoded = percent_decode_path(raw);
+    let rel = decoded.as_ref().trim();
+    if let Some(stripped) = rel.strip_prefix('/') {
+        return normalize_zip_segments(stripped);
+    }
+    let combined = match normalized_base.rfind('/') {
+        Some(pos) => format!("{}/{}", &normalized_base[..pos], rel),
+        None => rel.to_string(),
+    };
+    normalize_zip_segments(&combined)
+}
+
+fn percent_decode_path(input: &str) -> std::borrow::Cow<'_, str> {
+    if !input.as_bytes().contains(&b'%') {
+        return std::borrow::Cow::Borrowed(input);
+    }
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push(((h << 4) | l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    std::borrow::Cow::Owned(String::from_utf8_lossy(&out).into_owned())
+}
+
+fn normalize_zip_segments(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    let normalized = path.replace('\\', "/");
+    for seg in normalized.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    parts.join("/")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1187,6 +1238,18 @@ mod tests {
         assert_eq!(
             resolve_epub_href("OEBPS/toc.ncx", "https://example.com/external"),
             "https://example.com/external"
+        );
+    }
+
+    #[test]
+    fn test_resolve_relative_handles_parent_traversal_and_percent_encoding() {
+        assert_eq!(
+            resolve_relative("OEBPS/text/ch1.xhtml", "../styles/main%201.css?v=2#frag"),
+            "OEBPS/styles/main 1.css"
+        );
+        assert_eq!(
+            resolve_relative("text/sub/page.xhtml", "../../cover.jpg"),
+            "cover.jpg"
         );
     }
 
