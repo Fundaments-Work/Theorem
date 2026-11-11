@@ -23,6 +23,7 @@ on:
       - "src-tauri/Cargo.lock"
       - "src-tauri/tauri.conf.json"
       - "src-tauri/capabilities/**"
+      - "src-tauri/plugins/*/android/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

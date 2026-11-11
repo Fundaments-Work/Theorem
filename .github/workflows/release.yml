@@ -657,10 +657,7 @@ jobs:
           find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' ! -name '*-unsigned.apk' -exec cp {} android-release/ \;
           find src-tauri/gen/android/app/build/outputs/bundle -type f -name '*.aab' -exec cp {} android-release/ \;
           ls -lah android-release
-          if ! compgen -G "android-release/*.apk" > /dev/null; then
-            echo "::error::No signed APK found in build outputs."
-            exit 1
-          fi
+          node -e "const fs = require('node:fs'); require('./scripts/release-target.cjs').assertAndroidReleaseFiles(fs.readdirSync('android-release'));"
 
       - name: Upload Android artifacts (attempt 1)
         id: upload-android-attempt-1
@@ -703,15 +700,56 @@ jobs:
         with:
           ref: ${{ needs.create-release.outputs.release_sha }}
 
-      - name: Publish Release
+      - name: Verify release assets, reconcile latest.json, and publish
         uses: actions/github-script@v8
         with:
           script: |
+            const { assertReleaseAssets, buildUpdaterManifest } = require('./scripts/release-target.cjs');
             const release_id = Number(${{ toJSON(needs.create-release.outputs.release_id) }});
+            const tag = ${{ toJSON(needs.create-release.outputs.release_tag) }};
             const { data: release } = await github.rest.repos.getRelease({ ...context.repo, release_id });
-            if (!release.draft || release.tag_name !== ${{ toJSON(needs.create-release.outputs.release_tag) }}) {
+            if (!release.draft || release.tag_name !== tag) {
               throw new Error('The prepared release is no longer the expected draft; refusing to publish.');
             }
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              ...context.repo,
+              release_id,
+              per_page: 100,
+            });
+            assertReleaseAssets(assets.map((asset) => asset.name));
+
+            const sigAssets = assets.filter((asset) => asset.name.endsWith('.sig'));
+            const signaturesByAsset = {};
+            for (const asset of sigAssets) {
+              const resp = await github.rest.repos.getReleaseAsset({
+                ...context.repo,
+                asset_id: asset.id,
+                headers: { accept: 'application/octet-stream' },
+              });
+              const content = Buffer.isBuffer(resp.data)
+                ? resp.data.toString('utf8')
+                : typeof resp.data === 'string'
+                  ? resp.data
+                  : Buffer.from(resp.data).toString('utf8');
+              signaturesByAsset[asset.name] = content;
+            }
+            const manifest = buildUpdaterManifest({
+              version: tag,
+              notes: `Theorem ${tag}`,
+              pubDate: new Date().toISOString(),
+              downloadBaseUrl: `https://github.com/${context.repo.owner}/${context.repo.repo}/releases/download/${tag}`,
+              signaturesByAsset,
+            });
+            for (const existing of assets.filter((asset) => asset.name === 'latest.json')) {
+              await github.rest.repos.deleteReleaseAsset({ ...context.repo, asset_id: existing.id });
+            }
+            await github.rest.repos.uploadReleaseAsset({
+              ...context.repo,
+              release_id,
+              name: 'latest.json',
+              data: JSON.stringify(manifest, null, 2),
+              headers: { 'content-type': 'application/json' },
+            });
             await github.rest.repos.updateRelease({ ...context.repo, release_id, draft: false });
 
       # GITHUB_TOKEN publication does not trigger the release-event workflow.
