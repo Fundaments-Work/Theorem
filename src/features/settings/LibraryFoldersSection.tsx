@@ -57,9 +57,51 @@ export const LibraryFoldersSection = memo(function LibraryFoldersSection() {
                 preserve,
                 {
                     scan,
+                    importBooks: async (paths, onBook, onFailure, options) => {
+                        const { importBooksIncremental } = await import("../../core/lib/import");
+                        return importBooksIncremental(paths, onBook, onFailure, { ...options, durable: true });
+                    },
                     getBooks: () => useLibraryStore.getState().books,
                     addBooks: (batch) => useLibraryStore.getState().addBooks(batch),
                     updateBooks: (updates) => useLibraryStore.getState().updateBooks(updates),
+                    onBooksAdded: (batch) => {
+                        for (const book of batch) {
+                            if (book.coverExtractionDone && book.coverPath) continue;
+                            void (async () => {
+                                const [
+                                    { getBookData, saveCoverImage },
+                                    { extractMetadata, buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor },
+                                ] = await Promise.all([
+                                    import("../../core/lib/storage"),
+                                    import("../../core/lib/cover-extractor"),
+                                ]);
+                                const data =
+                                    await getBookData("", book.filePath)
+                                    ?? await getBookData(book.id, book.storagePath || book.filePath);
+                                if (!data) {
+                                    if (!book.coverPath) {
+                                        const svg = buildFallbackCoverSvg(book.title, book.author || "Unknown Author");
+                                        const coverPath = await saveCoverImage(book.id, new Blob([svg], { type: "image/svg+xml" }));
+                                        useLibraryStore.getState().updateBook(book.id, { coverPath, coverExtractionDone: true });
+                                    }
+                                    return;
+                                }
+                                const extracted = await extractMetadata(data, book.format, book.filePath, book.id, {
+                                    allowFallbackCover: true,
+                                });
+                                const updates: Record<string, unknown> = { coverExtractionDone: true };
+                                if (extracted.coverDataUrl) updates.coverPath = extracted.coverDataUrl;
+                                if (shouldUseExtractedTitle(book.title, extracted.title, book.filePath)) {
+                                    updates.title = extracted.title;
+                                }
+                                if (shouldUseExtractedAuthor(book.author, extracted.author)) {
+                                    updates.author = extracted.author;
+                                }
+                                if (extracted.description && !book.description) updates.description = extracted.description;
+                                useLibraryStore.getState().updateBook(book.id, updates);
+                            })().catch(() => undefined);
+                        }
+                    },
                     onProgress: setFolderImportProgress,
                 },
                 abortControllerRef.current.signal,
@@ -153,7 +195,7 @@ export const LibraryFoldersSection = memo(function LibraryFoldersSection() {
     return (
         <div className="space-y-3">
             {folderImportProgress && (
-                <div className="p-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-sm">
+                <div className="p-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
                     <FolderImportStatus
                         progress={folderImportProgress}
                         stopping={stoppingFolderImport}
@@ -176,10 +218,10 @@ export const LibraryFoldersSection = memo(function LibraryFoldersSection() {
                             <Folder className="w-5 h-5 text-[color:var(--color-accent)] shrink-0" />
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium text-[color:var(--color-text-primary)] truncate">
+                                    <p className="text-sm text-[color:var(--color-text-primary)] truncate">
                                         {name}
                                     </p>
-                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] shrink-0">
+                                    <span className="text-[11px] px-2 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] shrink-0">
                                         {bookCount} {bookCount === 1 ? "book" : "books"}
                                     </span>
                                 </div>
@@ -211,7 +253,7 @@ export const LibraryFoldersSection = memo(function LibraryFoldersSection() {
                                     setFolderToRemove({ root, name, count: bookCount });
                                 }}
                                 disabled={isScanning}
-                                className="p-1.5 text-[color:var(--color-text-muted)] hover:text-red-500 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                className="p-1.5 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors cursor-pointer disabled:opacity-50"
                                 title={`Remove ${name} folder`}
                                 aria-label={`Remove ${name} folder`}
                             >
@@ -264,7 +306,7 @@ export const LibraryFoldersSection = memo(function LibraryFoldersSection() {
                 <Modal isOpen={!!folderToRemove} onClose={() => setFolderToRemove(null)} size="sm" showCloseButton={true}>
                     <ModalHeader title="Remove Folder" onClose={() => setFolderToRemove(null)} showCloseButton={true} />
                     <ModalBody>
-                        <p className="text-sm leading-relaxed text-[color:var(--color-text-primary)] font-medium">
+                        <p className="text-sm leading-relaxed text-[color:var(--color-text-primary)]">
                             Remove &ldquo;{folderToRemove.name}&rdquo; from your library?
                         </p>
                         <p className="text-xs text-[color:var(--color-text-muted)] mt-1 truncate" title={folderToRemove.root}>
@@ -279,7 +321,7 @@ export const LibraryFoldersSection = memo(function LibraryFoldersSection() {
                                     type="checkbox"
                                     checked={removeFolderDeleteBooks}
                                     onChange={(e) => setRemoveFolderDeleteBooks(e.target.checked)}
-                                    className="rounded border-[var(--color-border)] text-[color:var(--color-accent)]"
+                                    className="border-[var(--color-border)] text-[color:var(--color-accent)]"
                                 />
                                 <span>Also remove {folderToRemove.count} {folderToRemove.count === 1 ? "book" : "books"} from Theorem library</span>
                             </label>

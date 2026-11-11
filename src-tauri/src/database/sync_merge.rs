@@ -236,6 +236,11 @@ fn upsert_sync_rss_article(
         .unwrap_or(0.0);
 
     connection.execute(
+        "INSERT OR IGNORE INTO rss_feeds (id, title, url, added_at, updated_at) VALUES (?1, '', '', unixepoch() * 1000, unixepoch())",
+        params![feed_id],
+    )?;
+
+    connection.execute(
         r#"
         INSERT INTO rss_articles (
             id, feed_id, title, author, url, summary,
@@ -522,8 +527,7 @@ fn merge_synced_book(
             params![book_id],
             |row| row.get(0),
         )
-        .optional()
-        .unwrap_or(None);
+        .optional()?;
 
     if let Some(local) = existing_meta
         .as_deref()
@@ -823,20 +827,18 @@ fn merge_sync_entries_rows(
                     record_domain("vocabulary");
                 }
             }
-        } else if let Some(article_id) = key.strip_prefix("rss_article:") {
+        } else if key.starts_with("rss_article:") {
             if let Ok(art_val) = serde_json::from_str::<serde_json::Value>(value) {
-                if let Ok(Some(id)) = upsert_sync_rss_article(connection, &art_val) {
+                if let Some(id) = upsert_sync_rss_article(connection, &art_val)? {
                     updated_rss_articles.push(id);
                     record_domain("rss_articles");
-                } else {
-                    updated_rss_articles.push(article_id.to_string());
                 }
             }
         } else if key == "rss_articles" {
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
                 if let Some(arts_vec) = parsed.as_array() {
                     for a in arts_vec {
-                        if let Ok(Some(id)) = upsert_sync_rss_article(connection, a) {
+                        if let Some(id) = upsert_sync_rss_article(connection, a)? {
                             updated_rss_articles.push(id);
                         }
                     }
@@ -1597,5 +1599,48 @@ mod tests {
         .unwrap();
         assert_eq!(meta_b3["title"], "Third Book");
         assert_eq!(meta_b3["syncedWithoutFile"], true);
+    }
+
+    #[test]
+    fn synced_article_for_missing_feed_creates_stub_feed_and_succeeds() {
+        let conn = setup_db();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(
+            "rss_article:art-fk-1".to_string(),
+            r#"{
+                "id": "art-fk-1",
+                "feedId": "feed-missing-on-peer",
+                "title": "Article Before Feed",
+                "url": "https://example.com/1",
+                "content": "<p>Body</p>",
+                "fetchedAt": 1700000000000,
+                "isRead": false,
+                "isFavorite": false
+            }"#
+            .to_string(),
+        );
+
+        let res = sqlite_merge_sync_entries_inner(&conn, entries).unwrap();
+        assert_eq!(res.updated_rss_articles, vec!["art-fk-1".to_string()]);
+
+        let title: String = conn
+            .query_row(
+                "SELECT title FROM rss_articles WHERE id = 'art-fk-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(title, "Article Before Feed");
+
+        let feed_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM rss_feeds WHERE id = 'feed-missing-on-peer')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(feed_exists);
     }
 }

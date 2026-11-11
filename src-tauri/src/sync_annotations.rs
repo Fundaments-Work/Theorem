@@ -379,31 +379,38 @@ pub(crate) async fn copies_in_doc(
 }
 
 /// This device's group for `book` in `doc` (empty when it has none) and
-/// when it was written.
+/// when it was written. Returns `Err` when an entry exists whose blob is
+/// missing or unreadable, so callers never overwrite prior annotations with
+/// an empty group.
 async fn own_group(
     doc: &iroh_docs::api::Doc,
     blobs: &iroh_blobs::api::Store,
     author: iroh_docs::AuthorId,
     book: &str,
-) -> (Group, Option<(iroh_blobs::Hash, u64)>) {
+) -> Result<(Group, Option<(iroh_blobs::Hash, u64)>), String> {
     let key = group_key(book);
     let Ok(Some(entry)) = doc.get_exact(author, key.as_bytes(), false).await else {
-        return (Group::default(), None);
+        return Ok((Group::default(), None));
     };
     let found = Some((entry.content_hash(), entry.timestamp()));
+    if entry.content_hash() == iroh_blobs::Hash::EMPTY {
+        return Ok((Group::default(), found));
+    }
     match content_of(blobs, entry.content_hash()).await {
-        Some(raw) => match Group::parse(&raw) {
-            Some(group) => (group, found),
-            None => {
-                log::warn!("[iroh-sync] This device's {key} could not be read; starting it again");
-                (Group::default(), found)
+        Some(raw) => {
+            match Group::parse(&raw) {
+                Some(group) => Ok((group, found)),
+                None => {
+                    log::warn!("[iroh-sync] This device's {key} could not be parsed; refusing to overwrite");
+                    Err(format!("unreadable own group {key}"))
+                }
             }
-        },
+        }
         None => {
             log::warn!(
-                "[iroh-sync] The content of this device's {key} is missing; starting it again"
+                "[iroh-sync] The content of this device's {key} is missing; refusing to overwrite"
             );
-            (Group::default(), found)
+            Err(format!("missing own group blob {key}"))
         }
     }
 }
@@ -456,7 +463,13 @@ pub(crate) async fn write_annotations(
     let mut error = None;
     let _own = OWN_GROUPS.lock().await;
     for (book, items) in by_book {
-        let (mut group, existing) = own_group(doc, blobs, author, book).await;
+        let (mut group, existing) = match own_group(doc, blobs, author, book).await {
+            Ok(loaded) => loaded,
+            Err(err) => {
+                error.get_or_insert(err);
+                continue;
+            }
+        };
         let mut changed = false;
         let mut resolved: Option<BTreeMap<String, Resolved>> = None;
         for (id, key, value) in items {
@@ -548,7 +561,9 @@ pub(crate) async fn purge_groups(
     let mut converted = 0usize;
     let _own = OWN_GROUPS.lock().await;
     for book in targets {
-        let (mut group, existing) = own_group(doc, blobs, author, book).await;
+        let Ok((mut group, existing)) = own_group(doc, blobs, author, book).await else {
+            continue;
+        };
         let whole_book = books.contains(book);
         let gone: Vec<String> = group
             .annotations
@@ -615,7 +630,7 @@ pub(crate) async fn fold_single_deletions(
     let _own = OWN_GROUPS.lock().await;
     let mut added = 0usize;
     for (book, deletions) in by_book {
-        let (mut group, existing) = own_group(doc, blobs, author, &book).await;
+        let (mut group, existing) = own_group(doc, blobs, author, &book).await?;
         let ids: Vec<String> = deletions
             .iter()
             .filter_map(|c| match c {

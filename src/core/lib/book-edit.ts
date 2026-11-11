@@ -1,6 +1,6 @@
 import { isTauri } from "./env";
 import { useLibraryStore } from "../store";
-import { getBookData, getBookBlob, saveBookData, saveCoverImage, deleteCoverImage } from "./storage";
+import { getBookBlob, saveBookData, saveCoverImage, deleteCoverImage } from "./storage";
 import { sqliteSaveBookMetadata } from "./sqlite-storage";
 import type { Book } from "../types";
 import { withBookEditLock } from "./book-edit-lock";
@@ -52,15 +52,13 @@ async function rewriteStoredEpub(book: Book, metadata: Partial<Book>, coverBytes
 
     if (isTauri()) {
         const { invoke } = await import("@tauri-apps/api/core");
-        const result = await invoke<{ size: number }>("rewrite_epub_metadata", {
+        const result = await invoke<{ size: number; blobHash?: string }>("rewrite_epub_metadata", {
             bookId: book.id,
             metadata: epubMeta,
             cover: coverBytes ? Array.from(coverBytes) : null,
         });
 
-        const data = await getBookData(book.id, book.storagePath ?? book.filePath);
-        if (!data) return { size: result.size, blobHash: "" };
-        return { size: result.size, blobHash: await sha256Hex(data) };
+        return { size: result.size, blobHash: result.blobHash ?? "" };
     }
 
     const blob = await getBookBlob(book.id, book.storagePath ?? book.filePath);

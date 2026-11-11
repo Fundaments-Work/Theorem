@@ -367,7 +367,8 @@ export async function fetchAnnouncements(
             const cachedRaw = localStorage.getItem(ANNOUNCEMENTS_CACHE_KEY);
             if (cachedRaw) {
                 const cached = JSON.parse(cachedRaw);
-                if (cached && Array.isArray(cached.data)) {
+                const ageMs = typeof cached?.timestamp === "number" ? Date.now() - cached.timestamp : Number.POSITIVE_INFINITY;
+                if (cached && Array.isArray(cached.data) && ageMs >= 0 && ageMs <= ANNOUNCEMENT_CACHE_TTL_MS) {
                     return parseAnnouncements(cached.data);
                 }
             }

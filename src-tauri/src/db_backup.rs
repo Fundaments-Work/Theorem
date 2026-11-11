@@ -90,7 +90,7 @@ pub struct BackupCounts {
 #[serde(rename_all = "camelCase", default)]
 pub struct SchemaInfo {
     pub user_version: i64,
-    pub tables: Vec<String>,
+    pub tables: Box<[String]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -463,6 +463,7 @@ fn file_options(size: u64, compress: bool) -> zip::write::SimpleFileOptions {
 /// Write a `.theorem-backup` archive of `live` plus the app's files under
 /// `app_data_dir` to `out_path`, streaming each entry. The archive is written
 /// to `<out_path>.partial` and renamed when complete.
+#[cfg(test)]
 pub fn write_backup(
     live: &Connection,
     app_data_dir: &Path,
@@ -473,17 +474,38 @@ pub fn write_backup(
     let tmp_dir = app_data_dir.join(BACKUP_TMP_DIR);
     fs::create_dir_all(&tmp_dir).map_err(|e| format!("Cannot create {tmp_dir:?}: {e}"))?;
     let snapshot_path = tmp_dir.join(format!("snapshot-{}.db", uuid::Uuid::new_v4()));
+    progress(BackupProgress {
+        operation: "backup",
+        phase: "database",
+        current: 0,
+        total: 1,
+    });
+    if let Err(err) = snapshot_connection(live, &snapshot_path) {
+        remove_db_files(&snapshot_path);
+        let _ = fs::remove_dir(&tmp_dir);
+        return Err(err);
+    }
+    write_backup_from_snapshot(
+        snapshot_path,
+        tmp_dir,
+        app_data_dir,
+        out_path,
+        options,
+        progress,
+    )
+}
+
+fn write_backup_from_snapshot(
+    snapshot_path: PathBuf,
+    tmp_dir: PathBuf,
+    app_data_dir: &Path,
+    out_path: &Path,
+    options: &BackupOptions,
+    progress: &mut dyn FnMut(BackupProgress),
+) -> Result<BackupManifest, String> {
     let partial_path = sidecar(out_path, ".partial");
 
     let result = (|| {
-        progress(BackupProgress {
-            operation: "backup",
-            phase: "database",
-            current: 0,
-            total: 1,
-        });
-        snapshot_connection(live, &snapshot_path)?;
-
         let (schema, mut counts, ids) = {
             let snap = Connection::open(&snapshot_path)
                 .map_err(|e| format!("Cannot open snapshot: {e}"))?;
@@ -505,7 +527,7 @@ pub fn write_backup(
             (
                 SchemaInfo {
                     user_version,
-                    tables,
+                    tables: tables.into_boxed_slice(),
                 },
                 counts,
                 ids,
@@ -786,16 +808,21 @@ fn stage_backup_inner(
         current: 0,
         total: 1,
     });
+    const MAX_BACKUP_DB_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+    const MAX_BACKUP_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
     let db_path = staging_dir.join(DB_FILE_NAME);
     {
-        let mut entry = archive
+        let entry = archive
             .by_name(DB_ENTRY)
             .map_err(|_| "The backup has no library database.".to_string())?;
         let mut out = BufWriter::new(
             File::create(&db_path).map_err(|e| format!("Cannot stage database: {e}"))?,
         );
-        io::copy(&mut entry, &mut out)
+        let copied = io::copy(&mut entry.take(MAX_BACKUP_DB_BYTES + 1), &mut out)
             .map_err(|e| format!("The backup's database is damaged: {e}"))?;
+        if copied > MAX_BACKUP_DB_BYTES {
+            return Err("The backup's database exceeds the maximum allowed size.".into());
+        }
         out.flush().map_err(|e| e.to_string())?;
     }
     {
@@ -824,7 +851,7 @@ fn stage_backup_inner(
     let total = archive.len() as u64;
     let mut book_files = 0u64;
     for index in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(index)
             .map_err(|e| format!("The backup is damaged: {e}"))?;
         let name = entry
@@ -855,8 +882,13 @@ fn stage_backup_inner(
             File::create(&target).map_err(|e| format!("Cannot stage files: {e}"))?,
         );
         // Reading to the end verifies the entry's CRC.
-        io::copy(&mut entry, &mut out)
+        let copied = io::copy(&mut entry.take(MAX_BACKUP_FILE_BYTES + 1), &mut out)
             .map_err(|e| format!("The backup is damaged ({name}): {e}"))?;
+        if copied > MAX_BACKUP_FILE_BYTES {
+            return Err(format!(
+                "The backup file '{name}' exceeds the maximum allowed size."
+            ));
+        }
         out.flush().map_err(|e| e.to_string())?;
     }
     if book_files != manifest.counts.book_files {
@@ -939,16 +971,17 @@ pub fn replace_live_database(
             if wal.exists() {
                 let _ = fs::copy(&wal, sidecar(&pre_restore, "-wal"));
             }
+            let shm = sidecar(live_db, "-shm");
+            if shm.exists() {
+                let _ = fs::copy(&shm, sidecar(&pre_restore, "-shm"));
+            }
         }
     }
 
     // 2. This device keeps its own sync identity and catalog sign-ins.
     let src = Connection::open(src_db).map_err(|e| format!("Cannot open restore source: {e}"))?;
-    if carry_identity {
-        if let Ok(live) = Connection::open_with_flags(
-            &pre_restore,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        ) {
+    if carry_identity && pre_restore.exists() {
+        if let Ok(live) = Connection::open(&pre_restore) {
             if let Err(e) = carry_device_identity(&live, &src) {
                 log::warn!("[db_backup] Could not carry device identity: {e}");
             }
@@ -1432,9 +1465,32 @@ fn create_backup_blocking(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
     let mut progress = emit_progress(app);
-    let manifest = crate::database::with_connection(app, |conn| {
-        Ok(write_backup(conn, &dir, &out_path, &options, &mut progress))
-    })??;
+    let tmp_dir = dir.join(BACKUP_TMP_DIR);
+    fs::create_dir_all(&tmp_dir).map_err(|e| format!("Cannot create {tmp_dir:?}: {e}"))?;
+    let snapshot_path = tmp_dir.join(format!("snapshot-{}.db", uuid::Uuid::new_v4()));
+    progress(BackupProgress {
+        operation: "backup",
+        phase: "database",
+        current: 0,
+        total: 1,
+    });
+    if let Err(err) =
+        crate::database::with_connection(app, |conn| Ok(snapshot_connection(conn, &snapshot_path)))
+            .map_err(|e| e.to_string())
+            .and_then(|res| res)
+    {
+        remove_db_files(&snapshot_path);
+        let _ = fs::remove_dir(&tmp_dir);
+        return Err(err);
+    }
+    let manifest = write_backup_from_snapshot(
+        snapshot_path,
+        tmp_dir,
+        &dir,
+        &out_path,
+        &options,
+        &mut progress,
+    )?;
     let size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
 
     let location = if export_to_downloads {
@@ -1490,6 +1546,18 @@ fn finish_restore(app: &AppHandle) -> Option<String> {
     }
 }
 
+pub(crate) fn apply_restored_dir<F>(
+    staged: &StagedRestore,
+    dir: &Path,
+    apply_db: F,
+) -> Result<u64, String>
+where
+    F: FnOnce(&Path, &Path) -> Result<(), String>,
+{
+    apply_db(&staged.db_path, &dir.join(DB_FILE_NAME))?;
+    install_staged_files(&staged.files_dir, dir)
+}
+
 fn restore_backup_blocking(app: &AppHandle, path: String) -> Result<RestoreResult, String> {
     let dir = app_data_dir(app)?;
     let staging = dir.join(STAGING_DIR);
@@ -1502,13 +1570,9 @@ fn restore_backup_blocking(app: &AppHandle, path: String) -> Result<RestoreResul
             current: 0,
             total: 1,
         });
-        let files_restored = install_staged_files(&staged.files_dir, &dir)?;
-        replace_live_database(
-            &staged.db_path,
-            &dir.join(DB_FILE_NAME),
-            true,
-            crate::database::db_pool_initialized(),
-        )?;
+        let files_restored = apply_restored_dir(&staged, &dir, |src, dst| {
+            replace_live_database(src, dst, true, crate::database::db_pool_initialized())
+        })?;
         Ok(RestoreResult {
             manifest: Some(staged.manifest.clone()),
             files_restored,

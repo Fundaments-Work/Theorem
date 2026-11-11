@@ -336,11 +336,14 @@ pub async fn search_book_content(
     query: String,
     match_case: Option<bool>,
     whole_word: Option<bool>,
-) -> Result<BookSearchResult, String> {
+) -> Result<BookSearchResult, crate::error::AppError> {
     let start = std::time::Instant::now();
     let file_path = std::path::PathBuf::from(path);
     if !file_path.exists() {
-        return Err(format!("File not found: {}", file_path.display()));
+        return Err(crate::error::AppError::not_found(format!(
+            "File not found: {}",
+            file_path.display()
+        )));
     }
 
     let is_match_case = match_case.unwrap_or(false);
@@ -352,7 +355,8 @@ pub async fn search_book_content(
         search_epub_spine(&file_path, &query, is_match_case, is_whole_word)
     })
     .await
-    .map_err(|e| format!("Search task failed: {e}"))??;
+    .map_err(|e| crate::error::AppError::internal(format!("Search task failed: {e}")))?
+    .map_err(crate::error::AppError::io)?;
 
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
     let total = matches.len();

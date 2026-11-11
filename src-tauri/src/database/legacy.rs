@@ -24,6 +24,14 @@ pub(crate) fn reclaim_legacy_stardict_blobs(
             continue;
         }
         let dict_id = parts[1];
+        if dict_id.is_empty()
+            || dict_id.contains("..")
+            || dict_id.contains('/')
+            || dict_id.contains('\\')
+            || dict_id.contains('\0')
+        {
+            continue;
+        }
         let dict_dir = app_data_dir.join("dictionaries").join(dict_id);
 
         if !crate::stardict::is_valid_stardict_dir(&dict_dir) {
@@ -259,6 +267,35 @@ mod tests {
         assert_eq!(reclaimed, 0);
         assert_eq!(book_data_len(&conn, "book1"), 0);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_reclaim_legacy_stardict_rejects_traversal_dict_id() {
+        let conn = setup_db();
+        let dir = temp_test_dir("reclaim-traversal");
+        let dict_root = dir.join("dictionaries");
+        std::fs::create_dir_all(&dict_root).unwrap();
+
+        conn.execute(
+            "INSERT INTO blob_store (key, data) VALUES (?1, ?2)",
+            params!["theorem-stardict:../../escape:ifo", b"ifo"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO blob_store (key, data) VALUES (?1, ?2)",
+            params!["theorem-stardict:../../escape:idx", b"idx"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO blob_store (key, data) VALUES (?1, ?2)",
+            params!["theorem-stardict:../../escape:dict", b"dict"],
+        )
+        .unwrap();
+
+        let reclaimed = reclaim_legacy_stardict_blobs(&conn, &dir).unwrap();
+        assert_eq!(reclaimed, 0);
+        assert!(!dir.join("escape").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

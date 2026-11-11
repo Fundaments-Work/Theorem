@@ -198,6 +198,7 @@ fn launch(
             .map_err(|_| AppError::internal("Import state unavailable"))? = None;
         #[cfg(target_os = "android")]
         tauri_plugin_mobile_folder_scan::start_import_service(&app).map_err(AppError::io)?;
+        sweep_abandoned_import_temp_files(&app);
         let job_id = checkpoint.id.clone();
         std::thread::Builder::new()
             .name("native-import".into())
@@ -244,6 +245,7 @@ fn run(app: &AppHandle, mut checkpoint: Checkpoint) -> Result<(), AppError> {
         .app_data_dir()
         .map_err(|error| AppError::io(error.to_string()))?
         .join("book-cache");
+    let mut known = load_known_books(app)?;
     while let Some(index) = checkpoint.next_pending() {
         if state().cancel.load(Ordering::Acquire) {
             break;
@@ -268,7 +270,15 @@ fn run(app: &AppHandle, mut checkpoint: Checkpoint) -> Result<(), AppError> {
             connection(app, |connection| checkpoint.save(connection))?;
             break;
         }
-        let result = import_one(app, &directory, &request, &id, &mut checkpoint, index);
+        let result = import_one(
+            app,
+            &directory,
+            &request,
+            &id,
+            &mut checkpoint,
+            index,
+            &mut known,
+        );
         #[cfg(target_os = "android")]
         if tauri_plugin_mobile_folder_scan::import_service_status(app)
             .map_or(true, |status| status.stopped)
@@ -304,6 +314,21 @@ fn run(app: &AppHandle, mut checkpoint: Checkpoint) -> Result<(), AppError> {
     Ok(())
 }
 
+fn load_known_books(app: &AppHandle) -> Result<Vec<KnownBook>, AppError> {
+    crate::database::with_connection(app, |connection| {
+        let mut statement = connection.prepare("SELECT COALESCE(json_extract(metadata_json,'$.fileSize'),0), json_extract(metadata_json,'$.contentHash') FROM book_metadata WHERE json_extract(metadata_json,'$.contentHash') IS NOT NULL")?;
+        let known = statement
+            .query_map([], |row| {
+                Ok(KnownBook {
+                    size: row.get(0)?,
+                    hash: row.get::<_, String>(1)?.into_boxed_str(),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>();
+        known
+    })
+}
+
 fn import_one(
     app: &AppHandle,
     directory: &std::path::Path,
@@ -311,6 +336,7 @@ fn import_one(
     id: &str,
     checkpoint: &mut Checkpoint,
     index: usize,
+    known: &mut Vec<KnownBook>,
 ) -> Result<bool, AppError> {
     if let Some(metadata) = connection(app, |connection| {
         checkpoint.existing_metadata(connection, index)
@@ -347,24 +373,13 @@ fn import_one(
     } else {
         request.source.to_string()
     };
-    let known = crate::database::with_connection(app, |connection| {
-        let mut statement = connection.prepare("SELECT COALESCE(json_extract(metadata_json,'$.fileSize'),0), json_extract(metadata_json,'$.contentHash') FROM book_metadata WHERE json_extract(metadata_json,'$.contentHash') IS NOT NULL")?;
-        let result = statement
-            .query_map([], |row| {
-                Ok(KnownBook {
-                    size: row.get(0)?,
-                    hash: row.get::<_, String>(1)?.into_boxed_str(),
-                })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>();
-        result
-    })?;
-    let result = crate::batch_ingest::ingest_job_file(
+    let result = crate::batch_ingest::ingest_job_file_with_hint(
         &source,
         directory,
         id,
-        &known,
+        known,
         temporary.0.is_some(),
+        Some(&request.format),
         &state().cancel,
         &|stage, completed_bytes, total_bytes| {
             if let Ok(mut current) = state().current.lock() {
@@ -382,6 +397,10 @@ fn import_one(
                 restore_display_name(&mut book, std::path::Path::new(&source), request);
             }
             book.file_path = request.source.to_string();
+            let newly_known = book
+                .content_hash
+                .as_deref()
+                .map(|hash| (book.file_size, hash.to_string().into_boxed_str()));
             let mut metadata = serde_json::to_value(book)
                 .map_err(|error| AppError::internal(error.to_string()))?;
             metadata["readingTime"] = 0.into();
@@ -393,6 +412,9 @@ fn import_one(
             connection(app, |connection| {
                 checkpoint.acknowledge(connection, index, &metadata)
             })?;
+            if let Some((size, hash)) = newly_known {
+                known.push(KnownBook { size, hash });
+            }
             Ok(true)
         }
         Some(IngestItem::Duplicate { content_hash, .. }) => {
@@ -548,6 +570,7 @@ pub fn discard(app: &AppHandle, job_id: &str) -> Result<(), AppError> {
                 crate::database::sqlite_delete_kv_inner(connection, checkpoint::KEY)
             })?;
         }
+        sweep_abandoned_import_temp_files(app);
         *state()
             .failure
             .lock()
@@ -556,6 +579,29 @@ pub fn discard(app: &AppHandle, job_id: &str) -> Result<(), AppError> {
     })();
     state().active.store(false, Ordering::Release);
     result
+}
+
+fn sweep_temp_dir(dir: &std::path::Path) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn sweep_abandoned_import_temp_files(app: &AppHandle) {
+    for base in [
+        app.path().app_data_dir().ok(),
+        app.path().app_local_data_dir().ok(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        sweep_temp_dir(&base.join("theorem_import"));
+    }
 }
 
 fn remove_uncommitted_files(
@@ -642,5 +688,22 @@ mod tests {
         }
         assert!(!path.exists());
         drop(TemporarySource(None));
+    }
+
+    #[test]
+    fn sweep_temp_dir_removes_abandoned_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let temp_dir = directory.path().join("theorem_import");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let orphaned = temp_dir.join("uuid-abandoned.epub");
+        let nested = temp_dir.join("sub");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(&orphaned, b"stale").unwrap();
+        sweep_temp_dir(&temp_dir);
+        assert!(
+            !orphaned.exists(),
+            "abandoned import temp file must be removed"
+        );
+        assert!(nested.is_dir(), "subdirectories should remain untouched");
     }
 }

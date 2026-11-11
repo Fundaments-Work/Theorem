@@ -104,10 +104,10 @@ pub struct VaultExportPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultExportResult {
-    pub status: String,
-    pub message: String,
+    pub status: Box<str>,
+    pub message: Box<str>,
     pub files_written: usize,
-    pub file_paths: Vec<String>,
+    pub file_paths: Box<[Box<str>]>,
 }
 
 #[derive(Debug, Clone)]
@@ -713,18 +713,19 @@ pub fn export_vault_snapshot_impl(
         write_if_changed(&manifest_path, &json)?;
     }
 
-    let file_paths: Vec<String> = files_to_write
+    let file_paths: Box<[Box<str>]> = files_to_write
         .into_iter()
-        .map(|(p, _)| p.to_string_lossy().to_string())
+        .map(|(p, _)| p.to_string_lossy().into_owned().into_boxed_str())
         .collect();
 
     let total = file_paths.len();
     Ok(VaultExportResult {
-        status: "synced".to_string(),
+        status: "synced".into(),
         message: if files_removed > 0 {
             format!("Exported {total} notes ({files_written} updated, {files_removed} removed).")
+                .into_boxed_str()
         } else {
-            format!("Exported {total} notes ({files_written} updated).")
+            format!("Exported {total} notes ({files_written} updated).").into_boxed_str()
         },
         files_written,
         file_paths,
@@ -779,10 +780,11 @@ fn write_if_changed(path: &Path, content: &[u8]) -> Result<bool, String> {
 #[tauri::command]
 pub async fn vault_export_snapshot(
     payload: VaultExportPayload,
-) -> Result<VaultExportResult, String> {
+) -> Result<VaultExportResult, crate::error::AppError> {
     tokio::task::spawn_blocking(move || export_vault_snapshot_impl(&payload))
         .await
-        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| crate::error::AppError::internal(format!("Task join error: {e}")))?
+        .map_err(crate::error::AppError::io)
 }
 
 #[cfg(test)]
@@ -1272,7 +1274,7 @@ mod tests {
         payload.custom_pages = Some(custom);
 
         let res = export_vault_snapshot_impl(&payload).unwrap();
-        assert_eq!(res.status, "synced");
+        assert_eq!(&*res.status, "synced");
 
         let pages = vault.pages();
         assert_eq!(pages.len(), 1);

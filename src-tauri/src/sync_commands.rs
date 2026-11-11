@@ -163,6 +163,7 @@ pub async fn iroh_start(app: tauri::AppHandle) -> Result<IrohNodeIdResponse, Str
             let docs_path = data_dir.join("iroh-docs");
             let _ = std::fs::remove_dir_all(&blobs_path);
             let _ = std::fs::remove_dir_all(&docs_path);
+            let _ = app.emit("sync-needs-reprovision", ());
         }
     }
 
@@ -373,6 +374,11 @@ pub async fn submit_pairing_code(
             host_addr = host_addr.with_ip_addr(socket);
         }
     }
+    if !qr_payload.relay_url.trim().is_empty() {
+        if let Ok(relay_url) = qr_payload.relay_url.trim().parse::<iroh::RelayUrl>() {
+            host_addr = host_addr.with_relay_url(relay_url);
+        }
+    }
 
     // The host may connect back for sync before it is saved as paired here.
     // The permission ends with this call, whatever the outcome: once paired,
@@ -481,6 +487,7 @@ pub async fn submit_pairing_code(
 
     {
         let mut devices = sync_state.transport_state.paired_devices.lock().await;
+        let mut dropped_doc_ids: Vec<String> = Vec::new();
         if !paired_device.iroh_node_id.is_empty() {
             let existing_by_key: Option<String> = devices
                 .values()
@@ -490,7 +497,11 @@ pub async fn submit_pairing_code(
                 })
                 .map(|d| d.device_id.clone());
             if let Some(old_device_id) = existing_by_key {
-                devices.remove(&old_device_id);
+                if let Some(old) = devices.remove(&old_device_id) {
+                    if !old.sync_doc_id.is_empty() {
+                        dropped_doc_ids.push(old.sync_doc_id);
+                    }
+                }
             }
         }
         if !paired_device.fingerprint.is_empty() {
@@ -502,10 +513,24 @@ pub async fn submit_pairing_code(
                 })
                 .map(|d| d.device_id.clone());
             if let Some(old_device_id) = old_id {
-                devices.remove(&old_device_id);
+                if let Some(old) = devices.remove(&old_device_id) {
+                    if !old.sync_doc_id.is_empty() {
+                        dropped_doc_ids.push(old.sync_doc_id);
+                    }
+                }
             }
         }
         devices.insert(paired_device.device_id.clone(), paired_device);
+        for old_doc_id in dropped_doc_ids {
+            if !devices.values().any(|d| d.sync_doc_id == old_doc_id) {
+                let dir = &sync_state.transport_state.app_data_dir;
+                let mut to_drop = theorem_sync_core::sync_persistence::load_docs_to_drop(dir);
+                if !to_drop.contains(&old_doc_id) {
+                    to_drop.push(old_doc_id);
+                    let _ = theorem_sync_core::sync_persistence::save_docs_to_drop(dir, &to_drop);
+                }
+            }
+        }
         sync_state
             .transport_state
             .persist_paired(&devices)
@@ -1328,11 +1353,38 @@ pub struct ChangedDocEntries {
 #[derive(Default)]
 struct Delivery {
     applied: std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
-    pending: Option<(
-        u64,
-        std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
-    )>,
+    pending:
+        std::collections::HashMap<u64, std::collections::HashMap<String, Vec<iroh_blobs::Hash>>>,
     next_token: u64,
+}
+
+impl Delivery {
+    fn record_pending(
+        &mut self,
+        seen: std::collections::HashMap<String, Vec<iroh_blobs::Hash>>,
+    ) -> u64 {
+        const MAX_PENDING_TOKENS: usize = 16;
+        self.next_token += 1;
+        let token = self.next_token;
+        self.pending.insert(token, seen);
+        while self.pending.len() > MAX_PENDING_TOKENS {
+            let Some(&oldest) = self.pending.keys().min() else {
+                break;
+            };
+            self.pending.remove(&oldest);
+        }
+        token
+    }
+
+    fn ack(&mut self, token: u64) -> Result<(), String> {
+        match self.pending.remove(&token) {
+            Some(seen) => {
+                self.applied = seen;
+                Ok(())
+            }
+            None => Err("stale sync read".to_string()),
+        }
+    }
 }
 
 static DELIVERY: std::sync::Mutex<Option<Delivery>> = std::sync::Mutex::new(None);
@@ -1358,9 +1410,7 @@ pub async fn docs_get_changed_entries(
     let read = read_doc_entries(&app, baseline).await?;
     let mut guard = DELIVERY.lock().unwrap_or_else(|e| e.into_inner());
     let delivery = guard.get_or_insert_with(Default::default);
-    delivery.next_token += 1;
-    let token = delivery.next_token;
-    delivery.pending = Some((token, read.seen));
+    let token = delivery.record_pending(read.seen);
     Ok(ChangedDocEntries {
         entries: read.entries,
         deleted: read.deleted,
@@ -1373,16 +1423,7 @@ pub async fn docs_get_changed_entries(
 pub async fn docs_ack_entries(token: u64) -> Result<(), String> {
     let mut guard = DELIVERY.lock().unwrap_or_else(|e| e.into_inner());
     let delivery = guard.get_or_insert_with(Default::default);
-    match delivery.pending.take() {
-        Some((pending_token, seen)) if pending_token == token => {
-            delivery.applied = seen;
-            Ok(())
-        }
-        other => {
-            delivery.pending = other;
-            Err("stale sync read".to_string())
-        }
-    }
+    delivery.ack(token)
 }
 
 struct DocRead {
@@ -1867,6 +1908,9 @@ fn keys_of_deleted(entities: &[DeletedEntity], keys: &[String]) -> Vec<String> {
             if let Some(id) = key.strip_prefix("rss_article:") {
                 return is("rss_article", id);
             }
+            if let Some(id) = key.strip_prefix("rss_feed:") {
+                return is("feed", id) || is("rss_feed", id);
+            }
             if let Some(id) = key
                 .strip_prefix("vocab:")
                 .or_else(|| key.strip_prefix("vocabulary:"))
@@ -1978,21 +2022,78 @@ async fn purge_single_entries(
     own_keys: &[String],
     own: Option<&crate::sync_deletions::OwnDeletions>,
 ) -> usize {
+    let to_delete = keys_of_deleted(entities, own_keys);
+    let delete_set: std::collections::HashSet<&str> =
+        to_delete.iter().map(String::as_str).collect();
     let mut removed = 0usize;
-    for key in keys_of_deleted(entities, own_keys) {
-        // A doc deletion is by prefix: never remove a longer key that is
-        // not itself deleted (book:12 would take book:123 with it).
-        let shadows_live_key = own_keys
+    for key in &to_delete {
+        // `doc.del(prefix)` clears every entry starting with `prefix`
+        // (`book:1` also clears `book:10`). Snapshot any live longer siblings
+        // first, run `doc.del`, then re-insert them with a newer timestamp so
+        // Willow/iroh-docs keeps those siblings on all devices.
+        let shadowed_live: Vec<&str> = own_keys
             .iter()
-            .any(|other| other.len() > key.len() && other.starts_with(&key));
-        if shadows_live_key {
+            .map(String::as_str)
+            .filter(|other| {
+                other.len() > key.len()
+                    && other.starts_with(key.as_str())
+                    && !delete_set.contains(*other)
+            })
+            .collect();
+        let mut preserved = Vec::new();
+        let mut snapshot_ok = true;
+        for other in &shadowed_live {
+            match doc.get_exact(author, other.as_bytes(), false).await {
+                Ok(Some(entry)) if entry.content_hash() != iroh_blobs::Hash::EMPTY => {
+                    preserved.push((*other, entry.content_hash(), entry.content_len()));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!(
+                        "[iroh-sync] could not read shadowed sibling {other} before deleting {key}: {e}"
+                    );
+                    snapshot_ok = false;
+                    break;
+                }
+            }
+        }
+        if !snapshot_ok {
             continue;
         }
         match doc.del(author, key.clone().into_bytes()).await {
             Ok(n) => {
-                removed += n;
+                let mut restored = 0usize;
+                if !preserved.is_empty() {
+                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+                    for (other, hash, size) in preserved {
+                        for attempt in 0..4 {
+                            match doc
+                                .set_hash(author, other.as_bytes().to_vec(), hash, size)
+                                .await
+                            {
+                                Ok(()) => {
+                                    restored += 1;
+                                    break;
+                                }
+                                Err(e)
+                                    if attempt < 3
+                                        && e.to_string().contains("NewerEntryExists") =>
+                                {
+                                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[iroh-sync] failed restoring sibling {other} after deleting {key}: {e}"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                removed += n.saturating_sub(restored);
                 if let Some(own) = own {
-                    own.record(doc, &key).await;
+                    own.record(doc, key).await;
                 }
             }
             Err(e) => log::warn!("[iroh-sync] could not remove {key}: {e}"),
@@ -2556,6 +2657,9 @@ mod tests {
             "vocabulary:v1",
             "settings",
             "book:b10",
+            "rss_feed:f1",
+            "rss_feed:f2",
+            "rss_feed:settings",
         ]
         .iter()
         .map(|k| k.to_string())
@@ -2568,6 +2672,8 @@ mod tests {
                 deleted("rss_article", "r1"),
                 deleted("vocabulary", "v1"),
                 deleted("book", ""),
+                deleted("feed", "f1"),
+                deleted("rss_feed", "f2"),
                 deleted("feed", "settings"),
             ],
             &keys,
@@ -2584,10 +2690,28 @@ mod tests {
                 "collection:c1",
                 "cover:b1",
                 "rss_article:r1",
+                "rss_feed:f1",
+                "rss_feed:f2",
+                "rss_feed:settings",
                 "vocab:v1",
                 "vocabulary:v1",
             ]
         );
+    }
+
+    #[test]
+    fn delivery_tracks_multiple_concurrent_tokens() {
+        let mut delivery = Delivery::default();
+        let mut seen1 = std::collections::HashMap::new();
+        seen1.insert("book:1".into(), vec![iroh_blobs::Hash::new(b"v1")]);
+        let t1 = delivery.record_pending(seen1);
+
+        let mut seen2 = std::collections::HashMap::new();
+        seen2.insert("book:2".into(), vec![iroh_blobs::Hash::new(b"v2")]);
+        let t2 = delivery.record_pending(seen2);
+
+        assert!(delivery.ack(t1).is_ok());
+        assert!(delivery.ack(t2).is_ok());
     }
 
     #[test]
@@ -3183,6 +3307,73 @@ mod tests {
             let (entries, deleted) =
                 crate::sync_annotations::live_annotations(&f.doc, &f.blobs, "anno:", None).await;
             assert!(entries.is_empty() && deleted.is_empty());
+        }
+
+        #[tokio::test]
+        async fn purge_single_entries_removes_shadowed_key_without_deleting_longer_sibling() {
+            let f = fixture().await;
+            f.doc
+                .set_bytes(f.here, b"book:1".to_vec(), b"{}".to_vec())
+                .await
+                .unwrap();
+            f.doc
+                .set_bytes(
+                    f.here,
+                    b"book:10".to_vec(),
+                    b"{\"title\":\"Keep\"}".to_vec(),
+                )
+                .await
+                .unwrap();
+
+            let own_keys = own_entry_keys(&f.doc, f.here).await;
+            let removed =
+                purge_single_entries(&f.doc, f.here, &[deleted("book", "1")], &own_keys, None)
+                    .await;
+            assert_eq!(removed, 1);
+
+            let gone = f.doc.get_exact(f.here, b"book:1", false).await.unwrap();
+            let kept = f.doc.get_exact(f.here, b"book:10", false).await.unwrap();
+            assert!(gone.is_none(), "shadowed key book:1 must be deleted");
+            assert!(kept.is_some(), "longer sibling book:10 must stay live");
+        }
+
+        #[tokio::test]
+        async fn write_annotations_does_not_wipe_own_group_when_blob_missing() {
+            let f = fixture().await;
+            let missing_hash = iroh_blobs::Hash::new(b"missing-group-payload-not-in-store");
+            f.doc
+                .set_hash(f.here, b"annos:b1:".to_vec(), missing_hash, 128)
+                .await
+                .unwrap();
+
+            let (_, _, error) = write_entries_to_doc(
+                &f.doc,
+                &f.blobs,
+                f.here,
+                3,
+                &[entry(
+                    "anno:b1:a2",
+                    r#"{"id":"a2","bookId":"b1","updatedAt":2,"note":"two"}"#,
+                )],
+                false,
+            )
+            .await;
+
+            assert!(
+                error.is_some(),
+                "missing own-group blob must return a retryable error instead of wiping prior annotations"
+            );
+            let current = f
+                .doc
+                .get_exact(f.here, b"annos:b1:", false)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                current.content_hash(),
+                missing_hash,
+                "existing annos:b1: hash must not be overwritten with only the new entry"
+            );
         }
     }
 }

@@ -84,6 +84,7 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
     ".pdf"
   )
   private val scanExecutor = Executors.newSingleThreadExecutor()
+  private val importExecutor = Executors.newSingleThreadExecutor()
 
   private companion object {
     const val MAX_SCAN_DEPTH = 64
@@ -559,13 +560,21 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
       data.data?.let { uris.add(it) }
       data.clipData?.let { clips -> for (index in 0 until clips.itemCount) uris.add(clips.getItemAt(index).uri) }
       for (uri in uris.distinct()) {
-        activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+          activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+          // Transient picker grants can reject persistable flags; temporary read access still works.
+        }
         val name = activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
           if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
         } ?: throw IllegalArgumentException("The document provider did not supply a filename")
+        val mimeType = runCatching { activity.contentResolver.getType(uri) }.getOrNull()
         val document = JSObject()
         document.put("source", uri.toString())
         document.put("name", name)
+        if (!mimeType.isNullOrBlank()) {
+          document.put("mimeType", mimeType)
+        }
         documents.put(document)
       }
       val response = JSObject()
@@ -605,7 +614,7 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
 
   @Command
   fun materializeContentUri(invoke: Invoke) {
-    scanExecutor.execute {
+    importExecutor.execute {
       try {
         val args = invoke.parseArgs(MaterializeContentUriArgs::class.java)
         val uri = Uri.parse(args.uri)

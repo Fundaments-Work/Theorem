@@ -85,4 +85,18 @@ class ImportServiceTest {
     verify(signal).cancel()
   }
 
+  @Test fun onDestroyFromOlderServiceInstanceDoesNotCancelNewerRun() {
+    val olderService = mock(ImportService::class.java)
+    val startIntent = mock(Intent::class.java)
+    doCallRealMethod().`when`(olderService).onStartCommand(startIntent, 0, 1)
+    doCallRealMethod().`when`(olderService).handleDestroy()
+
+    olderService.onStartCommand(startIntent, 0, 1)
+    ImportService.prepare()
+    olderService.handleDestroy()
+
+    assertFalse(ImportService.isStopped())
+    assertTrue(ImportService.running)
+  }
+
 }

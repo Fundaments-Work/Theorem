@@ -49,7 +49,15 @@ class ImportService : Service() {
     }
   }
 
+  internal var startedGeneration: Long = 0L
+
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    val extraGen = intent?.getLongExtra(EXTRA_GENERATION, 0L) ?: 0L
+    if (extraGen > 0L) {
+      startedGeneration = extraGen
+    } else if (startedGeneration == 0L && intent?.action != STOP) {
+      startedGeneration = currentGeneration.get()
+    }
     if (intent?.action == STOP) stopImport()
     return START_NOT_STICKY
   }
@@ -61,10 +69,14 @@ class ImportService : Service() {
     stopSelf()
   }
 
-  override fun onDestroy() {
-    requestStop()
+  internal fun handleDestroy() {
+    requestStopForGeneration(startedGeneration)
     wakeLock?.let { if (it.isHeld) it.release() }
     wakeLock = null
+  }
+
+  override fun onDestroy() {
+    handleDestroy()
     super.onDestroy()
   }
 
@@ -74,6 +86,8 @@ class ImportService : Service() {
     private const val CHANNEL = "theorem-book-imports"
     private const val NOTIFICATION = 180
     private const val STOP = "work.fundamentals.theorem.STOP_IMPORT"
+    private const val EXTRA_GENERATION = "work.fundamentals.theorem.IMPORT_GENERATION"
+    private val currentGeneration = AtomicLong(0)
     val completedBytes = AtomicLong(0)
     val totalBytes = AtomicLong(-1)
     @Volatile var copying = false
@@ -100,6 +114,7 @@ class ImportService : Service() {
     internal fun detachInput(input: InputStream) { activeInput.compareAndSet(input, null) }
 
     internal fun prepare() {
+      currentGeneration.incrementAndGet()
       stopped = false
       running = true
       copying = false
@@ -109,14 +124,21 @@ class ImportService : Service() {
 
     fun start(context: Context) {
       prepare()
+      val generation = currentGeneration.get()
       try {
-        val intent = Intent(context, ImportService::class.java)
+        val intent = Intent(context, ImportService::class.java).putExtra(EXTRA_GENERATION, generation)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
         else context.startService(intent)
       } catch (error: Exception) {
         running = false
         stopped = true
         throw error
+      }
+    }
+
+    internal fun requestStopForGeneration(generation: Long) {
+      if (generation == 0L || currentGeneration.get() == generation) {
+        requestStop()
       }
     }
 

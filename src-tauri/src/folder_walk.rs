@@ -40,6 +40,27 @@ pub fn book_format_for_name(name: &str) -> Option<&'static str> {
     })
 }
 
+/// Resolve a book format from `name` first, falling back to a MIME type or
+/// explicit format hint (e.g. from Android's document provider metadata for
+/// extensionless display names).
+pub fn book_format_for_name_or_mime(name: &str, hint: Option<&str>) -> Option<&'static str> {
+    if let Some(fmt) = book_format_for_name(name) {
+        return Some(fmt);
+    }
+    let normalized = hint?.trim().split(';').next()?.trim().to_ascii_lowercase();
+    Some(match normalized.as_str() {
+        "epub" | "application/epub+zip" | "application/epub" => "epub",
+        "pdf" | "application/pdf" => "pdf",
+        "cbz" | "application/vnd.comicbook+zip" | "application/x-cbz" => "cbz",
+        "cbr" | "application/vnd.comicbook-rar" | "application/x-cbr" => "cbr",
+        "mobi" | "application/x-mobipocket-ebook" => "mobi",
+        "azw" => "azw",
+        "azw3" | "application/vnd.amazon.ebook" => "azw3",
+        "fb2" | "application/x-fictionbook+xml" | "application/x-fictionbook" => "fb2",
+        _ => return None,
+    })
+}
+
 fn issue(path: &Path, reason: impl Into<String>) -> ScanIssue {
     ScanIssue {
         path: path.to_string_lossy().into_owned().into_boxed_str(),

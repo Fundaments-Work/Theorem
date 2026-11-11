@@ -1190,3 +1190,50 @@ fn reading_rhythm_and_pending_chunks_survive_repeated_backup_restore() {
         assert_eq!(restored["state"]["readingSetupStep"], 2);
     }
 }
+
+#[test]
+fn apply_restored_dir_failure_keeps_live_files() {
+    let live_dir = tempfile::tempdir().unwrap();
+    let stage_dir = tempfile::tempdir().unwrap();
+
+    let live_cache = live_dir.path().join(BOOK_CACHE_DIR);
+    fs::create_dir_all(&live_cache).unwrap();
+    fs::write(live_cache.join("existing.book"), b"live-bytes").unwrap();
+
+    let staged_files = stage_dir.path().join("files");
+    let staged_cache = staged_files.join(BOOK_CACHE_DIR);
+    fs::create_dir_all(&staged_cache).unwrap();
+    fs::write(staged_cache.join("existing.book"), b"staged-bytes").unwrap();
+    let staged_db = stage_dir.path().join(DB_FILE_NAME);
+    fs::write(&staged_db, b"dummy").unwrap();
+
+    let staged = StagedRestore {
+        db_path: staged_db,
+        files_dir: staged_files,
+        manifest: BackupManifest {
+            format: BACKUP_FORMAT.into(),
+            format_version: BACKUP_FORMAT_VERSION,
+            app_version: VERSION.into(),
+            created_at: "2026-10-22T10:00:00+00:00".into(),
+            platform: "linux".into(),
+            schema: SchemaInfo::default(),
+            includes_dictionaries: false,
+            counts: BackupCounts {
+                book_files: 1,
+                ..Default::default()
+            },
+            total_bytes: 0,
+        },
+    };
+
+    let err = apply_restored_dir(&staged, live_dir.path(), |_, _| {
+        Err("db replace failed".into())
+    })
+    .unwrap_err();
+    assert!(err.contains("db replace failed"));
+    assert_eq!(
+        fs::read(live_cache.join("existing.book")).unwrap(),
+        b"live-bytes",
+        "live files must remain untouched when database replacement fails"
+    );
+}

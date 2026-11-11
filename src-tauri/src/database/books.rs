@@ -406,25 +406,34 @@ pub fn sqlite_save_book_metadata_inner(
     book_id: &str,
     metadata_json: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
-        params![book_id],
-    )?;
-    connection.execute(
-        "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch())
-         ON CONFLICT(book_id) DO UPDATE SET metadata_json = ?2, updated_at = unixepoch()",
-        params![book_id, metadata_json],
-    )?;
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(metadata_json) {
-        let title = val.get("title").and_then(|v| v.as_str()).unwrap_or("");
-        let author = val.get("author").and_then(|v| v.as_str());
-        let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
-        let _ = connection.execute(
-            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-            params![book_id, title, author],
-        );
-    }
-    Ok(())
+    with_atomic_write(connection, || {
+        connection.execute(
+            "INSERT OR IGNORE INTO books(id, data, updated_at) VALUES(?1, X'', unixepoch())",
+            params![book_id],
+        )?;
+        connection.execute(
+            "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch())
+             ON CONFLICT(book_id) DO UPDATE SET metadata_json = ?2, updated_at = unixepoch()",
+            params![book_id, metadata_json],
+        )?;
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(metadata_json) {
+            let has_fts: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'books_fts')",
+                [],
+                |row| row.get(0),
+            )?;
+            if has_fts {
+                let title = val.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let author = val.get("author").and_then(|v| v.as_str());
+                connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id])?;
+                connection.execute(
+                    "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+                    params![book_id, title, author],
+                )?;
+            }
+        }
+        Ok(())
+    })
 }
 
 pub fn sqlite_save_book_metadata(
@@ -482,35 +491,37 @@ pub fn sqlite_update_book_progress_inner(
     book_id: &str,
     update: &BookProgressUpdate,
 ) -> rusqlite::Result<()> {
-    if let Some(existing_json) = sqlite_get_book_metadata_inner(connection, book_id)? {
-        if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&existing_json) {
-            val["progress"] = serde_json::json!(update.progress);
-            if let Some(ref loc) = update.current_location {
-                val["currentLocation"] = serde_json::json!(loc);
-            }
-            val["lastReadAt"] = serde_json::json!(update.last_read_at);
-            if let Some(lcf) = update.last_click_fraction {
-                val["lastClickFraction"] = serde_json::json!(lcf);
-            }
-            if let Some(ref pp) = update.page_progress_json {
-                if let Ok(pp_val) = serde_json::from_str::<serde_json::Value>(pp) {
-                    val["pageProgress"] = pp_val;
+    with_atomic_write(connection, || {
+        if let Some(existing_json) = sqlite_get_book_metadata_inner(connection, book_id)? {
+            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&existing_json) {
+                val["progress"] = serde_json::json!(update.progress);
+                if let Some(ref loc) = update.current_location {
+                    val["currentLocation"] = serde_json::json!(loc);
                 }
-            }
-            if let Some(ref pdf) = update.pdf_view_state_json {
-                if let Ok(pdf_val) = serde_json::from_str::<serde_json::Value>(pdf) {
-                    val["pdfViewState"] = pdf_val;
+                val["lastReadAt"] = serde_json::json!(update.last_read_at);
+                if let Some(lcf) = update.last_click_fraction {
+                    val["lastClickFraction"] = serde_json::json!(lcf);
                 }
+                if let Some(ref pp) = update.page_progress_json {
+                    if let Ok(pp_val) = serde_json::from_str::<serde_json::Value>(pp) {
+                        val["pageProgress"] = pp_val;
+                    }
+                }
+                if let Some(ref pdf) = update.pdf_view_state_json {
+                    if let Ok(pdf_val) = serde_json::from_str::<serde_json::Value>(pdf) {
+                        val["pdfViewState"] = pdf_val;
+                    }
+                }
+                let updated_json = serde_json::to_string(&val).unwrap_or(existing_json);
+                connection.execute(
+                    "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch())
+                     ON CONFLICT(book_id) DO UPDATE SET metadata_json = ?2, updated_at = unixepoch()",
+                    params![book_id, updated_json],
+                )?;
             }
-            let updated_json = serde_json::to_string(&val).unwrap_or(existing_json);
-            connection.execute(
-                "INSERT INTO book_metadata(book_id, metadata_json, updated_at) VALUES(?1, ?2, unixepoch())
-                 ON CONFLICT(book_id) DO UPDATE SET metadata_json = ?2, updated_at = unixepoch()",
-                params![book_id, updated_json],
-            )?;
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn sqlite_update_book_progress(
@@ -1101,5 +1112,23 @@ mod tests {
             })
             .unwrap();
         assert_eq!(title, "Title");
+    }
+
+    #[test]
+    fn sqlite_save_book_metadata_rolls_back_on_fts_failure() {
+        let conn = setup_db();
+        conn.execute_batch("DROP TABLE books_fts_content;").unwrap();
+
+        let err = sqlite_save_book_metadata_inner(
+            &conn,
+            "b_fts_fail",
+            r#"{"id":"b_fts_fail","title":"Atomic Test"}"#,
+        );
+        assert!(err.is_err(), "FTS failure must fail metadata save");
+        let saved: Option<String> = sqlite_get_book_metadata_inner(&conn, "b_fts_fail").unwrap();
+        assert!(
+            saved.is_none(),
+            "book_metadata write must roll back when books_fts insert fails"
+        );
     }
 }

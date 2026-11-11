@@ -12,20 +12,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FuzzyCandidateInput {
-    pub id: String,
-    pub title: String,
-    pub author: Option<String>,
-    pub tags: Option<String>,
-    pub format: Option<String>,
+    pub id: Box<str>,
+    pub title: Box<str>,
+    pub author: Option<Box<str>>,
+    pub tags: Option<Box<str>>,
+    pub format: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FuzzyMatchResult {
-    pub id: String,
+    pub id: Box<str>,
     pub score: u32,
-    pub title_indices: Vec<u32>,
-    pub author_indices: Vec<u32>,
+    pub title_indices: Box<[u32]>,
+    pub author_indices: Box<[u32]>,
+}
+
+/// Reusable scratch buffers to eliminate per-candidate `Vec<char>` allocations.
+#[derive(Default)]
+pub struct FuzzyScratch {
+    utf32_buf: Vec<char>,
+    author_buf: Vec<char>,
+    found_indices: Vec<u32>,
 }
 
 /// Matches a single string against a query pattern, returning score and matched UTF-32 char indices.
@@ -35,14 +43,25 @@ pub fn match_string(
     haystack: &str,
     indices: &mut Vec<u32>,
 ) -> Option<u32> {
+    let mut scratch = FuzzyScratch::default();
+    match_string_with_scratch(matcher, pattern, haystack, indices, &mut scratch)
+}
+
+/// Matches a single string using a caller-supplied [`FuzzyScratch`] buffer.
+pub fn match_string_with_scratch(
+    matcher: &mut Matcher,
+    pattern: &Pattern,
+    haystack: &str,
+    indices: &mut Vec<u32>,
+    scratch: &mut FuzzyScratch,
+) -> Option<u32> {
     indices.clear();
-    let mut buf: Vec<char> = Vec::new();
-    let utf32 = Utf32Str::new(haystack, &mut buf);
+    scratch.utf32_buf.clear();
+    let utf32 = Utf32Str::new(haystack, &mut scratch.utf32_buf);
     pattern.score(utf32, matcher).inspect(|_| {
-        // Collect indices of matched characters
-        let mut char_indices = Vec::new();
-        pattern.indices(utf32, matcher, &mut char_indices);
-        *indices = char_indices;
+        scratch.found_indices.clear();
+        pattern.indices(utf32, matcher, &mut scratch.found_indices);
+        indices.extend_from_slice(&scratch.found_indices);
     })
 }
 
@@ -99,15 +118,22 @@ fn score_word(
     field: &[char],
     matcher: &mut Matcher,
     indices: &mut Vec<u32>,
+    found: &mut Vec<u32>,
 ) -> Option<u32> {
-    let mut found = Vec::new();
-    let score = atom.indices(Utf32Str::Unicode(field), matcher, &mut found)?;
+    found.clear();
+    let score = atom.indices(Utf32Str::Unicode(field), matcher, found)?;
     found.sort_unstable();
-    if !is_meaningful_match(field, &found, needle_len) {
+    if !is_meaningful_match(field, found, needle_len) {
         return None;
     }
-    indices.extend(found);
+    indices.extend(found.iter().copied());
     Some(u32::from(score))
+}
+
+struct BookScore {
+    score: u32,
+    title_indices: Box<[u32]>,
+    author_indices: Box<[u32]>,
 }
 
 /// Every query word must match the title or the author meaningfully. Returns
@@ -117,15 +143,34 @@ fn score_book(
     title: &str,
     author: Option<&str>,
     matcher: &mut Matcher,
-) -> Option<(u32, Vec<u32>, Vec<u32>)> {
-    let title_chars: Vec<char> = title.chars().collect();
-    let author_chars: Vec<char> = author.map(|a| a.chars().collect()).unwrap_or_default();
+    scratch: &mut FuzzyScratch,
+) -> Option<BookScore> {
+    scratch.utf32_buf.clear();
+    scratch.utf32_buf.extend(title.chars());
+    scratch.author_buf.clear();
+    if let Some(a) = author {
+        scratch.author_buf.extend(a.chars());
+    }
     let mut title_indices = Vec::new();
     let mut author_indices = Vec::new();
     let mut total = 0u32;
     for (atom, len) in atoms {
-        let t = score_word(atom, *len, &title_chars, matcher, &mut title_indices);
-        let a = score_word(atom, *len, &author_chars, matcher, &mut author_indices);
+        let t = score_word(
+            atom,
+            *len,
+            &scratch.utf32_buf,
+            matcher,
+            &mut title_indices,
+            &mut scratch.found_indices,
+        );
+        let a = score_word(
+            atom,
+            *len,
+            &scratch.author_buf,
+            matcher,
+            &mut author_indices,
+            &mut scratch.found_indices,
+        );
         total += match (t, a) {
             (Some(t), Some(a)) => t.max(a) + t.min(a) / 4,
             (Some(s), None) | (None, Some(s)) => s,
@@ -136,7 +181,11 @@ fn score_book(
         indices.sort_unstable();
         indices.dedup();
     }
-    (total > 0).then_some((total, title_indices, author_indices))
+    (total > 0).then(|| BookScore {
+        score: total,
+        title_indices: title_indices.into_boxed_slice(),
+        author_indices: author_indices.into_boxed_slice(),
+    })
 }
 
 /// Ranks a batch of candidate items using nucleo-matcher SIMD scoring and extracts exact match indices.
@@ -153,24 +202,30 @@ pub fn rank_candidates(
             .map(|c| FuzzyMatchResult {
                 id: c.id.clone(),
                 score: 0,
-                title_indices: Vec::new(),
-                author_indices: Vec::new(),
+                title_indices: Box::new([]),
+                author_indices: Box::new([]),
             })
             .collect();
     }
 
     let atoms = query_atoms(trimmed);
     let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut scratch = FuzzyScratch::default();
     let mut results: Vec<FuzzyMatchResult> = candidates
         .iter()
         .filter_map(|c| {
-            let (score, title_indices, author_indices) =
-                score_book(&atoms, &c.title, c.author.as_deref(), &mut matcher)?;
+            let hit = score_book(
+                &atoms,
+                &c.title,
+                c.author.as_deref(),
+                &mut matcher,
+                &mut scratch,
+            )?;
             Some(FuzzyMatchResult {
                 id: c.id.clone(),
-                score,
-                title_indices,
-                author_indices,
+                score: hit.score,
+                title_indices: hit.title_indices,
+                author_indices: hit.author_indices,
             })
         })
         .collect();
@@ -185,12 +240,12 @@ use tauri::AppHandle;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TwoTierSearchResult {
-    pub book_id: String,
-    pub title: String,
-    pub author: Option<String>,
+    pub book_id: Box<str>,
+    pub title: Box<str>,
+    pub author: Option<Box<str>>,
     pub score: u32,
-    pub title_indices: Vec<u32>,
-    pub author_indices: Vec<u32>,
+    pub title_indices: Box<[u32]>,
+    pub author_indices: Box<[u32]>,
 }
 
 #[tauri::command]
@@ -198,12 +253,12 @@ pub async fn fuzzy_rank_candidates(
     candidates: Vec<FuzzyCandidateInput>,
     query: String,
     limit: Option<usize>,
-) -> Result<Vec<FuzzyMatchResult>, String> {
+) -> Result<Vec<FuzzyMatchResult>, crate::error::AppError> {
     tokio::task::spawn_blocking(move || {
         Ok(rank_candidates(&candidates, &query, limit.unwrap_or(50)))
     })
     .await
-    .map_err(|e| format!("Join error: {e}"))?
+    .map_err(|e| crate::error::AppError::internal(format!("Join error: {e}")))?
 }
 
 #[tauri::command]
@@ -211,7 +266,7 @@ pub async fn two_tier_search_books(
     app: AppHandle,
     query: String,
     limit: Option<usize>,
-) -> Result<Vec<TwoTierSearchResult>, String> {
+) -> Result<Vec<TwoTierSearchResult>, crate::error::AppError> {
     tokio::task::spawn_blocking(move || {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -291,18 +346,24 @@ pub async fn two_tier_search_books(
         // above) only survive a meaningful match; see `is_meaningful_match`.
         let atoms = query_atoms(trimmed);
         let mut matcher = Matcher::new(Config::DEFAULT);
+        let mut scratch = FuzzyScratch::default();
         let mut results: Vec<TwoTierSearchResult> = candidates
             .into_iter()
             .filter_map(|(book_id, title, author)| {
-                let (score, title_indices, author_indices) =
-                    score_book(&atoms, &title, author.as_deref(), &mut matcher)?;
+                let hit = score_book(
+                    &atoms,
+                    &title,
+                    author.as_deref(),
+                    &mut matcher,
+                    &mut scratch,
+                )?;
                 Some(TwoTierSearchResult {
-                    book_id,
-                    title,
-                    author,
-                    score,
-                    title_indices,
-                    author_indices,
+                    book_id: book_id.into_boxed_str(),
+                    title: title.into_boxed_str(),
+                    author: author.map(String::into_boxed_str),
+                    score: hit.score,
+                    title_indices: hit.title_indices,
+                    author_indices: hit.author_indices,
                 })
             })
             .collect();
@@ -312,7 +373,7 @@ pub async fn two_tier_search_books(
         Ok(results)
     })
     .await
-    .map_err(|e| format!("Search task error: {e}"))?
+    .map_err(|e| crate::error::AppError::internal(format!("Search task error: {e}")))?
 }
 
 #[cfg(test)]
@@ -323,23 +384,23 @@ mod tests {
     fn test_nucleo_fuzzy_ranking() {
         let candidates = vec![
             FuzzyCandidateInput {
-                id: "1".to_string(),
-                title: "Dune".to_string(),
-                author: Some("Frank Herbert".to_string()),
+                id: "1".into(),
+                title: "Dune".into(),
+                author: Some("Frank Herbert".into()),
                 tags: None,
                 format: None,
             },
             FuzzyCandidateInput {
-                id: "2".to_string(),
-                title: "Dune Messiah".to_string(),
-                author: Some("Frank Herbert".to_string()),
+                id: "2".into(),
+                title: "Dune Messiah".into(),
+                author: Some("Frank Herbert".into()),
                 tags: None,
                 format: None,
             },
             FuzzyCandidateInput {
-                id: "3".to_string(),
-                title: "The Hobbit".to_string(),
-                author: Some("J.R.R. Tolkien".to_string()),
+                id: "3".into(),
+                title: "The Hobbit".into(),
+                author: Some("J.R.R. Tolkien".into()),
                 tags: None,
                 format: None,
             },
@@ -354,9 +415,9 @@ mod tests {
     #[test]
     fn test_nucleo_acronym_matching() {
         let candidates = vec![FuzzyCandidateInput {
-            id: "1".to_string(),
-            title: "The Lord of the Rings".to_string(),
-            author: Some("J.R.R. Tolkien".to_string()),
+            id: "1".into(),
+            title: "The Lord of the Rings".into(),
+            author: Some("J.R.R. Tolkien".into()),
             tags: None,
             format: None,
         }];
@@ -368,9 +429,9 @@ mod tests {
 
     fn book(id: &str, title: &str, author: &str) -> FuzzyCandidateInput {
         FuzzyCandidateInput {
-            id: id.to_string(),
-            title: title.to_string(),
-            author: Some(author.to_string()),
+            id: id.into(),
+            title: title.into(),
+            author: Some(author.into()),
             tags: None,
             format: None,
         }
@@ -395,13 +456,13 @@ mod tests {
             book("4", "Characters in Fiction", "Jane Roe"),
         ];
         let results = rank_candidates(&candidates, "character", 10);
-        let ids: Vec<&str> = results.iter().map(|r| r.id.as_str()).collect();
+        let ids: Vec<&str> = results.iter().map(|r| &*r.id).collect();
         assert_eq!(ids.len(), 2, "{ids:?}");
         assert!(ids.contains(&"3") && ids.contains(&"4"), "{ids:?}");
 
         // A query with a missing letter still finds the compact match.
         let typo = rank_candidates(&candidates, "charcter", 10);
-        let ids: Vec<&str> = typo.iter().map(|r| r.id.as_str()).collect();
+        let ids: Vec<&str> = typo.iter().map(|r| &*r.id).collect();
         assert!(ids.contains(&"3") && ids.contains(&"4"), "{ids:?}");
         assert!(!ids.contains(&"1") && !ids.contains(&"2"), "{ids:?}");
     }
@@ -414,7 +475,7 @@ mod tests {
         ];
         let results = rank_candidates(&candidates, "hobbit tolkien", 10);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].id, "1");
+        assert_eq!(&*results[0].id, "1");
         assert!(!results[0].title_indices.is_empty());
         assert!(!results[0].author_indices.is_empty());
         assert!(rank_candidates(&candidates, "zzz", 10).is_empty());

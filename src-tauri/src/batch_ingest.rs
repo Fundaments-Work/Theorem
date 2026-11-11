@@ -309,9 +309,15 @@ pub(crate) fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
 
         // Normalize path
         let norm_path = full_cover_path.replace('\\', "/");
-        if let Ok(mut cover_entry) = archive.by_name(&norm_path) {
+        const MAX_COVER_ENTRY_BYTES: usize = 32 * 1024 * 1024;
+        if let Ok(cover_entry) = archive.by_name(&norm_path) {
             let mut cover_bytes = Vec::new();
-            if cover_entry.read_to_end(&mut cover_bytes).is_ok() {
+            if cover_entry
+                .take((MAX_COVER_ENTRY_BYTES as u64).saturating_add(1))
+                .read_to_end(&mut cover_bytes)
+                .is_ok()
+                && cover_bytes.len() <= MAX_COVER_ENTRY_BYTES
+            {
                 cover_data_url = downsample_cover_to_data_url(&cover_bytes);
             }
         }
@@ -337,9 +343,15 @@ pub(crate) fn parse_epub_native(path: &Path) -> Result<ParsedMetadata, String> {
         }
 
         if let Some(name) = candidate_cover_name {
-            if let Ok(mut cover_entry) = archive.by_name(&name) {
+            const MAX_COVER_ENTRY_BYTES: usize = 32 * 1024 * 1024;
+            if let Ok(cover_entry) = archive.by_name(&name) {
                 let mut bytes = Vec::new();
-                if cover_entry.read_to_end(&mut bytes).is_ok() {
+                if cover_entry
+                    .take((MAX_COVER_ENTRY_BYTES as u64).saturating_add(1))
+                    .read_to_end(&mut bytes)
+                    .is_ok()
+                    && bytes.len() <= MAX_COVER_ENTRY_BYTES
+                {
                     cover_data_url = downsample_cover_to_data_url(&bytes);
                 }
             }
@@ -978,6 +990,29 @@ pub fn ingest_job_file(
     cancel: &Arc<AtomicBool>,
     report: &ImportReporter<'_>,
 ) -> Result<Option<IngestItem>, crate::error::AppError> {
+    ingest_job_file_with_hint(
+        raw_path,
+        cache_dir,
+        book_id,
+        known,
+        move_source,
+        None,
+        cancel,
+        report,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn ingest_job_file_with_hint(
+    raw_path: &str,
+    cache_dir: &Path,
+    book_id: &str,
+    known: &[KnownBook],
+    move_source: bool,
+    format_hint: Option<&str>,
+    cancel: &Arc<AtomicBool>,
+    report: &ImportReporter<'_>,
+) -> Result<Option<IngestItem>, crate::error::AppError> {
     uuid::Uuid::parse_str(book_id)
         .map_err(|_| crate::error::AppError::invalid_input("Invalid import book identity"))?;
     std::fs::create_dir_all(cache_dir)?;
@@ -997,10 +1032,34 @@ pub fn ingest_job_file(
         Some(report),
         Some(cancel.clone()),
         move_source,
+        format_hint,
     ) {
         Ok(item) => Ok(Some(item)),
         Err(FileError::Cancelled) => Ok(None),
         Err(FileError::Failed(message)) => Err(crate::error::AppError::io(message)),
+    }
+}
+
+fn move_or_copy_with_rename<F>(source: &Path, dest: &Path, rename: F) -> std::io::Result<()>
+where
+    F: FnOnce(&Path, &Path) -> std::io::Result<()>,
+{
+    match rename(source, dest) {
+        Ok(()) => Ok(()),
+        Err(err)
+            if err.kind() == std::io::ErrorKind::CrossesDevices
+                || err.raw_os_error() == Some(18) =>
+        {
+            std::fs::copy(source, dest)?;
+            if let Err(rm_err) = std::fs::remove_file(source) {
+                log::warn!(
+                    "[batch_ingest] Failed to remove source '{}' after cross-device copy: {rm_err}",
+                    source.display()
+                );
+            }
+            Ok(())
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -1013,9 +1072,11 @@ fn ingest_one(raw_path: &str, size: u64, batch: &Batch) -> Result<IngestItem, Fi
         None,
         None,
         false,
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ingest_one_with_id(
     raw_path: &str,
     size: u64,
@@ -1024,6 +1085,7 @@ fn ingest_one_with_id(
     reporter: Option<&ImportReporter<'_>>,
     conversion_cancel: Option<Arc<AtomicBool>>,
     move_source: bool,
+    format_hint: Option<&str>,
 ) -> Result<IngestItem, FileError> {
     let hash = |path: &Path| match reporter {
         Some(report) => hash_with_progress(path, batch.cancel, report),
@@ -1038,7 +1100,8 @@ fn ingest_one_with_id(
             if batch.cancel.load(Ordering::Relaxed) {
                 return Err(FileError::Cancelled);
             }
-            std::fs::rename(source, dest).map_err(|error| describe_io(&error))?;
+            move_or_copy_with_rename(source, dest, |s, d| std::fs::rename(s, d))
+                .map_err(|error| describe_io(&error))?;
             return Ok(content_hash);
         }
         match reporter {
@@ -1051,7 +1114,7 @@ fn ingest_one_with_id(
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
-    let Some(format) = crate::folder_walk::book_format_for_name(&name) else {
+    let Some(format) = crate::folder_walk::book_format_for_name_or_mime(&name, format_hint) else {
         return Err("This kind of file is not supported".to_string().into());
     };
     if size == 0 {
@@ -2122,5 +2185,74 @@ mod tests {
         let done = serde_json::to_value(sent.last().unwrap()).unwrap();
         assert_eq!(done["kind"], "done");
         assert_eq!(done["summary"]["failed"], 10);
+    }
+
+    #[test]
+    fn extensionless_file_uses_format_or_mime_hint() {
+        let src = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let epub_bytes = std::fs::read(fixture("epub/multi-chapter.epub")).unwrap();
+        let path = put(src.path(), "extensionless-upload", &epub_bytes);
+        let id = uuid::Uuid::new_v4().to_string();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let item = ingest_job_file_with_hint(
+            &path,
+            cache.path(),
+            &id,
+            &[],
+            false,
+            Some("application/epub+zip"),
+            &cancel,
+            &|_, _, _| {},
+        )
+        .unwrap()
+        .unwrap();
+        match item {
+            IngestItem::Imported { book, .. } => assert_eq!(book.format, "epub"),
+            other => panic!("expected extensionless MIME-matched epub to import, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn move_or_copy_falls_back_on_cross_device_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("source.book");
+        let dst = dir.path().join("dest.book");
+        std::fs::write(&src, b"cross-device-payload").unwrap();
+
+        let res = move_or_copy_with_rename(&src, &dst, |_, _| {
+            Err(std::io::Error::from_raw_os_error(18))
+        });
+        assert!(res.is_ok(), "EXDEV must fall back to copy+remove: {res:?}");
+        assert!(!src.exists(), "source must be removed after fallback copy");
+        assert_eq!(std::fs::read(&dst).unwrap(), b"cross-device-payload");
+    }
+
+    #[test]
+    fn sparse_file_above_u32_max_does_not_truncate_to_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.epub");
+        let file = std::fs::File::create(&path).unwrap();
+        let over_4gb = (u32::MAX as u64) + 4096;
+        file.set_len(over_4gb).unwrap();
+        drop(file);
+
+        let batch = Batch {
+            known_hashes: std::collections::HashSet::new(),
+            shared_sizes: std::collections::HashSet::new(),
+            claimed: Default::default(),
+            cache_dir: cache.path(),
+            cancel: &AtomicBool::new(false),
+        };
+        let err = match ingest_one(path.to_str().unwrap(), over_4gb, &batch) {
+            Ok(_) => panic!("sparse zero file is not a valid epub"),
+            Err(FileError::Failed(msg)) => msg,
+            Err(FileError::Cancelled) => panic!("not cancelled"),
+        };
+        assert!(
+            !err.contains("empty") && !err.contains("too large"),
+            "4 GiB+ file should pass empty and <=8 GiB bounds and reach parser, got: {err}"
+        );
     }
 }

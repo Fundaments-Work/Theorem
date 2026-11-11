@@ -29,7 +29,7 @@ export default function ImportProgressPanel() {
     const act = async (operation: () => Promise<void>) => {
         setPending(true);
         setOperationError(null);
-        try { await operation(); } catch (failure) { setOperationError(String(failure)); }
+        try { await operation(); } catch (failure) { setOperationError(failure instanceof Error ? failure.message : String(failure)); }
         finally { setPending(false); }
     };
     return <section role="region" aria-label="Import progress" className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 sm:px-6">
@@ -37,8 +37,8 @@ export default function ImportProgressPanel() {
         {snapshot?.id && <>
             <div className="flex flex-wrap items-center gap-2 text-sm">
                 <p role="status" className="min-w-0 flex-1 truncate">{label}{current?.name ? `: ${current.name}` : ""}</p>
-                <span>{snapshot?.completed} / {snapshot?.total} files</span>
-                {!!snapshot?.errors.length && <span role="alert">{snapshot.errors.length} import errors</span>}
+                <span>{snapshot?.completed} / {snapshot?.total} {snapshot?.total === 1 ? "file" : "files"}</span>
+                {!!snapshot?.errors.length && <span role="alert">{snapshot.errors.length} {snapshot.errors.length === 1 ? "import error" : "import errors"}</span>}
                 {snapshot?.active && <button type="button" disabled={pending} onClick={() => { void act(stopNativeImport); }} className="text-[color:var(--color-accent)] disabled:opacity-50">Stop import</button>}
                 {snapshot?.resumable && <button type="button" disabled={pending} onClick={() => { void act(resumeNativeImport); }} className="text-[color:var(--color-accent)] disabled:opacity-50">Resume import</button>}
                 {snapshot?.resumable && <button type="button" disabled={pending} onClick={() => { void act(discardNativeImport); }} className="text-[color:var(--color-accent)] disabled:opacity-50">Discard pending import</button>}

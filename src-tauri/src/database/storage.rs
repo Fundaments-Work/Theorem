@@ -89,48 +89,58 @@ pub fn cleanup_orphaned_storage_in(
     store: &DataStore,
     existing_book_ids: Vec<String>,
 ) -> Result<SqliteCleanupResult, AppError> {
-    store.with_connection(|connection| {
-        let existing_ids: HashSet<String> = existing_book_ids.into_iter().collect();
+    let existing_ids: HashSet<String> = existing_book_ids.into_iter().collect();
+    let (removed_books, removed_covers, purged_book_ids) = store.with_connection(|connection| {
+        with_atomic_write(connection, || {
+            let mut removed_books = 0_u64;
+            let mut removed_covers = 0_u64;
+            let mut purged_book_ids = Vec::new();
 
-        let mut removed_books = 0_u64;
-        let mut removed_covers = 0_u64;
+            let existing_rows: Vec<String> = {
+                let mut statement = connection.prepare("SELECT id FROM books")?;
+                let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+                rows.collect::<rusqlite::Result<Vec<String>>>()?
+            };
 
-        let existing_rows: Vec<String> = {
-            let mut statement = connection.prepare("SELECT id FROM books")?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-            rows.collect::<rusqlite::Result<Vec<String>>>()?
-        };
-
-        for id in existing_rows {
-            // Deleting a `books` row cascades to its highlights: an RSS
-            // article's anchor row is never an orphan.
-            if !existing_ids.contains(&id) && !is_article_anchor(&id) {
-                remove_materialized_cache_file_in(store.dir(), &id);
-                let affected =
-                    connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
-                removed_books = removed_books.saturating_add(affected as u64);
+            for id in existing_rows {
+                // Deleting a `books` row cascades to its highlights: an RSS
+                // article's anchor row is never an orphan.
+                if !existing_ids.contains(&id) && !is_article_anchor(&id) {
+                    let affected =
+                        connection.execute("DELETE FROM books WHERE id = ?1", params![id])?;
+                    if affected > 0 {
+                        purged_book_ids.push(id);
+                    }
+                    removed_books = removed_books.saturating_add(affected as u64);
+                }
             }
-        }
 
-        let existing_cover_rows: Vec<String> = {
-            let mut statement = connection.prepare("SELECT book_id FROM covers")?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-            rows.collect::<rusqlite::Result<Vec<String>>>()?
-        };
+            let existing_cover_rows: Vec<String> = {
+                let mut statement = connection.prepare("SELECT book_id FROM covers")?;
+                let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+                rows.collect::<rusqlite::Result<Vec<String>>>()?
+            };
 
-        for id in existing_cover_rows {
-            if !existing_ids.contains(&id) {
-                let affected =
-                    connection.execute("DELETE FROM covers WHERE book_id = ?1", params![id])?;
-                removed_covers = removed_covers.saturating_add(affected as u64);
+            for id in existing_cover_rows {
+                if !existing_ids.contains(&id) {
+                    let affected =
+                        connection.execute("DELETE FROM covers WHERE book_id = ?1", params![id])?;
+                    removed_covers = removed_covers.saturating_add(affected as u64);
+                }
             }
-        }
 
-        Ok(SqliteCleanupResult {
-            removed_books,
-            removed_covers,
-            removed_metadata: 0,
+            Ok((removed_books, removed_covers, purged_book_ids))
         })
+    })?;
+
+    for id in purged_book_ids {
+        remove_materialized_cache_file_in(store.dir(), &id);
+    }
+
+    Ok(SqliteCleanupResult {
+        removed_books,
+        removed_covers,
+        removed_metadata: 0,
     })
 }
 

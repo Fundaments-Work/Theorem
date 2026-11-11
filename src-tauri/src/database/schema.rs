@@ -71,7 +71,7 @@ fn apply_startup_migrations(conn: &Connection) -> Result<(), String> {
         .unwrap_or(false);
     if !has_data {
         conn.execute_batch("ALTER TABLE covers ADD COLUMN data BLOB;")
-            .ok();
+            .map_err(|e| format!("Failed to add covers.data column: {e}"))?;
     }
 
     let has_mime: bool = conn
@@ -83,7 +83,7 @@ fn apply_startup_migrations(conn: &Connection) -> Result<(), String> {
         .unwrap_or(false);
     if !has_mime {
         conn.execute_batch("ALTER TABLE covers ADD COLUMN mime TEXT;")
-            .ok();
+            .map_err(|e| format!("Failed to add covers.mime column: {e}"))?;
     }
 
     run_v153_database_migrations(conn)
@@ -354,7 +354,11 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                     let progress = article["progress"].as_f64();
 
                     if !id.is_empty() && !feed_id.is_empty() {
-                        let _ = tx.execute(
+                        tx.execute(
+                            "INSERT OR IGNORE INTO rss_feeds (id, title, url, added_at, updated_at) VALUES (?1, '', '', unixepoch() * 1000, unixepoch())",
+                            params![feed_id],
+                        )?;
+                        tx.execute(
                             r#"
                             INSERT OR IGNORE INTO rss_articles (
                                 id, feed_id, title, author, url, summary,
@@ -375,16 +379,16 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                                 is_favorite,
                                 progress
                             ],
-                        );
+                        )?;
 
-                        let _ = tx.execute(
+                        tx.execute(
                             r#"
                             INSERT OR IGNORE INTO rss_article_content (
                                 article_id, content, full_content, updated_at
                             ) VALUES (?1, ?2, ?3, unixepoch())
                             "#,
                             params![id, content, full_content],
-                        );
+                        )?;
                     }
                 }
             }
@@ -603,11 +607,9 @@ pub fn run_v159_database_migrations(connection: &Connection) -> rusqlite::Result
         )
         .unwrap_or(false);
     if !has_is_saved {
-        connection
-            .execute_batch(
-                "ALTER TABLE rss_articles ADD COLUMN is_saved INTEGER NOT NULL DEFAULT 0;",
-            )
-            .ok();
+        connection.execute_batch(
+            "ALTER TABLE rss_articles ADD COLUMN is_saved INTEGER NOT NULL DEFAULT 0;",
+        )?;
     }
 
     connection.execute(

@@ -17,8 +17,8 @@ const FILE_TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 struct DownloadProgress {
     book_id: String,
     progress: f64,
-    downloaded: usize,
-    total: usize,
+    downloaded: u64,
+    total: u64,
 }
 
 /// A connection to a paired device, and which device it is.
@@ -286,7 +286,7 @@ async fn connect_and_request(
     app: &tauri::AppHandle,
     peer_device_id: &str,
     book_id: &str,
-) -> Result<(tokio::io::BufReader<iroh::endpoint::RecvStream>, usize), String> {
+) -> Result<(tokio::io::BufReader<iroh::endpoint::RecvStream>, u64), String> {
     let peer = connect_peer(app, peer_device_id, CONNECT_TIMEOUT).await?;
     let conn = &peer.conn;
     let (mut send, recv) = tokio::time::timeout(CONNECT_TIMEOUT, conn.open_bi())
@@ -315,7 +315,7 @@ async fn connect_and_request(
     let status_line = status_line.trim();
 
     if let Some(size_str) = status_line.strip_prefix("OK ") {
-        let size: usize = size_str
+        let size: u64 = size_str
             .parse()
             .map_err(|_| format!("invalid size: {size_str}"))?;
         Ok((reader, size))
@@ -438,7 +438,11 @@ impl FileTransferHandler {
             if let Ok(val) = stmt.query_row([], |row| row.get::<_, String>(0)) {
                 if let Ok(tombstones) = serde_json::from_str::<Vec<serde_json::Value>>(&val) {
                     for ts in tombstones {
-                        let id = ts.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let id = ts
+                            .get("entityId")
+                            .or_else(|| ts.get("id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         let entity_type =
                             ts.get("entityType").and_then(|v| v.as_str()).unwrap_or("");
                         if id == book_id && (entity_type.is_empty() || entity_type == "book") {
@@ -466,7 +470,15 @@ impl FileTransferHandler {
                             .or_else(|| lib_val.get("deletionTombstones").and_then(|t| t.as_array()))
                         {
                             for ts in ts_arr {
-                                if ts.get("id").and_then(|v| v.as_str()) == Some(book_id) {
+                                let id = ts
+                                    .get("entityId")
+                                    .or_else(|| ts.get("id"))
+                                    .and_then(|v| v.as_str());
+                                let entity_type =
+                                    ts.get("entityType").and_then(|v| v.as_str()).unwrap_or("");
+                                if id == Some(book_id)
+                                    && (entity_type.is_empty() || entity_type == "book")
+                                {
                                     return BookLookup::Deleted;
                                 }
                             }
@@ -547,6 +559,13 @@ impl FileTransferHandler {
             return Err("invalid book id".to_string());
         }
 
+        let db_lookup = Self::find_in_db(data_dir, book_id);
+        if matches!(db_lookup, BookLookup::Deleted) {
+            return Err(format!(
+                "PEER_BOOK_DELETED: book '{book_id}' has been deleted on this device"
+            ));
+        }
+
         let cache_dir = data_dir.join("book-cache");
         let mut candidates = vec![
             cache_dir.join(format!("{book_id}.book")),
@@ -567,10 +586,8 @@ impl FileTransferHandler {
             }
         }
 
-        match Self::find_in_db(data_dir, book_id) {
-            BookLookup::Deleted => Err(format!(
-                "PEER_BOOK_DELETED: book '{book_id}' has been deleted on this device"
-            )),
+        match db_lookup {
+            BookLookup::Deleted => unreachable!(),
             BookLookup::Found(Some(data), _) if !data.is_empty() => Ok(ResolvedBook::Memory(data)),
             BookLookup::Found(_, paths) => paths
                 .iter()
@@ -732,7 +749,7 @@ pub async fn download_book_file(
     }
     let dest = crate::database::materialized_book_path(&app, &book_id)?;
     let (mut reader, size) = connect_and_request(&app, &peer_device_id, &book_id).await?;
-    if size as u64 > MAX_BOOK_BYTES {
+    if size > MAX_BOOK_BYTES {
         return Err(format!("peer offered a {size}-byte file; refusing"));
     }
     if let Some(parent) = dest.parent() {
@@ -746,9 +763,9 @@ pub async fn download_book_file(
         .await
         .map_err(|e| format!("create tmp file: {e}"))?;
 
-    let total = size;
-    let mut remaining = total;
-    let mut downloaded: usize = 0;
+    let total: u64 = size;
+    let mut remaining: u64 = total;
+    let mut downloaded: u64 = 0;
     let mut buf = vec![0u8; 1_048_576];
     let book_id_for_emit = book_id.clone();
     let mut last_emitted_pct = -1i32;
@@ -766,7 +783,7 @@ pub async fn download_book_file(
     }
 
     while remaining > 0 {
-        let to_read = remaining.min(buf.len());
+        let to_read = remaining.min(buf.len() as u64) as usize;
         let read_res = tokio::time::timeout(
             FILE_TRANSFER_TIMEOUT,
             reader.read_exact(&mut buf[..to_read]),
@@ -790,8 +807,8 @@ pub async fn download_book_file(
             return Err(format!("write chunk: {e}"));
         }
 
-        downloaded += n;
-        remaining -= n;
+        downloaded += n as u64;
+        remaining -= n as u64;
         if total > 0 {
             let pct = ((downloaded as f64 / total as f64) * 100.0) as i32;
             if pct != last_emitted_pct {
@@ -819,4 +836,41 @@ pub async fn download_book_file(
         .map_err(|e| format!("rename to final dest: {e}"))?;
 
     Ok(dest.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::{sqlite_set_kv_inner, DataStore};
+
+    #[test]
+    fn resolve_book_rejects_deleted_book_even_with_leftover_book_cache_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_dir = dir.path();
+        crate::database::run_startup_migrations_in(db_dir).unwrap();
+        let store = DataStore::open(db_dir).unwrap();
+        store
+            .with_connection(|conn| {
+                sqlite_set_kv_inner(
+                    conn,
+                    "zustand:theorem-library",
+                    r#"{"state":{"deletionTombstones":[{"entityId":"deleted-book","entityType":"book","deletedAt":"2026-01-01T00:00:00Z"}]}}"#,
+                )
+            })
+            .unwrap();
+        drop(store);
+
+        let cache = db_dir.join("book-cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("deleted-book.book"), b"stale book bytes").unwrap();
+
+        let err = match FileTransferHandler::resolve_book(db_dir, "deleted-book") {
+            Ok(_) => panic!("deleted book with stale cache file must not be served"),
+            Err(e) => e,
+        };
+        assert!(
+            err.contains("PEER_BOOK_DELETED"),
+            "unexpected error for deleted book: {err}"
+        );
+    }
 }

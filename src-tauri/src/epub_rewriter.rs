@@ -19,8 +19,10 @@ pub struct EpubMetadataEdit {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RewriteResult {
     pub size: u64,
+    pub blob_hash: Box<str>,
 }
 
 fn find_ci(haystack: &str, needle: &str) -> Option<usize> {
@@ -410,14 +412,24 @@ pub fn rewrite_epub_metadata_at(
 
     let new_bytes = rewrite_epub_bytes(&bytes, &metadata.unwrap_or_default(), cover.as_deref())?;
     let size = new_bytes.len() as u64;
+    let blob_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&new_bytes)).into_boxed_str()
+    };
 
-    let tmp_path = path.with_extension(format!("rewrite-tmp-{}", std::process::id()));
-    std::fs::write(&tmp_path, &new_bytes)
-        .map_err(|e| format!("Failed to write rewritten EPUB: {e}"))?;
-    std::fs::rename(&tmp_path, path)
-        .map_err(|e| format!("Failed to replace stored book file: {e}"))?;
+    static NEXT_TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = NEXT_TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = path.with_extension(format!("rewrite-tmp-{}-{seq}", std::process::id()));
+    if let Err(e) = std::fs::write(&tmp_path, &new_bytes) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("Failed to write rewritten EPUB: {e}"));
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("Failed to replace stored book file: {e}"));
+    }
 
-    Ok(RewriteResult { size })
+    Ok(RewriteResult { size, blob_hash })
 }
 
 #[cfg(test)]

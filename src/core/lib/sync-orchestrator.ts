@@ -28,6 +28,7 @@ import { isTauri } from "./env";
 import { loadStoredAnnotations } from "./annotation-load";
 import { acquireBookEditLock } from "./book-edit-lock";
 import { parseSyncEntityEntry, reportMalformedSyncEntry } from "./sync-entries";
+import { formatSyncDomainLabel } from "./sync-domain-labels";
 import {
     sqliteDeleteAnnotation,
     sqliteDeleteVocabularyTerm,
@@ -1261,18 +1262,6 @@ async function runDeviceSyncRound(
             log(`${pendingDownloads} book(s) available for on-demand download`);
         }
 
-        const domainLabels: Record<string, string> = {
-            books: "Books",
-            annotations: "Annotations",
-            collections: "Collections",
-            deletion_tombstones: "Deletions",
-            vocabulary: "Vocabulary",
-            rss_feeds: "Feeds",
-            rss_articles: "Articles",
-            settings: "Settings",
-            reading_stats: "Stats",
-        };
-
         let summary: string;
         if (changedDomains.size > 0) {
             const store = useLibraryStore.getState();
@@ -1288,7 +1277,7 @@ async function runDeviceSyncRound(
             const visibleDomains = [...changedDomains].filter(d => d !== "deletion_tombstones");
             const parts = visibleDomains
                 .map(d => {
-                    const label = domainLabels[d] || d;
+                    const label = formatSyncDomainLabel(d);
                     const count = counts[d];
                     return count !== undefined ? `${count} ${label}` : label;
                 })
@@ -1670,8 +1659,6 @@ async function _flushPendingTombstonesNow(): Promise<void> {
                 if (keptIds.has(ann.id)) continue;
                 void sqliteDeleteAnnotation(ann.id).catch((e) => console.error("[catch]", e));
             }
-        } else {
-            reportMalformedSyncEntry("deletion_tombstones", "not a list");
         }
         // Apply the deletions to SQLite too (books, their metadata and
         // annotations, words, articles), or a restart before the next
@@ -2048,6 +2035,13 @@ export async function startAutoSync(): Promise<() => void> {
                 void autoSyncRound(true);
             });
             cleanups.push(docReimportedUnlisten);
+
+            const needsReprovisionUnlisten = await listen("sync-needs-reprovision", () => {
+                debug("[sync] Iroh store recreated — marking provisioning needed");
+                markProvisioningNeeded();
+                void autoSyncRound(true);
+            });
+            cleanups.push(needsReprovisionUnlisten);
         } catch (e) {
             console.error("[sync] Doc re-import listener could not be set up:", e);
         }

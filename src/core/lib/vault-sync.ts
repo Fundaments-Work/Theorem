@@ -818,7 +818,7 @@ export async function runVaultAutoSync(): Promise<VaultSyncResult> {
         return { status: "skipped", message: "Markdown export sync is not enabled or configured." };
     }
 
-    setVaultSyncStatus("syncing", "STATUS: SYNCING_MARKDOWN_EXPORT");
+    setVaultSyncStatus("syncing", "Exporting markdown notes...");
 
     const { books, annotations } = useLibraryStore.getState();
     const { articles } = useRssStore.getState();

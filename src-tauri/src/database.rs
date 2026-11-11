@@ -184,6 +184,42 @@ pub(crate) fn db_pool_initialized() -> bool {
     DB_POOL.get().is_some()
 }
 
+/// Run `operation` atomically: starts `BEGIN IMMEDIATE` when the connection is
+/// in autocommit mode (acquiring the write lock before any initial read), or
+/// uses a `SAVEPOINT` when an outer transaction is already active.
+pub(crate) fn with_atomic_write<T, F>(connection: &Connection, operation: F) -> rusqlite::Result<T>
+where
+    F: FnOnce() -> rusqlite::Result<T>,
+{
+    if connection.is_autocommit() {
+        connection.execute_batch("BEGIN IMMEDIATE;")?;
+        match operation() {
+            Ok(value) => {
+                connection.execute_batch("COMMIT;")?;
+                Ok(value)
+            }
+            Err(err) => {
+                let _ = connection.execute_batch("ROLLBACK;");
+                Err(err)
+            }
+        }
+    } else {
+        connection.execute_batch("SAVEPOINT theorem_atomic_write;")?;
+        match operation() {
+            Ok(value) => {
+                connection.execute_batch("RELEASE SAVEPOINT theorem_atomic_write;")?;
+                Ok(value)
+            }
+            Err(err) => {
+                let _ = connection.execute_batch(
+                    "ROLLBACK TO SAVEPOINT theorem_atomic_write; RELEASE SAVEPOINT theorem_atomic_write;",
+                );
+                Err(err)
+            }
+        }
+    }
+}
+
 pub fn with_connection<T, F>(app: &AppHandle, operation: F) -> Result<T, AppError>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
