@@ -1,5 +1,4 @@
 export { ReaderPage } from './Reader';
-export { ArticleViewer } from './article-reader/ArticleViewer';
 
 export { ReaderSettings } from './components/ReaderSettings';
 export { WindowTitlebar } from './components/WindowTitlebar';

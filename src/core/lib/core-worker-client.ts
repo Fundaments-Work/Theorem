@@ -143,17 +143,13 @@ export class CoreWorkerClient {
             }
         }
 
-        // Main-thread fallback using vendor zip.js
-        const { ZipReader, BlobReader, configure } = await import(
-            "../../features/reader/foliate-js-runtime/vendor/zip.js"
-        );
-        configure({ useWebWorkers: false });
-        const reader = new ZipReader(new BlobReader(new Blob([buffer])));
-        const entries = await reader.getEntries();
+        // Main-thread fallback using fflate (keeps core/ independent of features/reader/)
+        const { unzipSync } = await import("fflate");
+        const files = unzipSync(new Uint8Array(buffer));
         return {
-            entries: (entries as any[]).map((e: any) => ({
-                filename: e.filename,
-                uncompressedSize: e.uncompressedSize || 0,
+            entries: Object.entries(files).map(([filename, data]) => ({
+                filename,
+                uncompressedSize: data.byteLength,
             })),
         };
     }

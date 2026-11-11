@@ -1,7 +1,7 @@
 import { strToU8, zipSync } from "fflate";
 import type { RssArticle } from "../types";
 import { isTauri } from "./env";
-import { sanitizeArticleHtml } from "../../features/reader/article-reader/utils";
+import { sanitizeArticleHtml } from "./sanitize-article-html";
 
 function escapeXml(unsafe: string): string {
     return unsafe

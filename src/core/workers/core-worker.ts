@@ -13,23 +13,10 @@ import init, {
     wasm_fuzzy_rank,
     wasm_markdown_to_html,
 } from "../wasm/theorem_core.js";
-import {
-    ZipReader,
-    BlobReader,
-    TextWriter,
-    configure,
-} from "../../features/reader/foliate-js-runtime/vendor/zip.js";
-
-// Disable nested workers inside this dedicated worker
-try {
-    configure({ useWebWorkers: false });
-} catch {
-    // ignore
-}
+import { unzipSync, strFromU8 } from "fflate";
 
 let wasmReady = false;
-let activeZipReader: InstanceType<typeof ZipReader> | null = null;
-const activeEntriesMap = new Map<string, any>();
+const activeEntriesMap = new Map<string, Uint8Array>();
 
 async function ensureWasm(wasmUrl?: string): Promise<boolean> {
     if (wasmReady) return true;
@@ -98,30 +85,20 @@ self.onmessage = async (event: MessageEvent) => {
                 if (!(buffer instanceof ArrayBuffer)) {
                     throw new Error("INIT_EPUB requires an ArrayBuffer");
                 }
-                if (activeZipReader) {
-                    try {
-                        await activeZipReader.close();
-                    } catch {
-                        // ignore
-                    }
-                    activeZipReader = null;
-                }
                 activeEntriesMap.clear();
 
-                const blob = new Blob([buffer]);
-                activeZipReader = new ZipReader(new BlobReader(blob));
-                const entries = await activeZipReader.getEntries();
+                const files = unzipSync(new Uint8Array(buffer));
                 const metadata: { filename: string; uncompressedSize: number }[] = [];
 
-                for (const entry of (entries as any[])) {
-                    activeEntriesMap.set(entry.filename, entry);
+                for (const [filename, data] of Object.entries(files)) {
+                    activeEntriesMap.set(filename, data);
                     // Also register without leading slash
-                    if (entry.filename.startsWith("/")) {
-                        activeEntriesMap.set(entry.filename.slice(1), entry);
+                    if (filename.startsWith("/")) {
+                        activeEntriesMap.set(filename.slice(1), data);
                     }
                     metadata.push({
-                        filename: entry.filename,
-                        uncompressedSize: entry.uncompressedSize || 0,
+                        filename,
+                        uncompressedSize: data.byteLength,
                     });
                 }
 
@@ -142,10 +119,10 @@ self.onmessage = async (event: MessageEvent) => {
                 }
 
                 if (asText) {
-                    const text = await entry.getData(new TextWriter());
+                    const text = strFromU8(entry);
                     self.postMessage({ id, type: "SUCCESS", data: text });
                 } else {
-                    const arrayBuffer: ArrayBuffer = await entry.arrayBuffer();
+                    const arrayBuffer: ArrayBuffer = entry.slice().buffer;
                     // Transfer ArrayBuffer without memory copying
                     (self as any).postMessage({ id, type: "SUCCESS", data: arrayBuffer }, [arrayBuffer]);
                 }

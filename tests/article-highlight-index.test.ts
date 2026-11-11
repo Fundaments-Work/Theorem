@@ -4,7 +4,7 @@ import {
     applyHighlightToIndexedNodes,
     buildArticleTextIndex,
     buildIndexedRange,
-} from "../src/features/reader/article-reader/ArticleViewer";
+} from "../src/features/reader/article-reader/highlight-index";
 import { setElementHtml } from "../src/core/lib/sanitize";
 
 function makeRoot(html: string): HTMLDivElement {
