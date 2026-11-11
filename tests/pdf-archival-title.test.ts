@@ -18,7 +18,7 @@ const BOOK_FILE = join(BOOK_CACHE, "02009b16-5826-4f98-a414-a483c27045df.book");
 const LIBRARY_TITLE =
     "CUDA by Example An Introduction to General-Purpose GPU Programming (Jason Sanders,Edward Kandrot)";
 const SOURCE_FILENAME = `${LIBRARY_TITLE} (Z-Library).pdf`;
-const FILE_PATH = `/run/media/sapiens/BackUP/Books/SoftwareDevelopment/CUDA/${SOURCE_FILENAME}`;
+const FILE_PATH = `/books/CUDA/${SOURCE_FILENAME}`;
 
 // Not every machine has the book; the pure-logic suite covers the same cases.
 describe.skipIf(!existsSync(BOOK_FILE))("real PDF from the bug report", () => {

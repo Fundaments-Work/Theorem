@@ -9,5 +9,5 @@ export function GlobalLoader() {
         return null;
     }
 
-    return <PageLoader message={message} className="fixed inset-0 z-[100]" />;
+    return <PageLoader message={message} className="fixed inset-0 z-[var(--z-sticky)]" />;
 }

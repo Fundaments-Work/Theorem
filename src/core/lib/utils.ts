@@ -5,6 +5,18 @@ export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
+/** Resolve a deterministic control ID from its accessible label, falling back to `fallbackId` when empty. */
+export function resolveControlId(
+    prefix: string,
+    label: string,
+    fallbackId: string,
+    explicitId?: string,
+): string {
+    if (explicitId) return explicitId;
+    const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug ? `${prefix}-${slug}` : `${prefix}-${fallbackId}`;
+}
+
 export function formatReadingTime(minutes: number): string {
     if (!Number.isFinite(minutes) || minutes <= 0) return "0m";
     if (minutes < 1) return "<1m";

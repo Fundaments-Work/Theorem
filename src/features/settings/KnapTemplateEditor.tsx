@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
     DEFAULT_KNAP_TEMPLATE,
     validateKnapTemplate,
@@ -61,9 +61,10 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
 
     const books = useLibraryStore((s) => s.books);
     const annotations = useLibraryStore((s) => s.annotations);
+    const sampleSyncDate = useMemo(() => new Date().toISOString().split("T")[0], []);
 
     // Pick first real book with annotations if available, otherwise canonical sample
-    const sampleData: KnapBookData = (() => {
+    const sampleData: KnapBookData = useMemo(() => {
         for (const book of books) {
             const bookAnnos = annotations.filter((a) => a.bookId === book.id && a.selectedText);
             if (bookAnnos.length > 0) {
@@ -81,13 +82,13 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
                         createdAt: a.createdAt ? new Date(a.createdAt).toISOString() : undefined,
                     })),
                     totalHighlights: bookAnnos.length,
-                    syncDate: new Date().toISOString().split("T")[0],
+                    syncDate: sampleSyncDate,
                     tags: ["reading/highlights", "theorem"],
                 };
             }
         }
         return CANONICAL_SAMPLE;
-    })();
+    }, [books, annotations, sampleSyncDate]);
 
     const validation = validateKnapTemplate(template);
 
@@ -95,8 +96,12 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
         let isMounted = true;
         void renderKnapBookPage(template || DEFAULT_KNAP_TEMPLATE, sampleData).then((res) => {
             if (isMounted) {
-                setPreviewContent(res.output);
-                setPreviewErrors(res.errors);
+                setPreviewContent((prev) => (prev === res.output ? prev : res.output));
+                setPreviewErrors((prev) =>
+                    prev.length === res.errors.length && prev.every((err, idx) => err === res.errors[idx])
+                        ? prev
+                        : res.errors,
+                );
             }
         });
         return () => {

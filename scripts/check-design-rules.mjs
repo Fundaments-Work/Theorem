@@ -81,6 +81,12 @@ const RULES = [
         skipFiles: [`core${sep}styles${sep}design-tokens.css`, `core${sep}lib${sep}system-insets.ts`],
         fix: "Use `var(--safe-area-top|right|bottom|left)`; Android's WebView reports wrong insets through env().",
     },
+    {
+        id: "no-named-max-width",
+        pattern: /(?<![\w-])max-w-(?:xs|sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl)(?![\w-])/g,
+        files: "tsx",
+        fix: "Named `max-w-*` utilities resolve to spacing tokens in this theme. Use `var(--container-width-*)` or explicit `rem`/`ch` widths.",
+    },
 ];
 
 function walk(dir, out = []) {

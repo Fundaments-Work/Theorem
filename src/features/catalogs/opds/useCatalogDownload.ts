@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { OpdsService, describeOpdsError } from "../../../core/services/OpdsService";
 import { useUIStore } from "../../../core/store";
@@ -12,10 +12,12 @@ import { formatBytes } from "./opds-ui-utils";
 export function useCatalogDownload(auth?: OpdsCredentials) {
     const setRoute = useUIStore((state) => state.setRoute);
     const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
+    const inFlightRef = useRef<Set<string>>(new Set());
 
     const download = useCallback(
         async (entry: OpdsEntry): Promise<boolean> => {
-            if (busy.has(entry.id)) return false;
+            if (inFlightRef.current.has(entry.id)) return false;
+            inFlightRef.current.add(entry.id);
             setBusy((prev) => new Set(prev).add(entry.id));
             const toastId = toast.loading(`Adding "${entry.title}"…`);
             try {
@@ -43,6 +45,7 @@ export function useCatalogDownload(auth?: OpdsCredentials) {
                 toast.error(describeOpdsError(error), { id: toastId });
                 return false;
             } finally {
+                inFlightRef.current.delete(entry.id);
                 setBusy((prev) => {
                     const next = new Set(prev);
                     next.delete(entry.id);
@@ -50,7 +53,7 @@ export function useCatalogDownload(auth?: OpdsCredentials) {
                 });
             }
         },
-        [auth, busy, setRoute],
+        [auth, setRoute],
     );
 
     return { download, isBusy: (id: string) => busy.has(id) };

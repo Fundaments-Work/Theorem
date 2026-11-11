@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn, formatFileSize } from "../core/lib/utils";
-import type { DbHealth, DbSnapshotInfo } from "../core/lib/db-health";
+import type { DbHealth } from "../core/lib/db-health";
 import {
     describeManifest,
+    formatBackupError,
+    formatSnapshotDate,
     inspectBackup,
     pickBackupFile,
     reloadApp,
@@ -26,15 +28,6 @@ const BUTTON = cn(
     "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
-function errorText(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return typeof error === "string" ? error : "Something went wrong.";
-}
-
-function snapshotDate(snapshot: DbSnapshotInfo): string {
-    return new Date(snapshot.createdAt * 1000).toLocaleString();
-}
-
 export default function DatabaseRecovery({ health }: { health: DbHealth }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -52,7 +45,7 @@ export default function DatabaseRecovery({ health }: { health: DbHealth }) {
         } catch (e) {
             setBusy(false);
             setStatus("");
-            setError(errorText(e));
+            setError(formatBackupError(e));
         }
     };
 
@@ -63,7 +56,7 @@ export default function DatabaseRecovery({ health }: { health: DbHealth }) {
             if (!path) return;
             setPendingFile({ path, manifest: await inspectBackup(path) });
         } catch (e) {
-            setError(errorText(e));
+            setError(formatBackupError(e));
         }
     };
 
@@ -82,7 +75,7 @@ export default function DatabaseRecovery({ health }: { health: DbHealth }) {
 
     return (
         <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-4 py-10">
-            <div className="w-full max-w-lg space-y-6 border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+            <div className="w-full max-w-[32rem] space-y-6 border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
                 <div className="space-y-2">
                     <h1 className="font-sans text-[16px] text-[color:var(--color-text-primary)]">
                         {corrupt ? "Your library database is damaged" : "Theorem could not update your library"}
@@ -110,7 +103,7 @@ export default function DatabaseRecovery({ health }: { health: DbHealth }) {
                                 className={BUTTON}
                                 onClick={() => void run("Restoring the copy", () => restoreSnapshot(snapshot.name))}
                             >
-                                Restore the copy from {snapshotDate(snapshot)}
+                                Restore the copy from {formatSnapshotDate(snapshot)}
                                 <span className="block text-[11px] text-[color:var(--color-text-muted)]">
                                     Theorem {snapshot.appVersion} · {formatFileSize(snapshot.size)}
                                 </span>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { CheckCheck, Trash2 } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 
@@ -42,6 +42,21 @@ export function SwipeableArticleItem({
     const isTrackingRef = useRef(false);
     const wasSwipedRef = useRef(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const swipeResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (swipeResetTimerRef.current) {
+                clearTimeout(swipeResetTimerRef.current);
+                swipeResetTimerRef.current = null;
+            }
+            if (exitTimerRef.current) {
+                clearTimeout(exitTimerRef.current);
+                exitTimerRef.current = null;
+            }
+        };
+    }, []);
 
     const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (disabled || isExiting) return;
@@ -133,7 +148,11 @@ export function SwipeableArticleItem({
 
         if (activeDirection === "horizontal" && Math.abs(currentOffset) > 10) {
             wasSwipedRef.current = true;
-            setTimeout(() => {
+            if (swipeResetTimerRef.current) {
+                clearTimeout(swipeResetTimerRef.current);
+            }
+            swipeResetTimerRef.current = setTimeout(() => {
+                swipeResetTimerRef.current = null;
                 wasSwipedRef.current = false;
             }, 250);
 
@@ -148,7 +167,11 @@ export function SwipeableArticleItem({
                 // Swipe left action (e.g. Delete)
                 setIsExiting(true);
                 setOffset(-window.innerWidth);
-                setTimeout(() => {
+                if (exitTimerRef.current) {
+                    clearTimeout(exitTimerRef.current);
+                }
+                exitTimerRef.current = setTimeout(() => {
+                    exitTimerRef.current = null;
                     onSwipeLeft();
                 }, 200);
                 return;
@@ -188,7 +211,7 @@ export function SwipeableArticleItem({
                     aria-hidden="true"
                 >
                     <div
-                        className="flex items-center gap-2 font-sans font-medium text-xs transition-transform"
+                        className="flex items-center gap-2 font-sans text-xs transition-transform"
                         style={{
                             opacity: rightProgress,
                             transform: `scale(${0.75 + rightProgress * 0.25})`,
@@ -202,11 +225,11 @@ export function SwipeableArticleItem({
 
             {offset < 0 && onSwipeLeft && (
                 <div
-                    className="absolute inset-0 flex items-center justify-end pr-5 bg-red-500/15 text-red-500 pointer-events-none transition-colors"
+                    className="absolute inset-0 flex items-center justify-end pr-5 bg-[color:color-mix(in_srgb,var(--color-error)_15%,transparent)] text-[color:var(--color-error)] pointer-events-none transition-colors"
                     aria-hidden="true"
                 >
                     <div
-                        className="flex items-center gap-2 font-sans font-medium text-xs transition-transform"
+                        className="flex items-center gap-2 font-sans text-xs transition-transform"
                         style={{
                             opacity: leftProgress,
                             transform: `scale(${0.75 + leftProgress * 0.25})`,

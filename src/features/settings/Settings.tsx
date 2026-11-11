@@ -24,7 +24,8 @@ import { clearAllApplicationStorage, getRssStorageStats } from "../../core/lib/s
 const DeviceSyncSection = lazy(() => import("./DeviceSync").then(m => ({ default: m.DeviceSyncSection })));
 const NeuralVoiceSection = lazy(() => import("./NeuralVoiceSection").then(m => ({ default: m.NeuralVoiceSection })));
 import { DictionaryDownloadModal } from "./DictionaryDownloadModal";
-import { KnapTemplateEditor } from "./KnapTemplateEditor";
+const KnapTemplateEditor = lazy(() => import("./KnapTemplateEditor").then(m => ({ default: m.KnapTemplateEditor })));
+import { ACCENT_PRESET_COLORS } from "../../core/lib/design-tokens";
 import { ExportLogsButton } from "./ExportLogsButton";
 import { HELP_ACTION_CLASS } from "./help-action-styles";
 import { BackupSection } from "./BackupSection";
@@ -650,7 +651,7 @@ export const SettingsPage = memo(function SettingsPage() {
             return;
         }
 
-        setVaultSyncStatus("syncing", "STATUS: SYNCING_MARKDOWN_EXPORT");
+        setVaultSyncStatus("syncing", "Exporting markdown notes...");
         const normalizedVaultSettings = {
             ...settings.vault,
             enabled: settings.vault.vaultPath.trim().length > 0,
@@ -888,7 +889,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         >
                             <div className="flex flex-col gap-2">
                                 <div className="flex items-center gap-1.5">
-                                    {["#c6f135", "#2d6a6e", "#5b5b5b", "#9e5a4a", "#3d6b4a", "#6b4a7a", "#4a6b9e", "#1c1c1c", "#9e6b4a"].map((color) => (
+                                    {ACCENT_PRESET_COLORS.map((color) => (
                                         <button
                                             key={color}
                                             onClick={() => updateSettings({ accentColor: color })}
@@ -1102,8 +1103,8 @@ export const SettingsPage = memo(function SettingsPage() {
                         ))}
 
                         <SettingRow
-                            label="Offline Mode Guard"
-                            description="When offline mode is enabled without dictionaries, lookups will show setup guidance"
+                            label="Offline Lookup Guidance"
+                            description="When no local dictionary is installed offline, lookups show setup guidance"
                         >
                             <span className="text-sm text-[color:var(--color-text-muted)] px-3 py-1.5 bg-[var(--color-surface-muted)]">
                                 Enabled
@@ -1242,10 +1243,12 @@ export const SettingsPage = memo(function SettingsPage() {
                                     description="Customize YAML frontmatter, wikilinks, callouts, and layout using Knap AST filters"
                                 >
                                     <div className="w-full">
-                                        <KnapTemplateEditor
-                                            template={settings.vault.customTemplate || ""}
-                                            onChange={(newTemplate) => updateVaultSettings({ customTemplate: newTemplate })}
-                                        />
+                                        <Suspense fallback={<div className="py-4 text-xs text-[color:var(--color-text-muted)]">Loading template editor…</div>}>
+                                            <KnapTemplateEditor
+                                                template={settings.vault.customTemplate || ""}
+                                                onChange={(newTemplate) => updateVaultSettings({ customTemplate: newTemplate })}
+                                            />
+                                        </Suspense>
                                     </div>
                                 </SettingRow>
                             )}

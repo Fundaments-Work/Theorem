@@ -19,6 +19,7 @@ import { ContextMenu } from "../../ui";
 import type { ContextMenuItem } from "../../ui";
 import { sanitizeArticleHtml } from "../reader/article-reader/utils";
 import { sanitizeHtmlForDisplay } from "../../core/lib/sanitize";
+import { isSafeImageUrl } from "../../core/lib/url-safety";
 
 export function deduplicateFeedTitle(title: string): string {
     const trimmed = title.trim();
@@ -128,7 +129,7 @@ export function FeedListItem({
                     ? "md:text-[color:var(--color-accent)] text-[color:var(--color-text-muted)]"
                     : "text-[color:var(--color-text-muted)]",
             )}>
-                {feed.iconUrl ? (
+                {feed.iconUrl && isSafeImageUrl(feed.iconUrl) ? (
                     <img
                         src={feed.iconUrl}
                         alt=""
@@ -344,13 +345,13 @@ function ArticleCard({
 
                         {summaryHtml && (
                             <div
-                                className="text-sm text-[color:var(--color-text-muted)] line-clamp-2 leading-relaxed [&_p]:inline [&_a]:text-[color:var(--color-accent)] [&_a]:underline [&_strong]: [&_em]:italic [&_img]:hidden [&_figure]:hidden"
+                                className="text-sm text-[color:var(--color-text-muted)] line-clamp-2 leading-relaxed [&_p]:inline [&_a]:text-[color:var(--color-accent)] [&_a]:underline [&_em]:italic [&_img]:hidden [&_figure]:hidden"
                                 dangerouslySetInnerHTML={sanitizeHtmlForDisplay(summaryHtml)}
                             />
                         )}
 
                         {article.progress != null && article.progress > 0 && article.progress < 0.95 && (
-                            <div className="w-full bg-[var(--color-surface-muted)] h-1 overflow-hidden mt-3 max-w-xs">
+                            <div className="w-full bg-[var(--color-surface-muted)] h-1 overflow-hidden mt-3 max-w-[20rem]">
                                 <div
                                     className="bg-[var(--color-accent)] h-full transition-[width] duration-300"
                                     style={{ width: `${Math.round(article.progress * 100)}%` }}
@@ -416,7 +417,7 @@ function ArticleCard({
                         </div>
                     </div>
 
-                    {article.imageUrl && (
+                    {article.imageUrl && isSafeImageUrl(article.imageUrl) && (
                         <div className="hidden sm:block w-24 h-24 flex-shrink-0 overflow-hidden bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
                             <img
                                 src={article.imageUrl}
@@ -693,7 +694,7 @@ export function FeedsPage() {
     }, [refreshFeed]);
 
     const handleRefreshHeader = useCallback(async () => {
-        if (selectedFeedId) {
+        if (selectedFeedId && !selectedFeedId.startsWith("__")) {
             await handleRefreshFeed(selectedFeedId);
         } else {
             setIsRefreshingAll(true);
@@ -717,26 +718,19 @@ export function FeedsPage() {
         setShowMobileList(true);
     };
 
-    const isRefreshingCurrent = selectedFeedId
+    const isRefreshingCurrent = selectedFeedId && !selectedFeedId.startsWith("__")
         ? refreshingFeedIds.has(selectedFeedId)
         : isRefreshingAll;
 
-    if (feeds.length === 0 && !isLoading) {
-        return (
-            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
-                <EmptyFeeds onAddFeed={() => setIsAddModalOpen(true)} />
-                <AddFeedModal
-                    isOpen={isAddModalOpen}
-                    onClose={() => { setIsAddModalOpen(false); setError(undefined); }}
-                    onSubmit={handleAddFeed}
-                    isLoading={isLoading}
-                    error={error}
-                />
-            </div>
-        );
-    }
+    const showEmptyFeeds = feeds.length === 0 && !isLoading;
 
     return (
+        <>
+        {showEmptyFeeds ? (
+            <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-xl))] sm:px-6 md:pb-0 lg:px-8 lg:py-8 animate-fade-in">
+                <EmptyFeeds onAddFeed={() => setIsAddModalOpen(true)} />
+            </div>
+        ) : (
         <div className="h-full w-full flex overflow-hidden bg-[var(--color-background)]">
             
             <div className={cn(
@@ -772,7 +766,7 @@ export function FeedsPage() {
                                     >
                                         {row.kind === "views-header" ? (
                                             <div className="px-3 pt-1 pb-1 flex items-center justify-between select-none">
-                                                <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                                                <h2 className="text-[11px] uppercase tracking-wider text-[color:var(--color-text-muted)]">
                                                     Views
                                                 </h2>
                                             </div>
@@ -780,8 +774,8 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed(null)}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === null && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === null && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
@@ -795,14 +789,14 @@ export function FeedsPage() {
                                                     </div>
                                                     <span className="text-sm">All Articles</span>
                                                 </div>
-                                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">{articles.length}</span>
+                                                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">{articles.length}</span>
                                             </button>
                                         ) : row.kind === "unread" ? (
                                             <button
                                                 onClick={() => handleSelectFeed("__unread__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === "__unread__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__unread__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
@@ -812,7 +806,7 @@ export function FeedsPage() {
                                                     <span className="text-sm">Unread</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-accent)]/15 text-[color:var(--color-accent)] font-medium">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-accent)]/15 text-[color:var(--color-accent)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -821,8 +815,8 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed("__favorites__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === "__favorites__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__favorites__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
@@ -832,7 +826,7 @@ export function FeedsPage() {
                                                     <span className="text-sm">Favorites</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -841,8 +835,8 @@ export function FeedsPage() {
                                             <button
                                                 onClick={() => handleSelectFeed("__saved__")}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
-                                                    selectedFeedId === "__saved__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] font-medium",
+                                                    "w-full flex items-center justify-between px-3 py-2 cursor-pointer transition-colors text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]",
+                                                    selectedFeedId === "__saved__" && "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)]",
                                                 )}
                                             >
                                                 <div className="flex items-center gap-3">
@@ -852,7 +846,7 @@ export function FeedsPage() {
                                                     <span className="text-sm">Saved Offline</span>
                                                 </div>
                                                 {row.count > 0 && (
-                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
+                                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]">
                                                         {row.count}
                                                     </span>
                                                 )}
@@ -861,13 +855,13 @@ export function FeedsPage() {
                                             <div className="pt-2 pb-1 select-none">
                                                 <div className="mx-2 mb-2.5 border-t border-[var(--color-border)]" />
                                                 <div className="px-3 flex items-center justify-between">
-                                                    <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--color-text-muted)]">
+                                                    <h2 className="text-[11px] uppercase tracking-wider text-[color:var(--color-text-muted)]">
                                                         Subscriptions
                                                     </h2>
                                                     <button
                                                         type="button"
                                                         onClick={() => setIsAddModalOpen(true)}
-                                                        className="p-1 -mr-1 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] rounded-md hover:bg-[var(--color-surface-muted)] cursor-pointer"
+                                                        className="p-1 -mr-1 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] hover:bg-[var(--color-surface-muted)] cursor-pointer"
                                                         title="Add Feed"
                                                         aria-label="Add Feed"
                                                     >
@@ -907,7 +901,10 @@ export function FeedsPage() {
                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                         
                         <button
+                            type="button"
                             onClick={handleBackToFeeds}
+                            aria-label="Back to feeds"
+                            title="Back to feeds"
                             className="md:hidden -ml-2 p-1.5 shrink-0 text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)]"
                         >
                             <ArrowLeft className="w-5 h-5" />
@@ -918,7 +915,7 @@ export function FeedsPage() {
                                 {headerTitle}
                             </h1>
                             <p className="mt-1 text-sm leading-relaxed text-[color:var(--color-text-secondary)] truncate">
-                                {displayedArticles.length} articles
+                                {displayedArticles.length} {displayedArticles.length === 1 ? "article" : "articles"}
                             </p>
                         </div>
                     </div>
@@ -931,20 +928,20 @@ export function FeedsPage() {
                         title={selectedFeed ? `Refresh ${selectedFeed.title}` : "Refresh all feeds"}
                         aria-label={selectedFeed ? `Refresh ${selectedFeed.title}` : "Refresh all feeds"}
                     >
-                        <RefreshCw className={cn("w-4 h-4", (isRefreshingCurrent || isLoading) && "animate-spin")} />
+                        <RefreshCw className={cn("w-4 h-4", (isRefreshingCurrent || isLoading) && "motion-safe:animate-spin")} />
                     </button>
                 </header>
 
                 <div ref={articleListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain">
                     {isLoading && feeds.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
-                            <Loader2 className="w-6 h-6 animate-spin text-[color:var(--color-text-muted)]" />
+                            <Loader2 className="w-6 h-6 motion-safe:animate-spin text-[color:var(--color-text-muted)]" />
                         </div>
                     ) : displayedArticles.length === 0 ? (
                         <EmptyArticles feedTitle={selectedFeed?.title} />
                     ) : (
                         <div className="p-4 sm:p-6">
-                            <div className="mx-auto max-w-6xl">
+                            <div className="mx-auto max-w-[var(--container-width-xl)]">
                                 <div
                                     className="relative w-full"
                                     style={{ height: `${articleVirtualizer.getTotalSize()}px` }}
@@ -987,7 +984,7 @@ export function FeedsPage() {
                                                         article={article}
                                                         feedTitle={!selectedFeedId || selectedFeedId.startsWith("__") ? feedTitleById.get(article.feedId) : undefined}
                                                         onRead={() => openArticleInReader(article)}
-                                                        onDelete={deleteArticle}
+                                                        onDelete={() => handleDeleteArticleWithUndo(article)}
                                                         onToggleRead={toggleArticleRead}
                                                         onToggleFavorite={toggleArticleFavorite}
                                                         onToggleSaved={toggleArticleSaved}
@@ -1005,12 +1002,24 @@ export function FeedsPage() {
 
             {/* Error Toast */}
             {error && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 bg-[var(--color-error)] text-[color:var(--color-text-inverse)] text-sm animate-fade-in-up">
+                <div
+                    role="alert"
+                    className="fixed bottom-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-md))] md:bottom-6 left-1/2 -translate-x-1/2 z-[var(--z-popover)] flex items-center gap-2 px-4 py-3 bg-[var(--color-error)] text-[color:var(--color-text-inverse)] text-sm animate-fade-in-up"
+                >
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
                     <span>{error}</span>
-                    <button onClick={() => setError(undefined)} className="ml-2 p-0.5 hover:text-[color:var(--color-accent)]">✕</button>
+                    <button
+                        type="button"
+                        onClick={() => setError(undefined)}
+                        aria-label="Dismiss error"
+                        className="ml-2 p-0.5 hover:text-[color:var(--color-accent)]"
+                    >
+                        ✕
+                    </button>
                 </div>
             )}
+        </div>
+        )}
 
             <AddFeedModal
                 isOpen={isAddModalOpen}
@@ -1019,6 +1028,6 @@ export function FeedsPage() {
                 isLoading={isLoading}
                 error={error}
             />
-        </div>
+        </>
     );
 }

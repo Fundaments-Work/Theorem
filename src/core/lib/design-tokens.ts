@@ -17,6 +17,18 @@ interface RgbColor {
 /** Fundaments.work accent: acid lime. One accent for every product in the system. */
 export const DEFAULT_ACCENT_COLOR = "#c6f135";
 
+export const ACCENT_PRESET_COLORS = [
+    "#c6f135",
+    "#2d6a6e",
+    "#5b5b5b",
+    "#9e5a4a",
+    "#3d6b4a",
+    "#6b4a7a",
+    "#4a6b9e",
+    "#1c1c1c",
+    "#9e6b4a",
+] as const;
+
 const APP_THEME_COLORS: Record<string, Record<string, string>> = {
     light: {
         "--app-bg": "#faf9f7",
@@ -258,7 +270,7 @@ export function applyAppTheme(theme: "light" | "dark" | "system", accentColor: s
         root.style.setProperty("--app-overlay-medium", `color-mix(in srgb, #ffffff 14%, transparent)`);
     } else {
         root.style.setProperty("--app-success", variants.safe);
-        root.style.setProperty("--app-warning", variants.safe);
+        root.style.setProperty("--app-warning", "#92400e");
         root.style.setProperty("--app-error", "#d32f2f");
         root.style.setProperty("--app-info", "#6b6b6b");
         root.style.setProperty("--app-focus-ring", `color-mix(in srgb, ${variants.safe} 58%, transparent)`);

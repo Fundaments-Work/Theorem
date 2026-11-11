@@ -36,6 +36,7 @@ import {
     runDeviceSync,
     ensureResponderSyncReady,
 } from "../../core/lib/sync-orchestrator";
+import { formatUpdatedDomainsMessage } from "../../core/lib/sync-domain-labels";
 import { useUIStore, useSettingsStore } from "../../core/store";
 import type {
     PairedDevice,
@@ -104,6 +105,16 @@ function Card({
     );
 }
 
+const STATUS_LABELS: Record<string, string> = {
+    idle: "Idle",
+    hosting: "Waiting for peer",
+    syncing: "Syncing",
+    synced: "Synced",
+    error: "Error",
+    pairing: "Pairing",
+    connecting: "Connecting",
+};
+
 function StatusBadge({ status }: { status: string }) {
     const styles: Record<string, string> = {
         idle: "bg-[color:color-mix(in_srgb,var(--color-text-muted)_15%,transparent)] text-[color:var(--color-text-muted)]",
@@ -133,7 +144,7 @@ function StatusBadge({ status }: { status: string }) {
             )}
             {status === "hosting" && <Signal className="w-2.5 h-2.5" />}
             {status === "synced" && <Check className="w-2.5 h-2.5" />}
-            {status}
+            {STATUS_LABELS[status] ?? status}
         </span>
     );
 }
@@ -509,11 +520,7 @@ export function DeviceSyncSection() {
                 }, true);
 
                 if (result.success) {
-                    setSuccessMessage(
-                        result.domainsUpdated.length > 0
-                            ? `Updated: ${result.domainsUpdated.join(", ")}`
-                            : "Already in sync",
-                    );
+                    setSuccessMessage(formatUpdatedDomainsMessage(result.domainsUpdated));
                     const devices = await getPairedDevices();
                     setPairedDevices(devices);
                 } else if (result.error === "Sync cancelled") {

@@ -270,7 +270,7 @@
     --app-accent-light: color-mix(in srgb, #4d6a00 15%, #ffffff);
     --app-accent-contrast: #ffffff;
     --app-success: #4d6a00;
-    --app-warning: #4d6a00;
+    --app-warning: #92400e;
     --app-error: #d32f2f;
     --app-info: #6b6b6b;
     --app-focus-ring: color-mix(in srgb, #4d6a00 58%, transparent);

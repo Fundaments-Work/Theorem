@@ -1,5 +1,4 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { RouteErrorBoundary } from "./ui/RouteErrorBoundary";
 import { PageLoader, SplashScreen } from "./ui/loading";
 import { AnnouncementBar } from "./ui/AnnouncementBar";
@@ -373,8 +372,9 @@ function App() {
 
     useEffect(() => {
         if (!isTauri()) return;
-        return subscribeUntilCleanup("Window close handler", () =>
-            getCurrentWebviewWindow().onCloseRequested(async (event) => {
+        return subscribeUntilCleanup("Window close handler", async () => {
+            const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+            return getCurrentWebviewWindow().onCloseRequested(async (event) => {
                 const handled = dispatchBackAction();
                 if (handled) {
                     event.preventDefault();
@@ -393,8 +393,8 @@ function App() {
                 }
                 // Tauri awaits this handler before destroying the window.
                 await flushAllPersistence();
-            }),
-        );
+            });
+        });
     }, [setRoute]);
 
     // Tray "Quit": Rust waits (bounded) for every window to acknowledge that
@@ -617,6 +617,7 @@ function App() {
         let cancelled = false;
         const ensureDesktopWindowSize = async () => {
             try {
+                const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
                 const win = getCurrentWebviewWindow();
                 const size = await win.innerSize();
                 if (cancelled) {
@@ -680,124 +681,119 @@ function App() {
         return <Suspense fallback={<PageLoader message="Preparing reading setup…" />}><ReadingSetup onComplete={handleOnboardingComplete} /></Suspense>;
     }
 
-    if (isReaderMode) {
-        return (
-            <>
+    return (
+        <>
+            {isReaderMode ? (
                 <RouteErrorBoundary>
                     <Suspense fallback={<PageLoader message="Opening reader..." className="fixed inset-0" />}>
                         <ReaderPage />
                     </Suspense>
                 </RouteErrorBoundary>
-                <Toaster position="bottom-right" />
-            </>
-        );
-    }
+            ) : (
+                <>
+                    <div className="flex h-screen min-h-[100dvh] bg-[var(--color-background)]">
+                        <div className="hidden md:block">
+                            <Sidebar />
+                        </div>
 
-    return (
-        <>
-        <div className="flex h-screen min-h-[100dvh] bg-[var(--color-background)]">
-            
-            <div className="hidden md:block">
-                <Sidebar />
-            </div>
+                        <div className="relative flex-1 flex flex-col min-w-0">
+                            <AppTitlebar title="Theorem" />
+                            <AnnouncementBar />
+                            {showLibraryRoute && <Suspense fallback={null}><ImportProgressPanel /></Suspense>}
 
-            <div className="relative flex-1 flex flex-col min-w-0">
-                <AppTitlebar title="Theorem" />
-                <AnnouncementBar />
-                {showLibraryRoute && <Suspense fallback={null}><ImportProgressPanel /></Suspense>}
+                            <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg)+var(--safe-area-bottom))] md:px-8 md:py-6 scrollbar-solid overscroll-contain">
+                                <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>
+                                    {visitedRoutes.has("library") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <LibraryPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                                <div className={currentRoute === "shelves" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "shelves"}>
+                                    {visitedRoutes.has("shelves") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <ShelvesPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                                <div className={showAnnotationsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showAnnotationsRoute}>
+                                    {visitedRoutes.has("annotations") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <AnnotationsPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                                <div className={currentRoute === "settings" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "settings"}>
+                                    {visitedRoutes.has("settings") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <SettingsPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                                <div className={currentRoute === "statistics" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "statistics"}>
+                                    {visitedRoutes.has("statistics") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <StatisticsPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                                <div className={currentRoute === "feeds" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "feeds"}>
+                                    {visitedRoutes.has("feeds") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <FeedsPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                                <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
+                                    {visitedRoutes.has("opds") && (
+                                    <RouteErrorBoundary>
+                                        <Suspense fallback={<PageLoader />}>
+                                            <OPDSBrowserPage />
+                                        </Suspense>
+                                    </RouteErrorBoundary>
+                                    )}
+                                </div>
+                            </main>
+                        </div>
 
-                <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg))] md:pb-0 md:px-8 md:py-6 scrollbar-solid overscroll-contain">
-                    <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>
-                        {visitedRoutes.has("library") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <LibraryPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={currentRoute === "shelves" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "shelves"}>
-                        {visitedRoutes.has("shelves") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <ShelvesPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={showAnnotationsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showAnnotationsRoute}>
-                        {visitedRoutes.has("annotations") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <AnnotationsPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={currentRoute === "settings" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "settings"}>
-                        {visitedRoutes.has("settings") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <SettingsPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={currentRoute === "statistics" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "statistics"}>
-                        {visitedRoutes.has("statistics") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <StatisticsPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={currentRoute === "feeds" ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={currentRoute !== "feeds"}>
-                        {visitedRoutes.has("feeds") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <FeedsPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                    <div className={showOpdsRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showOpdsRoute}>
-                        {visitedRoutes.has("opds") && (
-                        <RouteErrorBoundary>
-                            <Suspense fallback={<PageLoader />}>
-                                <OPDSBrowserPage />
-                            </Suspense>
-                        </RouteErrorBoundary>
-                        )}
-                    </div>
-                </main>
-            </div>
+                        <BottomNav />
 
-            <BottomNav />
+                        {shortcutsHelpLoaded && (
+                            <Suspense fallback={null}>
+                                <KeyboardShortcutsHelp
+                                    isOpen={showShortcutsHelp}
+                                    onClose={() => setShowShortcutsHelp(false)}
+                                />
+                            </Suspense>
+                        )}
+                    </div>
 
-            {shortcutsHelpLoaded && (
-                <Suspense fallback={null}>
-                    <KeyboardShortcutsHelp
-                        isOpen={showShortcutsHelp}
-                        onClose={() => setShowShortcutsHelp(false)}
-                    />
-                </Suspense>
+                    {alertInfo && (
+                        <Suspense fallback={null}>
+                            <AlertDialog
+                                isOpen={!!alertInfo}
+                                title={alertInfo.title}
+                                message={alertInfo.message}
+                                okLabel="OK"
+                                onClose={() => setAlertInfo(null)}
+                            />
+                        </Suspense>
+                    )}
+                </>
             )}
-            
-        </div>
             <Toaster position="bottom-right" />
-
-            {alertInfo && (
-                <Suspense fallback={null}>
-                    <AlertDialog
-                        isOpen={!!alertInfo}
-                        title={alertInfo.title}
-                        message={alertInfo.message}
-                        okLabel="OK"
-                        onClose={() => setAlertInfo(null)}
-                    />
-                </Suspense>
-            )}
         </>
     );
 }

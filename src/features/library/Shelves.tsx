@@ -537,6 +537,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             }
             lastWidth = currentWidth;
         });
+        setCols(compute());
         observer.observe(el);
         return () => observer.disconnect();
     }, [isListView, isCompactView]);
@@ -994,7 +995,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
                 </div>
             )}
             {isSelecting && selectedBooks.length > 0 && (
-                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom))] md:bottom-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
+                <div className="fixed bottom-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom))] md:bottom-0 left-0 md:left-[var(--layout-sidebar-width)] right-0 z-[var(--z-nav)] bg-[var(--color-surface)] border-t-2 border-[var(--color-accent)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] px-4 py-3 flex items-center gap-3 justify-center flex-wrap">
                     <span className="text-sm text-[color:var(--color-text-primary)] mr-2">
                         {selectedBooks.length} selected
                     </span>

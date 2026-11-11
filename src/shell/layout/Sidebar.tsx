@@ -45,7 +45,7 @@ export const Sidebar = memo(function Sidebar() {
                 aria-label={label}
                 aria-current={isActive ? "page" : undefined}
             >
-                {isActive && <span className="absolute inset-y-0 left-0 w-0.5 bg-[color:var(--color-accent)]"aria-hidden="true" />}
+                {isActive && <span className="absolute inset-y-0 left-0 w-0.5 bg-[color:var(--color-accent)]" aria-hidden="true" />}
                 {icon}
                 <span
                     className="pointer-events-none absolute left-full top-1/2 z-30 ml-1 hidden -translate-y-1/2 whitespace-nowrap border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[color:var(--color-text-primary)] group-hover:flex group-focus-visible:flex"
@@ -65,15 +65,15 @@ export const Sidebar = memo(function Sidebar() {
             <div className="flex h-[var(--layout-sidebar-header-height)] items-center justify-center border-b border-[var(--color-border)]">
                 <TheoremLogo size={24} className="shrink-0" />
             </div>
-            <nav aria-label="Main navigation"className="flex flex-1 flex-col min-h-0">
+            <nav aria-label="Main navigation" className="flex flex-1 flex-col min-h-0">
                 {destinations.map((item) =>
                     railButton(item.id, item.label, <item.Icon aria-hidden="true" className={NAV_CONTROL_ICON} />, () => select(item.id), item.alsoActiveOn),
                 )}
             </nav>
             <div className="mt-auto flex flex-col">
                 {displayStreak && (
-                    <div className="flex flex-col items-center gap-0.5 py-2"title={`${currentStreak} day streak`}>
-                        <Flame className={cn(NAV_CONTROL_ICON,"text-[color:var(--color-accent)]")} />
+                    <div className="flex flex-col items-center gap-0.5 py-2" title={`${currentStreak} day streak`}>
+                        <Flame className={cn(NAV_CONTROL_ICON, "text-[color:var(--color-accent)]")} />
                         <span className="font-mono text-[10px] text-[color:var(--color-text-primary)]">{currentStreak}</span>
                     </div>
                 )}

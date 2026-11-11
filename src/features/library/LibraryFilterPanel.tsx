@@ -182,7 +182,7 @@ export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
                                         )}
                                         title={root}
                                     >
-                                        <span className="truncate font-medium">{displayName}</span>
+                                        <span className="truncate">{displayName}</span>
                                         <span className="text-[10px] opacity-75 shrink-0 ml-2">
                                             {bookCount} {bookCount === 1 ? "book" : "books"}
                                         </span>
@@ -194,7 +194,7 @@ export function LibraryFilterPanel(props: LibraryFilterPanelProps) {
                                                 e.stopPropagation();
                                                 props.onRemoveSourceFolder?.(root);
                                             }}
-                                            className="p-1.5 text-[color:var(--color-text-muted)] hover:text-red-500 rounded transition-colors cursor-pointer shrink-0"
+                                            className="p-1.5 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors cursor-pointer shrink-0"
                                             title={`Remove ${displayName} folder`}
                                             aria-label={`Remove ${displayName} folder`}
                                         >

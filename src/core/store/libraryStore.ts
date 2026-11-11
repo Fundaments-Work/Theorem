@@ -715,7 +715,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 scheduleMutationSync();
                 persistBookToSqlite(mergedBook);
                 if (isTauri()) {
-                    sqliteIndexBookFts(book.id, book.title, book.author).catch(e => console.error("[catch]", e));
+                    sqliteIndexBookFts(mergedBook.id, mergedBook.title, mergedBook.author).catch(e => console.error("[catch]", e));
                 }
             },
 

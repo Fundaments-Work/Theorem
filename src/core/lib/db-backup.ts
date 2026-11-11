@@ -183,6 +183,15 @@ export function describeBackupProgress(progress: BackupProgress): string {
     return label;
 }
 
+export function formatBackupError(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return typeof error === "string" ? error : "Something went wrong.";
+}
+
+export function formatSnapshotDate(snapshot: DbSnapshotInfo): string {
+    return new Date(snapshot.createdAt * 1000).toLocaleString();
+}
+
 export function describeManifest(manifest: BackupManifest): string {
     const created = new Date(manifest.createdAt);
     const when = Number.isNaN(created.getTime()) ? "an unknown date" : created.toLocaleString();

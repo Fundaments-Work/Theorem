@@ -358,6 +358,13 @@ export function AddToShelfModal({
 
     const [shelfSearch, setShelfSearch] = useState("");
 
+    useEffect(() => {
+        if (!isOpen) {
+            setShelfSearch("");
+            setNewShelfName("");
+        }
+    }, [isOpen, bookId]);
+
     const filteredShelves = useMemo(
         () => shelfSearch.trim()
             ? collections.filter((s) => !s.smartRules && s.name.toLowerCase().includes(shelfSearch.toLowerCase()))
@@ -591,6 +598,7 @@ export function LibraryPage() {
     const updateSettings = useSettingsStore((state) => state.updateSettings);
 
     const [isImporting, setIsImporting] = useState(false);
+    const importInProgress = useRef(false);
     const [isScanning, setIsScanning] = useState(false);
     const scanInProgress = useRef(false);
     const [folderImportProgress, setFolderImportProgress] = useState<FolderImportProgress | null>(null);
@@ -607,7 +615,16 @@ export function LibraryPage() {
             setSelectedSourceFolder(null);
         }
     }, [sourceFolderIndex, selectedSourceFolder]);
-    const [isExtractingCovers, setIsExtractingCovers] = useState(false);
+    const isExtractingCoversRef = useRef(false);
+    const isUnmountedRef = useRef(false);
+    const latestBooksRef = useRef(books);
+    latestBooksRef.current = books;
+    useEffect(() => {
+        isUnmountedRef.current = false;
+        return () => {
+            isUnmountedRef.current = true;
+        };
+    }, []);
     const [isSelecting, setIsSelecting] = useState(false);
 
     const [showFilterDropdown, setShowFilterDropdown] = useState(false);
@@ -1069,7 +1086,7 @@ export function LibraryPage() {
     }, [currentRoute, rowVirtualizer, settings.libraryViewMode, effectiveCols, isCompactView, isListView]);
 
     useEffect(() => {
-        if (!coversHydrated || isExtractingCovers || books.length === 0) {
+        if (!coversHydrated || isExtractingCoversRef.current || books.length === 0) {
             return;
         }
 
@@ -1080,130 +1097,131 @@ export function LibraryPage() {
             }
         });
 
-        const booksNeedingFallback = books.filter(
-            (book) => (
+        const hasPendingFallback = books.some(
+            (book) =>
                 !book.coverPath
                 && !extractedBookIdsRef.current.has(book.id)
-                && !book.syncedWithoutFile
-            ),
+                && !book.syncedWithoutFile,
         );
 
-        if (booksNeedingFallback.length === 0) {
+        if (!hasPendingFallback) {
             return;
         }
 
-        let isCancelled = false;
-
         const generateFallbacks = async () => {
-            setIsExtractingCovers(true);
-            let processedCount = 0;
+            isExtractingCoversRef.current = true;
 
             try {
                 const extractMetadata = await getExtractMetadataFn();
 
-                for (const book of booksNeedingFallback) {
-                    if (isCancelled) break;
-                    extractedBookIdsRef.current.add(book.id);
-
-                    try {
-                        
-                        const isContentUri = book.filePath.startsWith("content://");
-                        const hasOriginalFilePath = (
-                            !book.filePath.startsWith('browser://')
-                            && !book.filePath.startsWith('idb://')
-                            && !book.filePath.startsWith('sqlite://')
-                            && !isContentUri
-                        );
-
-                        let data: ArrayBuffer | null = null;
-                        if (hasOriginalFilePath) {
-                            data = await getBookData('', book.filePath);
-                        }
-                        if (!data) {
-                            const storagePath = book.storagePath || book.filePath;
-                            data = await getBookData(book.id, storagePath);
-                        }
-
-                        if (data) {
-                            
-                            const filename = ensureFilenameForFormat(
-                                extractFilenameFromPath(book.filePath),
-                                book.format,
-                            );
-                            const metadata = await extractMetadata(
-                                data,
-                                book.format,
-                                filename,
-                                book.id,
-                                { allowFallbackCover: true },
-                            );
-                            const updates: Partial<Book> = {};
-                            if (metadata.coverDataUrl) {
-                                updates.coverPath = metadata.coverDataUrl;
-                            }
-                            
-                            if (shouldUseExtractedTitle(book.title, metadata.title, book.filePath)) {
-                                updates.title = normalizeMetadataText(metadata.title);
-                            }
-                            if (metadata.author && !book.author) {
-                                updates.author = metadata.author;
-                            }
-                            if (metadata.description && !book.description) {
-                                updates.description = metadata.description;
-                            }
-                            if (metadata.publisher && !book.publisher) {
-                                updates.publisher = metadata.publisher;
-                            }
-                            if (metadata.language && !book.language) {
-                                updates.language = metadata.language;
-                            }
-                            if (metadata.publishedDate && !book.publishedDate) {
-                                updates.publishedDate = metadata.publishedDate;
-                            }
-
-                            const hasAnyUpdate = (
-                                Boolean(metadata.coverDataUrl)
-                                || updates.title !== undefined
-                                || updates.author !== undefined
-                                || updates.description !== undefined
-                                || updates.publisher !== undefined
-                                || updates.language !== undefined
-                                || updates.publishedDate !== undefined
-                            );
-
-                            if (hasAnyUpdate) {
-                                updates.coverExtractionDone = true;
-                                if (!isCancelled) updateBook(book.id, updates);
-                            }
-                        } else {
-                            
-                            const fallbackSvg = buildFallbackCoverSvg(
-                                book.title,
-                                book.author || 'Unknown Author',
-                            );
-                            const blob = new Blob([fallbackSvg], { type: 'image/svg+xml' });
-                            const dataUrl = await saveCoverImage(book.id, blob);
-                            if (!isCancelled) {
-                                updateBook(book.id, {
-                                    coverPath: dataUrl,
-                                    coverExtractionDone: true,
-                                });
-                            }
-                        }
-                    } catch (error) {
+                while (!isUnmountedRef.current) {
+                    const batch = latestBooksRef.current.filter(
+                        (book) =>
+                            !book.coverPath
+                            && !extractedBookIdsRef.current.has(book.id)
+                            && !book.syncedWithoutFile,
+                    );
+                    if (batch.length === 0) {
+                        break;
                     }
 
-                    processedCount++;
+                    for (const book of batch) {
+                        if (isUnmountedRef.current) break;
+                        extractedBookIdsRef.current.add(book.id);
+
+                        try {
+                            const isContentUri = book.filePath.startsWith("content://");
+                            const hasOriginalFilePath = (
+                                !book.filePath.startsWith('browser://')
+                                && !book.filePath.startsWith('idb://')
+                                && !book.filePath.startsWith('sqlite://')
+                                && !isContentUri
+                            );
+
+                            let data: ArrayBuffer | null = null;
+                            if (hasOriginalFilePath) {
+                                data = await getBookData('', book.filePath);
+                            }
+                            if (!data) {
+                                const storagePath = book.storagePath || book.filePath;
+                                data = await getBookData(book.id, storagePath);
+                            }
+
+                            if (data) {
+                                const filename = ensureFilenameForFormat(
+                                    extractFilenameFromPath(book.filePath),
+                                    book.format,
+                                );
+                                const metadata = await extractMetadata(
+                                    data,
+                                    book.format,
+                                    filename,
+                                    book.id,
+                                    { allowFallbackCover: true },
+                                );
+                                const updates: Partial<Book> = {};
+                                if (metadata.coverDataUrl) {
+                                    updates.coverPath = metadata.coverDataUrl;
+                                }
+
+                                if (shouldUseExtractedTitle(book.title, metadata.title, book.filePath)) {
+                                    updates.title = normalizeMetadataText(metadata.title);
+                                }
+                                if (metadata.author && !book.author) {
+                                    updates.author = metadata.author;
+                                }
+                                if (metadata.description && !book.description) {
+                                    updates.description = metadata.description;
+                                }
+                                if (metadata.publisher && !book.publisher) {
+                                    updates.publisher = metadata.publisher;
+                                }
+                                if (metadata.language && !book.language) {
+                                    updates.language = metadata.language;
+                                }
+                                if (metadata.publishedDate && !book.publishedDate) {
+                                    updates.publishedDate = metadata.publishedDate;
+                                }
+
+                                const hasAnyUpdate = (
+                                    Boolean(metadata.coverDataUrl)
+                                    || updates.title !== undefined
+                                    || updates.author !== undefined
+                                    || updates.description !== undefined
+                                    || updates.publisher !== undefined
+                                    || updates.language !== undefined
+                                    || updates.publishedDate !== undefined
+                                );
+
+                                if (hasAnyUpdate) {
+                                    updates.coverExtractionDone = true;
+                                    if (!isUnmountedRef.current) updateBook(book.id, updates);
+                                }
+                            } else {
+                                const fallbackSvg = buildFallbackCoverSvg(
+                                    book.title,
+                                    book.author || 'Unknown Author',
+                                );
+                                const blob = new Blob([fallbackSvg], { type: 'image/svg+xml' });
+                                const dataUrl = await saveCoverImage(book.id, blob);
+                                if (!isUnmountedRef.current) {
+                                    updateBook(book.id, {
+                                        coverPath: dataUrl,
+                                        coverExtractionDone: true,
+                                    });
+                                }
+                            }
+                        } catch {
+                            // Keep this book in extractedBookIdsRef so a failing asset doesn't loop forever.
+                        }
+                    }
                 }
             } finally {
-                if (!isCancelled) {
-                    setIsExtractingCovers(false);
-                }
+                isExtractingCoversRef.current = false;
             }
         };
 
         void generateFallbacks();
-        return () => { isCancelled = true; };
     }, [coversHydrated, books, updateBook]);
 
     useEffect(() => {
@@ -1223,7 +1241,8 @@ export function LibraryPage() {
     }, [showFilterDropdown]);
 
     const handleAddBooks = useCallback(async () => {
-        if (scanInProgress.current) return;
+        if (scanInProgress.current || importInProgress.current) return;
+        importInProgress.current = true;
         setIsImporting(true);
         const failedImports: Array<{ source: string; message: string }> = [];
         try {
@@ -1245,6 +1264,7 @@ export function LibraryPage() {
         } catch (err) {
             failedImports.push({ source: "Import", message: err instanceof Error ? err.message : String(err) });
         } finally {
+            importInProgress.current = false;
             setIsImporting(false);
         }
         if (failedImports.length > 0) {
@@ -1319,13 +1339,16 @@ export function LibraryPage() {
                     return;
                 }
 
-                updateSettings({ scanFolders: [pickedFolder] });
+                const prevScanFolders = settings.scanFolders;
+                const nextFolders = prevScanFolders.includes(pickedFolder)
+                    ? prevScanFolders
+                    : [...prevScanFolders, pickedFolder];
+                updateSettings({ scanFolders: nextFolders });
 
                 try {
                     await runFolderImport(pickedFolder, preserve, (root) => scanLibraryFolderMobileDetailed(root));
                 } catch (err) {
-                    
-                    updateSettings({ scanFolders: [] });
+                    updateSettings({ scanFolders: prevScanFolders });
                     throw err;
                 }
                 return;
@@ -1347,7 +1370,10 @@ export function LibraryPage() {
                 return;
             }
 
-            updateSettings({ scanFolders: [normalizedFolderPath] });
+            const nextFolders = settings.scanFolders.includes(normalizedFolderPath)
+                ? settings.scanFolders
+                : [...settings.scanFolders, normalizedFolderPath];
+            updateSettings({ scanFolders: nextFolders });
 
             setIsScanning(true);
             await runFolderImport(normalizedFolderPath, preserve, (root, signal) => scanBookFolder(root, signal));

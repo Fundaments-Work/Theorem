@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUIStore } from "../../core/store";
 import type { Book } from "../../core/types";
 
@@ -8,20 +8,32 @@ export function useFilteredSelection(books: Book[], scope: string, enabled: bool
     const setSelectedBooks = useUIStore((state) => state.setSelectedBooks);
     const clearSelection = useUIStore((state) => state.clearSelection);
     const [activeScope, setActiveScope] = useState<string | null>(null);
+    const prevEnabledRef = useRef(enabled);
     const canSelect = enabled && ready && activeScope === scope;
     const visibleIds = useMemo(() => new Set(books.map((book) => book.id)), [books]);
     const selectedBooks = useMemo(() => canSelect
         ? storedIds.filter((id) => visibleIds.has(id)) : [], [storedIds, visibleIds, canSelect]);
     const selectedBookIds = useMemo(() => new Set(selectedBooks), [selectedBooks]);
 
-    // Reset when the user changes the view, enters/exits selection, or searches.
-    useEffect(() => { clearSelection(); setActiveScope(scope); }, [scope, enabled, ready, clearSelection]);
+    // Reset only when this selection controller was active or transitions from enabled -> disabled,
+    // so hidden keep-alive routes never clear another route's active selection.
+    useEffect(() => {
+        if (enabled || prevEnabledRef.current) {
+            clearSelection();
+        }
+        prevEnabledRef.current = enabled;
+        setActiveScope(scope);
+    }, [scope, enabled, ready, clearSelection]);
     useEffect(() => {
         if (canSelect && selectedBooks.length !== storedIds.length) {
             setSelectedBooks(selectedBooks);
         }
     }, [selectedBooks, storedIds.length, canSelect, setSelectedBooks]);
-    useEffect(() => () => clearSelection(), [clearSelection]);
+    useEffect(() => () => {
+        if (prevEnabledRef.current) {
+            clearSelection();
+        }
+    }, [clearSelection]);
 
     /** Returns false while selection is not ready yet (mode just entered, or search settling). */
     const selectAll = useCallback((): boolean => {

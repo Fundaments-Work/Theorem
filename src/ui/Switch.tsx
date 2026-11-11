@@ -1,4 +1,5 @@
-import { cn } from "../core/lib/utils";
+import { useId } from "react";
+import { cn, resolveControlId } from "../core/lib/utils";
 
 export interface SwitchProps {
     checked: boolean;
@@ -14,7 +15,8 @@ export interface SwitchProps {
  * behaviour and is announced as a switch. The track is square (radius 0) like everything else.
  */
 export function Switch({ checked, onChange, label, disabled, id }: SwitchProps) {
-    const switchId = id ?? `switch-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const generatedId = useId();
+    const switchId = resolveControlId("switch", label, generatedId, id);
     return (
         <button
             id={switchId}

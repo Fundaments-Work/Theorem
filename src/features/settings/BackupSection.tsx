@@ -7,6 +7,8 @@ import {
     deleteSnapshot,
     describeBackupProgress,
     describeManifest,
+    formatBackupError,
+    formatSnapshotDate,
     inspectBackup,
     isBackupSupported,
     listenBackupProgress,
@@ -19,18 +21,11 @@ import {
 } from "../../core/lib/db-backup";
 import type { DbSnapshotInfo } from "../../core/lib/db-health";
 
+export { formatSnapshotDate };
+
 type PendingRestore =
     | { kind: "file"; path: string; manifest: BackupManifest }
     | { kind: "snapshot"; snapshot: DbSnapshotInfo };
-
-function errorText(error: unknown): string {
-    if (error instanceof Error) return error.message;
-    return typeof error === "string" ? error : "Something went wrong.";
-}
-
-export function formatSnapshotDate(snapshot: DbSnapshotInfo): string {
-    return new Date(snapshot.createdAt * 1000).toLocaleString();
-}
 
 /** Settings → Data & Storage: backup file, restore, automatic snapshots. */
 export function BackupSection() {
@@ -85,7 +80,7 @@ export function BackupSection() {
                 message: `Saved ${formatFileSize(result.size)} to ${result.location}.${missingNote}`,
             });
         } catch (error) {
-            setAlert({ title: "Backup Failed", message: errorText(error) });
+            setAlert({ title: "Backup Failed", message: formatBackupError(error) });
         } finally {
             setBusy(null);
             setStatus("");
@@ -99,7 +94,7 @@ export function BackupSection() {
             const manifest = await inspectBackup(path);
             setPending({ kind: "file", path, manifest });
         } catch (error) {
-            setAlert({ title: "Cannot Restore This File", message: errorText(error) });
+            setAlert({ title: "Cannot Restore This File", message: formatBackupError(error) });
         }
     }, []);
 
@@ -117,7 +112,7 @@ export function BackupSection() {
         } catch (error) {
             setBusy(null);
             setStatus("");
-            setAlert({ title: "Restore Failed", message: errorText(error) });
+            setAlert({ title: "Restore Failed", message: formatBackupError(error) });
         }
     }, [pending]);
 
@@ -130,7 +125,7 @@ export function BackupSection() {
             await deleteSnapshot(target.name);
             setSnapshots((current) => current.filter((copy) => copy.name !== target.name));
         } catch (error) {
-            setAlert({ title: "Delete Failed", message: errorText(error) });
+            setAlert({ title: "Delete Failed", message: formatBackupError(error) });
         } finally {
             setBusy(null);
         }

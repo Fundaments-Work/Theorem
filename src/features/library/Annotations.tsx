@@ -361,11 +361,6 @@ export function AnnotationsPage() {
     );
 
     const prevLenRef = useRef(filteredAnnotations.length);
-    if (filteredAnnotations.length !== prevLenRef.current) {
-        prevLenRef.current = filteredAnnotations.length;
-        setGroupIndex(0);
-        setCardIndex(0);
-    }
 
     const annotationGroups = useMemo(() => {
         const groups = new Map<string, typeof filteredAnnotations>();
@@ -386,6 +381,25 @@ export function AnnotationsPage() {
         });
     }, [filteredAnnotations, sourceLookup]);
 
+    const activeGroupIndex = annotationGroups.length > 0
+        ? Math.min(groupIndex, annotationGroups.length - 1)
+        : 0;
+    const activeGroup = annotationGroups[activeGroupIndex];
+
+    useEffect(() => {
+        if (filteredAnnotations.length !== prevLenRef.current) {
+            prevLenRef.current = filteredAnnotations.length;
+            setGroupIndex(0);
+            setCardIndex(0);
+        } else if (annotationGroups.length > 0 && groupIndex >= annotationGroups.length) {
+            setGroupIndex(annotationGroups.length - 1);
+            setCardIndex(0);
+        } else if (annotationGroups.length === 0 && (groupIndex !== 0 || cardIndex !== 0)) {
+            setGroupIndex(0);
+            setCardIndex(0);
+        }
+    }, [filteredAnnotations.length, annotationGroups.length, groupIndex, cardIndex]);
+
     const workbenchRestoredRef = useRef(false);
     useEffect(() => {
         if (workbenchRestoredRef.current) return;
@@ -399,7 +413,7 @@ export function AnnotationsPage() {
     }, [annotationGroups, workbenchSavedState]);
 
     useEffect(() => {
-        const group = annotationGroups[groupIndex];
+        const group = annotationGroups[activeGroupIndex];
         const card = group?.annotations[cardIndex];
         const state: WorkbenchViewState = { viewMode, activeFilter, sortBy };
         if (group && card) {
@@ -411,7 +425,7 @@ export function AnnotationsPage() {
         } catch {
             // sessionStorage unavailable — best-effort persistence
         }
-    }, [viewMode, activeFilter, sortBy, groupIndex, cardIndex, annotationGroups]);
+    }, [viewMode, activeFilter, sortBy, activeGroupIndex, cardIndex, annotationGroups]);
 
     // Exact, not an estimate: each card renders at its computed layout height.
     const cardLayouts = useMemo(
@@ -442,25 +456,27 @@ export function AnnotationsPage() {
             if (e.key === "ArrowLeft") {
                 if (cardIndex > 0) {
                     setCardIndex(i => i - 1);
-                } else if (groupIndex > 0) {
-                    setGroupIndex(g => g - 1);
-                    const prevGroup = annotationGroups[groupIndex - 1];
-                    setCardIndex(prevGroup.annotations.length - 1);
+                } else if (activeGroupIndex > 0) {
+                    const prevIndex = activeGroupIndex - 1;
+                    const prevGroup = annotationGroups[prevIndex];
+                    setGroupIndex(prevIndex);
+                    setCardIndex(prevGroup ? Math.max(0, prevGroup.annotations.length - 1) : 0);
                 }
             }
             if (e.key === "ArrowRight") {
-                const group = annotationGroups[groupIndex];
+                const group = annotationGroups[activeGroupIndex];
+                if (!group) return;
                 if (cardIndex < group.annotations.length - 1) {
                     setCardIndex(i => i + 1);
-                } else if (groupIndex < annotationGroups.length - 1) {
-                    setGroupIndex(g => g + 1);
+                } else if (activeGroupIndex < annotationGroups.length - 1) {
+                    setGroupIndex(activeGroupIndex + 1);
                     setCardIndex(0);
                 }
             }
         };
         window.addEventListener("keydown", handler);
         return () => window.removeEventListener("keydown", handler);
-    }, [viewMode, annotationGroups, groupIndex, cardIndex]);
+    }, [viewMode, annotationGroups, activeGroupIndex, cardIndex]);
 
     const handleDelete = (id: string) => {
         setDeleteAnnotationId(id);
@@ -732,35 +748,35 @@ export function AnnotationsPage() {
                 </div>
             ) : viewMode === "cards" ? (
                 <div className="w-full max-w-[42rem] mx-auto my-2 sm:my-6">
-                    {annotationGroups.length === 0 ? (
+                    {!activeGroup ? (
                         <div className="text-center py-16">
                             <p className="text-[color:var(--color-text-muted)]">No annotations to display as cards.</p>
                         </div>
                     ) : (
                         <ReviewCardStack
-                            cards={annotationGroups[groupIndex].annotations}
+                            cards={activeGroup.annotations}
                             sources={sourceLookup}
-                            deckTitle={`Deck ${groupIndex + 1} of ${annotationGroups.length}: ${annotationGroups[groupIndex].title}`}
-                            deckSubtitle={annotationGroups[groupIndex].isArticle ? "Article Deck" : "Book Deck"}
-                            hasPrevDeck={groupIndex > 0}
-                            hasNextDeck={groupIndex < annotationGroups.length - 1}
-                            prevDeckLabel={annotationGroups[groupIndex].isArticle ? "Prev Article" : "Prev Book"}
-                            nextDeckLabel={annotationGroups[groupIndex].isArticle ? "Next Article" : "Next Book"}
+                            deckTitle={`Deck ${activeGroupIndex + 1} of ${annotationGroups.length}: ${activeGroup.title}`}
+                            deckSubtitle={activeGroup.isArticle ? "Article Deck" : "Book Deck"}
+                            hasPrevDeck={activeGroupIndex > 0}
+                            hasNextDeck={activeGroupIndex < annotationGroups.length - 1}
+                            prevDeckLabel={activeGroup.isArticle ? "Prev Article" : "Prev Book"}
+                            nextDeckLabel={activeGroup.isArticle ? "Next Article" : "Next Book"}
                             onPrevDeck={() => {
-                                if (groupIndex > 0) setGroupIndex((g) => g - 1);
+                                if (activeGroupIndex > 0) setGroupIndex(activeGroupIndex - 1);
                             }}
                             onNextDeck={() => {
-                                if (groupIndex < annotationGroups.length - 1) setGroupIndex((g) => g + 1);
+                                if (activeGroupIndex < annotationGroups.length - 1) setGroupIndex(activeGroupIndex + 1);
                             }}
                             onGoToSource={handleGoToSource}
                             onEdit={handleEdit}
                             onDelete={handleDelete}
                             completionTitle="Deck Completed"
-                            completionDescription={`You have reviewed all ${annotationGroups[groupIndex].annotations.length} highlights in this ${annotationGroups[groupIndex].isArticle ? "article" : "book"}.`}
-                            completionActionLabel={groupIndex < annotationGroups.length - 1 ? `Next ${annotationGroups[groupIndex].isArticle ? "Article" : "Book"} →` : "Back to First Deck"}
+                            completionDescription={`You have reviewed all ${activeGroup.annotations.length} highlights in this ${activeGroup.isArticle ? "article" : "book"}.`}
+                            completionActionLabel={activeGroupIndex < annotationGroups.length - 1 ? `Next ${activeGroup.isArticle ? "Article" : "Book"} →` : "Back to First Deck"}
                             onCompletionAction={() => {
-                                if (groupIndex < annotationGroups.length - 1) {
-                                    setGroupIndex((g) => g + 1);
+                                if (activeGroupIndex < annotationGroups.length - 1) {
+                                    setGroupIndex(activeGroupIndex + 1);
                                 } else {
                                     setGroupIndex(0);
                                 }

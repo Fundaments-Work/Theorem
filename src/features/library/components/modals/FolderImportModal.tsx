@@ -16,14 +16,14 @@ export function FolderImportModal({ isOpen, onClose, onContinue }: {
                     <label className="flex cursor-pointer items-start gap-3">
                         <input type="radio" name="folder-import-mode" checked={preserve}
                             onChange={() => setPreserve(true)} className="mt-1" />
-                        <span><strong className="block">Preserve folder structure</strong>
+                        <span><span className="block text-[color:var(--color-text-primary)]">Preserve folder structure</span>
                             <span className="text-sm text-[color:var(--color-text-secondary)]">Browse books by their original folders and subfolders. Shelves stay separate.</span>
                         </span>
                     </label>
                     <label className="flex cursor-pointer items-start gap-3">
                         <input type="radio" name="folder-import-mode" checked={!preserve}
                             onChange={() => setPreserve(false)} className="mt-1" />
-                        <span><strong className="block">Import as a flat library</strong>
+                        <span><span className="block text-[color:var(--color-text-primary)]">Import as a flat library</span>
                             <span className="text-sm text-[color:var(--color-text-secondary)]">Add all discovered books together without adding folder organization.</span>
                         </span>
                     </label>

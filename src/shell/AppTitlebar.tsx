@@ -1,7 +1,6 @@
 
 import { useState, useEffect, memo } from "react";
 import type { KeyboardEvent } from "react";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
     Minus,
     Maximize2,
@@ -66,6 +65,7 @@ export const AppTitlebar = memo(function AppTitlebar({
 
         const updateMaximizedState = async () => {
             try {
+                const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
                 const win = getCurrentWebviewWindow();
                 const maximized = await win.isMaximized();
                 setIsMaximized(maximized);
@@ -133,6 +133,7 @@ export const AppTitlebar = memo(function AppTitlebar({
             return;
         }
         try {
+            const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
             const win = getCurrentWebviewWindow();
             await win.minimize();
         } catch (err) {
@@ -144,6 +145,7 @@ export const AppTitlebar = memo(function AppTitlebar({
             return;
         }
         try {
+            const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
             const win = getCurrentWebviewWindow();
             if (isMaximized) {
                 await win.unmaximize();
@@ -159,6 +161,7 @@ export const AppTitlebar = memo(function AppTitlebar({
             return;
         }
         try {
+            const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
             const win = getCurrentWebviewWindow();
             await win.close();
         } catch (err) {
@@ -273,7 +276,7 @@ export const AppTitlebar = memo(function AppTitlebar({
 
                 {isSearchVisible && (
                     <div
-                        className="hidden sm:flex flex-1 max-w-lg lg:max-w-xl xl:max-w-2xl mx-2 sm:mx-4 lg:mx-6 min-w-[14rem]"
+                        className="hidden sm:flex flex-1 max-w-[32rem] lg:max-w-[36rem] xl:max-w-[42rem] mx-2 sm:mx-4 lg:mx-6 min-w-[14rem]"
                         data-tauri-drag-region={showDesktopWindowControls ? "true" : undefined}
                     >
                         <div className="relative w-full">
@@ -287,7 +290,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={handleSearchKeyDown}
                                 className={cn(
-                                    "w-full h-9 pl-8 text-xs sm:text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-accent)] focus:outline-hidden transition-colors shadow-xs",
+                                    "w-full h-9 pl-8 text-xs sm:text-sm bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-accent)] focus:outline-hidden transition-colors shadow-xs",
                                     searchQuery ? "pr-8" : "pr-3"
                                 )}
                             />
@@ -295,7 +298,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 <button
                                     type="button"
                                     onClick={() => useUIStore.getState().clearSearch()}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-[var(--color-text-dim)] transition-colors hover:text-[color:var(--color-accent)] cursor-pointer"
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-[color:var(--color-text-muted)] transition-colors hover:text-[color:var(--color-accent)] cursor-pointer"
                                     aria-label="Clear search"
                                 >
                                     <X className="w-3.5 h-3.5" />
@@ -348,7 +351,7 @@ export const AppTitlebar = memo(function AppTitlebar({
 
                     <div className="flex items-center gap-1.5">
                         {lastSyncedLabel && (
-                            <span className="hidden lg:block text-xs text-[color:var(--color-text-tertiary)] whitespace-nowrap">
+                            <span className="hidden lg:block text-xs text-[color:var(--color-text-muted)] whitespace-nowrap">
                                 {lastSyncedLabel}
                             </span>
                         )}
@@ -428,6 +431,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 onClick={handleMinimize}
                                 className={TITLEBAR_WINDOW_BUTTON}
                                 title="Minimize"
+                                aria-label="Minimize"
                             >
                                 <Minus className="w-4 h-4" />
                             </button>
@@ -435,6 +439,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 onClick={handleMaximize}
                                 className={TITLEBAR_WINDOW_BUTTON}
                                 title={isMaximized ? "Restore" : "Maximize"}
+                                aria-label={isMaximized ? "Restore" : "Maximize"}
                             >
                                 <Maximize2 className="w-4 h-4" />
                             </button>
@@ -442,6 +447,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                                 onClick={handleClose}
                                 className={TITLEBAR_CLOSE_BUTTON}
                                 title="Close"
+                                aria-label="Close"
                             >
                                 <X className="w-4 h-4" />
                             </button>
@@ -456,12 +462,13 @@ export const AppTitlebar = memo(function AppTitlebar({
                         <Search className="w-4 h-4 text-[color:var(--color-text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                             type="text"
+                            aria-label={searchPlaceholder}
                             placeholder={searchPlaceholder}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={handleSearchKeyDown}
                             autoFocus
-                            className="w-full h-10 pl-9 pr-10 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-hidden transition-colors shadow-xs"
+                            className="w-full h-10 pl-9 pr-10 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] placeholder:text-[color:var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-hidden transition-colors shadow-xs"
                         />
                         <button
                             onClick={() => {
@@ -470,6 +477,7 @@ export const AppTitlebar = memo(function AppTitlebar({
                             }}
                             className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] transition-colors cursor-pointer"
                             title="Close search"
+                            aria-label="Close search"
                         >
                             <X className="w-4 h-4" />
                         </button>

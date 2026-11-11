@@ -27,7 +27,7 @@ export function SplashScreen({ isReady = false, onFinish, message = "Loading The
     return (
         <div
             className={cn(
-                "fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[var(--color-background)] text-[color:var(--color-text-primary)] select-none",
+                "fixed inset-0 z-[calc(var(--z-tooltip)+100)] flex flex-col items-center justify-center bg-[var(--color-background)] text-[color:var(--color-text-primary)] select-none",
                 "transition-opacity duration-300 ease-out",
                 fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"
             )}
