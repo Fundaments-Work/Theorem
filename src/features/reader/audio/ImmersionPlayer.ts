@@ -188,6 +188,8 @@ class ImmersionPlayer {
      *  the previous run.) */
     private session = 0;
     private polling = false;
+    private platformSession = false;
+    private earlyCompletedUtteranceId: string | null = null;
 
     // ── Sentence tracking & prefetch coordination ───────────────────────────
     private activeChunks: string[] = [];
@@ -454,6 +456,8 @@ class ImmersionPlayer {
         this.voice = voice;
         this.lastRangeEnd = 0;
         this.startTime = performance.now();
+        this.platformSession = true;
+        this.earlyCompletedUtteranceId = null;
         this.setState('loading');
         await this.bindPlatformEvents();
         try {
@@ -461,6 +465,10 @@ class ImmersionPlayer {
                 text, voice: voice || "", speed: this.platformSpeed, lang: lang || null, utteranceId,
             });
             if (sid !== this.session) return;
+            if (this.earlyCompletedUtteranceId === utteranceId) {
+                this._onDone();
+                return;
+            }
             this.setState('playing');
             const warning = result?.languageWarning;
             if (warning && warning !== this.lastLanguageWarning) {
@@ -506,6 +514,10 @@ class ImmersionPlayer {
         };
         keep(await listen<UtteranceEvent>("tts-utterance-done", (event) => {
             if (!this.isCurrentUtterance(event.payload)) return;
+            if (this._state === 'loading' && !this.nativeSession) {
+                this.earlyCompletedUtteranceId = event.payload?.utteranceId ?? this.platformUtteranceId;
+                return;
+            }
             if (this._state === 'playing' && !this.nativeSession) this._onDone();
         }));
         keep(await listen<UtteranceEvent>("tts-utterance-error", (event) => {
@@ -619,17 +631,32 @@ class ImmersionPlayer {
 
         // Resume from the last real word boundary when the engine reports
         // ranges (Android), otherwise estimate from elapsed time.
+        this.platformSession = false;
         let wordsToDrop = 0;
         if (isAndroid() && this.lastRangeEnd > 0) {
-            const spoken = this.fullText.slice(0, this.lastRangeEnd).trim();
+            let boundary = Math.min(this.lastRangeEnd, this.fullText.length);
+            if (
+                boundary > 0 &&
+                boundary < this.fullText.length &&
+                /\S/.test(this.fullText[boundary - 1]) &&
+                /\S/.test(this.fullText[boundary])
+            ) {
+                while (boundary > 0 && /\S/.test(this.fullText[boundary - 1])) {
+                    boundary--;
+                }
+            }
+            const spoken = this.fullText.slice(0, boundary).trim();
             wordsToDrop = spoken ? spoken.split(/\s+/).length : 0;
         } else {
             const elapsedSec = (performance.now() - this.startTime) / 1000;
             const charsSpoken = Math.floor(elapsedSec * BASE_CHARS_PER_SEC * this.platformSpeed);
             let charCount = 0;
             for (let i = 0; i < this.fullWords.length; i++) {
-                charCount += this.fullWords[i].length;
+                charCount += this.fullWords[i].length + (i > 0 ? 1 : 0);
                 if (charCount >= charsSpoken) { wordsToDrop = i + 1; break; }
+            }
+            if (charCount < charsSpoken) {
+                wordsToDrop = this.fullWords.length;
             }
         }
         this.fullText = this.fullWords.slice(wordsToDrop).join(" ");
@@ -652,8 +679,9 @@ class ImmersionPlayer {
     }
 
     async stop() {
-        this._clearAll();
-        if (isTauri()) await invoke("tts_stop").catch(e => console.error("[catch]", e));
+        const hadPlatform = this.platformSession;
+        this._clearAll(true);
+        if (hadPlatform && isTauri()) await invoke("tts_stop").catch(e => console.error("[catch]", e));
         this.setState('idle');
         this.scheduleEngineUnload();
     }
@@ -684,10 +712,16 @@ class ImmersionPlayer {
         } catch { /* prefetch is best-effort */ }
     }
 
-    private _clearAll() {
+    private _clearAll(skipPlatformStop = false) {
         this.session++;
         if (this.nativeSession) {
             invoke("tts_audio_stop").catch(() => { /* already stopped */ });
+        }
+        const hadPlatform = this.platformSession;
+        this.platformSession = false;
+        this.earlyCompletedUtteranceId = null;
+        if (!skipPlatformStop && hadPlatform && isTauri()) {
+            invoke("tts_stop").catch(() => { /* already stopped */ });
         }
         this.nativeSession = false;
         this.streamDone = false;
@@ -739,12 +773,15 @@ class ImmersionPlayer {
     }
 
     destroy() {
-        this._clearAll();
+        const hadPlatform = this.platformSession;
+        this._clearAll(true);
         this.cancelEngineUnload();
         this.unbindPlatformEvents();
         if (isTauri()) {
-            invoke("tts_stop").catch(e => console.error("[catch]", e));
-            invoke("tts_engine_unload").catch(e => console.error("[catch]", e));
+            if (hadPlatform) {
+                Promise.resolve(invoke("tts_stop")).catch(e => console.error("[catch]", e));
+            }
+            Promise.resolve(invoke("tts_engine_unload")).catch(e => console.error("[catch]", e));
         }
         this.callbacks = {};
     }

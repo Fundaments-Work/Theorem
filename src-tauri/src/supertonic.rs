@@ -19,8 +19,9 @@ pub mod desktop {
     use ort::value::Value;
     use serde::Serialize;
     use sha2::{Digest, Sha256};
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{LazyLock, Mutex, OnceLock};
     use unicode_normalization::UnicodeNormalization;
 
     pub const SAMPLE_RATE: f32 = 44_100.0;
@@ -712,6 +713,13 @@ pub mod desktop {
     }
 
     pub fn unload_engine() -> Result<(), String> {
+        if crate::audiobook_gen::has_active_generations() {
+            return Ok(());
+        }
+        force_unload_engine()
+    }
+
+    pub(crate) fn force_unload_engine() -> Result<(), String> {
         let mut slot = engine_slot().lock().map_err(|e| e.to_string())?;
         *slot = None;
         #[cfg(target_os = "linux")]
@@ -858,9 +866,58 @@ pub mod desktop {
     /// A partial file this old was left by a crash; younger ones are in use.
     const STALE_PARTIAL: std::time::Duration = std::time::Duration::from_secs(3600);
 
+    static TRIM_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    static PINNED_CACHE: LazyLock<Mutex<HashMap<PathBuf, usize>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    pub(crate) struct CachePathPin(PathBuf);
+
+    impl Drop for CachePathPin {
+        fn drop(&mut self) {
+            if let Ok(mut pins) = PINNED_CACHE.lock() {
+                if let Some(count) = pins.get_mut(&self.0) {
+                    if *count <= 1 {
+                        pins.remove(&self.0);
+                    } else {
+                        *count -= 1;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn pin_cache_path(path: &Path) -> CachePathPin {
+        let owned = path.to_path_buf();
+        if let Ok(mut pins) = PINNED_CACHE.lock() {
+            *pins.entry(owned.clone()).or_insert(0) += 1;
+        }
+        CachePathPin(owned)
+    }
+
+    fn is_pinned(path: &Path) -> bool {
+        PINNED_CACHE
+            .lock()
+            .map(|pins| pins.contains_key(path))
+            .unwrap_or(false)
+    }
+
     /// Evict least-recently-used entries until the cache fits in `limit` bytes.
-    /// Files still being written are never evicted (only stale leftovers).
+    /// Files still being written, pinned by generation, or actively queued in
+    /// the audio player are never evicted.
     pub fn trim_cache(dir: &Path, limit: u64) {
+        trim_cache_with_guard(dir, limit, |path| {
+            is_pinned(path) || crate::audio_player::is_path_active(path)
+        });
+    }
+
+    pub(crate) fn trim_cache_with_guard(
+        dir: &Path,
+        limit: u64,
+        mut is_protected: impl FnMut(&Path) -> bool,
+    ) {
+        let Ok(_guard) = TRIM_LOCK.lock() else {
+            return;
+        };
         let now = std::time::SystemTime::now();
         let mut files: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
         let mut total = 0u64;
@@ -883,7 +940,10 @@ pub mod desktop {
                     continue;
                 }
                 total += meta.len();
-                files.push((modified, entry.path(), meta.len()));
+                let path = entry.path();
+                if !is_protected(&path) {
+                    files.push((modified, path, meta.len()));
+                }
             }
         }
         if total <= limit {
@@ -1018,6 +1078,7 @@ pub mod desktop {
             let dir = cache_dir(&app);
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let out_path = dir.join(format!("{key}.wav"));
+            let _pin = pin_cache_path(&out_path);
             if let Some(hit) = cached_synthesis(&out_path) {
                 return Ok(hit);
             }
@@ -1559,6 +1620,40 @@ pub mod desktop {
                 std::mem::forget(engine2);
             }
         }
+
+        #[test]
+        fn trim_cache_skips_protected_paths_under_concurrent_runs() {
+            let dir =
+                std::env::temp_dir().join(format!("theorem-tts-trim-test-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let protected = dir.join("active.wav");
+            let disposable = dir.join("old.wav");
+            std::fs::write(&protected, vec![1u8; 512]).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::fs::write(&disposable, vec![2u8; 512]).unwrap();
+
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    let dir = dir.clone();
+                    let protected = protected.clone();
+                    std::thread::spawn(move || {
+                        trim_cache_with_guard(&dir, 400, |p| p == protected);
+                    })
+                })
+                .collect();
+            for h in handles {
+                h.join().unwrap();
+            }
+
+            assert!(protected.exists(), "protected WAV was evicted");
+            assert!(
+                !disposable.exists(),
+                "unprotected excess WAV should be evicted"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }
 
@@ -1660,7 +1755,17 @@ pub fn tts_engine_unload() -> Result<(), String> {
     desktop::unload_engine()
 }
 
+#[cfg(not(target_os = "android"))]
+pub(crate) fn force_tts_engine_unload() -> Result<(), String> {
+    desktop::force_unload_engine()
+}
+
 #[cfg(target_os = "android")]
 pub fn tts_engine_unload() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn force_tts_engine_unload() -> Result<(), String> {
     Ok(())
 }

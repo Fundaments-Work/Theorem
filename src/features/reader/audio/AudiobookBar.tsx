@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { ListMusic, Moon, Pause, Play, Rewind, FastForward, X } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
 import { isSafeImageUrl } from "../../../core/lib/url-safety";
-import { isWebKitGTK } from "../../../core/lib/env";
+import { isTauri, isWebKitGTK } from "../../../core/lib/env";
 import { useLibraryStore } from "../../../core/store";
 import type { BookAudioTrack } from "../../../core/types";
 import type { AudioChapter } from "../../../core/types";
@@ -54,13 +54,28 @@ interface AudiobookBarProps {
     visible?: boolean;
     /** The book also has its own synced narration, which the audiobook takes priority over. */
     replacesBookNarration?: boolean;
+    onPlayingChange?: (playing: boolean) => void;
     onClose: () => void;
 }
 
-export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visible = true, replacesBookNarration = false, onClose }: AudiobookBarProps) {
+function browserCanPlayOggOpus(): boolean {
+    if (typeof document === "undefined") return true;
+    const probe = document.createElement("audio");
+    if (typeof probe.canPlayType !== "function") return true;
+    return probe.canPlayType('audio/ogg; codecs="opus"') !== "";
+}
+
+export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visible = true, replacesBookNarration = false, onPlayingChange, onClose }: AudiobookBarProps) {
     const bookCover = useLibraryStore(s => s.getBook(bookId)?.coverPath);
     const audioRef = useRef<AudiobookAudio | null>(null);
     const [playing, setPlaying] = useState(false);
+
+    useEffect(() => {
+        onPlayingChange?.(playing);
+        return () => {
+            onPlayingChange?.(false);
+        };
+    }, [playing, onPlayingChange]);
     const [ready, setReady] = useState(false);
     const [currentTime, setCurrentTime] = useState(audioTrack.currentPositionSec);
     const [duration, setDuration] = useState(audioTrack.durationSec);
@@ -89,9 +104,12 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
     const filePath = audioTrack.filePath;
     const hasChapters = audioTrack.chapters.length > 0;
     useEffect(() => {
+        const useNativeOpus = isTauri() && !isWebKitGTK() && (audioTrack.format === "opus" || /\.og[ga]$/i.test(filePath)) && !browserCanPlayOggOpus();
         const audio: AudiobookAudio = isWebKitGTK()
-            ? new NativeAudiobookAudio(filePath)
-            : new Audio(convertFileSrc(filePath));
+            ? new NativeAudiobookAudio(filePath, "linux_audiobook")
+            : useNativeOpus
+                ? new NativeAudiobookAudio(filePath, "opus_audiobook")
+                : new Audio(convertFileSrc(filePath));
         audio.preload = "metadata";
         audio.playbackRate = trackRef.current.playbackSpeed || 1;
         audioRef.current = audio;
@@ -268,21 +286,39 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
         }
     }, [saveProgress]);
 
+    const reanchorSleepAtChapterEnd = useCallback((pos: number, maxDuration: number) => {
+        if (!sleepAtChapterEnd) return;
+        const next = audioTrack.chapters.find((c) => c.startSec > pos);
+        sleepAtPositionRef.current = next ? next.startSec : maxDuration;
+    }, [sleepAtChapterEnd, audioTrack.chapters]);
+
     const skip = useCallback((seconds: number) => {
         const audio = audioRef.current;
         if (!audio) return;
-        audio.currentTime = Math.max(0, Math.min(audio.currentTime + seconds, audio.duration || Infinity));
-        setCurrentTime(audio.currentTime);
+        const maxDuration = Number.isFinite(audio.duration) && audio.duration > 0
+            ? audio.duration
+            : (duration > 0 ? duration : 0);
+        if (maxDuration <= 0) return;
+        const clamped = Math.max(0, Math.min(audio.currentTime + seconds, maxDuration));
+        audio.currentTime = clamped;
+        setCurrentTime(clamped);
+        reanchorSleepAtChapterEnd(clamped, maxDuration);
         updateMediaPosition(audio);
-    }, []);
+    }, [duration, reanchorSleepAtChapterEnd]);
 
     const seek = useCallback((sec: number) => {
         const audio = audioRef.current;
         if (!audio || !Number.isFinite(sec)) return;
-        audio.currentTime = Math.max(0, Math.min(sec, audio.duration || Infinity));
-        setCurrentTime(audio.currentTime);
+        const maxDuration = Number.isFinite(audio.duration) && audio.duration > 0
+            ? audio.duration
+            : (duration > 0 ? duration : 0);
+        if (maxDuration <= 0) return;
+        const clamped = Math.max(0, Math.min(sec, maxDuration));
+        audio.currentTime = clamped;
+        setCurrentTime(clamped);
+        reanchorSleepAtChapterEnd(clamped, maxDuration);
         updateMediaPosition(audio);
-    }, []);
+    }, [duration, reanchorSleepAtChapterEnd]);
 
     /** Click or drag on the scrubber: map the pointer to a position in the recording. */
     const seekFromPointer = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -403,7 +439,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                                                 setSleepDeadline(null);
                                                 setSleepMenuOpen(false);
                                             }}
-                                            disabled={audioTrack.chapters.length === 0}
+                                            disabled={!ready || !(duration > 0) || audioTrack.chapters.length === 0}
                                             className="w-full px-2 py-1.5 text-left text-[11px] text-[color:var(--color-text-primary)] hover:bg-[var(--color-overlay-subtle)] disabled:opacity-40"
                                         >
                                             End of chapter
@@ -461,7 +497,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                     <div className="mt-1 flex items-center justify-center gap-2">
                         <button
                             onClick={() => skip(-SKIP_SECONDS)}
-                            className="flex items-center justify-center w-8 h-8 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
+                            disabled={!ready || error !== null}
+                            className="flex items-center justify-center w-8 h-8 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] disabled:opacity-40 disabled:cursor-not-allowed"
                             title={`Back ${SKIP_SECONDS}s`}
                             aria-label={`Back ${SKIP_SECONDS} seconds`}
                         >
@@ -483,7 +520,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                         </button>
                         <button
                             onClick={() => skip(SKIP_SECONDS)}
-                            className="flex items-center justify-center w-8 h-8 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)]"
+                            disabled={!ready || error !== null}
+                            className="flex items-center justify-center w-8 h-8 text-[color:var(--color-text-secondary)] transition-colors hover:text-[color:var(--color-accent)] disabled:opacity-40 disabled:cursor-not-allowed"
                             title={`Forward ${SKIP_SECONDS}s`}
                             aria-label={`Forward ${SKIP_SECONDS} seconds`}
                         >

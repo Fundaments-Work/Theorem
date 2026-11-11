@@ -222,6 +222,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [pdfInitialZoomMode, setPdfInitialZoomMode] = useState<PdfZoomMode>(DEFAULT_PDF_ZOOM_MODE);
     const [resolvedPdfPath, setResolvedPdfPath] = useState("");
     const [resolvedNativePath, setResolvedNativePath] = useState("");
+    const [isPresentationFullscreen, setIsPresentationFullscreen] = useState(false);
     const [pdfAnnotationMode, setPdfAnnotationMode] = useState<'none' | 'highlight' | 'pen' | 'text' | 'erase'>('none');
     const [pdfHighlightColor, setPdfHighlightColor] = useState<HighlightColor>("yellow");
     const [pdfBrushColor, setPdfBrushColor] = useState<HighlightColor>("blue");
@@ -297,6 +298,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const [initialFraction, setInitialFraction] = useState<number | undefined>(undefined);
     const [ttsData, setTtsData] = useState<{ text: string; startWordId: string } | null>(null);
     const [ttsState, setTtsState] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle');
+    const [isExternalNarrationPlaying, setIsExternalNarrationPlaying] = useState(false);
     const ttsEnabled = settings.tts.enabled;
     const [immersionMode, setImmersionMode] = useState(false);
     const immersionModeRef = useRef(immersionMode);
@@ -839,6 +841,8 @@ const BookReaderPage = memo(function BookReaderPage() {
             setPdfInitialZoom(DEFAULT_PDF_ZOOM);
             setPdfInitialZoomMode(DEFAULT_PDF_ZOOM_MODE);
             setResolvedPdfPath("");
+            setResolvedNativePath("");
+            setIsPresentationFullscreen(false);
             setPdfHasOutline(false);
             setMetadata(null);
             setToc([]);
@@ -886,7 +890,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 const nextLocation = normalizeInitialReaderLocation(pendingLocation || book.currentLocation);
                 setInitialLocation(nextLocation);
                 
-                const progressFallback = book.progress !== undefined && book.progress < 0.95 ? book.progress : undefined;
+                const progressFallback = book.progress !== undefined && book.progress > 0 && book.progress < 1 ? book.progress : undefined;
                 const fractionToUse = book.lastClickFraction ?? progressFallback;
                 setInitialFraction(fractionToUse);
                 suppressProgressRef.current = !!nextLocation || fractionToUse !== undefined;
@@ -1014,7 +1018,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     const { recordPageTurn, setCurrentPageWordCount } = useReadingTime({
         currentBookId,
         addReadingTime,
-        isTtsActive: ttsState === 'playing',
+        isTtsActive: ttsState === 'playing' || isExternalNarrationPlaying,
     });
 
     useEffect(() => {
@@ -1046,6 +1050,7 @@ const BookReaderPage = memo(function BookReaderPage() {
     // Leaving full screen (Esc, F11, menu) ends it and restores the layout.
     const presentationRestoreRef = useRef<{ mode: 'scroll' | 'paged' | 'two-page'; zoom: number } | null>(null);
     const stopPresentation = useCallback(() => {
+        setIsPresentationFullscreen(false);
         const restore = presentationRestoreRef.current;
         if (!restore) return;
         presentationRestoreRef.current = null;
@@ -1062,8 +1067,8 @@ const BookReaderPage = memo(function BookReaderPage() {
         engine.zoomFitPage();
         setActivePanel(null);
         setShowToolbar(false);
-        updateReaderSettings({ fullscreen: true });
-    }, [updateReaderSettings]);
+        setIsPresentationFullscreen(true);
+    }, []);
 
     const renderPdfThumbnail = useCallback(
         async (pageNumber: number, cssWidth: number, signal: AbortSignal) =>
@@ -1097,13 +1102,19 @@ const BookReaderPage = memo(function BookReaderPage() {
         }
     }, []);
 
+    const effectiveFullscreen = settings.readerSettings.fullscreen || isPresentationFullscreen;
+
     const handleReaderExitFullscreen = useCallback(() => {
-        updateReaderSettings({ fullscreen: false });
-        stopPresentation();
-    }, [updateReaderSettings, stopPresentation]);
+        if (isPresentationFullscreen) {
+            stopPresentation();
+        }
+        if (settings.readerSettings.fullscreen) {
+            updateReaderSettings({ fullscreen: false });
+        }
+    }, [isPresentationFullscreen, settings.readerSettings.fullscreen, updateReaderSettings, stopPresentation]);
 
     useReaderFullscreen({
-        fullscreen: settings.readerSettings.fullscreen,
+        fullscreen: effectiveFullscreen,
         onExitFullscreen: handleReaderExitFullscreen,
         errorLabel: "[Reader]",
     });
@@ -1344,6 +1355,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         const INITIAL_DELAY = 500;
         const RETRY_INTERVAL = 250;
 
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
         const extract = () => {
             if (cancelled) return;
             const data = readerRef.current?.getVisibleTextForTts?.();
@@ -1353,7 +1365,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                 setTtsData(data || null);
             } else if (retries < MAX_RETRIES) {
                 retries++;
-                setTimeout(extract, RETRY_INTERVAL);
+                retryTimer = setTimeout(extract, RETRY_INTERVAL);
             } else {
                 setTtsData(null);
             }
@@ -1363,6 +1375,7 @@ const BookReaderPage = memo(function BookReaderPage() {
         return () => {
             cancelled = true;
             clearTimeout(timer);
+            if (retryTimer !== null) clearTimeout(retryTimer);
         };
     }, [location?.cfi, isPdfFormat]);
 
@@ -1460,10 +1473,20 @@ const BookReaderPage = memo(function BookReaderPage() {
         );
     }, [immersionMode, neuralReady]);
 
-    // When leaving the reader, ensure any loaded neural models are unloaded and memory is trimmed.
+    const audioGenUnlistenersRef = useRef<Array<() => void>>([]);
+    const audioGenActiveRef = useRef(false);
+    const readerUnmountedRef = useRef(false);
+
+    // When leaving the reader, ensure any loaded neural models are unloaded unless audiobook generation is active.
     useEffect(() => {
+        readerUnmountedRef.current = false;
         return () => {
-            if (isTauriDesktop()) {
+            readerUnmountedRef.current = true;
+            for (const unlisten of audioGenUnlistenersRef.current) {
+                unlisten();
+            }
+            audioGenUnlistenersRef.current = [];
+            if (isTauriDesktop() && !audioGenActiveRef.current) {
                 // Memory is trimmed by the cleanup above (sqliteShrinkMemory → trim_memory);
                 // a second request here only raced it.
                 import("@tauri-apps/api/core").then(({ invoke }) => {
@@ -1497,9 +1520,14 @@ const BookReaderPage = memo(function BookReaderPage() {
             toast.error("No extractable text to narrate");
             return;
         }
+        audioGenActiveRef.current = true;
         setAudioGenProgress({ current: 0, total: sections.length });
         const { listen } = await import("@tauri-apps/api/event");
         const { invoke } = await import("@tauri-apps/api/core");
+        if (readerUnmountedRef.current) {
+            audioGenActiveRef.current = false;
+            return;
+        }
         // Events are broadcast app-wide: only react to this book's generation.
         const unlistenProgress = await listen<{ bookId?: string; current: number; total: number }>(
             "audiobook-gen-progress",
@@ -1519,6 +1547,8 @@ const BookReaderPage = memo(function BookReaderPage() {
             if (e.payload.bookId !== currentBookId) return;
             unlistenProgress();
             unlistenDone();
+            audioGenUnlistenersRef.current = [];
+            audioGenActiveRef.current = false;
             setAudioGenProgress(null);
             if (e.payload.error) {
                 if (e.payload.error === "cancelled") {
@@ -1540,6 +1570,12 @@ const BookReaderPage = memo(function BookReaderPage() {
                 toast.success("Audiobook ready — open immersion mode to listen");
             }
         });
+        if (readerUnmountedRef.current) {
+            unlistenProgress();
+            unlistenDone();
+            return;
+        }
+        audioGenUnlistenersRef.current = [unlistenProgress, unlistenDone];
         try {
             await invoke("generate_audiobook", {
                 bookId: currentBookId,
@@ -1551,6 +1587,8 @@ const BookReaderPage = memo(function BookReaderPage() {
         } catch (err) {
             unlistenProgress();
             unlistenDone();
+            audioGenUnlistenersRef.current = [];
+            audioGenActiveRef.current = false;
             setAudioGenProgress(null);
             toast.error(`Audiobook generation failed: ${err}`);
         }
@@ -2759,8 +2797,14 @@ const BookReaderPage = memo(function BookReaderPage() {
                 keys: "F11",
                 category: "Reader",
                 handler: () => {
-                    if (settings.readerSettings.fullscreen) stopPresentation();
-                    updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen });
+                    if (effectiveFullscreen) {
+                        stopPresentation();
+                        if (settings.readerSettings.fullscreen) {
+                            updateReaderSettings({ fullscreen: false });
+                        }
+                    } else {
+                        updateReaderSettings({ fullscreen: true });
+                    }
                 },
             },
             {
@@ -2838,7 +2882,7 @@ const BookReaderPage = memo(function BookReaderPage() {
                     <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-secondary)] mb-6 leading-relaxed">
                         This book was synced from another device. Downloading from paired device...
                     </p>
-                    <div className="w-full max-w-xs mb-2">
+                    <div className="w-full max-w-[20rem] mb-2">
                         <div className="h-2 bg-[var(--color-surface-muted)] overflow-hidden">
                             <div
                                 className="h-full bg-[var(--color-accent)] transition-[width] duration-300"
@@ -2992,10 +3036,16 @@ const BookReaderPage = memo(function BookReaderPage() {
                     onAddBookmark={isPdfFormat ? handlePdfAddBookmark : handleAddPageBookmark}
                     isCurrentPageBookmarked={isPdfFormat ? isPdfPageBookmarked : isCurrentPageBookmarked}
                     activePanel={activePanel}
-                    fullscreen={settings.readerSettings.fullscreen}
+                    fullscreen={effectiveFullscreen}
                     onToggleFullscreen={() => {
-                        if (settings.readerSettings.fullscreen) stopPresentation();
-                        updateReaderSettings({ fullscreen: !settings.readerSettings.fullscreen });
+                        if (effectiveFullscreen) {
+                            stopPresentation();
+                            if (settings.readerSettings.fullscreen) {
+                                updateReaderSettings({ fullscreen: false });
+                            }
+                        } else {
+                            updateReaderSettings({ fullscreen: true });
+                        }
                     }}
                     onPresent={isPdfFormat ? startPresentation : undefined}
                     onPrint={isPdfFormat && !isTauriMobile() ? () => { void handlePrint(); } : undefined}
@@ -3129,13 +3179,13 @@ const BookReaderPage = memo(function BookReaderPage() {
                         onAutoNext={() => {
                             const engine = readerRef.current;
                             if (engine && typeof engine.next === "function") {
-                                engine.next();
-                                setTimeout(() => {
-                                    if (engine && typeof engine.getVisibleTextForTts === "function") {
+                                void (async () => {
+                                    await engine.next();
+                                    if (!readerUnmountedRef.current && typeof engine.getVisibleTextForTts === "function") {
                                         const result = engine.getVisibleTextForTts();
                                         if (result?.text) setSpeedReadText(result.text.replace(/\s+/g, " ").trim());
                                     }
-                                }, 600);
+                                })();
                             }
                         }}
                     />
@@ -3179,18 +3229,23 @@ const BookReaderPage = memo(function BookReaderPage() {
                             bookAuthor={currentBook.author}
                             bookCover={currentBook.coverPath}
                             visible={shouldShowReaderChrome}
+                            speed={settings.readerSettings.mediaOverlaySpeed ?? 1}
+                            onSpeedChange={(rate) => updateReaderSettings({ mediaOverlaySpeed: rate })}
+                            onPlayingChange={setIsExternalNarrationPlaying}
                             onClose={() => setImmersionMode(false)}
                         />
                     )}
 
                     {immersionMode && audioTrack && (
                         <AudiobookBar
+                            key={currentBook.id}
                             bookId={currentBook.id}
                             bookTitle={currentBook.title}
                             bookAuthor={currentBook.author}
                             audioTrack={audioTrack}
                             visible={shouldShowReaderChrome}
                             replacesBookNarration={!!bookMediaOverlay}
+                            onPlayingChange={setIsExternalNarrationPlaying}
                             onClose={() => setImmersionMode(false)}
                         />
                     )}

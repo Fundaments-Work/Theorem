@@ -26,18 +26,36 @@ export interface MediaOverlayBarProps {
     bookAuthor?: string;
     bookCover?: string;
     visible?: boolean;
+    speed?: number;
+    onSpeedChange?: (rate: number) => void;
+    onPlayingChange?: (playing: boolean) => void;
     onClose: () => void;
 }
 
 /** Player for a book's own synced narration (EPUB 3 Media Overlays). See docs/tts.md. */
-export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookCover, visible = true, onClose }: MediaOverlayBarProps) {
+export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookCover, visible = true, speed: initialSpeed, onSpeedChange, onPlayingChange, onClose }: MediaOverlayBarProps) {
     const [state, setState] = useState<BarState>("idle");
     const [error, setError] = useState<string | null>(null);
-    const [speed, setSpeed] = useState(1);
+    const [speed, setSpeed] = useState(() => (initialSpeed && initialSpeed > 0 ? initialSpeed : 1));
     const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
     const [sleepDeadline, setSleepDeadline] = useState<number | null>(null);
 
     const started = state === "playing" || state === "paused";
+    const playing = state === "playing";
+
+    useEffect(() => {
+        onPlayingChange?.(playing);
+        return () => {
+            onPlayingChange?.(false);
+        };
+    }, [playing, onPlayingChange]);
+
+    useEffect(() => {
+        if (initialSpeed && initialSpeed > 0 && initialSpeed !== speed) {
+            setSpeed(initialSpeed);
+            overlay.setRate(initialSpeed);
+        }
+    }, [initialSpeed, overlay, speed]);
 
     useEffect(() => {
         // A skip while paused highlights the new phrase but stays paused.
@@ -138,9 +156,8 @@ export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookC
     const changeSpeed = useCallback((next: number) => {
         setSpeed(next);
         overlay.setRate(next);
-    }, [overlay]);
-
-    const playing = state === "playing";
+        onSpeedChange?.(next);
+    }, [overlay, onSpeedChange]);
 
     return (
         <div

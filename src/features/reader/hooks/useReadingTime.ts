@@ -239,6 +239,7 @@ export function useReadingTime({
         document.addEventListener('visibilitychange', handleVisibilityChange);
         const unregisterPreFlush = registerPrePersistFlush(() => flushReadingTime(true));
 
+        let cancelled = false;
         let tauriUnlisten: Array<() => void> = [];
         if (isTauri()) {
             (async () => {
@@ -249,11 +250,17 @@ export function useReadingTime({
                 const unlistenResume = await listen('tauri://on-resume', () => {
                     resumeReadingTime();
                 });
+                if (cancelled) {
+                    unlistenPause();
+                    unlistenResume();
+                    return;
+                }
                 tauriUnlisten = [unlistenPause, unlistenResume];
             })();
         }
 
         return () => {
+            cancelled = true;
             if (readingIntervalRef.current) {
                 clearInterval(readingIntervalRef.current);
                 readingIntervalRef.current = null;

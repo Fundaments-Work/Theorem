@@ -492,9 +492,10 @@ export class View extends HTMLElement {
                     .then(() => {
                         // A later phrase may have started while the page was turning.
                         if (id !== highlightId) return
-                        const { doc } = this.renderer.getContents()
+                        const content = this.renderer?.getContents()
                             .find(x => x.index === resolved.index)
-                        const el = resolved.anchor(doc)
+                        if (!content?.doc) return
+                        const el = resolved.anchor(content.doc)
                         if (!el?.classList) return
                         el.classList.add(activeClass)
                         if (playbackActiveClass) el.ownerDocument
@@ -925,8 +926,9 @@ export class View extends HTMLElement {
             this.renderer.scrollToAnchor(range, true)), granularity)
     }
     startMediaOverlay() {
-        const { index } = this.renderer.getContents()[0]
-        return this.mediaOverlay.start(index)
+        const first = this.renderer?.getContents()?.[0]
+        if (!first || first.index == null) return
+        return this.mediaOverlay.start(first.index)
     }
 }
 

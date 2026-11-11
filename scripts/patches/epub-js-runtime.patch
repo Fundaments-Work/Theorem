@@ -148,7 +148,44 @@
          const result = { label, href, subitems: parseOL($ol) }
          if (getType) result.type = $a?.getAttributeNS(NS.EPUB, 'type')?.split(/\s/)
          return result
-@@ -402,20 +391,33 @@
+@@ -374,22 +363,29 @@
+ 
+ const parseClock = str => {
+     if (!str) return
+-    const parts = str.split(':').map(x => parseFloat(x))
++    const trimmed = str.trim()
++    const parts = trimmed.split(':').map(x => Number(x))
+     if (parts.length === 3) {
+         const [h, m, s] = parts
+-        return h * 60 * 60 + m * 60 + s
++        const val = h * 60 * 60 + m * 60 + s
++        return Number.isFinite(val) ? val : undefined
+     }
+     if (parts.length === 2) {
+         const [m, s] = parts
+-        return m * 60 + s
++        const val = m * 60 + s
++        return Number.isFinite(val) ? val : undefined
+     }
+-    const [x, unit] = str.split(/(?=[^\d.])/)
+-    const n = parseFloat(x)
++    const [x, unit] = trimmed.split(/(?=[^\d.])/)
++    if (!x) return
++    const n = Number(x)
++    if (!Number.isFinite(n)) return
+     const f = unit === 'h' ? 60 * 60
+         : unit === 'min' ? 60
+         : unit === 'ms' ? .001
+-        : 1
+-    return n * f
++        : unit === '' || unit === 's' ? 1
++        : NaN
++    const val = n * f
++    return Number.isFinite(val) ? val : undefined
+ }
+ 
+ class MediaOverlay extends EventTarget {
+@@ -402,20 +398,40 @@
      #volume = 1
      #rate = 1
      #state
@@ -168,6 +205,13 @@
          if (this.#lastMediaOverlayItem === item) return
          const doc = await this.loadXML(item.href)
 +        if (session !== this.#session) return
++        if (!doc) {
++            this.#audioIndex = -1
++            this.#itemIndex = -1
++            this.#entries = []
++            this.#lastMediaOverlayItem = item
++            return
++        }
          const resolve = href => href ? resolveURL(href, item.href) : null
 +        // resolveURL drops the fragment, but it is what identifies the spoken phrase.
 +        const resolveText = href => {
@@ -184,7 +228,7 @@
              const $audio = $($par, 'audio')
              if (!text || !$audio) return arr
              const src = resolve($audio.getAttribute('src'))
-@@ -429,7 +431,7 @@
+@@ -429,13 +445,14 @@
          this.#lastMediaOverlayItem = item
      }
      get #activeAudio() {
@@ -193,7 +237,14 @@
      }
      get #activeItem() {
          return this.#activeAudio?.items?.[this.#itemIndex]
-@@ -444,20 +446,28 @@
+     }
+     #error(e) {
+         console.error(e)
++        this.#state = 'stopped'
+         this.dispatchEvent(new CustomEvent('error', { detail: e }))
+     }
+     #highlight() {
+@@ -444,20 +461,28 @@
      #unhighlight() {
          this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
      }
@@ -225,7 +276,7 @@
              const t = audio.currentTime
              const { items } = this.#activeAudio
              if (t > this.#activeItem?.end) {
-@@ -471,10 +481,14 @@
+@@ -471,10 +496,18 @@
              while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
              if (this.#itemIndex !== oldIndex) this.#highlight()
          })
@@ -233,7 +284,11 @@
 -            this.#error(new Error(`Failed to load ${src}`)))
 -        audio.addEventListener('playing', () => this.#highlight())
 +        audio.addEventListener('error', () => {
-+            if (this.#audio === audio) this.#error(new Error(`Failed to load ${src}`))
++            if (this.#audio === audio) {
++                URL.revokeObjectURL(url)
++                this.#audio = null
++                this.#error(new Error(`Failed to load ${src}`))
++            }
 +        })
 +        audio.addEventListener('playing', () => {
 +            if (this.#audio === audio) this.#highlight()
@@ -243,12 +298,16 @@
              this.#unhighlight()
              URL.revokeObjectURL(url)
              this.#audio = null
-@@ -482,26 +496,38 @@
+@@ -482,26 +515,42 @@
          })
          if (this.#state === 'paused') {
              this.#highlight()
 -            audio.currentTime = this.#activeItem.begin ?? 0
-+            audio.currentTime = position
++            const seek = () => {
++                if (this.#audio === audio) audio.currentTime = position
++            }
++            if (audio.readyState >= 1) seek()
++            else audio.addEventListener('loadedmetadata', seek, { once: true })
          }
          else audio.addEventListener('canplaythrough', () => {
 -            // for some reason need to seek in `canplaythrough`
@@ -290,7 +349,7 @@
  
          for (let i = 0; i < this.#entries.length; i++) {
              const { items } = this.#entries[i]
-@@ -510,6 +536,8 @@
+@@ -510,6 +559,8 @@
                      return this.#play(i, j).catch(e => this.#error(e))
              }
          }
@@ -299,7 +358,7 @@
      }
      pause() {
          this.#state = 'paused'
-@@ -517,29 +545,40 @@
+@@ -517,29 +568,40 @@
      }
      resume() {
          this.#state = 'playing'
@@ -345,7 +404,7 @@
      }
      setVolume(volume) {
          this.#volume = volume
-@@ -547,7 +586,18 @@
+@@ -547,7 +609,18 @@
      }
      setRate(rate) {
          this.#rate = rate
@@ -365,7 +424,7 @@
      }
  }
  
-@@ -565,7 +615,6 @@
+@@ -565,7 +638,6 @@
      opf.getElementById(opf.documentElement.getAttribute('unique-identifier'))
      ?? opf.getElementsByTagNameNS(NS.DC, 'identifier')[0])
  
@@ -373,7 +432,7 @@
  const deobfuscate = async (key, length, blob) => {
      const array = new Uint8Array(await blob.slice(0, length).arrayBuffer())
      length = Math.min(length, array.length)
-@@ -582,7 +631,7 @@
+@@ -582,7 +654,7 @@
  const deobfuscators = (sha1 = WebCryptoSHA1) => ({
      'http://www.idpf.org/2008/embedding': {
          key: opf => sha1(getIdentifier(opf)
@@ -382,7 +441,7 @@
              .replaceAll(/[\u0020\u0009\u000d\u000a]/g, '')),
          decode: (key, blob) => deobfuscate(key, 1040, blob),
      },
-@@ -667,7 +716,7 @@
+@@ -667,7 +739,7 @@
              }))
  
          this.cover = this.getItemByProperty('cover-image')
@@ -391,7 +450,7 @@
              ?? this.getItemByID($$$(opf, 'meta')
                  .find(filterAttribute('name', 'cover'))
                  ?.getAttribute('content'))
-@@ -689,9 +738,7 @@
+@@ -689,9 +761,7 @@
          const parts = CFI.parse(cfi)
          const top = (parts.parent ?? parts).shift()
          let $itemref = CFI.toElement(this.opf, top)
@@ -402,7 +461,7 @@
          if ($itemref && $itemref.nodeName !== 'idref') {
              top.at(-1).id = null
              $itemref = CFI.toElement(this.opf, top)
-@@ -713,32 +760,36 @@
+@@ -713,32 +783,36 @@
          this.loadBlob = loadBlob
          this.manifest = resources.manifest
          this.assets = resources.manifest
@@ -453,7 +512,7 @@
              if (childList) childList.push(href)
              else this.#children.set(parent, [href])
          }
-@@ -747,19 +798,17 @@
+@@ -747,19 +821,17 @@
      unref(href) {
          if (!this.#refCount.has(href)) return
          const count = this.#refCount.get(href) - 1
@@ -475,7 +534,7 @@
      async loadItem(item, parents = []) {
          if (!item) return null
          const { href, mediaType } = item
-@@ -776,18 +825,48 @@
+@@ -776,18 +848,48 @@
  
          const shouldReplace =
              (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
@@ -529,7 +588,7 @@
          return this.loadItem(item, parents.concat(base))
      }
      async loadReplaced(item, parents = []) {
-@@ -801,27 +880,16 @@
+@@ -801,27 +903,16 @@
          }
          if (!str) return null
  
@@ -559,7 +618,7 @@
              if ([MIME.XHTML, MIME.SVG].includes(item.mediaType)) {
                  let child = doc.firstChild
                  while (child instanceof ProcessingInstruction) {
-@@ -836,29 +904,34 @@
+@@ -836,29 +927,34 @@
                      child = child.nextSibling
                  }
              }
@@ -600,7 +659,7 @@
              const result = new XMLSerializer().serializeToString(doc)
              return this.createURL(href, result, item.mediaType, parent)
          }
-@@ -873,19 +946,19 @@
+@@ -873,19 +969,19 @@
              /url\(\s*["']?([^'"\n]*?)\s*["']?\s*\)/gi,
              (_, url) => this.loadHref(url, href, parents)
                  .then(url => `url("${url}")`))
@@ -624,7 +683,15 @@
              const relative = pathRelative(pathDirname(href), asset.href)
              const relativeEnc = encodeURI(relative)
              const rootRelative = '/' + asset.href
-@@ -934,7 +1007,14 @@
+@@ -905,6 +1001,7 @@
+     }
+     destroy() {
+         for (const url of this.#cache.values()) URL.revokeObjectURL(url)
++        this.#cache.clear()
+     }
+ }
+ 
+@@ -934,7 +1031,14 @@
      #loader
      #encryption
      constructor({ loadText, loadBlob, getSize, sha1 }) {

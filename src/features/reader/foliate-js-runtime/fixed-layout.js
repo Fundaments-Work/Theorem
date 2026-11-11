@@ -85,6 +85,7 @@ export class FixedLayout extends HTMLElement {
         iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
         iframe.setAttribute('scrolling', 'no')
         iframe.setAttribute('part', 'filter')
+        if (index != null) iframe.dataset.index = String(index)
         this.#root.append(element)
         if (!src) return { blank: true, element, iframe }
         return new Promise(resolve => {
@@ -326,10 +327,14 @@ export class FixedLayout extends HTMLElement {
         if (!s) return this.goToSpread(this.#index - 1, this.rtl ? 'left' : 'right', 'page')
     }
     getContents() {
-        return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
-            doc: frame.contentDocument,
-            
-        }))
+        return Array.from(this.#root.querySelectorAll('iframe'), frame => {
+            const rawIndex = frame.dataset.index
+            const index = rawIndex != null ? Number(rawIndex) : undefined
+            return {
+                doc: frame.contentDocument,
+                index: Number.isFinite(index) ? index : undefined,
+            }
+        }).filter(entry => entry.doc)
     }
     destroy() {
         this.#observer.unobserve(this)

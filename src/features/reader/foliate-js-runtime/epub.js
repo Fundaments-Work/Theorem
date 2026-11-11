@@ -363,22 +363,29 @@ const parseNCX = (doc, resolve = f => f) => {
 
 const parseClock = str => {
     if (!str) return
-    const parts = str.split(':').map(x => parseFloat(x))
+    const trimmed = str.trim()
+    const parts = trimmed.split(':').map(x => Number(x))
     if (parts.length === 3) {
         const [h, m, s] = parts
-        return h * 60 * 60 + m * 60 + s
+        const val = h * 60 * 60 + m * 60 + s
+        return Number.isFinite(val) ? val : undefined
     }
     if (parts.length === 2) {
         const [m, s] = parts
-        return m * 60 + s
+        const val = m * 60 + s
+        return Number.isFinite(val) ? val : undefined
     }
-    const [x, unit] = str.split(/(?=[^\d.])/)
-    const n = parseFloat(x)
+    const [x, unit] = trimmed.split(/(?=[^\d.])/)
+    if (!x) return
+    const n = Number(x)
+    if (!Number.isFinite(n)) return
     const f = unit === 'h' ? 60 * 60
         : unit === 'min' ? 60
         : unit === 'ms' ? .001
-        : 1
-    return n * f
+        : unit === '' || unit === 's' ? 1
+        : NaN
+    const val = n * f
+    return Number.isFinite(val) ? val : undefined
 }
 
 class MediaOverlay extends EventTarget {
@@ -406,6 +413,13 @@ class MediaOverlay extends EventTarget {
         if (this.#lastMediaOverlayItem === item) return
         const doc = await this.loadXML(item.href)
         if (session !== this.#session) return
+        if (!doc) {
+            this.#audioIndex = -1
+            this.#itemIndex = -1
+            this.#entries = []
+            this.#lastMediaOverlayItem = item
+            return
+        }
         const resolve = href => href ? resolveURL(href, item.href) : null
         // resolveURL drops the fragment, but it is what identifies the spoken phrase.
         const resolveText = href => {
@@ -438,6 +452,7 @@ class MediaOverlay extends EventTarget {
     }
     #error(e) {
         console.error(e)
+        this.#state = 'stopped'
         this.dispatchEvent(new CustomEvent('error', { detail: e }))
     }
     #highlight() {
@@ -482,7 +497,11 @@ class MediaOverlay extends EventTarget {
             if (this.#itemIndex !== oldIndex) this.#highlight()
         })
         audio.addEventListener('error', () => {
-            if (this.#audio === audio) this.#error(new Error(`Failed to load ${src}`))
+            if (this.#audio === audio) {
+                URL.revokeObjectURL(url)
+                this.#audio = null
+                this.#error(new Error(`Failed to load ${src}`))
+            }
         })
         audio.addEventListener('playing', () => {
             if (this.#audio === audio) this.#highlight()
@@ -496,7 +515,11 @@ class MediaOverlay extends EventTarget {
         })
         if (this.#state === 'paused') {
             this.#highlight()
-            audio.currentTime = position
+            const seek = () => {
+                if (this.#audio === audio) audio.currentTime = position
+            }
+            if (audio.readyState >= 1) seek()
+            else audio.addEventListener('loadedmetadata', seek, { once: true })
         }
         else audio.addEventListener('canplaythrough', () => {
             if (this.#audio !== audio) return
@@ -978,6 +1001,7 @@ class Loader {
     }
     destroy() {
         for (const url of this.#cache.values()) URL.revokeObjectURL(url)
+        this.#cache.clear()
     }
 }
 

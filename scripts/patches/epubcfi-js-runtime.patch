@@ -43,16 +43,31 @@
      const parent = from.slice(0, -1).concat([localParent])
      return toString({ parent, start: [localStart], end: [localEnd] })
  }
-@@ -176,7 +175,7 @@
+@@ -169,16 +168,17 @@
+     for (let i = 0; i < Math.max(a.length, b.length); i++) {
+         const p = a[i] ?? [], q = b[i] ?? []
+         const maxIndex = Math.max(p.length, q.length) - 1
+-        for (let i = 0; i <= maxIndex; i++) {
+-            const x = p[i], y = q[i]
++        for (let j = 0; j <= maxIndex; j++) {
++            const x = p[j], y = q[j]
+             if (!x) return -1
+             if (!y) return 1
              if (x.index > y.index) return 1
              if (x.index < y.index) return -1
-             if (i === maxIndex) {
+-            if (i === maxIndex) {
 -                // TODO: compare temporal & spatial offsets
-+                
-                 if (x.offset > y.offset) return 1
-                 if (x.offset < y.offset) return -1
+-                if (x.offset > y.offset) return 1
+-                if (x.offset < y.offset) return -1
++            if (j === maxIndex) {
++                const ox = x.offset ?? -1
++                const oy = y.offset ?? -1
++                if (ox > oy) return 1
++                if (ox < oy) return -1
              }
-@@ -190,7 +189,7 @@
+         }
+     }
+@@ -190,7 +190,7 @@
  
  const getChildNodes = (node, filter) => {
      const nodes = Array.from(node.childNodes)
@@ -61,7 +76,7 @@
          .filter(node => isTextNode(node) || isElementNode(node))
      return filter ? nodes.map(node => {
          const accept = filter(node)
-@@ -200,17 +199,12 @@
+@@ -200,17 +200,12 @@
      }).flat().filter(x => x) : nodes
  }
  
@@ -80,7 +95,7 @@
              else if (isTextNode(node)) {
                  if (Array.isArray(last)) last.push(node)
                  else if (isTextNode(last)) arr[arr.length - 1] = [last, node]
-@@ -221,40 +215,79 @@
+@@ -221,40 +216,79 @@
              }
              return arr
          }, [])
@@ -180,7 +195,7 @@
  }
  
  const nodeToParts = (node, offset, filter) => {
-@@ -266,7 +299,7 @@
+@@ -266,7 +300,7 @@
      const indexed = indexChildNodes(parentNode, filter)
      const index = indexed.findIndex(x =>
          Array.isArray(x) ? x.some(x => x === node) : x === node)
@@ -189,7 +204,7 @@
      const chunk = indexed[index]
      if (Array.isArray(chunk)) {
          let sum = 0
-@@ -281,7 +314,7 @@
+@@ -281,7 +315,7 @@
      const part = { id, index, offset }
      return (parentNode !== node.ownerDocument.documentElement
          ? nodeToParts(parentNode, null, filter).concat(part) : [part])
@@ -198,7 +213,7 @@
          .filter(x => x.index !== -1)
  }
  
-@@ -301,19 +334,22 @@
+@@ -301,19 +335,22 @@
      const start = partsToNode(root, startParts[0], filter)
      const end = partsToNode(root, endParts[0], filter)
  
@@ -229,7 +244,7 @@
  export const fromElements = elements => {
      const results = []
      const { parentNode } = elements[0]
-@@ -329,14 +365,11 @@
+@@ -329,14 +366,11 @@
  export const toElement = (doc, parts) =>
      partsToNode(doc.documentElement, collapse(parts)).node
  

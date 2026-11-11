@@ -82,6 +82,20 @@ pub fn spd_say_args(text: &str, speed: Option<f32>, lang: Option<&str>) -> Vec<S
     args
 }
 
+/// Pipe-mode arguments (`-e`) so large page texts flow over stdin without
+/// hitting Linux `MAX_ARG_STRLEN` (`E2BIG`).
+pub fn spd_say_pipe_args(speed: Option<f32>, lang: Option<&str>) -> Vec<String> {
+    let rate = ((clamp_speed(speed) - 1.0) * 100.0)
+        .round()
+        .clamp(-100.0, 100.0) as i32;
+    let mut args = vec!["-w".to_string(), "-e".into(), "-r".into(), rate.to_string()];
+    if let Some(lang) = spd_language(lang) {
+        args.push("-l".into());
+        args.push(lang);
+    }
+    args
+}
+
 /// `SpeechSynthesizer.Rate` runs from -10 to 10 around 0.
 pub fn windows_rate(speed: Option<f32>) -> i32 {
     let s = clamp_speed(speed);
@@ -458,5 +472,14 @@ mod tests {
         let _ = bystander.wait();
         // Stopping again is a harmless no-op.
         narration.stop();
+    }
+
+    #[test]
+    fn spd_say_pipe_args_keeps_text_out_of_argv_for_stdin_streaming() {
+        assert_eq!(
+            spd_say_pipe_args(Some(1.5), Some("fr_FR")),
+            ["-w", "-e", "-r", "50", "-l", "fr-FR"]
+        );
+        assert_eq!(spd_say_pipe_args(None, None), ["-w", "-e", "-r", "0"]);
     }
 }

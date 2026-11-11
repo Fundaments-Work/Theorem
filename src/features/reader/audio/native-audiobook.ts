@@ -30,7 +30,15 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
     error: { code: number } | null = null;
     paused = true;
     private path: string;
+    private readonly commandPrefix: "linux_audiobook" | "opus_audiobook";
     private id: number | null = null;
+    private readonly onPageHide = () => {
+        if (this.id !== null) {
+            const id = this.id;
+            this.id = null;
+            void invoke(`${this.commandPrefix}_close`, { id }).catch(() => undefined);
+        }
+    };
     private position = 0;
     private positionRevision = 0;
     private rate = 1;
@@ -48,14 +56,18 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         this.readyReject = reject;
     });
 
-    constructor(path: string) {
+    constructor(path: string, commandPrefix: "linux_audiobook" | "opus_audiobook" = "linux_audiobook") {
         super();
         this.path = path;
+        this.commandPrefix = commandPrefix;
+        if (typeof window !== "undefined") {
+            window.addEventListener("pagehide", this.onPageHide);
+        }
         // The player may fail before a play request is made.
         void this.ready.catch(() => undefined);
-        void invoke<number>("linux_audiobook_open", { path }).then(async id => {
+        void invoke<number>(`${this.commandPrefix}_open`, { path }).then(async id => {
             if (this.disposed) {
-                await invoke("linux_audiobook_close", { id });
+                await invoke(`${this.commandPrefix}_close`, { id });
                 return;
             }
             this.id = id;
@@ -68,12 +80,16 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         this.path = value;
         if (value !== "" || this.disposed) return;
         this.disposed = true;
+        if (typeof window !== "undefined") {
+            window.removeEventListener("pagehide", this.onPageHide);
+        }
         this.wantsPlayback = false;
         this.playbackRevision += 1;
         if (this.timer !== null) clearTimeout(this.timer);
         this.readyReject(new Error("Audiobook player closed"));
         const id = this.id;
-        if (id !== null) void this.enqueue(() => invoke("linux_audiobook_close", { id })).catch(() => undefined);
+        this.id = null;
+        if (id !== null) void this.enqueue(() => invoke(`${this.commandPrefix}_close`, { id })).catch(() => undefined);
     }
 
     get currentTime(): number { return this.position; }
@@ -83,7 +99,7 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         this.positionRevision += 1;
         if (!this.metadataReady || this.id === null) return;
         const id = this.id;
-        void this.enqueue(() => invoke("linux_audiobook_seek", { id, seconds }))
+        void this.enqueue(() => invoke(`${this.commandPrefix}_seek`, { id, seconds }))
             .then(() => { if (!this.disposed) this.dispatchEvent(new Event("seeked")); })
             .catch(() => this.fail());
     }
@@ -94,7 +110,7 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         this.rate = rate;
         if (!this.metadataReady || this.id === null) return;
         const id = this.id;
-        void this.enqueue(() => invoke("linux_audiobook_set_rate", { id, rate }))
+        void this.enqueue(() => invoke(`${this.commandPrefix}_set_rate`, { id, rate }))
             .then(() => { if (!this.disposed) this.dispatchEvent(new Event("ratechange")); })
             .catch(() => this.fail());
     }
@@ -107,7 +123,7 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         if (!this.wantsPlayback || revision !== this.playbackRevision) return;
         const id = this.id;
         try {
-            await this.enqueue(() => invoke("linux_audiobook_play", { id }));
+            await this.enqueue(() => invoke(`${this.commandPrefix}_play`, { id }));
             if (this.disposed || !this.wantsPlayback || revision !== this.playbackRevision) return;
             this.ended = false;
             this.paused = false;
@@ -126,7 +142,7 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         if (this.id === null || !wasRequested) return;
         this.paused = true;
         const id = this.id;
-        void this.enqueue(() => invoke("linux_audiobook_pause", { id }))
+        void this.enqueue(() => invoke(`${this.commandPrefix}_pause`, { id }))
             .then(() => { if (!this.disposed && revision === this.playbackRevision) this.dispatchEvent(new Event("pause")); })
             .catch(() => this.fail());
     }
@@ -148,13 +164,13 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         try {
             const revision = this.positionRevision;
             const playbackRevision = this.playbackRevision;
-            const status = await this.enqueue(() => invoke<Snapshot>("linux_audiobook_snapshot", { id }));
+            const status = await this.enqueue(() => invoke<Snapshot>(`${this.commandPrefix}_snapshot`, { id }));
             if (this.disposed) return;
             if (revision === this.positionRevision) this.position = status.position;
             if (status.ready && !this.metadataReady) {
                 this.duration = status.duration;
                 this.metadataReady = true;
-                if (this.rate !== 1) await this.enqueue(() => invoke("linux_audiobook_set_rate", { id, rate: this.rate }));
+                if (this.rate !== 1) await this.enqueue(() => invoke(`${this.commandPrefix}_set_rate`, { id, rate: this.rate }));
                 if (this.disposed) return;
                 this.readyResolve();
                 this.dispatchEvent(new Event("loadedmetadata"));
@@ -178,6 +194,14 @@ export class NativeAudiobookAudio extends EventTarget implements AudiobookAudio 
         this.paused = true;
         this.wantsPlayback = false;
         if (this.timer !== null) clearTimeout(this.timer);
+        if (typeof window !== "undefined") {
+            window.removeEventListener("pagehide", this.onPageHide);
+        }
+        const id = this.id;
+        this.id = null;
+        if (id !== null) {
+            void this.enqueue(() => invoke(`${this.commandPrefix}_close`, { id })).catch(() => undefined);
+        }
         this.readyReject(new Error("Cannot load audiobook"));
         this.dispatchEvent(new Event("error"));
     }

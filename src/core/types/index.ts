@@ -240,6 +240,7 @@ export interface ReaderSettings {
     prefetchDistance: number; 
     enableAnimations: boolean;
     virtualScrolling: boolean; 
+    mediaOverlaySpeed?: number;
 }
 
 export type LibraryViewMode = "grid" | "list" | "compact";

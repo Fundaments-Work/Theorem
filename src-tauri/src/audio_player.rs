@@ -208,13 +208,44 @@ pub fn wsola_stretch(input: &[f32], speed: f32, sample_rate: u32, channels: u16)
 }
 
 #[cfg(not(target_os = "android"))]
-mod imp {
+pub fn is_path_active(path: &std::path::Path) -> bool {
+    imp::is_path_active(path)
+}
+
+#[cfg(target_os = "android")]
+pub fn is_path_active(_path: &std::path::Path) -> bool {
+    false
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) mod imp {
     use super::{wsola_stretch, AudioPlayerStatus};
     use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
+    use std::collections::HashSet;
     use std::fs::File;
-    use std::io::{BufReader, Read};
-    use std::sync::{Mutex, OnceLock};
+    use std::io::{BufReader, Read, Seek, SeekFrom};
+    use std::path::{Path, PathBuf};
+    use std::sync::{LazyLock, Mutex, OnceLock};
     use std::time::Duration;
+
+    static ACTIVE_AUDIO_PATHS: LazyLock<Mutex<HashSet<PathBuf>>> =
+        LazyLock::new(|| Mutex::new(HashSet::new()));
+
+    fn sync_active_paths(paths: &[String]) {
+        if let Ok(mut guard) = ACTIVE_AUDIO_PATHS.lock() {
+            guard.clear();
+            for p in paths {
+                guard.insert(PathBuf::from(p));
+            }
+        }
+    }
+
+    pub(crate) fn is_path_active(path: &Path) -> bool {
+        ACTIVE_AUDIO_PATHS
+            .lock()
+            .map(|guard| guard.contains(path))
+            .unwrap_or(false)
+    }
 
     pub enum PlayableSource {
         Decoder(Decoder<BufReader<File>>),
@@ -258,49 +289,89 @@ mod imp {
         }
     }
 
-    /// Duration of a synthesized WAV, read from its 44-byte canonical header.
+    /// Duration of a RIFF WAVE file by walking its chunks until `data`
+    /// instead of assuming a fixed 44-byte header.
     fn wav_duration(path: &str, speed: f32) -> f64 {
         let Ok(mut file) = File::open(path) else {
             return 0.0;
         };
-        let mut header = [0u8; 44];
-        if file.read_exact(&mut header).is_err() {
+        let mut riff = [0u8; 12];
+        if file.read_exact(&mut riff).is_err() || &riff[0..4] != b"RIFF" || &riff[8..12] != b"WAVE"
+        {
             return 0.0;
         }
-        let channels = u16::from_le_bytes([header[22], header[23]]) as f64;
-        let rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]) as f64;
-        let bits = u16::from_le_bytes([header[34], header[35]]) as f64;
-        let data_len = file
-            .metadata()
-            .map(|m| m.len())
-            .unwrap_or(0)
-            .saturating_sub(44) as f64;
+        let mut channels = 0.0f64;
+        let mut rate = 0.0f64;
+        let mut bits = 0.0f64;
+        let mut data_len: Option<u64> = None;
+
+        let mut chunk_hdr = [0u8; 8];
+        while file.read_exact(&mut chunk_hdr).is_ok() {
+            let chunk_id = &chunk_hdr[0..4];
+            let chunk_size =
+                u32::from_le_bytes([chunk_hdr[4], chunk_hdr[5], chunk_hdr[6], chunk_hdr[7]]) as u64;
+            if chunk_id == b"fmt " && chunk_size >= 16 {
+                let mut fmt = [0u8; 16];
+                if file.read_exact(&mut fmt).is_err() {
+                    break;
+                }
+                channels = f64::from(u16::from_le_bytes([fmt[2], fmt[3]]));
+                rate = f64::from(u32::from_le_bytes([fmt[4], fmt[5], fmt[6], fmt[7]]));
+                bits = f64::from(u16::from_le_bytes([fmt[14], fmt[15]]));
+                let rem = chunk_size - 16;
+                let pad = chunk_size & 1;
+                if file.seek(SeekFrom::Current((rem + pad) as i64)).is_err() {
+                    break;
+                }
+            } else if chunk_id == b"data" {
+                data_len = Some(chunk_size);
+                break;
+            } else {
+                let skip = chunk_size + (chunk_size & 1);
+                if file.seek(SeekFrom::Current(skip as i64)).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let Some(data_bytes) = data_len else {
+            return 0.0;
+        };
         let bytes_per_frame = (channels * bits / 8.0).max(1.0);
-        if rate <= 0.0 {
+        if rate <= 0.0 || channels <= 0.0 || bits <= 0.0 {
             return 0.0;
         }
-        let raw_duration = data_len / bytes_per_frame / rate;
+        let raw_duration = data_bytes as f64 / bytes_per_frame / rate;
         if speed > 0.05 {
-            raw_duration / (speed as f64)
+            raw_duration / f64::from(speed)
         } else {
             raw_duration
         }
     }
 
-    fn open_source_with_speed(path: &str, speed: f32) -> Result<PlayableSource, String> {
+    pub(crate) fn open_source_with_speed(
+        path: &str,
+        speed: f32,
+    ) -> Result<(PlayableSource, f64), String> {
         let file = File::open(path).map_err(|e| format!("Cannot open {path}: {e}"))?;
         let decoder =
             Decoder::new(BufReader::new(file)).map_err(|e| format!("Cannot decode {path}: {e}"))?;
 
         if (speed - 1.0).abs() < 0.02 || speed <= 0.1 {
-            Ok(PlayableSource::Decoder(decoder))
+            let duration = decoder
+                .total_duration()
+                .map(|d| d.as_secs_f64())
+                .unwrap_or_else(|| wav_duration(path, 1.0));
+            Ok((PlayableSource::Decoder(decoder), duration))
         } else {
             let channels = decoder.channels();
             let sample_rate = decoder.sample_rate();
             let samples: Vec<f32> = decoder.collect();
             let stretched = wsola_stretch(&samples, speed, sample_rate.get(), channels.get());
+            let duration =
+                stretched.len() as f64 / (f64::from(sample_rate.get()) * f64::from(channels.get()));
             let buf = rodio::buffer::SamplesBuffer::new(channels, sample_rate, stretched);
-            Ok(PlayableSource::Stretched(buf))
+            Ok((PlayableSource::Stretched(buf), duration))
         }
     }
 
@@ -371,10 +442,10 @@ mod imp {
     pub fn append(path: String) -> Result<(), String> {
         with_player(|p| {
             let speed = p.speed;
-            let duration = wav_duration(&path, speed);
-            let source = open_source_with_speed(&path, speed)?;
+            let (source, duration) = open_source_with_speed(&path, speed)?;
             p.durations.push(duration);
             p.paths.push(path);
+            sync_active_paths(&p.paths);
             p.player.append(source);
             if !p.paused {
                 p.player.play();
@@ -386,14 +457,14 @@ mod imp {
     pub fn play(path: String) -> Result<(), String> {
         with_player(|p| {
             let speed = p.speed;
-            let duration = wav_duration(&path, speed);
-            let source = open_source_with_speed(&path, speed)?;
+            let (source, duration) = open_source_with_speed(&path, speed)?;
             p.paused = false;
             p.player.clear();
             p.durations.clear();
             p.durations.push(duration);
             p.paths.clear();
             p.paths.push(path);
+            sync_active_paths(&p.paths);
             p.player.append(source);
             p.player.play();
             Ok(())
@@ -420,6 +491,7 @@ mod imp {
             p.player.clear();
             p.durations.clear();
             p.paths.clear();
+            sync_active_paths(&p.paths);
         })
     }
 
@@ -454,8 +526,15 @@ mod imp {
         };
         let was_paused = p.paused;
         p.player.clear();
-        for path in &p.paths[idx..] {
-            let source = open_source_with_speed(path, p.speed)?;
+        let mut clamped_offset = offset;
+        for i in idx..p.paths.len() {
+            let (source, actual_dur) = open_source_with_speed(&p.paths[i], p.speed)?;
+            if i < p.durations.len() {
+                p.durations[i] = actual_dur;
+                if i == idx {
+                    clamped_offset = offset.min((actual_dur - 0.005).max(0.0));
+                }
+            }
             p.player.append(source);
         }
         if was_paused {
@@ -464,7 +543,7 @@ mod imp {
             p.player.play();
         }
         p.player
-            .try_seek(Duration::from_secs_f64(offset))
+            .try_seek(Duration::from_secs_f64(clamped_offset))
             .map_err(|e| format!("Seek failed: {e}"))
     }
 
@@ -489,7 +568,7 @@ mod imp {
             if playing {
                 // Rebuild the queue at the new speed from the same point in the audio.
                 let target = super::position_after_speed_change(position, old_speed, clamped);
-                let _ = seek_locked(p, target);
+                seek_locked(p, target)?;
             }
             Ok(())
         })?
@@ -834,5 +913,51 @@ mod tests {
         let output = wsola_stretch(&input, speed, sample_rate, 2);
         assert_eq!(output.len() % 2, 0, "Stereo output must have even length");
         assert!(output.len() < input.len());
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn open_source_duration_matches_actual_stretched_samples_without_44_byte_assumption() {
+        use rodio::Source;
+        let sample_rate = 24_000u32;
+        let num_samples = sample_rate as usize; // 1.0s mono
+        let data_bytes = (num_samples * 2) as u32;
+
+        // Build a valid RIFF WAV with a 20-byte LIST chunk before `data` (64-byte offset, not 44).
+        let list_payload = b"info12345678"; // 12 bytes
+        let riff_size = 4 + 24 + 8 + list_payload.len() as u32 + 8 + data_bytes;
+        let mut wav = Vec::with_capacity(riff_size as usize + 8);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&riff_size.to_le_bytes());
+        wav.extend_from_slice(b"WAVE");
+        wav.extend_from_slice(b"fmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"LIST");
+        wav.extend_from_slice(&(list_payload.len() as u32).to_le_bytes());
+        wav.extend_from_slice(list_payload);
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_bytes.to_le_bytes());
+        for i in 0..num_samples {
+            let s = ((i as f32 / sample_rate as f32) * 440.0 * 2.0 * std::f32::consts::PI).sin();
+            wav.extend_from_slice(&((s * 16000.0) as i16).to_le_bytes());
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let wav_path = dir.path().join("extended.wav");
+        std::fs::write(&wav_path, &wav).unwrap();
+
+        let (src, reported_dur) =
+            super::imp::open_source_with_speed(wav_path.to_str().unwrap(), 1.5).unwrap();
+        let actual_dur = src.total_duration().unwrap().as_secs_f64();
+        assert!(
+            (reported_dur - actual_dur).abs() < 1e-6,
+            "reported duration {reported_dur} drifted from actual stretched duration {actual_dur}"
+        );
     }
 }

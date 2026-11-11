@@ -259,7 +259,7 @@ export function SpeedReader({ isOpen, text, onClose, onAutoNext }: SpeedReaderPr
 
             {/* Main Reading Canvas */}
             <div className="flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center justify-center px-4 sm:px-6 md:px-8 py-4">
-                <div className="w-full max-w-3xl flex flex-col gap-6 my-auto" style={{ width: "100%", maxWidth: "48rem" }}>
+                <div className="w-full max-w-[var(--container-width-md)] flex flex-col gap-6 my-auto" style={{ width: "100%", maxWidth: "48rem" }}>
                     {/* Hero-Sized Spritz-Style Optimal Recognition Point (ORP) Box */}
                     <div className="w-full flex flex-col items-center justify-center" style={{ width: "100%" }}>
                         <div className="relative w-full py-8 sm:py-12 md:py-16 px-4 border-2 border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center"style={{ width: "100%" }}>

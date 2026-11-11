@@ -365,6 +365,10 @@ pub async fn tts_model_download_asset(
 
 /// Remove the whole neural voice install (models, runtime, cache).
 pub fn tts_model_remove(app: AppHandle) -> Result<u64, String> {
+    if crate::audiobook_gen::has_active_generations() {
+        return Err("Cannot remove TTS models while audiobook generation is running".to_string());
+    }
+    crate::supertonic::force_tts_engine_unload()?;
     let dir = tts_dir(&app);
     let bytes = dir_size(&dir);
     if dir.exists() {

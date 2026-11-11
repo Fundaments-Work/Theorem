@@ -168,16 +168,17 @@ export const compare = (a, b) => {
     for (let i = 0; i < Math.max(a.length, b.length); i++) {
         const p = a[i] ?? [], q = b[i] ?? []
         const maxIndex = Math.max(p.length, q.length) - 1
-        for (let i = 0; i <= maxIndex; i++) {
-            const x = p[i], y = q[i]
+        for (let j = 0; j <= maxIndex; j++) {
+            const x = p[j], y = q[j]
             if (!x) return -1
             if (!y) return 1
             if (x.index > y.index) return 1
             if (x.index < y.index) return -1
-            if (i === maxIndex) {
-                
-                if (x.offset > y.offset) return 1
-                if (x.offset < y.offset) return -1
+            if (j === maxIndex) {
+                const ox = x.offset ?? -1
+                const oy = y.offset ?? -1
+                if (ox > oy) return 1
+                if (ox < oy) return -1
             }
         }
     }

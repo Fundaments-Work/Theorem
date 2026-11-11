@@ -423,7 +423,7 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                                 )}
                                                 <div className="text-[10px] text-[var(--color-text-muted)] mt-2.5 mb-1.5">Speed</div>
                                                 <div className="flex gap-1">
-                                                    {[0.75, 1, 1.25, 1.5].map((s) => (
+                                                    {[0.75, 1, 1.25, 1.5, 2].map((s) => (
                                                         <button
                                                             key={s}
                                                             onClick={() => onTtsSpeedChange?.(s)}

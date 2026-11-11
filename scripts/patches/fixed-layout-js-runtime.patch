@@ -40,7 +40,7 @@
      console.warn(new Error('Missing viewport properties'))
      return { width: 1000, height: 2000 }
  }
-@@ -81,17 +81,26 @@
+@@ -81,17 +81,27 @@
              display: 'none',
              overflow: 'hidden',
          })
@@ -50,6 +50,7 @@
          iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
          iframe.setAttribute('scrolling', 'no')
          iframe.setAttribute('part', 'filter')
++        if (index != null) iframe.dataset.index = String(index)
          this.#root.append(element)
          if (!src) return { blank: true, element, iframe }
          return new Promise(resolve => {
@@ -70,7 +71,7 @@
                  const { width, height } = getViewport(doc, this.defaultViewport)
                  resolve({
                      element, iframe,
-@@ -268,17 +277,28 @@
+@@ -268,17 +278,28 @@
              this.#render(side)
              return
          }
@@ -99,7 +100,7 @@
              const left = { index: indexL, src: srcL }
              const right = { index: indexR, src: srcR }
              await this.#showSpread({ left, right, side })
-@@ -287,7 +307,7 @@
+@@ -287,7 +308,7 @@
      }
      async select(target) {
          await this.goTo(target)
@@ -108,13 +109,22 @@
      }
      async goTo(target) {
          const { book } = this
-@@ -308,11 +328,16 @@
+@@ -306,13 +327,22 @@
+         if (!s) return this.goToSpread(this.#index - 1, this.rtl ? 'left' : 'right', 'page')
+     }
      getContents() {
-         return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
-             doc: frame.contentDocument,
+-        return Array.from(this.#root.querySelectorAll('iframe'), frame => ({
+-            doc: frame.contentDocument,
 -            // TODO: index, overlayer
-+            
-         }))
+-        }))
++        return Array.from(this.#root.querySelectorAll('iframe'), frame => {
++            const rawIndex = frame.dataset.index
++            const index = rawIndex != null ? Number(rawIndex) : undefined
++            return {
++                doc: frame.contentDocument,
++                index: Number.isFinite(index) ? index : undefined,
++            }
++        }).filter(entry => entry.doc)
      }
      destroy() {
          this.#observer.unobserve(this)

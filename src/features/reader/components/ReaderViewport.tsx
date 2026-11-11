@@ -21,8 +21,8 @@ const FORMAT_EXTENSION_MAP: Record<BookFormat, string> = {
 };
 
 export interface ReaderViewportHandle {
-    next: () => void;
-    prev: () => void;
+    next: () => Promise<void>;
+    prev: () => Promise<void>;
     goToFraction: (fraction: number) => void;
     goTo: (location: string) => Promise<void>;
     goToAnnotation: (annotation: Annotation) => Promise<void>;

@@ -6,6 +6,15 @@
  const CONTEXT_LENGTH = 50
  
  const normalizeWhitespace = str => str.replace(/\s+/g, ' ')
+@@ -9,7 +9,7 @@
+     const match = start === end
+         ? start.slice(startOffset, endOffset)
+         : start.slice(startOffset)
+-            + strs.slice(start + 1, end).join('')
++            + strs.slice(startIndex + 1, endIndex).join('')
+             + end.slice(0, endOffset)
+     const trimmedStart = normalizeWhitespace(start.slice(0, startOffset)).trimStart()
+     const trimmedEnd = normalizeWhitespace(end.slice(endOffset)).trimEnd()
 @@ -66,8 +66,7 @@
          while (substrArr.length < queryLength) {
              const { done, value } = segments.next()

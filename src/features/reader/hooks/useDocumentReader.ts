@@ -203,6 +203,12 @@ export function useDocumentReader(options: UseDocumentReaderOptions = {}): UseDo
 
         return () => {
             isCancelled = true;
+            openAbortRef.current?.abort();
+            openAbortRef.current = null;
+            if (loadingDelayRef.current !== null) {
+                clearTimeout(loadingDelayRef.current);
+                loadingDelayRef.current = null;
+            }
             (container as any)[containerKey] = false;
             if (engineRef.current === engine) {
                 engineRef.current = null;

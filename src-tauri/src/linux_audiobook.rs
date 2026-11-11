@@ -17,7 +17,24 @@ mod imp {
     use super::{AppError, PlaybackSnapshot};
     use gst::prelude::*;
     use gstreamer as gst;
+    use std::collections::HashMap;
     use std::path::Path;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    pub(crate) fn snapshot_from_gst(
+        playing: bool,
+        position: gst::ClockTime,
+        duration: Option<gst::ClockTime>,
+    ) -> PlaybackSnapshot {
+        PlaybackSnapshot {
+            ready: duration.is_some_and(|d| d > gst::ClockTime::ZERO),
+            playing,
+            finished: false,
+            position: position.nseconds() as f64 / 1_000_000_000.0,
+            duration: duration.map_or(0.0, |time| time.nseconds() as f64 / 1_000_000_000.0),
+        }
+    }
 
     /// A single streaming playback pipeline. Dropping it releases the file and sink.
     pub struct LinuxAudiobook {
@@ -61,6 +78,8 @@ mod imp {
             }
             if let Ok(tempo) = gst::ElementFactory::make("scaletempo").build() {
                 pipeline.set_property("audio-filter", tempo);
+            } else {
+                log::warn!("[linux_audiobook] GStreamer scaletempo plugin unavailable; speed changes will shift pitch");
             }
             pipeline
                 .set_state(gst::State::Paused)
@@ -112,13 +131,13 @@ mod imp {
             self.drain_messages()?;
             let duration = self.pipeline.query_duration::<gst::ClockTime>();
             let position = self.position()?;
-            Ok(PlaybackSnapshot {
-                ready: duration.is_some(),
-                playing: self.pipeline.current_state() == gst::State::Playing && !self.finished,
-                finished: self.finished,
-                position: position.nseconds() as f64 / 1_000_000_000.0,
-                duration: duration.map_or(0.0, |time| time.nseconds() as f64 / 1_000_000_000.0),
-            })
+            let mut snap = snapshot_from_gst(
+                self.pipeline.current_state() == gst::State::Playing && !self.finished,
+                position,
+                duration,
+            );
+            snap.finished = self.finished;
+            Ok(snap)
         }
 
         pub fn play(&mut self) -> Result<(), AppError> {
@@ -193,14 +212,11 @@ mod imp {
         }
     }
 
-    use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::{Mutex, OnceLock};
-
     static NEXT_SESSION: AtomicU32 = AtomicU32::new(1);
-    static SESSIONS: OnceLock<Mutex<HashMap<u32, LinuxAudiobook>>> = OnceLock::new();
+    type SessionEntry = (Box<str>, Arc<Mutex<LinuxAudiobook>>);
+    static SESSIONS: OnceLock<Mutex<HashMap<u32, SessionEntry>>> = OnceLock::new();
 
-    fn sessions() -> &'static Mutex<HashMap<u32, LinuxAudiobook>> {
+    fn sessions() -> &'static Mutex<HashMap<u32, SessionEntry>> {
         SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
     }
 
@@ -219,6 +235,10 @@ mod imp {
     }
 
     pub fn open(path: String) -> Result<u32, AppError> {
+        open_for_window(path, "main".to_string())
+    }
+
+    pub fn open_for_window(path: String, owner_window: String) -> Result<u32, AppError> {
         let player = LinuxAudiobook::open(Path::new(&path))?;
         let id = next_session_id(&NEXT_SESSION)?;
         let mut sessions = sessions()
@@ -227,7 +247,10 @@ mod imp {
         if sessions.len() >= 32 {
             return Err(AppError::internal("Too many audiobook sessions are open"));
         }
-        sessions.insert(id, player);
+        sessions.insert(
+            id,
+            (owner_window.into_boxed_str(), Arc::new(Mutex::new(player))),
+        );
         Ok(id)
     }
 
@@ -235,13 +258,34 @@ mod imp {
         id: u32,
         action: impl FnOnce(&mut LinuxAudiobook) -> Result<T, AppError>,
     ) -> Result<T, AppError> {
-        let mut sessions = sessions()
+        let entry = {
+            let sessions = sessions()
+                .lock()
+                .map_err(|_| AppError::internal("Audiobook player is unavailable"))?;
+            sessions
+                .get(&id)
+                .map(|(_, player)| player.clone())
+                .ok_or_else(|| AppError::not_found("Audiobook session is no longer open"))?
+        };
+        let mut player = entry
             .lock()
-            .map_err(|_| AppError::internal("Audiobook player is unavailable"))?;
-        let player = sessions
-            .get_mut(&id)
-            .ok_or_else(|| AppError::not_found("Audiobook session is no longer open"))?;
-        action(player)
+            .map_err(|_| AppError::internal("Audiobook player session poisoned"))?;
+        action(&mut player)
+    }
+
+    pub fn close_for_window(owner_window: &str) {
+        let removed: Vec<SessionEntry> = if let Ok(mut sessions) = sessions().lock() {
+            let ids: Vec<u32> = sessions
+                .iter()
+                .filter_map(|(id, (label, _))| (label.as_ref() == owner_window).then_some(*id))
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| sessions.remove(&id))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        drop(removed);
     }
 
     pub fn snapshot(id: u32) -> Result<PlaybackSnapshot, AppError> {
@@ -415,6 +459,42 @@ mod imp {
             state.unwrap();
             assert!(player.snapshot().unwrap().position < 1.0);
         }
+
+        #[test]
+        fn snapshot_ready_requires_positive_duration() {
+            let zero = snapshot_from_gst(false, gst::ClockTime::ZERO, Some(gst::ClockTime::ZERO));
+            assert!(
+                !zero.ready,
+                "zero-duration preroll must not be marked ready"
+            );
+            let nonzero = snapshot_from_gst(
+                false,
+                gst::ClockTime::ZERO,
+                Some(gst::ClockTime::from_seconds(10)),
+            );
+            assert!(nonzero.ready);
+        }
+
+        #[test]
+        fn close_for_window_removes_only_matching_window_sessions() {
+            let (_a, file_a) = player();
+            let (_b, file_b) = player();
+            let id_main = super::open_for_window(
+                file_a.path().to_string_lossy().into_owned(),
+                "main".to_string(),
+            )
+            .unwrap();
+            let id_reader = super::open_for_window(
+                file_b.path().to_string_lossy().into_owned(),
+                "reader_1".to_string(),
+            )
+            .unwrap();
+
+            super::close_for_window("reader_1");
+            assert!(super::snapshot(id_main).is_ok());
+            assert!(super::snapshot(id_reader).is_err());
+            let _ = super::close(id_main);
+        }
     }
 }
 
@@ -427,6 +507,10 @@ mod imp {
     pub fn open(_: String) -> Result<u32, AppError> {
         Err(unavailable())
     }
+    pub fn open_for_window(_: String, _: String) -> Result<u32, AppError> {
+        Err(unavailable())
+    }
+    pub fn close_for_window(_: &str) {}
     pub fn snapshot(_: u32) -> Result<PlaybackSnapshot, AppError> {
         Err(unavailable())
     }
@@ -447,4 +531,6 @@ mod imp {
     }
 }
 
-pub use imp::{close, open, pause, play, seek, set_rate, snapshot};
+pub use imp::{
+    close, close_for_window, open, open_for_window, pause, play, seek, set_rate, snapshot,
+};

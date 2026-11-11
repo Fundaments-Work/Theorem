@@ -18,7 +18,7 @@ import type {
 import { isFixedLayout } from '../../../core/types';
 import { getTheme } from '../foliate/themes';
 import { computeTextSelectionRects } from '../foliate/selection-rects';
-import { isNativeRangeFile, type BookSource } from '../../../core/lib/native-range-file';
+import { isNativeRangeFile, openNativeRangeFile, type BookSource } from '../../../core/lib/native-range-file';
 import { getCSS } from '../foliate/reader.js';
 import { 
     registerEngineStyleCallback,
@@ -61,6 +61,14 @@ export interface MediaOverlayPlayer extends EventTarget {
 }
 
 const bookModelCache = new Map<string, { book: unknown; cleanup: () => void }>();
+
+function isBookInModelCache(book: unknown): boolean {
+    if (!book) return false;
+    for (const entry of bookModelCache.values()) {
+        if (entry.book === book) return true;
+    }
+    return false;
+}
 
 interface ReaderSearchExcerpt {
     pre?: string;
@@ -131,6 +139,8 @@ export class FoliateEngine {
     private _lastSectionIndex = -1;
     
     private _navigationInProgress = false;
+
+    private pendingTimeouts: Set<number> = new Set();
 
     constructor(options: FoliateEngineOptions = {}) {
         this.options = options;
@@ -359,10 +369,20 @@ export class FoliateEngine {
                 try {
                     const targetPath = nativeFilePath || (source as { path?: string })?.path;
                     if (targetPath) {
-                        const cbzBytes = await readCbrAsCbz(targetPath);
-                        file = new File([cbzBytes], _filename.replace(/\.cbr$/i, '.cbz'), {
-                            type: 'application/vnd.comicbook+zip',
-                        });
+                        const cbzName = _filename.replace(/\.cbr$/i, '.cbz');
+                        const { invoke } = await import('@tauri-apps/api/core');
+                        const cachedCbzPath = await invoke<string>('prepare_cbr_as_cbz', { path: targetPath }).catch(() => '');
+                        const ranged = cachedCbzPath
+                            ? await openNativeRangeFile(cachedCbzPath, cbzName, 'application/vnd.comicbook+zip')
+                            : null;
+                        if (ranged) {
+                            file = ranged as unknown as File;
+                        } else {
+                            const cbzBytes = await readCbrAsCbz(targetPath);
+                            file = new File([cbzBytes], cbzName, {
+                                type: 'application/vnd.comicbook+zip',
+                            });
+                        }
                     }
                 } catch (e) {
                     throw new Error(`Failed to convert CBR to CBZ: ${e}`);
@@ -372,6 +392,9 @@ export class FoliateEngine {
             const bookCacheKey = nativeFilePath ?? `${_filename}:${file.size}`;
             const cachedEntry = bookModelCache.get(bookCacheKey);
             if (cachedEntry) {
+                // Refresh LRU recency on hit so actively reopened books stay warm.
+                bookModelCache.delete(bookCacheKey);
+                bookModelCache.set(bookCacheKey, cachedEntry);
                 this.book = cachedEntry.book;
             } else {
                 this.book = await makeBook(file,
@@ -2044,11 +2067,18 @@ export class FoliateEngine {
 
         if (!this.postMessageHandler) {
             this.postMessageHandler = (event: MessageEvent) => {
+                const contents = this.view?.renderer?.getContents?.() || [];
+                if (
+                    event.source != null
+                    && event.source !== window
+                    && !contents.some((c: any) => c.doc?.defaultView === event.source)
+                ) {
+                    return;
+                }
                 if (event.data?.type === 'foliate-selection') {
                     
                     const { sectionIndex, text, clientX, clientY, rect } = event.data;
                     
-                    const contents = this.view?.renderer?.getContents?.() || [];
                     const content = contents.find((c: any) => c.index === sectionIndex);
                     
                     if (content?.doc) {
@@ -2209,9 +2239,14 @@ export class FoliateEngine {
             ) => {
                 if (selectionCaptureTimeout !== null) {
                     window.clearTimeout(selectionCaptureTimeout);
+                    this.pendingTimeouts.delete(selectionCaptureTimeout);
                 }
-                selectionCaptureTimeout = window.setTimeout(() => {
+                const timerId = window.setTimeout(() => {
+                    this.pendingTimeouts.delete(timerId);
                     selectionCaptureTimeout = null;
+                    if (!this.view) {
+                        return;
+                    }
                     try {
                         const selection = doc.getSelection();
                         if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
@@ -2326,9 +2361,11 @@ export class FoliateEngine {
                     // On mobile (Android), long-press triggers the native selection layer
                     // and cancels DOM pointer/touch events. Process the pending selection.
                     scheduleSelectionCapture(event, 30);
-                    window.setTimeout(() => {
+                    const timerId = window.setTimeout(() => {
+                        this.pendingTimeouts.delete(timerId);
                         scheduleSelectionCapture(undefined, 0);
                     }, 80);
+                    this.pendingTimeouts.add(timerId);
                 },
                 true,
             );
@@ -2366,9 +2403,11 @@ export class FoliateEngine {
                     // On mobile (Android), long-press triggers the native selection layer
                     // and dispatches touchcancel. Capture the committed single-word selection.
                     scheduleSelectionCapture(event, 30);
-                    window.setTimeout(() => {
+                    const timerId = window.setTimeout(() => {
+                        this.pendingTimeouts.delete(timerId);
                         scheduleSelectionCapture(undefined, 0);
                     }, 80);
+                    this.pendingTimeouts.add(timerId);
                 },
                 { capture: true, passive: true },
             );
@@ -2668,6 +2707,11 @@ export class FoliateEngine {
             this.selectionCheckInterval = null;
         }
 
+        for (const timerId of this.pendingTimeouts) {
+            window.clearTimeout(timerId);
+        }
+        this.pendingTimeouts.clear();
+
         if (this.postMessageHandler) {
             window.removeEventListener('message', this.postMessageHandler);
             this.postMessageHandler = null;
@@ -2687,7 +2731,7 @@ export class FoliateEngine {
         this.annotationLocations.clear();
         this.annotationSectionCache.clear();
         this.sectionPageCounts.clear();
-        if (this.book) {
+        if (this.book && !isBookInModelCache(this.book)) {
             try { this.book.destroy?.(); } catch { /* ignore destroy errors */ }
         }
         this.book = null;

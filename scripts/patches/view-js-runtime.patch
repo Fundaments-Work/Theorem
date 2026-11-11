@@ -319,7 +319,7 @@
          } else {
              await import('./paginator.js')
              this.renderer = document.createElement('foliate-paginator')
-@@ -267,17 +480,22 @@
+@@ -267,17 +480,23 @@
          this.#root.append(this.renderer)
  
          if (book.sections.some(section => section.mediaOverlay)) {
@@ -334,17 +334,20 @@
                  const resolved = this.resolveNavigation(e.detail.text)
                  this.renderer.goTo(resolved)
                      .then(() => {
+-                        const { doc } = this.renderer.getContents()
+-                            .find(x => x.index = resolved.index)
+-                        const el = resolved.anchor(doc)
 +                        // A later phrase may have started while the page was turning.
 +                        if (id !== highlightId) return
-                         const { doc } = this.renderer.getContents()
--                            .find(x => x.index = resolved.index)
++                        const content = this.renderer?.getContents()
 +                            .find(x => x.index === resolved.index)
-                         const el = resolved.anchor(doc)
++                        if (!content?.doc) return
++                        const el = resolved.anchor(content.doc)
 +                        if (!el?.classList) return
                          el.classList.add(activeClass)
                          if (playbackActiveClass) el.ownerDocument
                              .documentElement.classList.add(playbackActiveClass)
-@@ -285,6 +503,7 @@
+@@ -285,6 +504,7 @@
                      })
              })
              this.mediaOverlay.addEventListener('unhighlight', () => {
@@ -352,7 +355,7 @@
                  const el = lastActive?.deref()
                  if (el) {
                      el.classList.remove(activeClass)
-@@ -304,6 +523,7 @@
+@@ -304,6 +524,7 @@
          this.lastLocation = null
          this.history.clear()
          this.tts = null
@@ -360,7 +363,7 @@
          this.mediaOverlay = null
      }
      goToTextStart() {
-@@ -334,10 +554,12 @@
+@@ -334,10 +555,12 @@
          this.lastLocation = { ...progress, tocItem, pageItem, cfi, range }
          if (reason === 'snap' || reason === 'page' || reason === 'scroll')
              this.history.replaceState(cfi)
@@ -375,7 +378,7 @@
          doc.documentElement.lang ||= this.language.canonical ?? ''
          if (!this.language.isCJK)
              doc.documentElement.dir ||= this.language.direction ?? ''
-@@ -350,17 +572,74 @@
+@@ -350,17 +573,74 @@
      #handleLinks(doc, index) {
          const { book } = this
          const section = book.sections[index]
@@ -453,7 +456,7 @@
                  .then(x => x ? this.goTo(href) : null)
                  .catch(e => console.error(e))
          })
-@@ -388,9 +667,25 @@
+@@ -388,9 +668,25 @@
              const { overlayer, doc } = obj
              overlayer.remove(value)
              if (!remove) {
@@ -482,7 +485,7 @@
              }
          }
          const label = this.#tocProgress.getProgress(index)?.label ?? ''
-@@ -405,7 +700,40 @@
+@@ -405,7 +701,40 @@
      }
      #createOverlayer({ doc, index }) {
          const overlayer = new Overlayer()
@@ -523,7 +526,7 @@
              const [value, range] = overlayer.hitTest(e)
              if (value && !value.startsWith(SEARCH_PREFIX)) {
                  this.#emit('show-annotation', { value, index, range })
-@@ -423,9 +751,17 @@
+@@ -423,9 +752,17 @@
          const resolved = await this.goTo(value)
          if (resolved) {
              const { index, anchor } = resolved
@@ -544,3 +547,15 @@
          }
      }
      getCFI(index, range) {
+@@ -589,8 +926,9 @@
+             this.renderer.scrollToAnchor(range, true)), granularity)
+     }
+     startMediaOverlay() {
+-        const { index } = this.renderer.getContents()[0]
+-        return this.mediaOverlay.start(index)
++        const first = this.renderer?.getContents()?.[0]
++        if (!first || first.index == null) return
++        return this.mediaOverlay.start(first.index)
+     }
+ }
+ 

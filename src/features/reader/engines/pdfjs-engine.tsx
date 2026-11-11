@@ -2268,6 +2268,8 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
                 if (loadingGraceTimerRef.current) { clearTimeout(loadingGraceTimerRef.current); loadingGraceTimerRef.current = null; }
                 if (initialPageRestoreTimeoutRef.current) { clearTimeout(initialPageRestoreTimeoutRef.current); initialPageRestoreTimeoutRef.current = null; }
                 if (interactionIdleTimeoutRef.current) { clearTimeout(interactionIdleTimeoutRef.current); interactionIdleTimeoutRef.current = null; }
+                if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
+                if (wheelGestureRef.current?.timer) { clearTimeout(wheelGestureRef.current.timer); wheelGestureRef.current = null; }
                 if (revealRafRef.current !== null) { cancelAnimationFrame(revealRafRef.current); revealRafRef.current = null; }
                 setIsInitialRenderStabilizing(false);
                 setPages((existingPages) => { existingPages.forEach((p) => p.cleanup()); return []; });
@@ -2443,6 +2445,10 @@ export const PDFJsEngine = memo(forwardRef<PDFJsEngineRef, PDFJsEngineProps>(
             return () => {
                 container.removeEventListener("scroll", handleScroll);
                 container.removeEventListener("wheel", handleWheel);
+                if (wheelGestureRef.current?.timer) {
+                    clearTimeout(wheelGestureRef.current.timer);
+                    wheelGestureRef.current = null;
+                }
                 if (rafId !== null) cancelAnimationFrame(rafId);
             };
         }, [pages.length, applyZoom, rebuildPageLayout, markViewportInteracting, isInitialRenderStabilizing, loadSpecificPages]);

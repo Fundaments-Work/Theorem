@@ -43,6 +43,7 @@ pub mod mdict;
 pub mod mobi_parser;
 mod offload_commands;
 pub mod opds_net;
+pub mod opus_audiobook;
 pub mod rss_parser;
 mod smart_shelves;
 pub mod stardict;
@@ -111,7 +112,7 @@ pub(crate) use pdf::{
     get_pdf_metadata, prefetch_pdf_structure, read_pdf_file, read_pdf_file_size, read_pdf_range,
     PdfMetadata, PdfStructure,
 };
-pub(crate) use reader_files::{read_cbr_as_cbz, read_file};
+pub(crate) use reader_files::{prepare_cbr_as_cbz, read_cbr_as_cbz, read_file};
 pub(crate) use tts_platform::tts_get_voices;
 pub(crate) use web_fetch::{fetch_binary_content, fetch_rss_feed, fetch_url_content};
 
@@ -172,6 +173,13 @@ pub fn run() {
                         let _ = window.hide();
                         api.prevent_close();
                     }
+                }
+            }
+            if let WindowEvent::Destroyed = event {
+                #[cfg(desktop)]
+                {
+                    linux_audiobook::close_for_window(window.label());
+                    opus_audiobook::close_for_window(window.label());
                 }
             }
         })
@@ -259,6 +267,13 @@ pub fn run() {
             offload_commands::linux_audiobook_seek,
             offload_commands::linux_audiobook_set_rate,
             offload_commands::linux_audiobook_close,
+            offload_commands::opus_audiobook_open,
+            offload_commands::opus_audiobook_snapshot,
+            offload_commands::opus_audiobook_play,
+            offload_commands::opus_audiobook_pause,
+            offload_commands::opus_audiobook_seek,
+            offload_commands::opus_audiobook_set_rate,
+            offload_commands::opus_audiobook_close,
             audio_player::tts_audio_play,
             audio_player::tts_audio_append,
             supertonic::tts_engine_preload,
@@ -295,6 +310,7 @@ pub fn run() {
             offload_commands::rewrite_epub_metadata,
             offload_commands::read_file,
             offload_commands::read_cbr_as_cbz,
+            offload_commands::prepare_cbr_as_cbz,
             offload_commands::read_pdf_file,
             offload_commands::read_pdf_file_size,
             offload_commands::read_pdf_range,

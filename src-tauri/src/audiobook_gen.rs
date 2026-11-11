@@ -63,6 +63,13 @@ pub mod engine {
         LazyLock::new(|| Mutex::new(HashMap::new()));
     static SERIAL_COUNTER: AtomicU32 = AtomicU32::new(1);
 
+    pub(crate) fn has_active_generations() -> bool {
+        CANCEL_FLAGS
+            .lock()
+            .map(|flags| !flags.is_empty())
+            .unwrap_or(false)
+    }
+
     // ── Ogg page muxer (hand-rolled: no ogg crate, packets ≤ 1275B) ─────────────
 
     const OGG_CRC_TABLE: [u32; 256] = {
@@ -534,7 +541,9 @@ pub mod engine {
                 )
                 .await
                 .map_err(|e| format!("Synthesis failed: {e}"))?;
-                let (samples, wav_rate) = read_wav_mono(std::path::Path::new(&result.path))
+                let wav_path = std::path::Path::new(&result.path);
+                let _pin = desktop::pin_cache_path(wav_path);
+                let (samples, wav_rate) = read_wav_mono(wav_path)
                     .map_err(|e| format!("Failed to read synthesized chunk: {e}"))?;
                 let samples = if wav_rate != TARGET_SAMPLE_RATE {
                     resample_to_48k(&samples, wav_rate)
@@ -985,6 +994,19 @@ pub mod engine {
                 assert!(!is_safe_book_id(bad), "{bad:?}");
             }
         }
+
+        #[test]
+        fn has_active_generations_tracks_in_flight_jobs() {
+            assert!(!super::has_active_generations());
+            let flag = Arc::new(AtomicBool::new(false));
+            CANCEL_FLAGS
+                .lock()
+                .unwrap()
+                .insert("test-gen-book".to_string(), flag);
+            assert!(super::has_active_generations());
+            CANCEL_FLAGS.lock().unwrap().remove("test-gen-book");
+            assert!(!super::has_active_generations());
+        }
     }
 }
 
@@ -1015,6 +1037,16 @@ pub fn delete_generated_audiobook(app: tauri::AppHandle, path: String) -> Result
 #[tauri::command]
 pub fn delete_generated_audiobook(_app: tauri::AppHandle, _path: String) -> Result<bool, String> {
     Ok(false)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn has_active_generations() -> bool {
+    engine::has_active_generations()
+}
+
+#[cfg(target_os = "android")]
+pub fn has_active_generations() -> bool {
+    false
 }
 
 #[cfg(not(target_os = "android"))]

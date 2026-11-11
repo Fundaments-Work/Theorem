@@ -40,8 +40,12 @@ where
 }
 
 #[tauri::command]
-pub async fn linux_audiobook_open(path: String) -> Result<u32, AppError> {
-    offload(move || crate::linux_audiobook::open(path)).await
+pub async fn linux_audiobook_open(
+    window: tauri::WebviewWindow,
+    path: String,
+) -> Result<u32, AppError> {
+    let label = window.label().to_string();
+    offload(move || crate::linux_audiobook::open_for_window(path, label)).await
 }
 
 #[tauri::command]
@@ -74,6 +78,52 @@ pub async fn linux_audiobook_set_rate(id: u32, rate: f64) -> Result<(), AppError
 #[tauri::command]
 pub async fn linux_audiobook_close(id: u32) -> Result<(), AppError> {
     offload(move || crate::linux_audiobook::close(id)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_open(
+    window: tauri::WebviewWindow,
+    path: String,
+) -> Result<u32, AppError> {
+    let label = window.label().to_string();
+    offload(move || crate::opus_audiobook::open_for_window(path, label)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_snapshot(
+    id: u32,
+) -> Result<crate::linux_audiobook::PlaybackSnapshot, AppError> {
+    offload(move || crate::opus_audiobook::snapshot(id)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_play(id: u32) -> Result<(), AppError> {
+    offload(move || crate::opus_audiobook::play(id)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_pause(id: u32) -> Result<(), AppError> {
+    offload(move || crate::opus_audiobook::pause(id)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_seek(id: u32, seconds: f64) -> Result<(), AppError> {
+    offload(move || crate::opus_audiobook::seek(id, seconds)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_set_rate(id: u32, rate: f64) -> Result<(), AppError> {
+    offload(move || crate::opus_audiobook::set_rate(id, rate)).await
+}
+
+#[tauri::command]
+pub async fn opus_audiobook_close(id: u32) -> Result<(), AppError> {
+    offload(move || crate::opus_audiobook::close(id)).await
+}
+
+#[tauri::command]
+pub async fn prepare_cbr_as_cbz(app: AppHandle, path: String) -> Result<String, AppError> {
+    offload(move || crate::prepare_cbr_as_cbz(&app, path)).await
 }
 
 #[tauri::command]
