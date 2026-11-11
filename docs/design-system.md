@@ -115,13 +115,8 @@ destructuring, no imports from the `src/core` barrel (see AGENTS.md).
 
 ## What is *not* shared yet (good first contributions)
 
-- Large screens (`Library.tsx`, `Settings.tsx`, `Shelves.tsx`, `FeedsPage.tsx`) still build most
-  of their buttons and fields by hand. Moving them onto `Button`, `IconButton`, `Chip` and
-  `TextInput` is safe, mechanical and well covered by the gallery.
-- There is no shared `Select`, `Checkbox`, `Switch`, `Tabs` or `Card` component yet; screens use
-  the `.ui-*` classes directly. Add them following the steps above.
-- `ReviewCardStack.tsx` and `Bookmarks.tsx` carry `rounded-*` and `font-*` classes from their
-  original design; they have no visual effect and can be deleted.
+- Large screens (`Library.tsx`, `Settings.tsx`, `Shelves.tsx`, `FeedsPage.tsx`) still mix in some custom markup alongside `src/ui/` primitives (`Button`, `IconButton`, `Chip`, `TextInput`, `Select`, `Checkbox`, `Switch`, `Tabs`, `Card`, `Dropdown`, `Modal`). Consolidating remaining ad-hoc controls onto `src/ui/` is safe and well covered by the gallery.
+- `ReviewCardStack.tsx` and `Bookmarks.tsx` carry no-op legacy utility cleanup candidates when edited.
 
 ### Explicit layout widths
 

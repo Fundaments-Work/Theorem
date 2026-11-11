@@ -104,7 +104,7 @@ pnpm dev          # Web dev server (http://localhost:1420)
 pnpm dev:tauri    # Desktop app in dev mode
 ```
 
-**Prerequisites**: Node.js 22+, pnpm 10+, Rust (via [rustup](https://rustup.rs)), and [Tauri system deps](https://tauri.app/start/prerequisites/).
+**Prerequisites**: Node.js 22+, pnpm 10+, Rust (via [rustup](https://rustup.rs)), [Tauri system deps](https://tauri.app/start/prerequisites/), and on Linux the audio/Opus build packages (`libasound2-dev`, `libunwind-dev`, `libgstreamer1.0-dev`, `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-libav`, `autoconf`, `automake`, `libtool`). Run `pnpm build` once before `cargo clippy --all-features`.
 
 | Command | Description |
 |---------|-------------|
@@ -143,7 +143,7 @@ Three reader themes: Light, Sepia, Dark. Font family (original, serif, sans-seri
 Six color-coded highlight colors: yellow, green, blue, red, orange, purple. Notes on any highlight. A highlight that runs across a page break is always one highlight (overlapping or touching selections merge). Bookmarks (a Workbench tab, on phones too). Annotation panel with quick navigation, editing, and deletion. Works across all formats including PDF and RSS articles.
 
 ### PDF Annotations
-Freehand drawing with configurable stroke width. Text notes placed anywhere on the page. Multi-line rectangular highlights. Per-page annotation rendering. PDF view state persistence (page, zoom, mode per-book).
+Freehand ink drawing (`2px` stroke width). Text notes placed anywhere on the page. Multi-line rectangular highlights. Per-page annotation rendering. PDF view state persistence (page, zoom, mode per-book).
 
 ### Highlight Sharing
 Generate polished share-card images from any highlight. Multiple formats: Square (1080×1080) and Story (1080×1920). Multiple visual themes: match, dark, tinted, sepia. Download as PNG, native share via Web Share API, share to X (Twitter). Android: saves to MediaStore gallery.
@@ -205,7 +205,7 @@ Encrypted peer-to-peer sync between Theorem installs. Syncs books, reading progr
 Project updates, advisories, and release notes delivered to every install from a dedicated edge Worker — rendered through a strict zero-HTML linkifier, cached for 24 hours, dismissible, and never shown while reading.
 
 ### Backup & Data Management
-Export your data as one JSON file: library (book metadata, collections, annotations), settings, statistics, vocabulary, and RSS feeds. Book files are not included and there is no in-app restore yet. Storage usage breakdown. Cache size configuration.
+Export and restore complete `.theorem-backup` ZIP archives including the SQLite database, imported book files, companion audiobooks, and optional offline dictionaries. Automatic rolling database snapshots (`db-snapshots/`) and startup integrity recovery are built in, alongside storage usage breakdown and cache controls.
 
 ### Cross-Platform
 Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.exe NSIS, .msi). Mobile: Android (.apk). Web: browser fallback for development. All from a single TypeScript + Rust codebase.
@@ -225,8 +225,8 @@ Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.
 | Ebook | Foliate.js (vendored) |
 | TTS | Platform native (Android TTS, spd-say, say, System.Speech) + optional Supertonic 3 neural voice on desktop (ONNX via ort, downloaded on demand) |
 | Dictionary | StarDict + MDict (native, memory-mapped) |
-| RSS | Native Rust extractor (Mozilla Readability browser fallback) |
-| Archive | zip.js (vendored in the Foliate runtime), `rars` (pure-Rust RAR for CBR), fflate (browser EPUB write fallback) |
+| RSS | Native Rust parser & extractor (`rss_parser.rs`, `article_extractor.rs`) + `fast-xml-parser` browser fallback |
+| Archive | Native `zip` + `rars` in Rust (for EPUB/CBZ/CBR) and `fflate` in browser/workers |
 | Testing | Vitest + jsdom |
 
 ---

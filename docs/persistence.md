@@ -16,11 +16,11 @@ File: `~/.local/share/work.fundamentals.theorem/theorem.db`
 Book registration stub. The `data` BLOB is written empty (`X''`); the actual book file lives only in `book-cache/{id}.book`. Legacy full BLOBs are reclaimed on startup.
 
 ### Table: `covers`
-Cover images stored as `data_url` (base64 data URI). The legacy `data` BLOB column is cleared on startup and is not read.
+Cover images stored as raw bytes (`data` BLOB) and validated image MIME type (`mime`), served directly via `theorem-cover://`. Legacy `data_url` strings are migrated into binary `data`/`mime` rows during background maintenance.
 
 ### Table: `kv_store`
 String key-value store. Used by:
-- **Zustand persist adapter** (`persist-storage.ts`) — serializes all 6 persisted stores as JSON blobs
+- **Zustand persist adapter** (`persist-storage.ts`) — serializes all 6 persisted stores as JSON blobs (`useImportStore` is transient and recovered via `native-import-job:v1`)
 - **StarDict/MDict manifests** — stores dictionary metadata (`theorem-stardict:{id}:manifest`)
 - **Sync provisioning flag** — tracks whether the device has been provisioned to iroh-docs
 

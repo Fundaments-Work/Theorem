@@ -1,6 +1,6 @@
 # Project management
 
-### GitHub Project Board
+## GitHub Project Board
 
 The [Theorem Roadmap](https://github.com/orgs/fundaments-work/projects/2) board tracks all active work.
 
@@ -12,7 +12,7 @@ The [Theorem Roadmap](https://github.com/orgs/fundaments-work/projects/2) board 
 
 **Workflow**: Issues enter the board at Todo → move to In Progress when work starts → Done when merged to `main`.
 
-### Issue Labels
+## Issue Labels
 
 | Label | Purpose |
 |-------|---------|
@@ -35,14 +35,14 @@ The [Theorem Roadmap](https://github.com/orgs/fundaments-work/projects/2) board 
 
 New issues should be labeled by `Area` + type (`bug`/`enhancement`).
 
-### Issue Templates
+## Issue Templates
 
 GitHub issue forms are configured at `.github/ISSUE_TEMPLATE/`:
 - `bug_report.yml` — structured form with version, platform, logs fields
 - `feature_request.yml` — structured form with scope dropdown
 - `config.yml` — directs questions to Discussions
 
-### PR Lifecycle
+## PR Lifecycle
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full PR process. TL;DR:
 1. Contributors use a fork or branch based on `main` and open a PR against `main`. Agents follow the workspace and branch instructions in `AGENTS.md`. The `1.6.1` branch was retired; keep its release tag.
@@ -52,11 +52,11 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full PR process. TL;DR:
 5. Maintainer reviews within a few days
 6. Integrate approved changes into the maintained branch. Merging a release branch to `main` requires the maintainer’s approval; dependency PRs may be resolved with a link to their integration commit. Remove their branches after integration.
 
-### Release Workflow
+## Release Workflow
 
 See [release.md](release.md). A tag push triggers the release workflow; publishing and changing releases require maintainer approval.
 
-### Repository protection rollout
+## Repository protection rollout
 
 GitHub's public branch metadata reported `main` as unprotected during the
 November 2026 audit. An administrator must verify effective rules, including

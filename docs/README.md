@@ -21,6 +21,7 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data flow, module relationships |
 | [modules.md](modules.md) | Module map, Tauri command surface, persistence and typed errors |
 | [release.md](release.md) | Versioning, the tagging checklist, CI troubleshooting |
+| [testing-e2e.md](testing-e2e.md) | Local WebDriver E2E build and spec verification |
 | [project-management.md](project-management.md) | Board, labels, issue templates, PR lifecycle |
 | [design-system.md](design-system.md) | UI contributor guide: tokens, shared components, the rules `pnpm check:design` enforces, the component gallery |
 

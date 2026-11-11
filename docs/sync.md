@@ -307,3 +307,9 @@ and the failed PR’s compiler diagnostics establish
 this requirement. Dependabot ignores blobs >=0.104 until a coordinated docs
 and blobs upgrade can remove the ignore and pass the existing sync scenarios.
 No persisted format or sync protocol changes are part of this maintenance.
+
+### Prefix deletion & sibling preservation (`iroh-docs` 0.101)
+
+In `iroh-docs` 0.101.0 (`src/sync.rs`, `src/ranger.rs`, `src/api/actor.rs`), `Replica::insert` rejects empty entries (`InsertError::EntryIsEmpty`), so only `doc.del(author, prefix)` inserts empty deletion markers. Because `doc.del` removes every entry whose key starts with `prefix`, `purge_single_entries` snapshots longer non-deleted sibling keys (for example `book:10` when deleting `book:1`), runs `doc.del`, waits strictly past `t_del`, and re-inserts those siblings via `doc.set_hash`. That satisfies the Willow prefix timestamp contract (`entry.value() > prefix_entry.value()`), keeping siblings intact locally and across peers.
+
+Writing `annos:{bookId}:` likewise avoids `own_group` falling back to an empty group when `entry.content_hash() != Hash::EMPTY` has a missing or unparseable blob (`sync_annotations.rs` returns a retryable error rather than overwriting prior annotations).

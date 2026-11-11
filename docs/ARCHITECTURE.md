@@ -126,27 +126,27 @@ Reader.tsx
 
 ## State Architecture
 
-All state lives in 6 Zustand stores. Each persisted store saves to SQLite via Tauri commands (`sqlite_set_kv` / `sqlite_get_kv` from `database/kv.rs`).
+All state lives in 6 persisted Zustand stores plus the non-persisted `useImportStore`. Each persisted store saves to SQLite via Tauri commands (`sqlite_set_kv` / `sqlite_get_kv` from `database/kv.rs`).
 
 ```
-uiStore (persisted, version 1; partialize: route/book/sidebar)
+uiStore (persisted; partialize: route/book/sidebar)
   ├─ currentRoute, currentBookId
   ├─ sidebarOpen, searchQuery
   ├─ vaultSyncStatus, deviceSyncStatus
   └─ downloadingBookId (set while syncing a book file on-demand)
 
-libraryStore (persisted, version 6)
+libraryStore (persisted, version 11)
   ├─ books: Book[]
   ├─ annotations: Annotation[]
   ├─ collections: Collection[]
   └─ deletionTombstones: DeletionTombstone[]
 
-settingsStore (persisted, version 11)
+settingsStore (persisted, version 15)
   ├─ settings: AppSettings
   ├─ stats: ReadingStats
   └─ settingsLastModifiedAt: string
 
-vocabularyStore (persisted, version 5)
+vocabularyStore (persisted, version 6)
   ├─ vocabularyTerms: VocabularyTerm[]
   └─ installedDictionaries: InstalledDictionary[]
 
@@ -154,7 +154,7 @@ rssStore (persisted, version 1)
   ├─ feeds: RssFeed[]
   └─ articles: RssArticle[]
 
-opdsStore (persisted, version 3)
+opdsStore (persisted, version 5)
   ├─ catalogs: OpdsCatalog[]        (built-ins always present; `auth` is local-only, never synced)
   └─ activeCatalogId: string | null (null = the Discover home)
      // Trail, pages and search state live in useOpdsBrowser, per catalog — not in the store.
@@ -174,7 +174,7 @@ Two rendering paths converge in `Reader.tsx`:
 Reader.tsx orchestrates:
   ├─ Book loading (detect format → choose engine)
   ├─ Annotation sync (store ↔ engine ↔ panel)
-  ├─ Search (native Rust book_search or PDF.js)
+  ├─ Search (native Rust EPUB `book_search` or PDF.js text layer)
   ├─ Narration (ImmersionPlayer: WSOLA pitch-preserving time-stretching, neural/platform TTS · AudiobookBar: companion audio)
   └─ Navigation state (pagination, position tracking, decoupled stats reads via on-demand store access)
 

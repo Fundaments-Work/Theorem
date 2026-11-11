@@ -93,10 +93,8 @@ The virtualizer calculates rows based on container width (column count) and esti
 ## Search
 
 Two-tier search:
-1. **FTS5** (SQLite): Fast, indexed search via `sqlite_search_books(query, limit)`. Used for committed search queries (when user presses Enter). Returns matching book IDs and titles.
-2. **Client-side** (`filtering.ts`): Fuse.js fuzzy search over title, author, tags, and format, plus filter/sort on the already-loaded `books` array. Supports sorting by title, author, date added, last read, progress, rating. Combined with FTS results for full-text + metadata filtering.
-
-The `useLibraryStore` has result caches (`WeakMap`-based) for search results, recent books, favorites, and categories. These are invalidated when the `books` array reference changes (Zustand immutability).
+1. **FTS5 + SIMD Fuzzy Ranking** (`two_tier_search_books` in Rust, or `theorem-core` WASM `wasm_fuzzy_rank` in web): SQLite `FTS5` prunes disk candidates in ~1 ms, then `nucleo-matcher` scores and yields character match highlights.
+2. **Filter & Sort** (`filtering.ts`): Filters and sorts loaded books by status, favorites, unshelved state, folder, title, author, date added, or last read, backed by store caches invalidated on `books` changes.
 
 ## Format Support
 

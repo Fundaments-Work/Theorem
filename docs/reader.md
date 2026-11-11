@@ -99,27 +99,20 @@ Annotations are persisted both per-book in the `book_annotations` SQLite table a
 
 ## Full-Text Search
 
-- **Non-PDF**: foliate-js's built-in search via `search.js` with whole-word and case-matching options.
-- **PDF & Native Rust**: A multi-threaded streaming search engine (`src-tauri/src/book_search.rs`) scanning unpacked text chunks with word-boundary byte verification.
-- **UX & Navigation**:
-  - **Toggles**: Match Case (`Alt+C`) and Whole Word (`Alt+W`).
-  - **Result Counter**: Displays "Result X of Y" with real-time progress indicators.
-  - **Keyboard Cycling**: Cycle through matches seamlessly using `Enter` / `Shift+Enter` or `F3` / `Shift+F3`.
-  - **Scroll Alignment**: Active matches automatically scroll smoothly into view.
+- **EPUB & Native Rust**: Multi-threaded streaming search (`src-tauri/src/book_search.rs`) scanning unpacked spine chunks in Rust (with foliate-js web fallback in browser mode), supporting match-case (`Alt+C`) and whole-word (`Alt+W`).
+- **PDF**: Searches decoded PDF pages through PDF.js's text layer in `pdfjs-engine.tsx`.
+- **UX & Navigation**: Displays "Result X of Y", supports `Enter` / `Shift+Enter` or `F3` / `Shift+F3`, and scrolls active matches into view.
 
 ## TTS / Immersion Reading
 
 Platform-specific TTS commands in Rust:
-- **Linux**: `spd-say` (speech-dispatcher)
+- **Linux**: `spd-say` (speech-dispatcher, fed over stdin to avoid `argv` length limits)
 - **macOS**: `say` command
 - **Windows**: PowerShell `System.Speech`
-- **Android**: Native TTS plugin
+- **Android**: Native TTS plugin (`tauri-plugin-android-tts-audio`)
 
-The Rust commands are synchronous shell commands, but the JS side (`ImmersionPlayer.ts`) manages playback state and, on Android, resumes from the last reported word boundary. Sentence/word highlighting synced to narration is not yet implemented. Companion audiobook tracks (`.m4b`/`.mp3`) upgrade this player into a human-narrated player with speed controls.
+The frontend (`ImmersionPlayer.ts`) coordinates platform TTS, desktop Supertonic 3 neural voice playback (`audio_player.rs` with `rodio` and WSOLA time-stretching), EPUB 3 Media Overlays (SMIL), and companion audiobook tracks (`.m4b`/`.mp3`/`.opus`, with GStreamer on Linux and Rust `opus_audiobook` fallback when WebView lacks Ogg Opus support).
 
-## Roadmap: v1.6.0 Bionic / Fast-Reading Mode
+## Speed Reader (`SpeedReader`)
 
-In **v1.6.0**, Theorem will add a native **Bionic / Speed-Reading Mode**:
-- **Typographic Fixation**: Emphasizes the initial syllables of words to facilitate faster saccadic movement across sentences.
-- **Engine-Native Rendering**: Injected via the reader overlayer and CSS styling pipelines across EPUB, MOBI, and PDF.js text layers with zero runtime JS allocation overhead.
-- **Configurable Controls**: Accessible from Reader Settings with adjustable fixation intensity, saccade frequency, and per-book toggles.
+RSVP rapid-serial-visual-reading overlay with optimal-recognition-point highlighting, adjustable WPM, and auto-advance across sections.

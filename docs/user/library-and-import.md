@@ -24,13 +24,13 @@ CBR comics are handled inside Theorem. You do not need to install a separate RAR
 
 ## Import a folder
 
-Use folder import to bring in a whole collection, including its subfolders. The Scan button appears in the desktop and Android apps, not in the browser demo.
+Use folder import to bring in a whole collection, including its subfolders. On desktop and Android, open Scan Folder from an empty library or go to Settings → Library Folders.
 
-1. On the Library page, click Scan.
+1. Choose **Scan Folder** (or **Add Folder** in Settings → Library Folders).
 2. In the Import a folder dialog, choose how to organize the books:
    - **Preserve folder structure** (the default) lets you browse books by their original folders. Shelves stay separate.
    - **Import as a flat library** adds all books together with no folder organization.
-3. Click Choose folder and select the folder to scan.
+3. Click **Choose folder** and select the folder to scan.
 
 Both options search subfolders and leave your original files where they are. If no supported books are found, Theorem shows No Books Found.
 
@@ -84,11 +84,11 @@ A book whose file is not on this device shows a warning badge and the label No f
 
 When a shelf, Favorites or Unshelved filter is active, the page title changes and a Clear filter button appears.
 
-Click the view button next to Select to cycle through grid, list and compact layouts. Theorem remembers your choice.
+Click the view button in the toolbar to cycle through grid, list and compact layouts. Theorem remembers your choice.
 
 ## Select many books
 
-1. Click Select in the toolbar. A selection bar appears.
+1. Right-click (or long-press) a book and choose **Select**, or press `Ctrl+A` to enter selection mode. A selection bar appears.
 2. Click books to select them. Clicking a selected book clears it.
 3. Click Select all to select every book in the current result, including books outside the visible part of the list. Select all respects your search, shelf, source folder, status, favorites and unshelved filters.
 4. Choose an action in the bar:

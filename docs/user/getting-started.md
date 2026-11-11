@@ -34,11 +34,11 @@ You can also open a book directly from your file manager. Theorem registers itse
 - **Sidebar.** A narrow icon rail on the left. Hover over an icon to see its name. From top to bottom the pages are Library, Shelves, Discover, Feeds and Workbench, the same order as the bottom bar on Android and as `Ctrl+1` to `Ctrl+5` (Bookmarks is a tab inside Workbench; the Workbench icon stays lit on it). Statistics and Settings are at the bottom. A flame icon with a number appears above them when you have a reading streak.
 - **Top bar.** Shows the current page name and a search box. Two icons sit on the right: Sync devices and Statistics.
 - **Search box.** Searches the page you are on. On Library it reads "Search books, authors, or tags...". On Workbench it searches highlights, notes and books. On Feeds it searches articles. Press `Ctrl+F` to jump to it.
-- **Page toolbar.** Library has Add Books, Select, a view button, Scan and Filter. Other pages have their own buttons.
+- **Page toolbar.** Library has Add Books, a view button and Filter (with `Ctrl+A` or the book menu starting multi-selection, and Scan Folder in the empty-library view and Settings → Library Folders). Other pages have their own buttons.
 
 ## Learn the layout on Android
 
-On a phone, a bottom bar gives quick access to five pages: Library, Shelves, Discover, Workbench and Feeds. The top bar has a search button, Sync devices, Statistics and Settings. Bookmarks is a tab inside Workbench, next to All, Highlights, Notes and Words. On a narrow screen only the tab you are on shows its name and the others show an icon. The full sidebar appears on wider screens such as tablets.
+On a phone, a bottom bar gives quick access to five pages: Library, Shelves, Discover, Workbench and Feeds. The top bar has a search button, Sync devices, Statistics and Settings. Bookmarks is a tab inside Workbench, alongside Highlights, Notes and Words. On a narrow screen only the tab you are on shows its name and the others show an icon. The full sidebar appears on wider screens such as tablets.
 
 ![The Theorem phone layout showing a grid of book covers](../screenshots/android-library.png)
 

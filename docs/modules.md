@@ -46,7 +46,7 @@ AGENTS.md keeps only the rules an agent must follow; this page is the reference 
 - Sync notifications: `src/core/lib/sync-orchestrator.ts` after sync completion/error
 - UI: `<Toaster />` from `sonner` renders sonner toasts alongside OS notifications
 - Settings: Goal Notifications toggle, Daily Reminder Time picker, Sync Notifications toggle in Settings → Reading Goals
-- Android: `POST_NOTIFICATIONS` permission added to `AndroidManifest.xml
+- Android: `POST_NOTIFICATIONS` permission added to `AndroidManifest.xml`
 
 **Dictionary & Vocabulary**: High-performance two-tier lookup system:
 - **Offline (Fast-path)**: Native Rust memory-mapped MDict `.mdx` (`src-tauri/src/mdict.rs` + `mdx_lookup` command) and StarDict binary search engine (`src-tauri/src/stardict.rs` + `stardict_lookup` command). Reads keyword indices in memory via `memmap2`, decompresses single 64KB zlib record chunks on-demand with an LRU cache, handles `entry://` cross-references and morphological redirects in < 0.5ms.
@@ -66,7 +66,7 @@ AGENTS.md keeps only the rules an agent must follow; this page is the reference 
 
 **Comics (CBR/CBZ)**: Comic books are first-class library items. `src-tauri/src/cbr.rs` parses CBR (RAR) archives natively in Rust using the `rars` crate, streaming entries into an in-memory ZIP (stored, no recompression) so CBRs open on every shipped platform including Android — no external `unrar` binary. Metadata comes from `ComicInfo.xml` (series name, volume index) with a filename-parse fallback. Wired through batch ingest, folder scanning (`FolderScanPlugin.kt` on Android), and the reader for full parity with other formats. CBZ metadata is handled in `batch_ingest.rs`.
 
-**Book series**: Books may carry `series` (name) and `seriesIndex` (volume position, fractional allowed — e.g. `2.5`). Read from EPUB metadata on ingest and from `ComicInfo.xml` for comics; editable via the book edit modal and `AssignSeriesModal.tsx`. `series` is a library sort option, shelves can group by series with combined progress, and finishing a book in a series surfaces a "next unread volume" toast with a **Read Next** action.
+**Book series**: Books may carry `series` (name) and `seriesIndex` (volume position, fractional allowed — e.g. `2.5`). Read from EPUB metadata on ingest and from `ComicInfo.xml` for comics; editable via the book edit modal and `AssignSeriesModal.tsx`. Shelves can group by series with combined progress, and finishing a book in a series surfaces a "next unread volume" toast with a **Read Next** action.
 
 **RSS articles**: Article bodies live in SQLite (not a serialized JSON blob) with dedicated tables and indices. Retention is configurable in Settings (Keep Forever / 15 / 30 / 60 / 90 days, default 30) and prunes read, non-favorited articles plus cached content; unread articles are protected by the **Keep Unread Articles** toggle and articles saved offline (`isSaved`) are always preserved.
 
