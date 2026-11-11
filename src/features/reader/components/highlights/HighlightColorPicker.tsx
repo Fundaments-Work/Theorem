@@ -11,6 +11,7 @@ import {
     HIGHLIGHT_PICKER_COLORS,
 } from "../../../../core/lib/design-tokens";
 import { isTauri } from "../../../../core/lib/env";
+import { sanitizeHtmlForDisplay } from "../../../../core/lib/sanitize";
 import type { HighlightColor } from "../../../../core/types";
 import type { DictionaryLookupResult } from "../../../../core/services/DictionaryService";
 
@@ -498,7 +499,7 @@ export function HighlightColorPicker({
                                                         <li
                                                             key={definition}
                                                             className="leading-snug dict-definition"
-                                                            dangerouslySetInnerHTML={{ __html: definition }}
+                                                            dangerouslySetInnerHTML={sanitizeHtmlForDisplay(definition)}
                                                         />
                                                     ) : (
                                                         <li key={definition} className="leading-snug">

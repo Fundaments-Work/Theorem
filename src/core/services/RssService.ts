@@ -5,7 +5,7 @@ import type { XMLParser } from 'fast-xml-parser';
 import { isTauri } from '../lib/env';
 import { invoke } from '@tauri-apps/api/core';
 import { needsMarkdownRender, renderMarkdownBatch } from '../lib/article-markdown';
-import { isSafeLinkUrl } from '../lib/url-safety';
+import { isSafeLinkUrl, isSafeWebUrl } from '../lib/url-safety';
 
 interface ParsedFeed {
     title: string;
@@ -356,7 +356,7 @@ function parseRss2(root: FeedNode): ParsedFeed {
             const guid = item.guid;
             if (typeof guid === 'object' && guid?.['@_isPermaLink'] === 'true') {
                 link = nodeText(guid);
-            } else if (typeof guid === 'string' && (guid.startsWith('http://') || guid.startsWith('https://'))) {
+            } else if (typeof guid === 'string' && isSafeWebUrl(guid)) {
                 link = guid.trim();
             }
         }

@@ -88,3 +88,21 @@ export function remoteImageUrl(value: string): string | null {
         return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
     } catch { return null; }
 }
+
+/** True only for explicit `http:` or `https:` web URLs (rejects relative, `httpx:`, etc.). */
+export function isSafeWebUrl(value: string | null | undefined): boolean {
+    const trimmed = normalize(value);
+    if (trimmed === null) {
+        return false;
+    }
+    const scheme = schemeOf(trimmed);
+    if (scheme !== "http:" && scheme !== "https:") {
+        return false;
+    }
+    try {
+        const parsed = new URL(trimmed);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+        return false;
+    }
+}

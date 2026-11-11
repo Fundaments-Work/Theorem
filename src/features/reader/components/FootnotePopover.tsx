@@ -3,6 +3,7 @@ import { Copy, ExternalLink, X, Compass } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../../core/lib/utils";
 import { isMobile } from "../../../core/lib/env";
+import { sanitizeHtmlForDisplay } from "../../../core/lib/sanitize";
 import type { FootnoteData } from "../engines/foliate-engine";
 
 export interface FootnotePopoverProps {
@@ -162,7 +163,7 @@ export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverPr
                 <div className="p-3.5 sm:p-4 overflow-y-auto overscroll-contain text-xs leading-relaxed text-[color:var(--color-text-primary)] select-text [content-visibility:auto]">
                     {footnote.html ? (
                         <div
-                            dangerouslySetInnerHTML={{ __html: footnote.html }}
+                            dangerouslySetInnerHTML={sanitizeHtmlForDisplay(footnote.html)}
                             className="[&_a]:text-[color:var(--color-accent)] [&_a]:underline space-y-1.5 [&_img]:max-h-48 [&_img]: [&_img]:mx-auto"
                         />
                     ) : (

@@ -1,6 +1,7 @@
 
 import DOMPurify from "dompurify";
 import type { Config } from "dompurify";
+import { isSafeAttributeUrl } from "./url-safety";
 
 const PURIFY_CONFIG: Config = {
     ALLOWED_TAGS: [
@@ -16,7 +17,31 @@ const PURIFY_CONFIG: Config = {
     ALLOW_DATA_ATTR: false,
 };
 
+const UNSAFE_CSS_VALUE_RE = /url\s*\(|expression\s*\(|@import|-moz-binding|behavior\s*:/i;
+
+let hooksRegistered = false;
+
+function ensureSanitizeHooks(): void {
+    if (hooksRegistered || typeof DOMPurify.addHook !== "function") {
+        return;
+    }
+    hooksRegistered = true;
+    DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+        const attrName = data.attrName.toLowerCase();
+        if (attrName === "href" || attrName === "src") {
+            if (!isSafeAttributeUrl(attrName, data.attrValue)) {
+                data.keepAttr = false;
+            }
+            return;
+        }
+        if (attrName === "style" && UNSAFE_CSS_VALUE_RE.test(data.attrValue)) {
+            data.keepAttr = false;
+        }
+    });
+}
+
 function purify(html: string): string {
+    ensureSanitizeHooks();
     return DOMPurify.sanitize(html, PURIFY_CONFIG) as string;
 }
 

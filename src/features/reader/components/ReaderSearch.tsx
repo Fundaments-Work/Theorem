@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, X, ChevronRight, ChevronUp, ChevronDown, CaseSensitive, WholeWord } from 'lucide-react';
 import { cn } from "../../../core/lib/utils";
@@ -28,33 +28,47 @@ function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function highlightExcerpt(excerpt: string, query: string, matchCase = false, wholeWord = false): string {
-    const safeExcerpt = escapeHtml(excerpt);
-    const safeQuery = escapeHtml(query.trim());
-
-    if (!safeQuery) {
-        return safeExcerpt;
+function renderHighlightedExcerpt(
+    excerpt: string,
+    query: string,
+    matchCase = false,
+    wholeWord = false,
+): ReactNode {
+    const trimmed = query.trim();
+    if (!trimmed) {
+        return excerpt;
     }
 
     const flags = matchCase ? "g" : "gi";
-    const pattern = wholeWord ? `\\b${escapeRegExp(safeQuery)}\\b` : escapeRegExp(safeQuery);
+    const pattern = wholeWord ? `\\b${escapeRegExp(trimmed)}\\b` : escapeRegExp(trimmed);
     try {
-        const queryRegex = new RegExp(`(${pattern})`, flags);
-        return safeExcerpt.replace(
-            queryRegex,
-            '<span class="bg-[var(--color-accent)]/20 text-[color:var(--color-accent)]">$1</span>',
-        );
+        const queryRegex = new RegExp(pattern, flags);
+        const parts: ReactNode[] = [];
+        let lastIndex = 0;
+        let key = 0;
+        for (const match of excerpt.matchAll(queryRegex)) {
+            const start = match.index ?? 0;
+            const matchedText = match[0];
+            if (!matchedText) break;
+            if (start > lastIndex) {
+                parts.push(excerpt.slice(lastIndex, start));
+            }
+            parts.push(
+                <span key={key++} className="bg-[var(--color-accent)]/20 text-[color:var(--color-accent)]">
+                    {matchedText}
+                </span>,
+            );
+            lastIndex = start + matchedText.length;
+        }
+        if (lastIndex === 0) {
+            return excerpt;
+        }
+        if (lastIndex < excerpt.length) {
+            parts.push(excerpt.slice(lastIndex));
+        }
+        return parts;
     } catch {
-        return safeExcerpt;
+        return excerpt;
     }
 }
 
@@ -411,12 +425,9 @@ export function ReaderSearch({
                                     )}
                                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                                 >
-                                    <p
-                                        className="text-[var(--font-size-caption)] text-[color:var(--color-text-secondary)] line-clamp-3 leading-relaxed"
-                                        dangerouslySetInnerHTML={{
-                                            __html: highlightExcerpt(result.excerpt, query, matchCase, wholeWord),
-                                        }}
-                                    />
+                                    <p className="text-[var(--font-size-caption)] text-[color:var(--color-text-secondary)] line-clamp-3 leading-relaxed">
+                                        {renderHighlightedExcerpt(result.excerpt, query, matchCase, wholeWord)}
+                                    </p>
                                     <div className="flex items-center gap-1.5 text-[var(--font-size-3xs)] text-[color:var(--color-accent)] opacity-0 group-hover:opacity-100 transition-opacity">
                                         <span>Jump to match</span>
                                         <ChevronRight className="w-3 h-3" />

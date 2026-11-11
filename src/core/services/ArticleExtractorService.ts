@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../lib/env";
-import { isSafeImageUrl, isSafeLinkUrl } from "../lib/url-safety";
+import { isSafeImageUrl, isSafeLinkUrl, isSafeWebUrl } from "../lib/url-safety";
 
 export interface ExtractedArticle {
     title: string;
@@ -203,7 +203,7 @@ export class ArticleExtractorService {
      * Fetches and extracts full readable article from a URL.
      */
     static async extractFromUrl(url: string): Promise<ExtractedArticle | null> {
-        if (!url || !url.startsWith("http")) {
+        if (!isSafeWebUrl(url)) {
             return null;
         }
 
