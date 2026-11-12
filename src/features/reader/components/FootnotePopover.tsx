@@ -164,7 +164,7 @@ export function FootnotePopover({ footnote, onClose, onJump }: FootnotePopoverPr
                     {footnote.html ? (
                         <div
                             dangerouslySetInnerHTML={sanitizeHtmlForDisplay(footnote.html)}
-                            className="[&_a]:text-[color:var(--color-accent)] [&_a]:underline space-y-1.5 [&_img]:max-h-48 [&_img]: [&_img]:mx-auto"
+                            className="[&_a]:text-[color:var(--color-accent)] [&_a]:underline space-y-1.5 [&_img]:max-h-48 [&_img]:mx-auto"
                         />
                     ) : (
                         <p className="whitespace-pre-line">{footnote.text}</p>

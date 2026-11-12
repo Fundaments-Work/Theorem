@@ -48,12 +48,12 @@ export function PDFViewSettingsPanel({
 
     return (
         <>
-            <Backdrop visible={visible} onClick={onClose} className="z-[145]" dim={false} />
+            <Backdrop visible={visible} onClick={onClose} className="z-[var(--z-backdrop)]" dim={false} />
 
             <FloatingPanel
                 label="PDF view settings"
                 visible={visible}
-                className={cn("z-[160] overflow-hidden bg-[var(--color-surface)]", className)}
+                className={cn("z-[var(--z-reader-overlay)] overflow-hidden bg-[var(--color-surface)]", className)}
             >
                 <div className="reader-panel-header flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
                     <div className="flex items-center gap-2.5">

@@ -325,8 +325,18 @@ export function ReaderSettings({
                                                     className="h-20 flex items-center justify-center"
                                                     data-theme={theme.id}
                                                     style={{
-                                                        backgroundColor: theme.id === 'dark' ? '#1a1a1a' : theme.id === 'sepia' ? '#fbf3e0' : '#ffffff',
-                                                        color: theme.id === 'dark' ? '#e5e5e5' : theme.id === 'sepia' ? '#5f4b32' : '#1a1a1a',
+                                                        backgroundColor:
+                                                            theme.id === "dark"
+                                                                ? "var(--reader-swatch-dark-bg)"
+                                                                : theme.id === "sepia"
+                                                                  ? "var(--reader-swatch-sepia-bg)"
+                                                                  : "var(--reader-swatch-light-bg)",
+                                                        color:
+                                                            theme.id === "dark"
+                                                                ? "var(--reader-swatch-dark-fg)"
+                                                                : theme.id === "sepia"
+                                                                  ? "var(--reader-swatch-sepia-fg)"
+                                                                  : "var(--reader-swatch-light-fg)",
                                                     }}
                                                 >
                                                     <div className="flex flex-col items-center gap-1.5">

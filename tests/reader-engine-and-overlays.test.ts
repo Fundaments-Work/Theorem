@@ -131,4 +131,71 @@ describe("Reader runtime, search, CFI, and MediaOverlay regressions", () => {
         secondAudio.dispatchEvent(new Event("loadedmetadata"));
         expect(secondAudio.currentTime).toBe(5);
     });
+
+    it("excludes blank spread slots (-1 index) from FixedLayout.getContents and clears comic URLs on destroy", async () => {
+        const fakeIframeDocs = new WeakMap<HTMLIFrameElement, Document>();
+        const origCreateElement = document.createElement.bind(document);
+        vi.spyOn(document, "createElement").mockImplementation(((tag: string, options?: ElementCreationOptions) => {
+            const el = origCreateElement(tag, options);
+            if (tag.toLowerCase() === "iframe") {
+                const blankDoc = document.implementation.createHTMLDocument("blank");
+                Object.defineProperty(el, "contentDocument", {
+                    get: () => fakeIframeDocs.get(el as HTMLIFrameElement) ?? blankDoc,
+                    configurable: true,
+                });
+                queueMicrotask(() => {
+                    if ((el as HTMLIFrameElement).src) {
+                        fakeIframeDocs.set(el as HTMLIFrameElement, document.implementation.createHTMLDocument("page"));
+                        el.dispatchEvent(new Event("load"));
+                    }
+                });
+            }
+            return el;
+        }) as typeof document.createElement);
+
+        await import("../src/features/reader/foliate-js-runtime/fixed-layout.js");
+        const { makeComicBook } = await import("../src/features/reader/foliate-js-runtime/comic-book.js");
+
+        const fxl = document.createElement("foliate-fxl") as HTMLElement & {
+            open(book: unknown): void;
+            goTo(target: unknown): Promise<void>;
+            getContents(): Array<{ doc: Document | null; index?: number }>;
+            destroy(): void;
+        };
+        fxl.getBoundingClientRect = () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() {} });
+        document.body.appendChild(fxl);
+        fxl.open({
+            dir: "ltr",
+            rendition: { viewport: { width: 800, height: 600 } },
+            sections: [
+                { id: "p0", load: async () => "about:blank", unload: vi.fn() },
+                { id: "p1", load: async () => "about:blank", unload: vi.fn() },
+            ],
+        });
+        await fxl.goTo(Promise.resolve({ index: 0 }));
+        await new Promise((r) => setTimeout(r, 0));
+        const contents = fxl.getContents();
+        expect(contents).toHaveLength(1);
+        expect(contents[0].index).toBe(0);
+        fxl.destroy();
+        fxl.remove();
+        vi.restoreAllMocks();
+
+        URL.createObjectURL = vi.fn(() => "blob:comic-1");
+        const revokeSpy = vi.fn();
+        URL.revokeObjectURL = revokeSpy;
+        const comic = await makeComicBook(
+            {
+                entries: [{ filename: "01.jpg" }],
+                loadBlob: async () => new Blob(["x"]),
+                getSize: () => 1,
+                getLazyZip: undefined,
+            },
+            { name: "comic.cbz" },
+        ) as { sections: Array<{ load: () => Promise<string> }>; destroy: () => void };
+        await comic.sections[0].load();
+        comic.destroy();
+        comic.destroy();
+        expect(revokeSpy).toHaveBeenCalledTimes(2);
+    });
 });

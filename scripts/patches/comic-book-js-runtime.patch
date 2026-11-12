@@ -16,3 +16,12 @@
          .map(entry => entry.filename)
          .filter(name => exts.some(ext => name.endsWith(ext)))
          .sort(new Intl.Collator([], { numeric: true }).compare)
+@@ -40,6 +41,8 @@
+     book.destroy = () => {
+         for (const arr of urls.values())
+             for (const url of arr) URL.revokeObjectURL(url)
++        urls.clear()
++        cache.clear()
+     }
+     return book
+ }

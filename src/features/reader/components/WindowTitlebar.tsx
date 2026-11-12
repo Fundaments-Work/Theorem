@@ -110,14 +110,14 @@ function MobileMenu({ isOpen, onClose, items, triggerRef: _triggerRef }: MenuPro
     return (
         <>
             <div
-                className="fixed inset-0 z-[160]"
+                className="fixed inset-0 z-[var(--z-reader-overlay)]"
                 onClick={(e) => {
                     e.stopPropagation();
                     onClose();
                 }}
             />
             <div
-                className="absolute right-2 top-full mt-1.5 z-[161] min-w-[13rem] max-w-[calc(100vw-1rem)] border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl py-1 overflow-hidden transition-[opacity,transform] duration-200 ease-out"
+                className="absolute right-2 top-full mt-1.5 z-[calc(var(--z-reader-overlay)+1)] min-w-[13rem] max-w-[calc(100vw-1rem)] border border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-xl py-1 overflow-hidden transition-[opacity,transform] duration-200 ease-out"
             >
                 {items.map((item, index) => (
                     <button
@@ -294,7 +294,7 @@ export function WindowTitlebar({
             // still click. Double-click maximizes through the drag region itself.
             data-tauri-drag-region={showDesktopWindowControls ? "deep" : undefined}
             className={cn(
-                "w-full z-[150] select-none reader-toolbar relative",
+                "w-full z-[var(--z-reader-sheet)] select-none reader-toolbar relative",
                 "border-b border-[var(--color-border)] bg-[var(--color-surface)]",
                 "pt-[max(var(--safe-area-top),2px)] lg:pt-0",
                 className

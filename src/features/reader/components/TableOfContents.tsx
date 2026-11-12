@@ -56,21 +56,18 @@ const TocItemComponent = memo(function TocItemComponent({ item, depth, onNavigat
         <div ref={itemRef} className="group/item">
             <div
                 className={cn(
-                    
-                    "relative flex cursor-pointer items-center py-3 px-4",
+                    "relative flex items-center py-3 px-4",
                     "transition-colors duration-200 ease-out",
                     "hover:bg-[var(--color-surface-muted)]",
                     isActive && "bg-[var(--color-accent-light)]"
                 )}
                 data-active={isActive}
-                onClick={() => onNavigate(item.href)}
             >
-                
                 <div
                     className={cn(
                         "absolute left-0 top-0 bottom-0 w-0.5 transition-colors duration-200",
-                        isActive 
-                            ? "bg-[var(--color-accent)]" 
+                        isActive
+                            ? "bg-[var(--color-accent)]"
                             : "bg-transparent group-hover/item:bg-[var(--color-border)]"
                     )}
                 />
@@ -79,7 +76,10 @@ const TocItemComponent = memo(function TocItemComponent({ item, depth, onNavigat
 
                 {hasChildren ? (
                     <button
+                        type="button"
                         onClick={handleToggle}
+                        aria-label={isExpanded ? `Collapse ${item.label}` : `Expand ${item.label}`}
+                        aria-expanded={isExpanded}
                         className={cn(
                             "shrink-0 mr-3 p-1",
                             "hover:bg-[var(--color-surface)]",
@@ -97,25 +97,27 @@ const TocItemComponent = memo(function TocItemComponent({ item, depth, onNavigat
                         <div
                             className={cn(
                                 "w-1.5 h-1.5 transition-colors duration-200",
-                                isActive 
-                                    ? "bg-[var(--color-accent)] scale-125" 
+                                isActive
+                                    ? "bg-[var(--color-accent)] scale-125"
                                     : "bg-[var(--color-text-muted)] opacity-40 group-hover/item:opacity-70"
                             )}
                         />
                     </div>
                 )}
 
-                <span 
+                <button
+                    type="button"
+                    onClick={() => onNavigate(item.href)}
                     className={cn(
-                        "flex-1 truncate text-sm leading-relaxed",
-                        depth === 0 &&"text-[var(--color-text-primary)]",
+                        "flex-1 min-w-0 truncate text-left text-sm leading-relaxed cursor-pointer",
+                        depth === 0 && "text-[var(--color-text-primary)]",
                         depth === 1 && "text-[var(--color-text-primary)]",
                         depth >= 2 && "text-[var(--color-text-secondary)] text-xs",
                         isActive && "text-[var(--color-accent)]"
                     )}
                 >
                     {item.label}
-                </span>
+                </button>
             </div>
 
             {hasChildren && isExpanded && (

@@ -310,14 +310,14 @@ export function ReaderAnnotationsPanel({
                         <h2 className="text-sm text-[color:var(--color-text-primary)]">Annotations</h2>
                         <button
                             onClick={onClose}
-                            className="inline-flex h-9 w-9 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)] data-[active=true]:text-[color:var(--color-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--color-focus-ring)] focus-visible:outline-offset-2 w-8 h-8"
+                            className="inline-flex h-8 w-8 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)] data-[active=true]:text-[color:var(--color-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--color-focus-ring)] focus-visible:outline-offset-2"
                             aria-label="Close annotations"
                         >
                             <X className="w-4 h-4" />
                         </button>
                     </div>
                     {showVaultStatus && (
-                        <div className="border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] mx-4 mb-3 border px-3 py-1.5 text-xs text-[color:var(--color-text-secondary)]">
+                        <div className="border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] mx-4 mb-3 px-3 py-1.5 text-xs text-[color:var(--color-text-secondary)]">
                             {vaultStatusText}
                         </div>
                     )}

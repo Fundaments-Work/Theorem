@@ -397,8 +397,8 @@ export const ReaderNavbar = memo(function ReaderNavbar({
                                     </button>
                                     {voiceMenuOpen && (
                                         <>
-                                            <div className="fixed inset-0 z-[141]" onClick={() => setVoiceMenuOpen(false)} />
-                                            <div className="absolute bottom-9 right-0 z-[142] w-56 border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                                            <div className="fixed inset-0 z-[var(--z-reader-menu-backdrop)]" onClick={() => setVoiceMenuOpen(false)} />
+                                            <div className="absolute bottom-9 right-0 z-[var(--z-reader-menu)] w-56 border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                                                 {neuralReady && onTtsVoiceChange && (
                                                     <>
                                                         <div className="text-[10px] text-[var(--color-text-muted)] mb-1.5">Voice</div>

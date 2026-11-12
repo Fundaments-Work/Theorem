@@ -41,6 +41,8 @@ export const makeComicBook = async ({ loadBlob, getSize, entries, getLazyZip }, 
     book.destroy = () => {
         for (const arr of urls.values())
             for (const url of arr) URL.revokeObjectURL(url)
+        urls.clear()
+        cache.clear()
     }
     return book
 }

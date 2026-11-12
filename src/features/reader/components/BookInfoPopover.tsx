@@ -60,7 +60,9 @@ export function BookInfoPopover({
                         <h2 className="text-sm text-[color:var(--color-text-primary)]">Book Information</h2>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
+                        aria-label="Close book information"
                         className="inline-flex h-9 w-9 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]"
                     >
                         <X className="w-4 h-4" />
@@ -133,7 +135,7 @@ export function BookInfoPopover({
                                 {metadata.attachments.map((file) => (
                                     <li key={file.key} className="flex items-center gap-2">
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-[color:var(--color-text-primary)] truncate"title={file.name}>{file.name}</p>
+                                            <p className="text-xs text-[color:var(--color-text-primary)] truncate" title={file.name}>{file.name}</p>
                                             <p className="text-[var(--font-size-3xs)] text-[color:var(--color-text-muted)] truncate">
                                                 {[file.size !== undefined ? formatAttachmentSize(file.size) : "", file.description ?? ""].filter(Boolean).join(" · ")}
                                             </p>

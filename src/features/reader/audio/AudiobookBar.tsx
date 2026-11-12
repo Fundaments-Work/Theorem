@@ -356,7 +356,7 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
     return (
         <div
             className={cn(
-                "absolute left-0 right-0 z-[139] transition-transform duration-300",
+                "absolute left-0 right-0 z-[calc(var(--z-reader-bar)-1)] transition-transform duration-300",
                 visible ? "translate-y-0" : "translate-y-[150%] pointer-events-none",
             )}
             style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + var(--safe-area-bottom))" }}
@@ -400,8 +400,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
                             </button>
                             {sleepMenuOpen && (
                                 <>
-                                    <div className="fixed inset-0 z-[141]" onClick={() => setSleepMenuOpen(false)} />
-                                    <div className="absolute bottom-9 right-0 z-[142] w-32 border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                                    <div className="fixed inset-0 z-[var(--z-reader-menu-backdrop)]" onClick={() => setSleepMenuOpen(false)} />
+                                    <div className="absolute bottom-9 right-0 z-[var(--z-reader-menu)] w-32 border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                                         {(sleepDeadline !== null || sleepAtChapterEnd) && (
                                             <button
                                                 onClick={() => {
@@ -552,8 +552,8 @@ export function AudiobookBar({ bookId, bookTitle, bookAuthor, audioTrack, visibl
             {/* Chapter menu */}
             {chapterMenuOpen && audioTrack.chapters.length > 0 && (
                 <>
-                    <div className="fixed inset-0 z-[141]" onClick={() => setChapterMenuOpen(false)} />
-                    <div className="absolute right-3 bottom-[calc(100%+8px)] z-[142] w-72 max-h-72 overflow-y-auto border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                    <div className="fixed inset-0 z-[var(--z-reader-menu-backdrop)]" onClick={() => setChapterMenuOpen(false)} />
+                    <div className="absolute right-3 bottom-[calc(100%+8px)] z-[var(--z-reader-menu)] w-72 max-h-72 overflow-y-auto border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                         {audioTrack.chapters.map((ch) => {
                             const active = currentChapter?.id === ch.id;
                             return (

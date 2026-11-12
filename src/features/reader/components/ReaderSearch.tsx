@@ -341,8 +341,9 @@ export function ReaderSearch({
                                 <button
                                     type="button"
                                     onClick={handleClear}
-                                    className="p-1 transition-colors text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)]"
+                                    className="p-1.5 transition-colors text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)]"
                                     title="Clear search"
+                                    aria-label="Clear search"
                                 >
                                     <X className="w-3.5 h-3.5" />
                                 </button>

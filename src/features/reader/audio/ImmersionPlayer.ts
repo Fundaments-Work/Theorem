@@ -460,6 +460,7 @@ class ImmersionPlayer {
         this.earlyCompletedUtteranceId = null;
         this.setState('loading');
         await this.bindPlatformEvents();
+        if (sid !== this.session) return;
         try {
             const result = await invoke<{ languageWarning?: string | null; completionEvents?: boolean } | null>("tts_speak", {
                 text, voice: voice || "", speed: this.platformSpeed, lang: lang || null, utteranceId,

@@ -417,4 +417,36 @@ describe("N2: ReaderNavbar TTS 2x chip & MediaOverlayBar speed persistence", () 
         expect(setRate).toHaveBeenCalledWith(2);
         expect(onSpeedChange).toHaveBeenCalledWith(2);
     });
+
+    it("does not invoke tts_speak if stop() runs while bindPlatformEvents awaits", async () => {
+        let releaseBind!: () => void;
+        eventMocks.listen.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    releaseBind = () => resolve(() => {});
+                }),
+        );
+        coreMocks.invoke.mockImplementation((cmd: string) => {
+            if (cmd === "tts_neural_status") {
+                return Promise.resolve({
+                    runtimeReady: false,
+                    modelsReady: false,
+                    engineLoaded: false,
+                    available: false,
+                    supported: true,
+                });
+            }
+            return Promise.resolve(null);
+        });
+
+        const speakPromise = immersionPlayer.speak("Cancelled before speak");
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await immersionPlayer.stop();
+        releaseBind?.();
+        await speakPromise;
+
+        expect(coreMocks.invoke).not.toHaveBeenCalledWith("tts_speak", expect.anything());
+    });
 });

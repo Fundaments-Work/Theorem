@@ -162,7 +162,7 @@ export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookC
     return (
         <div
             className={cn(
-                "absolute left-0 right-0 z-[139] transition-transform duration-300",
+                "absolute left-0 right-0 z-[calc(var(--z-reader-bar)-1)] transition-transform duration-300",
                 visible ? "translate-y-0" : "translate-y-[150%] pointer-events-none",
             )}
             style={{ bottom: "calc(var(--reader-navbar-height, 3.5rem) + var(--safe-area-bottom))" }}
@@ -187,8 +187,8 @@ export function MediaOverlayBar({ overlay, onStart, bookTitle, bookAuthor, bookC
                             />
                             {sleepMenuOpen && (
                                 <>
-                                    <div className="fixed inset-0 z-[141]" onClick={() => setSleepMenuOpen(false)} />
-                                    <div className="absolute bottom-9 right-0 z-[142] w-32 border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+                                    <div className="fixed inset-0 z-[var(--z-reader-menu-backdrop)]" onClick={() => setSleepMenuOpen(false)} />
+                                    <div className="absolute bottom-9 right-0 z-[var(--z-reader-menu)] w-32 border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
                                         {sleepDeadline !== null && (
                                             <Chip className="w-full" onClick={() => { setSleepDeadline(null); setSleepMenuOpen(false); }}>
                                                 Off
