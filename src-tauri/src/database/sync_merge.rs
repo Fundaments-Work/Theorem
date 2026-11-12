@@ -570,19 +570,28 @@ fn merge_synced_book(
         params![book_id, final_json],
     )?;
 
-    let _ = connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id]);
-    let final_book = serde_json::from_str::<serde_json::Value>(&final_json).unwrap_or_default();
-    let _ = connection.execute(
-        "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
-        params![
-            book_id,
-            final_book
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or(""),
-            final_book.get("author").and_then(|v| v.as_str())
-        ],
-    );
+    let has_fts: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'books_fts')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if has_fts {
+        connection.execute("DELETE FROM books_fts WHERE id = ?1", params![book_id])?;
+        let final_book = serde_json::from_str::<serde_json::Value>(&final_json).unwrap_or_default();
+        connection.execute(
+            "INSERT INTO books_fts(id, title, author) VALUES(?1, ?2, ?3)",
+            params![
+                book_id,
+                final_book
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+                final_book.get("author").and_then(|v| v.as_str())
+            ],
+        )?;
+    }
     Ok(true)
 }
 
@@ -806,7 +815,7 @@ fn merge_sync_entries_rows(
             }
         } else if key.starts_with("vocab:") || key.starts_with("vocabulary:") {
             if let Ok(term_val) = serde_json::from_str::<serde_json::Value>(value) {
-                if let Ok(Some(id)) = upsert_sync_vocabulary_term(connection, &term_val) {
+                if let Some(id) = upsert_sync_vocabulary_term(connection, &term_val)? {
                     updated_vocabulary.push(id);
                     record_domain("vocabulary");
                 }
@@ -815,14 +824,14 @@ fn merge_sync_entries_rows(
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
                 if let Some(terms_vec) = parsed.as_array() {
                     for t in terms_vec {
-                        if let Ok(Some(id)) = upsert_sync_vocabulary_term(connection, t) {
+                        if let Some(id) = upsert_sync_vocabulary_term(connection, t)? {
                             updated_vocabulary.push(id);
                         }
                     }
                     if !terms_vec.is_empty() {
                         record_domain("vocabulary");
                     }
-                } else if let Ok(Some(id)) = upsert_sync_vocabulary_term(connection, &parsed) {
+                } else if let Some(id) = upsert_sync_vocabulary_term(connection, &parsed)? {
                     updated_vocabulary.push(id);
                     record_domain("vocabulary");
                 }

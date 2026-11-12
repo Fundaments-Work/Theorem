@@ -17,7 +17,8 @@ export function formatImportBytes(bytes: number): string {
 export default function ImportProgressPanel() {
     const snapshot = useImportStore((state) => state.snapshot);
     const error = useImportStore((state) => state.error);
-    const [dismissedId, setDismissedId] = useState<string | null>(null);
+    const dismissedId = useImportStore((state) => state.dismissedJobId);
+    const dismissJob = useImportStore((state) => state.dismissJob);
     const [pending, setPending] = useState(false);
     const [operationError, setOperationError] = useState<string | null>(null);
     if (!error && !operationError && (!snapshot?.id || (!snapshot.active && !snapshot.resumable && (!snapshot.errors.length || dismissedId === snapshot.id)))) return null;
@@ -42,7 +43,7 @@ export default function ImportProgressPanel() {
                 {snapshot?.active && <button type="button" disabled={pending} onClick={() => { void act(stopNativeImport); }} className="text-[color:var(--color-accent)] disabled:opacity-50">Stop import</button>}
                 {snapshot?.resumable && <button type="button" disabled={pending} onClick={() => { void act(resumeNativeImport); }} className="text-[color:var(--color-accent)] disabled:opacity-50">Resume import</button>}
                 {snapshot?.resumable && <button type="button" disabled={pending} onClick={() => { void act(discardNativeImport); }} className="text-[color:var(--color-accent)] disabled:opacity-50">Discard pending import</button>}
-                {!snapshot?.active && !snapshot?.resumable && <button type="button" onClick={() => setDismissedId(snapshot?.id ?? null)} className="text-[color:var(--color-accent)]">Dismiss</button>}
+                {!snapshot?.active && !snapshot?.resumable && <button type="button" onClick={() => dismissJob(snapshot?.id ?? null)} className="text-[color:var(--color-accent)]">Dismiss</button>}
             </div>
             {snapshot?.active && <progress aria-label={`${label} progress`} {...(measured ? { value: completed, max: total } : {})} className="mt-2 h-1 w-full accent-[var(--color-accent)]" />}
             <details className="mt-1 max-h-[30vh] overflow-y-auto overscroll-contain text-xs text-[color:var(--color-text-secondary)] [content-visibility:auto]">

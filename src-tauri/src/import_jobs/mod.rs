@@ -396,7 +396,7 @@ fn import_one(
             if source != *request.source {
                 restore_display_name(&mut book, std::path::Path::new(&source), request);
             }
-            book.file_path = request.source.to_string();
+            book.file_path = request.source.clone();
             let newly_known = book
                 .content_hash
                 .as_deref()
@@ -646,11 +646,11 @@ fn restore_display_name(
         crate::batch_ingest::parse_title_author_from_filename(materialized);
     let (title, author) =
         crate::batch_ingest::parse_title_author_from_filename(std::path::Path::new(&*request.name));
-    if book.title == temporary_title {
-        book.title = title;
+    if *book.title == *temporary_title {
+        book.title = title.into();
     }
-    if book.author == temporary_author {
-        book.author = author;
+    if *book.author == *temporary_author {
+        book.author = author.into();
     }
 }
 
@@ -669,13 +669,13 @@ mod tests {
         let (title, author) = crate::batch_ingest::parse_title_author_from_filename(materialized);
         let mut book: crate::batch_ingest::NativeBookRecord = serde_json::from_value(serde_json::json!({ "id": "id", "title": title, "author": author, "filePath": "temporary", "format": "pdf", "fileSize":1, "addedAt":"2026-11-10T00:00:00Z", "progress":0, "isFavorite":false, "tags":[], "coverExtractionDone":false })).unwrap();
         restore_display_name(&mut book, materialized, &request);
-        assert_eq!(book.title, "Book");
-        assert_eq!(book.author, "Author");
+        assert_eq!(&*book.title, "Book");
+        assert_eq!(&*book.author, "Author");
         book.title = "Embedded title".into();
         book.author = "Embedded author".into();
         restore_display_name(&mut book, materialized, &request);
-        assert_eq!(book.title, "Embedded title");
-        assert_eq!(book.author, "Embedded author");
+        assert_eq!(&*book.title, "Embedded title");
+        assert_eq!(&*book.author, "Embedded author");
     }
 
     #[test]
@@ -705,5 +705,20 @@ mod tests {
             "abandoned import temp file must be removed"
         );
         assert!(nested.is_dir(), "subdirectories should remain untouched");
+    }
+
+    #[test]
+    fn current_preserves_64bit_byte_counts_above_u32_max() {
+        let large_completed = u64::from(u32::MAX) + 123_456_789;
+        let large_total = u64::from(u32::MAX) + 987_654_321;
+        let current = Current {
+            name: "multi-volume-archive.cbz".into(),
+            stage: Some(ImportStage::Copying),
+            completed_bytes: large_completed,
+            total_bytes: Some(large_total),
+        };
+        let value = serde_json::to_value(&current).unwrap();
+        assert_eq!(value["completedBytes"].as_u64(), Some(large_completed));
+        assert_eq!(value["totalBytes"].as_u64(), Some(large_total));
     }
 }

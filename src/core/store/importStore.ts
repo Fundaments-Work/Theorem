@@ -15,12 +15,23 @@ export interface NativeImportSnapshot {
 interface ImportState {
     snapshot: NativeImportSnapshot | null;
     error: string | null;
+    dismissedJobId: string | null;
     setSnapshot: (snapshot: NativeImportSnapshot) => void;
     setError: (error: string | null) => void;
+    dismissJob: (jobId: string | null) => void;
 }
 export const useImportStore = create<ImportState>()((set) => ({
     snapshot: null,
     error: null,
-    setSnapshot: (snapshot) => set({ snapshot, error: null }),
+    dismissedJobId: null,
+    setSnapshot: (snapshot) => set((state) => ({
+        snapshot,
+        error: null,
+        dismissedJobId:
+            snapshot?.id && (snapshot.id !== state.dismissedJobId || snapshot.active)
+                ? null
+                : state.dismissedJobId,
+    })),
     setError: (error) => set({ error }),
+    dismissJob: (jobId) => set({ dismissedJobId: jobId }),
 }));

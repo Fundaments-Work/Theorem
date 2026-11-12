@@ -210,7 +210,7 @@ fn backup_then_restore_reproduces_rows_and_files_on_another_device() {
 
     let out = tmp.path().join("out/backup.theorem-backup");
     let manifest = backup_of(&a, &out, true);
-    assert_eq!(manifest.format, BACKUP_FORMAT);
+    assert_eq!(&*manifest.format, BACKUP_FORMAT);
     assert_eq!(manifest.counts.books, 5);
     assert_eq!(manifest.counts.annotations, 5);
     assert_eq!(manifest.counts.book_files, 5);
@@ -755,8 +755,8 @@ fn manifest_with_version(version: &str) -> BackupManifest {
         format: BACKUP_FORMAT.into(),
         format_version: 1,
         app_version: version.into(),
-        created_at: String::new(),
-        platform: String::new(),
+        created_at: "".into(),
+        platform: "".into(),
         schema: SchemaInfo::default(),
         counts: BackupCounts::default(),
         includes_dictionaries: false,
@@ -777,7 +777,7 @@ fn snapshots_rotate_keeping_the_newest_two() {
     let snapshots = list_snapshots(tmp.path());
     assert_eq!(snapshots.len(), SNAPSHOT_KEEP);
     assert_eq!(snapshots[0].created_at, 4_000);
-    assert_eq!(snapshots[0].app_version, "1.3.0");
+    assert_eq!(&*snapshots[0].app_version, "1.3.0");
     assert_eq!(snapshots[1].created_at, 3_000);
     assert!(snapshots.iter().all(|s| s.size > 0));
     // Each snapshot is a complete, single-file database.
@@ -910,7 +910,7 @@ fn guard_checks_snapshots_then_migrates_a_healthy_database() {
     assert!(health.checked);
     let snapshots = list_snapshots(tmp.path());
     assert_eq!(snapshots.len(), 2);
-    assert_eq!(snapshots[0].app_version, "1.6.1");
+    assert_eq!(&*snapshots[0].app_version, "1.6.1");
 }
 
 #[test]
@@ -984,7 +984,7 @@ fn version_change_keeps_the_snapshot_before_migrations() {
             2,
             "rollback point exists before migrations"
         );
-        assert_eq!(snapshots[0].app_version, "1.6.1");
+        assert_eq!(&*snapshots[0].app_version, "1.6.1");
         Ok(())
     });
     assert!(migrated);

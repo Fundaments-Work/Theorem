@@ -36,13 +36,41 @@ export function refreshNativeImport(): Promise<NativeImportSnapshot> {
 export function pollNativeImports(): () => void {
     if (!isTauri()) return () => {};
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-        try { await refreshNativeImport(); } catch { /* Display the retained recovery error in the panel. */ }
-        if (!stopped) timer = setTimeout(() => { void poll(); }, 500);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+        if (stopped || timer !== undefined) return;
+        timer = setTimeout(() => {
+            timer = undefined;
+            void poll();
+        }, 500);
     };
+    const poll = async () => {
+        if (stopped) return;
+        let active = false;
+        try {
+            const snapshot = await refreshNativeImport();
+            active = Boolean(snapshot?.active);
+        } catch {
+            /* Display the retained recovery error in the panel. */
+        }
+        if (!stopped && active) {
+            schedule();
+        }
+    };
+    const handleFocus = () => {
+        if (!stopped) void poll();
+    };
+    if (typeof window !== "undefined") {
+        window.addEventListener("focus", handleFocus);
+    }
     void poll();
-    return () => { stopped = true; clearTimeout(timer); };
+    return () => {
+        stopped = true;
+        if (timer !== undefined) clearTimeout(timer);
+        if (typeof window !== "undefined") {
+            window.removeEventListener("focus", handleFocus);
+        }
+    };
 }
 
 function hydrateBook(raw: Book): Book {

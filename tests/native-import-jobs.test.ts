@@ -145,4 +145,19 @@ describe("native import jobs", () => {
         await vi.advanceTimersByTimeAsync(2000);
         expect(mocks.invoke).toHaveBeenCalledTimes(1);
     });
+
+    it("stops polling when idle and keeps polling only while a job is active", async () => {
+        status = snapshot({ active: false });
+        const stopIdle = pollNativeImports();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(mocks.invoke).toHaveBeenCalledTimes(1);
+        stopIdle();
+
+        mocks.invoke.mockClear();
+        status = snapshot({ active: true });
+        const stopActive = pollNativeImports();
+        await vi.advanceTimersByTimeAsync(1100);
+        stopActive();
+        expect(mocks.invoke.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
 });

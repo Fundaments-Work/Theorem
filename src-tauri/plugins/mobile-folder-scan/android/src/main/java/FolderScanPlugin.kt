@@ -34,6 +34,86 @@ internal fun openImportDescriptor(descriptor: android.content.res.AssetFileDescr
   }
 }
 
+internal data class PickedBookDocument(
+  val source: String,
+  val name: String,
+  val mimeType: String?,
+)
+
+internal fun resolvePickedBookDocument(
+  resolver: android.content.ContentResolver,
+  uri: Uri,
+): PickedBookDocument {
+  try {
+    resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+  } catch (_: SecurityException) {
+    // Transient picker grants can reject persistable flags; temporary read access still works.
+  }
+  val name = resolver.query(
+    uri,
+    arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+    null,
+    null,
+    null,
+  )?.use { cursor ->
+    if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+  } ?: throw IllegalArgumentException("The document provider did not supply a filename")
+  val mimeType = runCatching { resolver.getType(uri) }.getOrNull()?.takeIf { it.isNotBlank() }
+  return PickedBookDocument(source = uri.toString(), name = name, mimeType = mimeType)
+}
+
+internal fun copyImportStreamToFile(
+  fileName: String,
+  importDir: File,
+  managedImport: Boolean,
+  openStream: () -> java.io.InputStream?,
+  querySize: () -> Long,
+  onBytesCopied: (Long) -> Unit = {},
+): File {
+  val inputStream = openStream() ?: throw java.io.FileNotFoundException("Cannot open content URI for reading")
+  if (!importDir.exists()) {
+    importDir.mkdirs()
+  }
+  val safeName = fileName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+  val outFile = File(importDir, "${java.util.UUID.randomUUID()}-$safeName")
+  try {
+    inputStream.use { input ->
+      if (managedImport && !ImportService.attachInput(input)) {
+        throw java.io.InterruptedIOException("Import stopped")
+      }
+      FileOutputStream(outFile).use { output ->
+        ImportService.completedBytes.set(0)
+        ImportService.totalBytes.set(runCatching { querySize() }.getOrDefault(-1L))
+        ImportService.copying = true
+        try {
+          val buffer = ByteArray(256 * 1024)
+          while (true) {
+            if (managedImport && ImportService.isStopped()) {
+              throw java.io.InterruptedIOException("Import stopped")
+            }
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            output.write(buffer, 0, count)
+            ImportService.completedBytes.addAndGet(count.toLong())
+            onBytesCopied(count.toLong())
+          }
+          output.fd.sync()
+        } finally {
+          ImportService.copying = false
+          if (managedImport) ImportService.detachInput(input)
+        }
+      }
+    }
+  } catch (error: Exception) {
+    outFile.delete()
+    throw error
+  } finally {
+    if (managedImport) ImportService.detachInput(inputStream)
+  }
+  return outFile
+}
+
 @InvokeArg
 class ConfigureReminderArgs {
   var enabled: Boolean = false
@@ -560,20 +640,12 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
       data.data?.let { uris.add(it) }
       data.clipData?.let { clips -> for (index in 0 until clips.itemCount) uris.add(clips.getItemAt(index).uri) }
       for (uri in uris.distinct()) {
-        try {
-          activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (_: SecurityException) {
-          // Transient picker grants can reject persistable flags; temporary read access still works.
-        }
-        val name = activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-          if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
-        } ?: throw IllegalArgumentException("The document provider did not supply a filename")
-        val mimeType = runCatching { activity.contentResolver.getType(uri) }.getOrNull()
+        val picked = resolvePickedBookDocument(activity.contentResolver, uri)
         val document = JSObject()
-        document.put("source", uri.toString())
-        document.put("name", name)
-        if (!mimeType.isNullOrBlank()) {
-          document.put("mimeType", mimeType)
+        document.put("source", picked.source)
+        document.put("name", picked.name)
+        if (picked.mimeType != null) {
+          document.put("mimeType", picked.mimeType)
         }
         documents.put(document)
       }
@@ -623,72 +695,31 @@ class FolderScanPlugin(private val activity: Activity) : Plugin(activity) {
         if (args.managedImport && ImportService.isStopped()) throw java.io.InterruptedIOException("Import stopped")
         val signal = if (args.managedImport) android.os.CancellationSignal() else null
         if (signal != null && !ImportService.attachCancellation(signal)) throw java.io.InterruptedIOException("Import stopped")
-        val inputStream = try {
-          if (signal != null) openImportDescriptor(activity.contentResolver.openAssetFileDescriptor(uri, "r", signal))
-          else activity.contentResolver.openInputStream(uri)
-        } catch (error: Exception) {
-          if (signal != null) ImportService.detachCancellation(signal)
-          throw error
-        }
-        if (inputStream == null) {
-          if (signal != null) ImportService.detachCancellation(signal)
-          invoke.reject("Cannot open content URI for reading")
-          return@execute
-        }
-
         val importDir = File(activity.filesDir, "theorem_import")
-        if (!importDir.exists()) {
-          importDir.mkdirs()
-        }
-
-        // Sanitize filename to avoid path traversal
-        // Unique per call: two books with the same name never share a file.
-        // The importer deletes it once the book is in the library.
-        val safeName = fileName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-        val outFile = File(importDir, "${java.util.UUID.randomUUID()}-$safeName")
-
-        try {
-          inputStream.use { input ->
-            if (args.managedImport && !ImportService.attachInput(input)) throw java.io.InterruptedIOException("Import stopped")
-            FileOutputStream(outFile).use { output ->
-              val managedCopy = args.managedImport
-              ImportService.completedBytes.set(0)
-              val total = runCatching {
-                activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null, signal)?.use { cursor ->
-                  if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
-                } ?: -1L
-              }.getOrDefault(-1L)
-              ImportService.totalBytes.set(total)
-              ImportService.copying = true
-              try {
-                val buffer = ByteArray(256 * 1024)
-                while (true) {
-                  if (managedCopy && ImportService.isStopped()) throw java.io.InterruptedIOException("Import stopped")
-                  val count = input.read(buffer)
-                  if (count < 0) break
-                  if (count == 0) continue
-                  output.write(buffer, 0, count)
-                  ImportService.completedBytes.addAndGet(count.toLong())
-                }
-                output.fd.sync()
-              } finally {
-                ImportService.copying = false
-                if (managedCopy) ImportService.detachInput(input)
-              }
-            }
-          }
-        } catch (error: Exception) {
-          // A half-written copy (provider error, disk full) is never used.
-          outFile.delete()
-          throw error
+        val outFile = try {
+          copyImportStreamToFile(
+            fileName = fileName,
+            importDir = importDir,
+            managedImport = args.managedImport,
+            openStream = {
+              if (signal != null) openImportDescriptor(activity.contentResolver.openAssetFileDescriptor(uri, "r", signal))
+              else activity.contentResolver.openInputStream(uri)
+            },
+            querySize = {
+              activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null, signal)?.use { cursor ->
+                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
+              } ?: -1L
+            },
+          )
         } finally {
-          if (args.managedImport) ImportService.detachInput(inputStream)
           if (signal != null) ImportService.detachCancellation(signal)
         }
 
         val response = JSObject()
         response.put("path", outFile.absolutePath)
         invoke.resolve(response)
+      } catch (error: java.io.FileNotFoundException) {
+        invoke.reject(error.message ?: "Cannot open content URI for reading")
       } catch (error: Exception) {
         invoke.reject(error.message ?: "Failed to materialize content URI")
       }

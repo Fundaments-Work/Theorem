@@ -96,11 +96,11 @@ pub struct SchemaInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupManifest {
-    pub format: String,
+    pub format: Box<str>,
     pub format_version: u32,
-    pub app_version: String,
-    pub created_at: String,
-    pub platform: String,
+    pub app_version: Box<str>,
+    pub created_at: Box<str>,
+    pub platform: Box<str>,
     pub schema: SchemaInfo,
     pub counts: BackupCounts,
     pub includes_dictionaries: bool,
@@ -574,9 +574,9 @@ fn write_backup_from_snapshot(
         let manifest = BackupManifest {
             format: BACKUP_FORMAT.into(),
             format_version: BACKUP_FORMAT_VERSION,
-            app_version: options.app_version.clone(),
-            created_at: options.created_at.clone(),
-            platform: options.platform.clone(),
+            app_version: options.app_version.as_str().into(),
+            created_at: options.created_at.as_str().into(),
+            platform: options.platform.as_str().into(),
             schema,
             counts,
             includes_dictionaries: options.include_dictionaries,
@@ -743,7 +743,7 @@ fn read_manifest_from(
 }
 
 pub fn validate_manifest(manifest: &BackupManifest, current_version: &str) -> Result<(), String> {
-    if manifest.format != BACKUP_FORMAT {
+    if &*manifest.format != BACKUP_FORMAT {
         return Err("This is not a Theorem backup file.".into());
     }
     if manifest.format_version == 0 || manifest.format_version > BACKUP_FORMAT_VERSION {
@@ -1018,9 +1018,9 @@ pub fn replace_live_database(
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotInfo {
-    pub name: String,
+    pub name: Box<str>,
     pub created_at: i64,
-    pub app_version: String,
+    pub app_version: Box<str>,
     pub size: u64,
 }
 
@@ -1059,9 +1059,9 @@ pub fn list_snapshots(app_data_dir: &Path) -> Vec<SnapshotInfo> {
             let (created_at, app_version) = parse_snapshot_name(&name)?;
             let size = entry.metadata().ok()?.len();
             Some(SnapshotInfo {
-                name,
+                name: name.into_boxed_str(),
                 created_at,
-                app_version,
+                app_version: app_version.into_boxed_str(),
                 size,
             })
         })
@@ -1084,7 +1084,7 @@ pub fn take_snapshot(
     snapshot_connection(conn, &partial)?;
     fs::rename(&partial, &path).map_err(|e| format!("Cannot finish snapshot: {e}"))?;
     for old in list_snapshots(app_data_dir).into_iter().skip(SNAPSHOT_KEEP) {
-        remove_db_files(&dir.join(old.name));
+        remove_db_files(&dir.join(&*old.name));
     }
     Ok(path)
 }
@@ -1420,7 +1420,7 @@ fn emit_progress(app: &AppHandle) -> impl FnMut(BackupProgress) + '_ {
 #[serde(rename_all = "camelCase")]
 pub struct BackupResult {
     /// Where the backup ended up: a file path, or on Android a content URI.
-    pub location: String,
+    pub location: Box<str>,
     pub manifest: BackupManifest,
     pub size: u64,
 }
@@ -1431,7 +1431,7 @@ pub struct RestoreResult {
     pub manifest: Option<BackupManifest>,
     pub files_restored: u64,
     /// Set when the restored database could not be migrated to this version.
-    pub migration_error: Option<String>,
+    pub migration_error: Option<Box<str>>,
 }
 
 pub fn default_backup_file_name(now: chrono::DateTime<chrono::Local>) -> String {
@@ -1501,7 +1501,7 @@ fn create_backup_blocking(
         out_path.to_string_lossy().into_owned()
     };
     Ok(BackupResult {
-        location,
+        location: location.into_boxed_str(),
         manifest,
         size,
     })
@@ -1576,7 +1576,7 @@ fn restore_backup_blocking(app: &AppHandle, path: String) -> Result<RestoreResul
         Ok(RestoreResult {
             manifest: Some(staged.manifest.clone()),
             files_restored,
-            migration_error: finish_restore(app),
+            migration_error: finish_restore(app).map(String::into_boxed_str),
         })
     })();
     let _ = fs::remove_dir_all(&staging);
@@ -1606,18 +1606,19 @@ fn restore_snapshot_blocking(app: &AppHandle, name: String) -> Result<RestoreRes
     Ok(RestoreResult {
         manifest: None,
         files_restored: 0,
-        migration_error: finish_restore(app),
+        migration_error: finish_restore(app).map(String::into_boxed_str),
     })
 }
 
-async fn offload<T, F>(task: F) -> Result<T, String>
+async fn offload<T, F>(task: F) -> Result<T, AppError>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(task)
         .await
-        .map_err(|e| format!("Background task failed: {e}"))?
+        .map_err(|e| AppError::internal(format!("Background task failed: {e}")))?
+        .map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -1641,7 +1642,7 @@ pub fn db_health_dismiss() {
 }
 
 #[tauri::command]
-pub async fn db_list_snapshots(app: AppHandle) -> Result<Vec<SnapshotInfo>, String> {
+pub async fn db_list_snapshots(app: AppHandle) -> Result<Vec<SnapshotInfo>, AppError> {
     offload(move || Ok(list_snapshots(&app_data_dir(&app)?))).await
 }
 
@@ -1664,22 +1665,22 @@ pub async fn db_backup_create(
     app: AppHandle,
     output_path: Option<String>,
     include_dictionaries: bool,
-) -> Result<BackupResult, String> {
+) -> Result<BackupResult, AppError> {
     offload(move || create_backup_blocking(&app, output_path, include_dictionaries)).await
 }
 
 #[tauri::command]
-pub async fn db_backup_inspect(app: AppHandle, path: String) -> Result<BackupManifest, String> {
+pub async fn db_backup_inspect(app: AppHandle, path: String) -> Result<BackupManifest, AppError> {
     offload(move || inspect_backup(Path::new(&path), &app_version(&app))).await
 }
 
 #[tauri::command]
-pub async fn db_backup_restore(app: AppHandle, path: String) -> Result<RestoreResult, String> {
+pub async fn db_backup_restore(app: AppHandle, path: String) -> Result<RestoreResult, AppError> {
     offload(move || restore_backup_blocking(&app, path)).await
 }
 
 #[tauri::command]
-pub async fn db_restore_snapshot(app: AppHandle, name: String) -> Result<RestoreResult, String> {
+pub async fn db_restore_snapshot(app: AppHandle, name: String) -> Result<RestoreResult, AppError> {
     offload(move || restore_snapshot_blocking(&app, name)).await
 }
 

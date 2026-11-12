@@ -307,7 +307,7 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                     let error_message = feed["errorMessage"].as_str();
 
                     if !id.is_empty() && !title.is_empty() {
-                        let _ = tx.execute(
+                        tx.execute(
                             r#"
                             INSERT OR IGNORE INTO rss_feeds (
                                 id, title, url, site_url, description, icon_url,
@@ -324,7 +324,7 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                                 unread_count,
                                 error_message
                             ],
-                        );
+                        )?;
                     }
                 }
             }
@@ -412,14 +412,14 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                     let books_read_json = act["booksRead"].to_string();
                     if !date.is_empty() {
                         let session_id = format!("session:{}", date);
-                        let _ = tx.execute(
+                        tx.execute(
                             r#"
                             INSERT OR IGNORE INTO reading_sessions (
                                 id, session_date, minutes, books_read_json, created_at
                             ) VALUES (?1, ?2, ?3, ?4, unixepoch())
                             "#,
                             params![session_id, date, minutes, books_read_json],
-                        );
+                        )?;
                     }
                 }
             }
@@ -442,10 +442,10 @@ pub fn run_v153_database_migrations(connection: &Connection) -> rusqlite::Result
                     let title = b["title"].as_str().unwrap_or("");
                     let author = b["author"].as_str().unwrap_or("");
                     if !id.is_empty() && !title.is_empty() {
-                        let _ = tx.execute(
+                        tx.execute(
                             "INSERT OR IGNORE INTO books_fts (id, title, author) VALUES (?1, ?2, ?3)",
                             params![id, title, author],
-                        );
+                        )?;
                     }
                 }
             }
@@ -546,7 +546,7 @@ pub fn run_v154_database_migrations(connection: &Connection) -> rusqlite::Result
                     });
 
                     if !id.is_empty() && !word.is_empty() {
-                        let _ = tx.execute(
+                        tx.execute(
                             r#"
                             INSERT OR IGNORE INTO vocabulary (
                                 id, term, normalized_term, language, phonetic, audio_url,
@@ -568,7 +568,7 @@ pub fn run_v154_database_migrations(connection: &Connection) -> rusqlite::Result
                                 created_at,
                                 updated_at
                             ],
-                        );
+                        )?;
                     }
                 }
             }

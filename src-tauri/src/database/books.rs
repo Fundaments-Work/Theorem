@@ -559,7 +559,7 @@ pub fn sqlite_get_book_metadata(
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookWindowResult {
-    pub book_ids: Vec<String>,
+    pub book_ids: Box<[Box<str>]>,
     pub total_count: u32,
 }
 
@@ -584,8 +584,10 @@ pub fn sqlite_query_books_window_inner(
 ) -> rusqlite::Result<BookWindowResult> {
     let mut stmt =
         connection.prepare_cached("SELECT id FROM books_fts ORDER BY rowid LIMIT ?1 OFFSET ?2")?;
-    let rows = stmt.query_map(params![limit, offset], |row| row.get::<_, String>(0))?;
-    let book_ids = rows.collect::<rusqlite::Result<Vec<String>>>()?;
+    let rows = stmt.query_map(params![limit, offset], |row| {
+        Ok(row.get::<_, String>(0)?.into_boxed_str())
+    })?;
+    let book_ids = rows.collect::<rusqlite::Result<Box<[_]>>>()?;
 
     // A short, non-empty page (or a short first page) ends the list, so the
     // total is known without counting.
@@ -1047,7 +1049,11 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let mut expected: Vec<String> = ids.iter().filter(|id| *id != "book-00").cloned().collect();
+        let mut expected: Vec<Box<str>> = ids
+            .iter()
+            .filter(|id| *id != "book-00")
+            .map(|id| id.as_str().into())
+            .collect();
         expected.push("book-00".into());
         let mut seen = Vec::new();
         for offset in (0..30).step_by(10) {
@@ -1055,7 +1061,7 @@ mod tests {
                 .with_connection(|c| sqlite_query_books_window_inner(c, 10, offset))
                 .unwrap();
             assert_eq!(page.total_count, 25, "offset {offset}");
-            seen.extend(page.book_ids);
+            seen.extend(page.book_ids.iter().cloned());
         }
         // Every book once, in index order: pages neither overlap nor skip.
         assert_eq!(seen, expected);
