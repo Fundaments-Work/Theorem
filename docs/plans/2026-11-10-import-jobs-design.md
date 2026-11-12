@@ -25,8 +25,7 @@ errors, and explicit resume. Browser imports retain their existing fallback.
 
 Verification covers transaction rollback, interrupted work, mixed success,
 corrupt checkpoints, stable identities, duplicate avoidance, cancellation,
-source-folder preservation, unknown sizes, and values above the 32-bit boundary.
-Frontend tests cover snapshot updates and panel visibility. Real-app tests cover
-navigation during an import, library return, resume, and viewport containment.
-Android tests cover service lifecycle, provider read failures and lost permissions;
-physical large-file/background/recovery acceptance remains a separate requirement.
+source-folder preservation, unknown sizes, and values above the 32-bit (`u32::MAX`) boundary (`src-tauri/src/import_jobs/`).
+Settings folder imports (`LibraryFoldersSection.tsx`) and Android document/folder imports opt into durable native jobs (`durable: true`), Android materialization runs on its own `importExecutor` with `SecurityException`-safe persistent permissions and `EXTRA_GENERATION` service tokens, and unit tests cover snapshot counts, panel visibility, Android provider failures/permissions (`FolderScanPluginTest.kt`), and generation-scoped cancellation (`ImportServiceTest.kt`).
+Real-app tests (`e2e/specs/`) cover navigation during an import, library return, resume, and viewport containment;
+physical Android large-file/background/recovery acceptance remains a separate manual verification requirement before release.

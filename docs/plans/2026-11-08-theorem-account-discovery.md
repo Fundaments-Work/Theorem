@@ -11,11 +11,7 @@ website at `theorem.fundaments.work`. Purchases and other account functions can
 also be managed there. The app initiates sign-in in the system browser and keeps
 an app session after authorization; account management opens the website.
 
-Local reading, existing files and peer-to-peer sync remain usable without an
-account or subscription. The free Fundaments eLibrary remains account-free;
-school-operated catalogs retain their own separate identities. The store is
-separate from the free eLibrary. A future Cloud Vault is a historical proposal,
-not an approved feature or a dependency of this account.
+Local reading, existing files, the free Fundaments eLibrary and peer-to-peer sync remain usable without an account or subscription; public user guides and README reflect this boundary today and will introduce optional account wording only if a hosted service launches. School-operated catalogs retain their own separate identities. The store is separate from the free eLibrary. A future Cloud Vault is a historical proposal, not an approved feature or a dependency of this account.
 
 ## Sign-in experience to explore
 

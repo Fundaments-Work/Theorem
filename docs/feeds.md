@@ -2,9 +2,7 @@
 
 ## Why Custom Feed Parsing
 
-The RSS system uses `fast-xml-parser` for XML parsing and custom logic for parsing RSS 2.0, Atom, RDF, and JSON Feed formats. There is no full-featured RSS library.
-
-Why custom: RSS parsing is straightforward (it's just XML with a few field conventions), and the only complex part is content extraction from linked articles, which uses a separate pipeline (`fetch_and_extract_article_native` → `@mozilla/readability` browser fallback).
+On desktop and Android, RSS/Atom parsing and web article readability run natively in Rust (`src-tauri/src/rss_parser.rs` via `parse_rss_feed_native` and `src-tauri/src/article_extractor.rs` via `fetch_and_extract_article_native` / `extract_article_from_html_native`). Browser/web builds keep lightweight fallbacks (`fast-xml-parser` + JSON Feed in `RssService.ts`, and `DOMParser` `<article>`/`<main>`/`<body>` extraction + `DOMPurify` sanitization in `ArticleExtractorService.ts`).
 
 ## Architecture
 
@@ -24,8 +22,8 @@ Data flow:
     │
     ▼
   RssService.fetchAndParseFeed(url)
-    ├─ Fast path: Tauri fetch (desktop) — bypasses CORS
-    └─ Fallback: browser fetch (web) — may hit CORS issues
+    ├─ Primary (Tauri): fetch_rss_feed + parse_rss_feed_native in Rust
+    └─ Fallback (web): browser fetch + JSON Feed / fast-xml-parser
     │
     ├─ Parse feed XML/JSON → RssFeed + RssArticle[]
     ├─ materializeFeed(url, parsed)
@@ -33,8 +31,8 @@ Data flow:
 
   On article open (lazy):
     ├─ fetchFullArticle → ArticleExtractorService
-    │   ├─ fetch_and_extract_article_native (Tauri)
-    │   └─ @mozilla/readability (browser fallback)
+    │   ├─ Tauri: fetch_and_extract_article_native / extract_article_from_html_native
+    │   └─ Browser fallback: DOMParser + DOMPurify
     └─ Store fullContent in rssStore
 ```
 
@@ -60,7 +58,7 @@ Theorem uses a high-performance native extraction pipeline:
    - Returns clean, sanitized article HTML directly over IPC with zero webview memory bloat.
 
 2. **Browser Fallback (`ArticleExtractorService.ts`)**:
-   - In browser environments, uses `fetch()` + `@mozilla/readability` + `DOMPurify`.
+   - In browser environments without Tauri, extracts `<article>` / `<main>` / `[role="main"]` / `<body>` using `DOMParser` + `DOMPurify` (resolving relative URLs against `url-safety.ts` allowlists).
    - Stores extracted clean content in `RssArticle.fullContent` for instant offline reading.
 
 ## Article Reader
@@ -70,13 +68,10 @@ Opened articles are converted to a synthetic EPUB (`convertArticleToEpubBlob`) a
 - **Synthetic book ID**: `rss:<articleId>` — allows annotations to use the same data model
 - **Per-article annotations**: Highlights and notes work the same way as in books
 
-> `ArticleViewer.tsx`, `ArticleReaderContent.tsx`, and `ArticleReaderInfoPanel.tsx` exist but are currently unused.
-
 ## Store Constraints
 
-The `rssStore` (Zustand, version 1, persisted) caps data for performance:
-- **Articles**: Maximum 500. Oldest articles are pruned when new ones arrive.
-- **Article age**: Maximum 30 days from publication. Older articles are dropped on refresh even if under the count cap.
+The `rssStore` (Zustand, version 1, persisted) indexes feeds/articles by ID for $\mathcal{O}(1)$ lookups and enforces:
+- **Articles**: Maximum 500 articles per pruning pass (`ARTICLE_RETENTION_DAYS` configurable in Settings: Keep Forever, 15, 30, 60, or 90 days; default 30 days). Unread articles (when **Keep Unread Articles** is enabled), favorites, and offline-saved (`isSaved`) articles are protected.
 - **Content size**: Maximum 50KB per article body. Longer content is truncated.
 
 These caps prevent the store from growing unbounded and degrading sync performance.

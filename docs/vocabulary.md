@@ -55,7 +55,7 @@ interface VocabularyTerm {
 
 ## Vocabulary Store
 
-The `vocabularyStore` (Zustand, version 5, persisted) holds:
+The `vocabularyStore` (Zustand, version 6, persisted) holds:
 - `vocabularyTerms: VocabularyTerm[]` — All saved terms
 - `installedDictionaries: InstalledDictionary[]` — StarDict dictionary manifests
 

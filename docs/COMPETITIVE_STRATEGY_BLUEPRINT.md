@@ -31,11 +31,11 @@ The digital reading and knowledge landscape in 2026 is divided into three polari
 ```
 
 ### Theorem's Strategic Positioning
-**Theorem bridges all three worlds**: an open-source, local-first, zero-subscription reading environment built on high-performance native technologies (**React 19 + Tauri 2 + Rust + SQLite**) that unifies **consumer aesthetic polish**, **power-reader workflows (PKM/Obsidian)**, and **the superpowers of the open-source ecosystem (manga, audiobooks, academic PDF portals, and StarDict)**.
+**Theorem bridges all three worlds**: an open-source, local-first, zero-subscription reading environment built on native technologies (**Tauri 2 + Rust + SQLite**, currently React 19 UI with a v2.0 Svelte rewrite planned) that unifies **clean typography**, **PKM/Obsidian highlight export**, **manga/comics, audiobooks, academic PDF peeks, and StarDict/MDict offline dictionaries**. Local reading, files, and peer-to-peer sync stay account-free; any optional future Theorem account explored in discovery docs applies strictly to optional hosted services.
 
 ---
 
-## 2. Comprehensive Competitor Benchmark Matrix
+## 2. Competitor & Roadmap Matrix (Long-Term Target Capabilities vs. Shipped 1.6.x)
 
 | Feature Area | Theorem (Target) | Readwise Reader | Apple Books / Kindle | Kavita / Komga | Sioyek / Zotero | Audiobookshelf | Foliate / KOReader |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -79,7 +79,7 @@ The digital reading and knowledge landscape in 2026 is divided into three polari
 - [ ] **Split-Screen Reading & Notes Workbench**: Read on the left while taking Markdown notes on the right.
 - [ ] **Local LLM Ghostreader (Ollama & Llama.cpp)**: Zero-cloud AI reading assistant.
 
-### Phase 3: Category Dominance (Unfair Moats)
+### Phase 3: Longer-Term Exploration (Research / Future)
 - [ ] **On-Device Semantic Vector Search (`sqlite-vec`)**: Local semantic search across an entire 10,000-book library.
 - [ ] **Whisper-Aligned Human Audiobooks (Local Whispersync)**: Auto-align EPUB text with human narration.
 - [ ] **P2P Encrypted Book Clubs (Iroh Gossip)**: Decentralized reading circles.

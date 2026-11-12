@@ -52,9 +52,11 @@ release ID after the platform jobs succeed. It refuses to start if any published
 release or draft already uses the tag. A failed run can therefore leave a draft
 that blocks a fresh run: inspect the draft and run history, preserve any needed
 assets, and agree on a recovery procedure before deleting or modifying anything.
-Do not rerun against a published tag to replace assets. A reviewed replacement
-process must identify the release by ID and verify every uploaded asset and
-updater manifest before publication; the current workflow does not provide it.
+Do not rerun against a published tag to replace assets: `publish-release` verifies
+uploaded platform assets (`assertReleaseAssets`) and deterministically builds
+`latest.json` from uploaded `.sig` files (`buildUpdaterManifest`) before clearing
+draft status, while manual asset replacement outside the workflow lacks an
+automated recovery flow.
 Tag-triggered workflows run the workflow definition at the tagged revision. Old
 tags do not acquire this guard merely because it is added to `main`; do not push
 or rerun an old tag as a recovery shortcut. A manual dispatch must use a reviewed
@@ -97,7 +99,7 @@ in `drawable-v24/`. These XML files are our permanent customization.
 ## Screenshot assets
 
 Before publication, refresh and visually review the screenshots with the private
-`fundaments-agent-harness` workflow in `screenshots/README.md`. Its capture script
+`fundaments-agent-harness` workflow in `Screenshots/README.md`. Its capture script
 uses isolated demo data; its export script updates this repo and
 `theorem-landing` locally. It does not deploy either repository.
 
@@ -176,10 +178,13 @@ that revision for release notes and every platform build, and serialize attempts
 for the same tag without cancelling signing/uploads. Only `X.Y.0` without a
 suffix is stable; all patch releases are prereleases. A requested tag must resolve
 to a commit already on `origin/main` before any tagged source is built. Each
-desktop build requires every installer/signature pattern through
-`scripts/check-release-assets.sh` before publication. This checks runner files,
-not the assets attached on GitHub; independent remote verification is still
-required before relying on a release. Patterns stay literal until
+desktop build disables parallel per-job updater uploads
+(`uploadUpdaterJson: false`) and checks every installer/signature pattern through
+`scripts/check-release-assets.sh`; the Android job verifies all split APKs and
+`.aab` through `assertAndroidReleaseFiles`. Before clearing draft status,
+`publish-release` verifies the live GitHub Release asset set (`assertReleaseAssets`),
+builds and uploads the single reconciled `latest.json` from all `.sig` assets
+(`buildUpdaterManifest`), and publishes by `release_id`. Patterns stay literal until
 expansion inside the bundle directory, so unmatched patterns cannot silently
 disappear. There is no separate dry-run workflow. The shared-action workflows
 must exist at the selected tag; tags predating these actions need their original
@@ -200,11 +205,10 @@ signing configuration. The reminder receiver regression tests run with
 `gradle :folder:testDebugUnitTest` from the same project. They exercise the real
 receiver method with mocked Android boundaries, checking every allowed action
 and rejecting missing, unknown and lookalike actions before any context access.
-Documentation pushes dispatch
-only the studio docs refresh. Releases and manual notification requests also
-refresh the product landing page, through one shared notification action. The
-release workflow calls it explicitly because releases published using
-`GITHUB_TOKEN` do not trigger another workflow ([GitHub event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
+
+## Documentation and landing notifications
+
+Documentation pushes dispatch only the studio docs refresh. Releases and manual notification requests also refresh the product landing page, through one shared notification action. The release workflow calls it explicitly because releases published using `GITHUB_TOKEN` do not trigger another workflow ([GitHub event rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
 
 ## Ubuntu GStreamer build dependencies
 

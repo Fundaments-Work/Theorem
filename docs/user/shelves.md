@@ -18,7 +18,7 @@ Each shelf shows a collage of its covers and a book count. A book can be on any 
 Choose whichever is easier:
 
 - In the Library, right-click a book and choose Add to Shelf... (it reads Shelves... with a count if the book is already on shelves). Click a shelf to add the book to it. Click a checked shelf to take the book off it. The dialog stays open so you can change several shelves, and you can type a new name under Create New Shelf to make one on the spot. Smart shelves are not listed because their books come from rules.
-- In the Library, click Select, select several books, and click Add to Shelf in the selection bar.
+- In the Library, right-click (or long-press) a book and choose **Select**, or press `Ctrl+A` to select several books, then click Add to Shelf in the selection bar.
 - Open a shelf and click Add Books. That takes you to the Library, where you can use the options above.
 
 ### Work inside a shelf
@@ -92,7 +92,7 @@ A series groups books by name and volume number. Theorem reads series informatio
 
 ### Set a series for several books
 
-1. In the Library, click Select and select the books. Or open a shelf and click Select Books.
+1. In the Library, right-click (or long-press) a book and choose **Select** (or press `Ctrl+A`) and select the books. Or open a shelf and click Select Books.
 2. Click Series (Set Series on a shelf). The Set Book Series window opens.
 3. Enter a Series Name. Names of series you already have are suggested.
 4. Under Volumes & Reading Order, give each book a Vol # or click Auto-number (1..N) to number them in order.

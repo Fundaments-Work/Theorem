@@ -11,12 +11,12 @@ Reflowable formats (EPUB, MOBI, FB2) are fundamentally different from PDF. PDF i
 
 | Component | File | Loaded |
 |-----------|------|--------|
-| `ReaderPage` | `src/features/reader/Reader.tsx` | Lazy (chunk prewarmed in `App.tsx` at idle after hydration; PDF.js/Foliate load on demand) |
+| `ReaderPage` | `src/features/reader/Reader.tsx` (+ `hooks/*`, `lib/reader-page-helpers.ts`) | Lazy (chunk prewarmed in `App.tsx` at idle after hydration; PDF.js/Foliate load on demand) |
 | `ReaderViewport` | `src/features/reader/components/ReaderViewport.tsx` | Eager |
-| `PDFReader` | `src/features/reader/components/PDFReader.tsx` | Lazy (on first PDF) |
+| `PDFReader` | `src/features/reader/components/PDFReader.tsx` (+ `engines/pdfjs-engine.tsx`, `engines/pdf/*`) | Lazy (on first PDF) |
 | `ReaderNavbar` (immersion row) | `src/features/reader/components/progress/ReaderNavbar.tsx` | Eager (reader chunk) |
 
-> RSS articles are converted to a synthetic EPUB (`convertArticleToEpubBlob`) and rendered through the normal foliate engine. `ArticleViewer.tsx` is exported but unused.
+> RSS articles are converted to a synthetic EPUB (`convertArticleToEpubBlob`) and rendered through the normal foliate engine (`FoliateEngine` + `foliate-selection.ts` + `foliate-styles.ts`).
 
 The reader mounts a notification renderer while a book is open. On completion
 of a series book, the Read Next prompt can therefore be used immediately; the

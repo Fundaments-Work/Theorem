@@ -1,10 +1,10 @@
 # Plugin-First Extensibility Architecture Plan
 
-**Date**: 2026-08-30 (Updated: 2026-09-17)  
+**Date**: 2026-08-30 (Updated: 2026-11-12)  
 **Schedule**: see [2026-10-20-plugin-roadmap-1.6-to-2.0.md](./2026-10-20-plugin-roadmap-1.6-to-2.0.md) for the version-by-version path.  
-**Status**: Architecture Blueprint Deferred to v2.0+ — Replaced in v1.6.0 by Native Modular Power Features  
+**Status**: Architecture Blueprint Deferred to v2.0+ (Svelte UI Rewrite + Framework-Agnostic Plugin Contract)  
 **Target Milestone**: v2.0.0+ (Long-Term Extensibility & Ecosystem Milestone)  
-**Area**: Plugin Engine / WebAssembly Sandbox / Reader Overlays / Custom Views / Capability Security  
+**Area**: Plugin Engine / WebAssembly Sandbox / Reader Overlays / Declarative Views / Capability Security  
 
 ---
 
@@ -35,7 +35,7 @@ When Theorem reaches **v2.0.0**, with core data layouts and reader geometry comp
 Theorem's long-term vision is to become the **premier local-first reading hub for Personal Knowledge Management (PKM)** in **v2.0.0+** — a fast, open reading hub that is not a closed silo, but an extensible platform where developers and readers can easily build custom tools, note exporters, custom themes, and reading overlays.
 
 ### Core Tenets of the Plugin Architecture:
-1. **Low Friction (Clean Developer Experience)**: Anyone who knows standard JavaScript/TypeScript and React (or Rust/WASM) can build and publish a plugin in minutes.
+1. **Low Friction & UI-Framework-Agnostic (v2.0 Svelte Compatibility)**: Because **v2.0 rewrites the frontend shell and views in Svelte** (see `AGENTS.md` and `docs/testing-e2e.md`), public plugin SDKs MUST remain framework-agnostic rather than exposing React component hooks. Plugins declare structured UI schemas, Custom Elements/WebViews, SVG overlay instructions, or typed Rust/TS service callbacks that survive framework changes.
 2. **Zero Core Bloat**: Advanced niche workflows (e.g. Notion sync, Zotero bibtex citation matching, DJVU loaders) live as community plugins rather than cluttering the core app.
 3. **Local-First & Hot-Reloadable**: Plugins live in `$APPDATA/plugins/<plugin-id>/` with instant live hot-reloading during development.
 4. **Sandboxed Security & Stability**: Plugins must **never** corrupt the SQLite database, freeze the main UI thread, or crash Foliate's multi-column paginator layout.
@@ -65,10 +65,10 @@ Theorem's long-term vision is to become the **premier local-first reading hub fo
 │ │                         TheoremPlugin Base Class                            │ │
 │ │  - onload() / onunload()                                                    │ │
 │ │  - registerCommand({ id, name, callback, hotkey })                          │ │
-│ │  - registerSettingTab(SettingTab)                                           │ │
+│ │  - registerSettingsSchema(SettingsSchema)                                   │ │
 │ │  - registerRibbonIcon(icon, title, callback)                                │ │
-│ │  - registerView(viewType, ReactComponent)                                  │ │
-│ │  - registerReaderOverlay({ name, component, priority })                     │ │
+│ │  - registerView(viewType, DeclarativeViewSpec)                              │ │
+│ │  - registerReaderOverlay({ name, renderOverlay, priority })                 │ │
 │ │  - registerVaultExporter({ id, name, exportHandler })                       │ │
 │ │  - registerFormatLoader({ extensions, loader })                             │ │
 │ └─────────────────────────────────────────────────────────────────────────────┘ │
@@ -83,9 +83,10 @@ Theorem's long-term vision is to become the **premier local-first reading hub fo
                                          │
                                          ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        REACT 19 DECLARATIVE UI SLOTS                            │
+│               FRAMEWORK-AGNOSTIC DECLARATIVE UI & OVERLAY SLOTS                 │
+│   (Implemented across v2.0 Svelte shell without leaking framework internals)     │
 │ - Custom Sidebar Views        - Reader SVG Overlays         - Workbench Tabs   │
-│ - Context Menu Actions        - Settings Panes              - Command Palette  │
+│ - Context Menu Actions        - Settings Schemas            - Command Palette  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -146,7 +147,7 @@ my-custom-plugin/
   - **Markdown / Plain Text Reader**: Treats folders of `.md` files as books.
 
 ### D. Custom UI Panes & Workbench Tabs
-- **Hook**: `registerView(viewType, ReactComponent)`
+- **Hook**: `registerView(viewType, DeclarativeViewSpec)` (framework-agnostic descriptor or mounted Web Component rendered by the v2.0 Svelte host)
 - **Use Cases**:
   - **Book Knowledge Graph View**: Interactive 2D/3D force-directed graph connecting books by author, tags, and shared concepts.
   - **Advanced Reading Analytics**: Deep GitHub-style activity charts and velocity graphs.
@@ -161,7 +162,7 @@ my-custom-plugin/
    cd my-plugin && pnpm install && pnpm dev
    ```
 2. **Hot-Reloading**: Symlinking `my-plugin/` into `~/.config/theorem/plugins/` live-reloads the plugin inside Theorem instantly upon code change without restarting the app.
-3. **SDK Package**: `@theorem/plugin-sdk` published with full TypeScript types, UI component helpers, and store hooks.
+3. **SDK Package**: `@theorem/plugin-sdk` published with full framework-agnostic TypeScript types, UI schema builders, and read-only service facade helpers.
 
 ---
 
@@ -174,16 +175,16 @@ my-custom-plugin/
 - [x] Two-tier search engine (SQLite FTS5 + nucleo SIMD fuzzy ranker).
 - [x] Multi-device Iroh P2P sync hardening and direct LAN discovery.
 
-### Phase 2: Native Modular Power Features & Core Extensibility (v1.6.0) [Next Milestone]
-- [ ] **Customizable Vault & PKM Exporter**: Native Jinja/Mustache template engine in Settings → Devices & Export allowing custom YAML frontmatter, quote callouts, tag transformations, and per-book filenames for all Markdown PKMs.
-- [ ] **Native-Grade PDF Support**: True full-document virtualization, two-page spread, anchored trackpad zoom, and smooth scrollbar.
-- [ ] **Multi-Window Sync Hardening**: IPC event deduplication and instant UI refresh across companion windows.
+### Phase 2: Native Modular Power Features & Core Extensibility (v1.6.x) [Implemented / In Progress]
+- [x] **Customizable Vault & PKM Exporter**: Native Jinja/Mustache/KNAP template engine in Settings → Devices & Export (`vault_export.rs`).
+- [x] **Native-Grade PDF Support**: Virtualized scrolling, two-page spread, and anchored zoom (`PDFJsEngine`).
+- [x] **Architecture Boundary Cleanup (`1.6.2`)**: Decoupled `core/` from `features/`, retired `invokeSqliteInOrder` in favor of Rust `KvSlotGuard` + WAL concurrency, and split monolithic reader/library/sync modules.
 
-### Phase 3: WebAssembly Plugin Sandbox & Ecosystem (v2.0.0+) [Future Major Release]
-- [ ] Native WebAssembly plugin host (Wasmtime / Extism in Rust).
-- [ ] Create `src/core/plugins/PluginManager.ts` and `TheoremPlugin.ts` base class.
+### Phase 3: WebAssembly Plugin Sandbox & Svelte 2.0 Host Ecosystem (v2.0.0+) [Future Major Release]
+- [ ] Native WebAssembly plugin host (Wasmtime / Extism in Rust) alongside isolated worker evaluation.
+- [ ] Create framework-agnostic `src/core/plugins/PluginManager.ts` and `TheoremPlugin.ts` base class (rendering declarative/Web Component slots inside the 2.0 Svelte UI).
 - [ ] Build plugin directory scanner in `$APPDATA/plugins/`.
-- [ ] Implement capability-based permission manager in Theorem Settings.
-- [ ] Implement declarative Reader Overlay injection points in `FoliateEngine` and `PDFJsEngine`.
+- [ ] Implement capability-based permission manager in Settings.
+- [ ] Implement declarative Reader Overlay injection points in the reader engines.
 - [ ] Publish `@theorem/plugin-sdk` and `create-theorem-plugin` scaffolding template.
 - [ ] In-App Community Plugin Browser with 1-click install.

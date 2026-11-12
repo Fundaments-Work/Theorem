@@ -64,6 +64,11 @@ entry points (`main.tsx`, `App.tsx`) import specific files, to protect the start
 | `IconButton` | A bare icon action. | `label` is required (screen-reader name and tooltip). Hover is accent colour, never a background. |
 | `Chip` | Filter and option chips. | Selected state is `aria-pressed`, which the tokens style. |
 | `TextInput` | Single-line text fields. | Keeps the 3:1 border. Give it a `<label>` or `aria-label`. |
+| `Select` | Native select inputs. | Tokenized border and background, forwards standard `<select>` props. |
+| `Checkbox` | Labelled checkboxes. | Requires `label`; uses `resolveControlId` with `useId()` non-Latin fallback so the label is always bound. |
+| `Switch` | Toggle switches. | Accessible `role="switch"` button with required `label`. |
+| `Tabs` | Section tab bars. | Square focus/selection bar styling. |
+| `Card` | Surface containers. | Tokenized square surface container. |
 | `Modal`, `ModalHeader/Body/Footer` | Dialogs. | Radix-based, named by its header, Android back button handled. |
 | `ConfirmDialog`, `AlertDialog` | Confirmations and notices. | Built on `Button` and `Modal`. |
 | `Dropdown`, `ContextMenu` | Menus. | |

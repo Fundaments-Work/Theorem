@@ -258,6 +258,9 @@ Large library, 2026-10-25 (`a_large_library`, release build, two devices in one 
 | Peak memory, both devices together | 436 MiB | 254 MiB |
 
 Through a local relay with no direct addresses (`devices_sync_through_a_relay_alone`, `pairing_works_through_a_relay_alone`): pairing 1.0 s, exchanges 2.3–2.8 s; both inside the 6 s probe. A relay over the internet adds its round trips; that needs a real network test: two devices on different networks (say a phone on mobile data and a desktop on Wi-Fi, mDNS off with `THEOREM_DISABLE_MDNS=1`), then pairing, a round, and Settings → Device Sync's Online label.
+
+| Security check | Result |
+|---|---|
 | Unpaired stranger fetching `../theorem.db`, `../iroh-key`, the docs protocol | refused at the handshake, never reaches a handler |
 
 ## Reading rhythm extension (protocol 4)
@@ -313,3 +316,10 @@ No persisted format or sync protocol changes are part of this maintenance.
 In `iroh-docs` 0.101.0 (`src/sync.rs`, `src/ranger.rs`, `src/api/actor.rs`), `Replica::insert` rejects empty entries (`InsertError::EntryIsEmpty`), so only `doc.del(author, prefix)` inserts empty deletion markers. Because `doc.del` removes every entry whose key starts with `prefix`, `purge_single_entries` snapshots longer non-deleted sibling keys (for example `book:10` when deleting `book:1`), runs `doc.del`, waits strictly past `t_del`, and re-inserts those siblings via `doc.set_hash`. That satisfies the Willow prefix timestamp contract (`entry.value() > prefix_entry.value()`), keeping siblings intact locally and across peers.
 
 Writing `annos:{bookId}:` likewise avoids `own_group` falling back to an empty group when `entry.content_hash() != Hash::EMPTY` has a missing or unparseable blob (`sync_annotations.rs` returns a retryable error rather than overwriting prior annotations).
+
+### Module Layering & Acyclicity
+
+Both the Rust and TypeScript sync layers maintain strict downward dependency ordering with no circular imports:
+
+- **Rust**: `sync_state.rs` owns shared transport state (`SyncState`), device identity/pairing metadata, and diagnostics, imported downward by `sync_commands.rs` + `sync_commands/{pairing,doc_ops,doc_merge}.rs`, `sync_annotations.rs`, and `file_transfer.rs` (zero upward dependency from leaf modules back into `sync_commands`).
+- **TypeScript**: `sync-runtime-state.ts` (peer presence/round coordination & counters) → `sync-merge-engine.ts` (incoming entry reconciliation) → `sync-live-events.ts` (debounced live batches) → `sync-provision.ts` (outbox diffing & purge) → `sync-orchestrator.ts` (public coordinator & re-exports).

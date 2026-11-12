@@ -4,9 +4,9 @@ Theorem is a free, local-first reader for ebooks, PDFs, comics and RSS feeds tha
 
 Download Theorem from [theorem.fundaments.work](https://theorem.fundaments.work/) or the [releases page](https://github.com/Fundaments-Work/Theorem/releases). [Install Theorem](install.md) lists the files for each system.
 
-Theorem keeps your library, highlights, notes and reading progress on your own device. There is no account to create and no cloud service to sign in to. You can read DRM-free EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ and CBR files, follow RSS feeds, look words up in offline dictionaries, listen with text-to-speech, and write every highlight to plain Markdown files for Obsidian or Logseq.
+Theorem keeps your library, highlights, notes and reading progress on your own device. Local reading, your files, the free Fundaments catalog and peer-to-peer sync require no account and no cloud service sign-in. You can read DRM-free EPUB, MOBI, AZW, AZW3, FB2, PDF, CBZ and CBR files, follow RSS feeds, look words up in offline dictionaries, listen with text-to-speech, and write every highlight to plain Markdown files for Obsidian or Logseq.
 
-![The Theorem library showing a grid of book covers, a search box and the Add Books, Select and Filter buttons](../screenshots/library-grid.png)
+![The Theorem library showing a grid of book covers, a search box and the Add Books, view and Filter buttons](../screenshots/library-grid.png)
 
 ## Where to start
 

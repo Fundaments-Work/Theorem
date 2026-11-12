@@ -67,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --beta
 
 # Or install a specific version
-curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --version 1.5.4
+curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --version 1.6.1
 ```
 
 The script detects the distro, downloads the latest release, and installs a

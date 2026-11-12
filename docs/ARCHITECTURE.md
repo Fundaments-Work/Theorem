@@ -160,11 +160,12 @@ opdsStore (persisted, version 5)
      // Trail, pages and search state live in useOpdsBrowser, per catalog — not in the store.
 ```
 
-**Non-persisted data lives in SQLite directly:**
-- `book.locations` — foliate position snapshots (BLOB column, prefix `locations:{bookId}`)
-- Book binary data and covers (materialized to `book-cache/`)
-- StarDict/MDict dictionary files (on disk under `dictionaries/{id}/`; legacy `blob_store` entries auto-migrated)
-- Book metadata and annotations (separate tables with FK to books)
+**Non-persisted / large payloads stored in SQLite or disk directly:**
+- `book.locations` — foliate position snapshots (`blob_store`, prefix `locations:{bookId}`)
+- Book binary data — materialized to `book-cache/{id}.book` (with empty `books.data` registration stub)
+- Book covers — raw bytes + validated MIME in SQLite `covers` served via `theorem-cover://`
+- StarDict/MDict dictionary files — on disk under `dictionaries/{id}/` (legacy `blob_store` entries auto-migrated)
+- Book metadata, annotations, and search — relational SQLite tables (`book_metadata`, `book_annotations`, `books_fts`), queried on demand via `sqliteQueryBooksWindow` and `two_tier_search_books` without a blocking JS FIFO IPC queue.
 
 ## Reader Architecture
 
@@ -184,17 +185,19 @@ Non-PDF path:
 
 PDF path:
   PDFReader → PDFJsEngine → pdfjs-dist
-  (Persistent page proxy keep window to prevent DOM collapse, native Rust parallel search, multi-page prefetching)
+  (Persistent page proxy keep window to prevent DOM collapse, PDF.js text-layer search, multi-page prefetching)
 ```
 
-The foliate-js submodule at `src/features/reader/foliate-js/` is vendored upstream (johnfactotum/foliate-js). We never edit it directly. Instead, `scripts/sync-foliate-js.sh` copies the files we need into `src/features/reader/foliate-js-runtime/` and applies runtime patches. This is where our modifications live.
+The foliate-js submodule at `src/features/reader/foliate-js/` is vendored upstream (johnfactotum/foliate-js). We never edit it directly. Instead, `scripts/sync-foliate-js.sh` copies the files we need into `src/features/reader/foliate-js-runtime/` and applies 14 runtime patches (`scripts/patches/*-runtime.patch`). This is where our modifications live.
 
-Runtime patches applied by `scripts/patches/`:
+Key runtime patches applied by `scripts/patches/`:
 | Patch | File | What it does |
 |-------|------|-------------|
-| `view-js-runtime.patch` | `view.js` | Injects `prefetchPromise` for parallel Rust cache, adds per-file lazy zip loading fallback |
-| `epub-js-runtime.patch` | `epub.js` | Deduplicates in-flight `loadText` calls for concurrent href fetches |
-| `paginator-js-runtime.patch` | `paginator.js` | Overrides `#container` to use `overflow:clip` (non-scrollable) and positions pages via `transform: translateX/Y` instead of scrollLeft/scrollTop; guards `#container` sizing for zero-dimension fallback |
+| `view-js-runtime.patch` | `view.js` | Injects `prefetchPromise` for parallel Rust cache, adds lazy zip fallback, validates postMessage source / guards overlays |
+| `epub-js-runtime.patch` | `epub.js` | Deduplicates in-flight `loadText` calls and clears `#cache` on `Loader.destroy()` |
+| `fixed-layout-js-runtime.patch` | `fixed-layout.js` | Populates `index` on `FixedLayout.getContents()` for EPUB 3 Media Overlays |
+| `comic-book-js-runtime.patch` | `comic-book.js` | Clears revoked object URLs on comic destroy |
+| `paginator-js-runtime.patch` | `paginator.js` | Uses `overflow: clip` + CSS transforms and zero-dimension guards |
 | `dict-js-runtime.patch` | `dict.js` | Adds gzip/dictzip decompression for StarDict dictionary files |
 
 The `scripts/sync-foliate-js.sh` script also replaces the vendored PDF.js import with `pdfjs-dist` from npm and removes unused files (PDF.js vendor, rollup config, etc.).

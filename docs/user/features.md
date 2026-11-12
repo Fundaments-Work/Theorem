@@ -11,7 +11,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 - **Search, sort and filter.** Find books by title, author and more, and narrow the view by status. [Search, sort and filter](library-and-import.md#search-sort-and-filter)
 - **Edit book details.** Change titles, authors, covers and tags; open a book in its own window on desktop. [Open and manage a book](library-and-import.md#open-and-manage-a-book)
 - **Act on many books at once.** Select all results across a filtered library, then mark read, add to a shelf or delete. [Select many books](library-and-import.md#select-many-books)
-- **Daily highlight.** A highlight from your own notes resurfaces on the Library page. [Daily highlight](library-and-import.md#daily-highlight)
+- **Daily Review.** A highlight from your own notes resurfaces on the Library page when enabled. [Library and import](library-and-import.md#daily-highlight)
 
 ## Organizing
 
@@ -57,7 +57,7 @@ Platform notes are given where a feature is limited. Features marked "needs the 
 - **Markdown export.** Keep highlights and vocabulary as plain files for Obsidian or Logseq, with built-in note styles and your own template. Desktop app only. [Markdown export](vault-sync.md), [Write a custom template](vault-sync.md#write-a-custom-template)
 - **Sync between devices.** Pair devices directly with a QR code, with no cloud account. Needs the desktop or Android app. [Sync between devices](device-sync.md)
 - **Backups.** Create a backup file, and see or clear your storage. [Data and storage](settings-and-shortcuts.md#data--storage)
-- **Everything stays on your device.** There is no account and no cloud service.
+- **Everything stays on your device.** Local reading, your files and peer-to-peer sync require no account and no cloud service.
 
 ## Progress and habits
 

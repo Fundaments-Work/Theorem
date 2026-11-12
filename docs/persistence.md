@@ -58,7 +58,7 @@ A single r2d2 connection pool (max 4 connections on desktop, 2 on Android) manag
 - `synchronous = NORMAL` — Durability with WAL, good balance
 - `foreign_keys = ON`
 
-All connections go through `with_connection(app, |conn| operation(conn))` which acquires a connection from the pool and handles errors. No raw `Connection::open()` calls in hot paths.
+All connections go through `with_connection(app, |conn| operation(conn))` which acquires a connection from the pool and handles errors. No raw `Connection::open()` calls in hot paths. Frontend SQLite calls (`src/core/lib/sqlite-storage.ts`) run concurrently over Tauri IPC into `offload_commands.rs` blocking workers backed by WAL + `r2d2`: **only** `kv_store` key writes/reads preserve FIFO ordering per key slot in Rust (`KvSlotGuard`), so library window queries (`sqliteQueryBooksWindow`), searches, and annotation reads never queue behind KV writes (replacing the former JS `invokeSqliteInOrder` chain).
 
 **Code layout.** `database.rs` holds the pool, the PRAGMAs, `with_connection` and `DataStore`; `database/` has one module per domain (`schema`, `books`, `covers`, `kv`, `annotations`, `sync_merge`, `sync_conflicts`, `rss`, `reading`, `vocabulary`, `storage`, `legacy`, `files`), all re-exported as `crate::database::*`.
 
@@ -136,12 +136,12 @@ Attached audiobooks that live outside the app folder (`audioTrack` pointing at t
 
 1. Validate the manifest (format, format version, not made by a newer Theorem).
 2. Extract `theorem.db` to `restore-staging/`, run `quick_check`, require the Theorem tables, and compare book and annotation counts with the manifest.
-3. Extract files whose names map to `book-cache/<safe-name>.book`, `audiobooks/...` or `dictionaries/...` (anything else, `..` components, absolute paths and drive letters are skipped). The book file count must match the manifest.
-4. Move the files into place (same names are replaced; other files stay, since the previous database refers to them).
-5. Keep the current database as `theorem.db.pre-restore` (backup API, or a raw copy when it is too damaged to read).
-6. Copy this device's own `deviceSync` and catalog credentials into the incoming database, and drop its provisioned flag so the restored library is pushed to the sync document again.
-7. Copy the staged database into the live file with the backup API. Pool connections stay valid and see the new data, so no process restart is needed (Tauri cannot restart on Android). Only when the pool has not opened the file yet may an unreadable live file be replaced on disk instead.
-8. Run migrations (an older backup) and reload the webview.
+3. Extract staged files whose names map to `book-cache/<safe-name>.book`, `audiobooks/...` or `dictionaries/...` into `restore-staging/` (anything else, `..` components, absolute paths and drive letters are skipped). The book file count must match the manifest.
+4. Keep the current database as `theorem.db.pre-restore` (backup API checkpointed before snapshot, or a raw copy when too damaged to read).
+5. Copy this device's own `deviceSync` and catalog credentials into the incoming database, and drop its provisioned flag so the restored library is pushed to the sync document again.
+6. Replace the live database **first** (`replace_live_database` via backup API so pool connections stay valid and see the new data without restarting, falling back to disk replacement only if no pool has opened the file yet).
+7. Install staged media files into `book-cache/`, `audiobooks/`, and `dictionaries/` only **after** the database replacement succeeds (`apply_restored_dir`), preventing partial restores from leaving unreferenced files.
+8. Run migrations (for an older backup) and reload the webview.
 
 Before restoring, the frontend flushes pending store writes, then suspends persistence and clears `theorem-unload:` snapshots so nothing from the old library is written over the restored one.
 
@@ -162,7 +162,7 @@ The persist adapter (`src/core/lib/persist-storage.ts`) wraps Tauri's SQLite KV 
 | Book metadata (title, author, progress) | Zustand `libraryStore` | Needs reactivity for library UI |
 | Companion audiobook (`audioTrack`: file path, position, speed, chapters) | Zustand `libraryStore` (optional `Book` field) | Synced with the book record; generated audiobooks live at `app_data_dir()/audiobooks/<id>.ogg` |
 | Book binary | filesystem `book-cache/{id}.book` (the `books.data` BLOB is a stub) | Binary, not reactive |
-| Book cover (as data URL) | SQLite `covers` | Binary-ish, not reactive |
+| Book cover | SQLite `covers` (`data` BLOB + validated `mime`, served via `theorem-cover://`) | Binary, not reactive |
 | Foliate locations | SQLite `blob_store` | Too large for Zustand |
 | Annotations | SQLite `book_annotations` (per-book) + Zustand `libraryStore.annotations` (global index) | Per-book for fast queries, global for sync |
 | Settings | Zustand `settingsStore` | Small, reactive |

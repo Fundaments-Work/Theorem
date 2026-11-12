@@ -80,7 +80,6 @@ commit signature; do not enforce the latter as a substitute for the former.
 
 Sources and plan limitations are in [the repository governance audit](research/repository-governance.md).
 
-
 Dependabot version-update PRs target `main` for npm, Cargo
 and GitHub Actions. Security alerts track the default branch independently;
 they clear when the verified fixes reach `main`. Do not dismiss an alert merely

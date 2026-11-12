@@ -8,7 +8,7 @@ It runs as a Tauri 2 app on all platforms. The web build works for basic browsin
 
 ## Why Local-First
 
-Your library, highlights, annotations, reading position, and vocabulary are stored **on your machine** in SQLite. There is no cloud account, no subscription, no vendor lock-in. Sync between devices uses direct P2P connections over LAN/Internet via the iroh protocol stack — no server in the middle.
+Your library, highlights, annotations, reading position, and vocabulary are stored **on your machine** in SQLite. Local reading, your files, the free Fundaments eLibrary, and device sync require no cloud account or subscription (any future optional Theorem account discussed in discovery plans would apply strictly to hosted services). Sync between devices uses direct P2P connections over LAN/Internet via the iroh protocol stack — no server in the middle.
 
 ## Stack
 
@@ -41,7 +41,7 @@ Your library, highlights, annotations, reading position, and vocabulary are stor
 
 **Book locations in SQLite, not Zustand.** Foliate-js position snapshots (the `locations` field) can reach 50-100MB across 1000 opened books. Storing that in persisted Zustand state would serialize and deserialize megabytes on every persist cycle. Instead, it lives in a SQLite BLOB column, read on book open, written on book close.
 
-**TTS with an optional neural voice.** Platform TTS needs no external models or cloud APIs: Linux uses `spd-say` (speech-dispatcher), macOS uses `say`, Windows uses PowerShell `System.Speech`, Android uses Android's built-in `TextToSpeech`. Desktop additionally offers an optional Supertonic 3 fp32 ONNX neural voice, downloaded on demand and played natively in Rust (`audio_player.rs`, rodio/cpal). The frontend `ImmersionPlayer.ts` orchestrates both paths; sentence/word highlighting synced to narration is not yet implemented. Voice availability depends on the user's system TTS configuration.
+**TTS with an optional neural voice.** Platform TTS needs no external models or cloud APIs: Linux uses `spd-say` (speech-dispatcher, fed over stdin), macOS uses `say`, Windows uses PowerShell `System.Speech`, Android uses Android's built-in `TextToSpeech` (with word-boundary highlighting events). Desktop additionally offers an optional Supertonic 3 fp32 ONNX neural voice, downloaded on demand and played natively in Rust (`audio_player.rs`, rodio/cpal). The frontend `ImmersionPlayer.ts` orchestrates platform/neural TTS alongside EPUB 3 Media Overlays (SMIL synced phrase highlighting) and companion audiobooks. Voice availability depends on the user's system TTS configuration.
 
 **Markdown export without a library.** The vault sync module generates Markdown files directly with a YAML frontmatter template matching Obsidian's expected format. No external Markdown generation library — the output is tightly coupled to Obsidian's filename conventions.
 
@@ -53,7 +53,7 @@ Sync uses the iroh P2P stack over QUIC:
 3. **iroh-blobs** — Blob transfer for book files and cover images
 4. **iroh-gossip** — Peer discovery and live event propagation
 
-15 Tauri commands in `sync_commands.rs` handle: device identity, pairing (QR code), doc CRUD, sync trigger, file transfer.
+The Tauri commands in `src-tauri/src/sync_commands.rs` and `sync_commands/` handle device identity, pairing (QR code), doc CRUD, sync trigger, and file transfer.
 
 Data flow: Zustand → `provisionToIrohDocs()` → iroh-docs entries → `docs_sync_now()` → peer's `hydrateFromIrohDocs()` → `mergeIncomingData()` → Zustand.
 
@@ -86,17 +86,17 @@ Two GitHub Actions workflows:
 
 **`ci.yml`** — on push to `main` or PR:
 - TypeScript typecheck
-- Vitest tests (265 tests)
+- Vitest test suite (JS/TS unit + jsdom suites)
 - Vite production build
-- Rust fmt + clippy + check
+- Rust `cargo fmt --check`, `cargo clippy`, and workspace/Android/Windows checks
 
 **`release.yml`** — on tag push matching `v[0-9]+.*`:
 - Creates/updates a draft GitHub Release
-- Builds Linux (AppImage, deb), macOS (Intel + ARM, dmg), Windows (NSIS exe)
+- Builds Linux (AppImage, deb), macOS (Intel + ARM, dmg), Windows (NSIS exe, MSI)
 - Builds Android (APK + AAB, split-per-abi, signed)
 - Regenerates platform icons from `public/favicon.svg`
 - Signs artifacts (macOS, Android)
-- Publishes release when all builds succeed
+- Verifies uploaded release assets, builds `latest.json` from `.sig` signatures, and publishes by release ID when all builds succeed
 
 ## Scale Targets
 
@@ -123,7 +123,7 @@ The `book-cache/` directory is the canonical book store: the file lives only in 
 
 | Term | Definition |
 |------|------------|
-| **i-roh** | P2P networking stack: QUIC transport + CRDT docs + blob transfer + gossip. Used for sync. |
+| **iroh** | P2P networking stack: QUIC transport + CRDT docs + blob transfer + gossip. Used for sync. |
 | **CRDT** | Conflict-free Replicated Data Type. iroh-docs uses CRDTs to merge concurrent edits without conflicts. |
 | **Foliate-js** | Vendored JavaScript library for reflowable ebook rendering (EPUB, MOBI, FB2, CBZ). |
 | **CFI** | Canonical Fragment Identifier — EPUB path format for pinpointing locations within a book (e.g., `epubcfi(/6/4[chap01]!/4/2/1:0)`). |

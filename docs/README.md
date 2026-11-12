@@ -23,7 +23,9 @@ Task-oriented guides for readers (install, import, reading, highlights, Discover
 | [release.md](release.md) | Versioning, the tagging checklist, CI troubleshooting |
 | [testing-e2e.md](testing-e2e.md) | Local WebDriver E2E build and spec verification |
 | [project-management.md](project-management.md) | Board, labels, issue templates, PR lifecycle |
+| [research/repository-governance.md](research/repository-governance.md) | Branch protection, rulesets, and DCO governance rollout plan |
 | [design-system.md](design-system.md) | UI contributor guide: tokens, shared components, the rules `pnpm check:design` enforces, the component gallery |
+| [plans/done/2026-09-01-headless-cli-architecture.md](plans/done/2026-09-01-headless-cli-architecture.md) | Headless CLI & terminal reader architecture |
 
 ## Features
 

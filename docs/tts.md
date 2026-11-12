@@ -45,10 +45,11 @@ Rust library with consistent quality. Each platform has its own backend:
 | Android | Native TTS plugin | Android's TextToSpeech API |
 
 Desktop OS voices are hardened in `src-tauri/src/tts_desktop.rs`. Book text is
-untrusted, so it never reaches a shell or script string: `say` and `spd-say`
-receive it as one argument after `--` (a page that starts with `-` is spoken,
-not parsed as an option) and Windows reads it from **stdin** into a constant
-PowerShell script (voice and rate travel in environment variables). The
+untrusted, so it never reaches a shell or script string: `say` receives it as
+one argument after `--` (a page that starts with `-` is spoken, not parsed as
+an option), Linux `spd-say` receives text via **stdin** (avoiding command-line
+`argv` `E2BIG` limits on long pages), and Windows reads it from **stdin** into
+a constant PowerShell script (voice and rate travel in environment variables). The
 narration process is tracked, so Stop kills only Theorem's own `say` /
 `powershell` — not every one on the machine. `tts_speak` takes an optional
 `speed`, mapped to `say -r`, `spd-say -r` and `SpeechSynthesizer.Rate`.
@@ -128,7 +129,7 @@ releases and verified against a SHA-256 manifest compiled into the app.
   and the cache is checked again once it is held, so a prefetch and a speak
   racing for the same chunk synthesize it once.
 - **Voices**: F1–F5 / M1–M5 (per-voice style files, 292KB each). Selected
-  from the reader playback bar. Speed chips (0.75–1.5×) only change the
+  from the reader playback bar. Speed chips (0.75–2×) only change the
   native player's pitch-preserving time-stretch (WSOLA): the reader always
   synthesizes at 1× and sets the player's speed before each page, so a speed
   change is instant, needs no new synthesis, and is applied exactly once.

@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>A local-first ebook, PDF and RSS reader that writes your highlights to Markdown.</strong><br>
-  Free, open source, no account. Linux, macOS, Windows and Android.
+  Free, open source, no account required for local reading or sync. Linux, macOS, Windows and Android.
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@
 
 **Theorem** is a free, open-source **ebook reader, PDF reader and RSS reader** for **Linux, macOS, Windows and Android**, built on one TypeScript and Rust codebase. Read DRM-free EPUB, PDF, MOBI, AZW, FB2, CBZ and CBR files and your feeds in one workspace. Highlight in six colors, add notes, look words up in offline dictionaries, and listen with neural text-to-speech. Every highlight and note exports to plain **Markdown for Obsidian and Logseq**, so your reading data is yours.
 
-**No cloud account. No subscription wall. No vendor lock-in.**
+**Local-first, account-free reading and P2P sync. No subscription wall. Plain Markdown data you control.**
 
 <table>
   <tr>
@@ -49,7 +49,7 @@
   </tr>
   <tr>
     <td align="center"><sub><b>Library</b> — covers, shelves, series, search and filters</sub></td>
-    <td align="center"><sub><b>Workbench</b> — every highlight and note, ready to export to Markdown</sub></td>
+    <td align="center"><sub><b>Workbench</b> — highlights, attached notes, saved vocabulary, and bookmarks across your library</sub></td>
   </tr>
 </table>
 
@@ -74,7 +74,7 @@ curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/script
 curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --beta
 
 # Or install a specific version
-curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --version 1.5.4
+curl -fsSL https://raw.githubusercontent.com/fundaments-work/Theorem/main/scripts/install-linux.sh | bash -s -- --version 1.6.1
 ```
 
 ### Manual Download
@@ -166,7 +166,7 @@ Subscribe to feeds with full annotation tools. Native Rust article fetcher and r
 </p>
 
 ### Markdown Export (Obsidian / Logseq)
-Export highlights and annotations to local Markdown files. Designed for vault-based PKM workflows. Per-book Markdown pages with YAML frontmatter. Vocabulary export with definitions and phonetics, plus spaced-repetition **Lemma flashcards**. Automatic vault export runs on desktop; highlights made on Android reach your vault after syncing to a desktop. Customizable file naming. Highlights group **By Chapter (hierarchical)** by default, or flat chronological. Presets for Obsidian, Logseq, Minimalist, or a **Custom KNAP template** with live editor and preview. One-click export.
+Export highlights and annotations to local Markdown files. Designed for vault-based PKM workflows. Per-book Markdown pages with YAML frontmatter. Vocabulary export with definitions and phonetics, plus spaced-repetition flashcards (**Lemma**, a companion SM-2 format). Automatic vault export runs on desktop; highlights made on Android reach your vault after syncing to a desktop. Customizable file naming. Highlights group **By Chapter (hierarchical)** by default, or flat chronological. Presets for Obsidian, Logseq, Minimalist, or a custom **KNAP** (theorem's token-based export) template with live editor and preview. One-click export.
 
 ### Library Management & Parallel Batch Ingestion
 On desktop, a multithreaded Rust batch ingestion pipeline (`rayon` + `quick-xml` + `image`) imports hundreds of books at once with SHA-256 deduplication and native cover extraction. Custom collections / shelves. Favorites toggle with dedicated section. Book ratings (1–5 stars). Tags and categories. Multiple view modes: grid, list, compact. Sort by title, author, date added, or last read. Library search by title, author, or tags.
@@ -193,7 +193,7 @@ Reading time tracking (total and per-book). Books finished. Reading streaks: cur
 RSVP rapid-serial-visual-reading overlay with optimal-recognition-point highlighting, play/pause, and auto-advance — for skimming when full narration is too slow.
 
 ### Terminal CLI & TUI
-Desktop builds ship a headless `theorem` command (`clap`) with 18 commands — `search`, `read`, `dict`, `extract`, `library`, `shelf`, `highlights`, `bookmarks`, `feeds`, `opds`, `sync`, `storage`, `stats`, `export`, `open`, and more — supporting `--json`, stable exit codes, and TTY-aware color. A read-only `ratatui` TUI browses the library and reads chapters as plain text. Scriptable, and compiled out of the Android build to keep the APK lean.
+Desktop builds ship a headless `theorem` command (`clap`) for searching, reading, dictionary lookups, article extraction, library/shelf/highlight/bookmark/feed/OPDS/sync/storage/stats/export workflows, supporting `--json`, stable exit codes, and TTY-aware color. A read-only `ratatui` TUI browses the library and reads chapters as plain text. Scriptable, and compiled out of the Android build to keep the APK lean.
 
 ### Desktop Shell
 System tray with Show / Sync Now / Quit, hide-to-tray, remembered window geometry, multi-window reading, native print dialog, and OS file associations.
@@ -235,7 +235,7 @@ Desktop: Linux (.deb, .AppImage), macOS Intel + Apple Silicon (.dmg), Windows (.
 
 Built for **knowledge workers** who want to own their reading data:
 
-- **Your data stays local** — everything on your device. No account, no tracking, no data mining.
+- **Your data stays local** — everything on your device. Local reading, your files, the free Discover catalog, and P2P sync need no account or tracking.
 - **Portable by design** — exports are plain Markdown files. Move to any tool anytime.
 - **True offline-first** — works completely without internet. Sync when you choose.
 - **No subscriptions** — free and open-source. Always.
@@ -248,7 +248,7 @@ Yes. Local-first reading, annotation, and Markdown export without a paid subscri
 
 ## FAQ
 
-**Is my data safe?** — Yes. Everything is stored locally. No cloud account required.
+**Is my data safe?** — Yes. Everything is stored locally on your devices; local reading, files, and P2P sync need no account.
 
 **Can I migrate away?** — Yes. Exports are plain Markdown files, portable to any tool.
 

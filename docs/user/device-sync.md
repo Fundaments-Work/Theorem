@@ -17,7 +17,7 @@ Device sync is peer to peer. Your devices talk to each other directly, and there
 
 Book files are not copied right away. A book that arrived by sync shows up in the Library with a No file badge until you download it. Opening it downloads the file from a paired device, and a Downloading Book screen shows the progress. You can also download it ahead of time: right-click the book, choose More..., then Download File. The other device must be reachable and running Theorem. If the transfer takes longer than two minutes, you see Book download timed out with a Try Again button.
 
-Sync transfers book files. An audiobook file you attached to a book is linked on the device where you attached it and is not sent to your other devices.
+Sync propagates metadata automatically and transfers book files on demand. An audiobook file you attached to a book is linked on the device where you attached it and is not sent to your other devices.
 
 ## Pair two devices
 

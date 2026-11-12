@@ -9,7 +9,8 @@ Thanks for your interest in contributing! Theorem is a Tauri-first desktop reade
 
 - **Node.js 22+** and **pnpm 10+**
 - **Rust** (stable, via [rustup](https://rustup.rs))
-- **Tauri system dependencies**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev` (see [Tauri docs](https://tauri.app/start/prerequisites/))
+- **Tauri system dependencies**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev` (see [Tauri docs](https://tauri.app/start/prerequisites/))
+- **Linux audio & Opus build dependencies**: `libasound2-dev`, `libunwind-dev`, `libgstreamer1.0-dev`, `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-libav`, `autoconf`, `automake`, `libtool` (on Fedora/Arch/openSUSE install the matching GStreamer, libunwind, ALSA, and autotools development packages). Run `pnpm build` once in a fresh checkout before `cargo clippy --all-features` so `dist/` exists for the `e2e` feature.
 
 ### Setup
 

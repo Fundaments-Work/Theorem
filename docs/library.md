@@ -8,14 +8,7 @@ The `BookCard` component is wrapped in `React.memo` with a custom comparator tha
 
 ## Import Pipeline
 
-Library **Add Books** and folder imports submit a whole batch to the native
-queue (`src-tauri/src/import_jobs/`). Rust advances the queue independently of
-the Library view and WebView execution. The durable worker handles one file at a
-time; the existing parallel batch entry point remains available for legacy callers.
-`native-import-jobs.ts` submits requests
-and consumes saved results; `importStore.ts` retains the current progress for the
-application shell. Existing `ingest_books_native` and browser import entry points
-remain available to callers that do not opt into durable jobs.
+Library **Add Books** and both empty-library and Settings (`LibraryFoldersSection.tsx`) folder imports submit batches to the native queue (`src-tauri/src/import_jobs/` with `durable: true`). Rust advances the queue independently of the Library view and WebView execution. The durable worker handles one file at a time; the existing parallel batch entry point remains available for legacy callers. `native-import-jobs.ts` submits requests and consumes saved results; `importStore.ts` retains the current progress for the application shell. Existing `ingest_books_native` and browser import entry points remain available to callers that do not opt into durable jobs. Library modals and import/cover handlers are organized across `Library.tsx`, `hooks/useLibraryImportAndMetadata.ts`, `components/LibraryEmptyState.tsx`, and `components/modals/{LibraryBookModals,RemoveFolderModal}.tsx`.
 
 ```
 Add Books / folder scan
@@ -79,12 +72,13 @@ a JavaScript timeout would not cancel their native work.
 
 ```
 LibraryPage
+  ├─ sqliteQueryBooksWindow (windowed SQLite paging backed by offloaded Rust pool)
   └─ useVirtualizer (from @tanstack/react-virtual)
        ├─ scrollRef (scrollable container div)
-       ├─ Virtual row → MemoizedBookCard (custom memo comparator)
+       ├─ MemoizedBookCard (WeakMap-cached collection/tag sets + memo comparator)
        └─ Three view modes: grid / list / compact
             ├─ grid: 2-8 columns depending on container width
-            ├─ list: 1 column with full metadata
+            ├─ list: 1 column with full metadata (96px fixed height)
             └─ compact: 3-6 columns, minimal metadata
 ```
 

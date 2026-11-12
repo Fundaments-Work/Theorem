@@ -168,7 +168,8 @@ that must not be broken:
   sum synced XP totals. The device-local reading-chunk outbox must never be synced.
 - **Errors**: return `Result<T, AppError>` and branch on `kind()`, never on message text.
 - **SQLite**: always `with_connection()`; migrations bump the version and keep a
-  `migrate` path.
+  `migrate` path. Frontend IPC calls `offload_commands.rs` concurrently over SQLite WAL (`r2d2`), with Rust `KvSlotGuard` serializing per-key KV slots (never reintroduce a global JS FIFO IPC queue).
+- **Module boundaries & layer direction**: `core/` never imports `features/`. Rust `sync_state.rs` owns shared transport state so `sync_commands/` and sibling sync modules remain acyclic; `src/core/lib/sync-*.ts` follows strict downward layers (`sync-runtime-state` → `sync-merge-engine` → `sync-live-events` → `sync-provision` → `sync-orchestrator`).
 - **Native import jobs**: `src-tauri/src/import_jobs/` owns queue advancement and recovery. Keep the versioned `native-import-job:v1` checkpoint device-local and commit each book's metadata with its acknowledgment in one transaction. The app-wide progress panel hides in the reader; unmounting Library must never cancel a job. Android service timeout/Stop must cancel native copying and archive conversion.
 
 ## Rust-First Engineering, Memory & Search Architecture
