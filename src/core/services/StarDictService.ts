@@ -6,6 +6,7 @@ import type {
     VocabularyMeaning,
 } from "../types";
 import { isTauri } from "../lib/env";
+import { loadWebStarDictClass } from "../lib/reader-runtime-bridge";
 import {
     sqliteDeleteBlob,
     sqliteDeleteKv,
@@ -272,7 +273,7 @@ async function createRuntimeDictionary(buffers: {
     dict: ArrayBuffer;
     syn?: ArrayBuffer;
 }): Promise<LoadedStarDict> {
-    const { StarDict } = await import("../../features/reader/foliate-js-runtime/dict.js");
+    const StarDict = await loadWebStarDictClass();
     const dictionary = new StarDict();
 
     await dictionary.loadIfo(new Blob([buffers.ifo]));
@@ -551,9 +552,8 @@ export async function lookupInStarDictDictionaries(
                 }
             }
 
-            if (combined.length > 0) {
-                return combined;
-            }
+            // Native Rust MDX/StarDict handled lookup in Tauri runtime; never fall back to JS fflate.
+            return combined;
         } catch (error) {
             console.warn("[Dictionary] Native lookup error, falling back to JS:", error);
         }

@@ -1,5 +1,5 @@
 import './comic-strip';
-import { ComicFlowController, comicBookForFlow, COMIC_SCROLL_CSS, isComicFormat } from './comic-flow';
+import { ComicFlowController, comicBookForFlow, isComicFormat } from './comic-flow';
 import { readCbrAsCbz } from '../../../core/lib/cbr';
 
 import type {
@@ -16,15 +16,11 @@ import type {
     BookFormat,
 } from '../../../core/types';
 import { isFixedLayout } from '../../../core/types';
-import { getTheme } from '../foliate/themes';
 import { computeTextSelectionRects } from '../foliate/selection-rects';
 import { isNativeRangeFile, openNativeRangeFile, type BookSource } from '../../../core/lib/native-range-file';
-import { getCSS } from '../foliate/reader.js';
 import { 
     registerEngineStyleCallback,
     getCurrentReaderSettings,
-    getThemeColors,
-    getHighlightSolidColor,
 } from '../../../core/lib/design-tokens';
 import { isTauri, isWebKitGTK } from '../../../core/lib/env';
 import { toDocMetadata } from './doc-metadata';
@@ -32,6 +28,16 @@ import { collectAudioSections } from './audio-sections';
 import { Overlayer } from '../foliate-js-runtime/overlayer.js';
 import { useLibraryStore } from '../../../core/store';
 import { isUserRelocation } from '../lib/resume-progress';
+import {
+    applyRendererLayoutAttributes,
+    buildFoliateStyles,
+    computeFoliateCssKey,
+    extractTocItems,
+    getHighlightColor,
+    SELECTION_FILL,
+    SELECTION_OVERLAY_CLASS,
+} from './foliate-styles';
+import { FoliateSelectionController } from './foliate-selection';
 
 const READER_SEARCH_EXACT_LIMIT = 120;
 const MIN_READER_ZOOM_LEVEL = 0.2;
@@ -46,9 +52,6 @@ const READER_INITIAL_NAVIGATION_RETRIES = 1;
 // path or filename+size) so repeat opens skip EPUB OPF/nav re-parsing. The
 // Book keeps its source File/Blob alive, so the cache is intentionally small.
 const BOOK_MODEL_CACHE_LIMIT = 2;
-const SELECTION_OVERLAY_CLASS = 'theorem-selection-overlay';
-/** Same look as PDF selection (see .textLayer ::selection). */
-const SELECTION_FILL = 'color-mix(in srgb, var(--color-accent) 35%, transparent)';
 /** `MediaOverlay` in foliate-js-runtime/epub.js. Fires `highlight`, `unhighlight`, `finished`, `error`. */
 export interface MediaOverlayPlayer extends EventTarget {
     pause(): void;
@@ -127,7 +130,6 @@ export class FoliateEngine {
     private _lastCssSettingsKey = '';
     /** Exactly what was last passed to `renderer.setStyles`: foliate's base sheet and ours. */
     private _lastCssResult: string | [string, string] | null = null;
-    private _lastTapNotifiedAt = 0;
     private _lastAnnotationActivatedAt = 0;
 
     private unsubscribeFromStyles: (() => void) | null = null;
@@ -141,9 +143,21 @@ export class FoliateEngine {
     private _navigationInProgress = false;
 
     private pendingTimeouts: Set<number> = new Set();
+    private readonly selectionController: FoliateSelectionController;
 
     constructor(options: FoliateEngineOptions = {}) {
         this.options = options;
+        this.selectionController = new FoliateSelectionController({
+            getView: () => this.view,
+            getBook: () => this.book,
+            getCFIFromRange: (index, range) => this.getCFIFromRange(index, range),
+            pendingTimeouts: this.pendingTimeouts,
+            setSelectionNavLockUntil: (until) => { this.selectionNavLockUntil = until; },
+            getLastAnnotationActivatedAt: () => this._lastAnnotationActivatedAt,
+            onViewportTap: () => this.options.onViewportTap?.(),
+            shouldForceViewportTap: () => this.options.shouldForceViewportTap?.() ?? false,
+            onFootnote: (data) => this.options.onFootnote?.(data),
+        });
     }
 
     private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
@@ -818,17 +832,7 @@ export class FoliateEngine {
     }
 
     private getHighlightColor(colorName: string): string {
-        const colorKey: HighlightColor = (
-            colorName === "yellow"
-            || colorName === "green"
-            || colorName === "blue"
-            || colorName === "red"
-            || colorName === "orange"
-            || colorName === "purple"
-        )
-            ? colorName
-            : "yellow";
-        return getHighlightSolidColor(colorKey);
+        return getHighlightColor(colorName);
     }
 
     private handleExternalStyleChange(): void {
@@ -859,66 +863,19 @@ export class FoliateEngine {
     }
 
     private extractToc(): TocItem[] {
-        if (!this.book?.toc) {
-            return [];
-        }
-
-        const convertToc = (items: any[]): TocItem[] => {
-            return items.map(item => ({
-                label: item.label || '',
-                href: item.href || '',
-                subitems: item.subitems ? convertToc(item.subitems) : undefined,
-            }));
-        };
-
-        return convertToc(this.book.toc);
+        return extractTocItems(this.book?.toc);
     }
 
     private applySettingsSync(): void {
         if (!this.view?.renderer || typeof this.view.renderer.setAttribute !== 'function') return;
-
-        const renderer = this.view.renderer;
-        const currentSettings = getCurrentReaderSettings();
-        
-        renderer.setAttribute('flow', this.flow === 'scroll' ? 'scrolled' : 'paginated');
-        renderer.setAttribute('gap', '5%');
-        
-        const isMobileViewport = typeof window !== 'undefined'
-            && window.matchMedia('(max-width: 768px)').matches;
-        const columnCount = isMobileViewport && this.flow !== 'scroll'
-            ? 1
-            : this.layout === 'single'
-                ? 1
-                : this.layout === 'double'
-                    ? 2
-                    : this.flow === 'scroll'
-                        ? 1
-                        : 2;
-        
-        renderer.setAttribute('max-column-count', String(columnCount));
-        
-        renderer.setAttribute(
-            'max-inline-size',
-            `${currentSettings?.fontSize ? Math.max(480, currentSettings.fontSize * 40) : 720}px`,
-        );
-        renderer.setAttribute('max-block-size', '800px');
-        // The page band above and below the text. On desktop the reader toolbar
-        // (45px) sits over the top of the page, so the paginator's default 48px
-        // left the first line almost touching it.
-        renderer.setAttribute('margin', isMobileViewport ? '48px' : '72px');
-        if (currentSettings?.enableAnimations) {
-            renderer.setAttribute('animated', '');
-        } else {
-            renderer.removeAttribute('animated');
-        }
-
-        if (this.isFixedLayoutFormat && this.flow !== 'scroll') {
-            const zoomValue = this.zoom_level === 1.0 ? 'fit-page' : this.zoom_level;
-            renderer.setAttribute('zoom', String(zoomValue));
-        } else {
-            renderer.removeAttribute('zoom');
-        }
-        
+        applyRendererLayoutAttributes({
+            renderer: this.view.renderer,
+            flow: this.flow,
+            layout: this.layout,
+            zoomLevel: this.zoom_level,
+            isFixedLayoutFormat: this.isFixedLayoutFormat,
+            currentSettings: getCurrentReaderSettings(),
+        });
         this.applyZoomSync();
     }
 
@@ -936,20 +893,7 @@ export class FoliateEngine {
         const currentSettings = getCurrentReaderSettings();
         if (!currentSettings) return;
 
-        const cssKey = [
-            currentSettings.fontSize,
-            currentSettings.lineHeight,
-            currentSettings.fontFamily,
-            currentSettings.letterSpacing,
-            currentSettings.wordSpacing,
-            currentSettings.textAlign,
-            currentSettings.hyphenation,
-            currentSettings.forcePublisherStyles ?? false,
-            this.theme,
-            this.zoom_level,
-            this.flow,
-        ].join('|');
-
+        const cssKey = computeFoliateCssKey(currentSettings, this.theme, this.zoom_level, this.flow);
         const renderer = this.view.renderer;
 
         if (this._lastCssSettingsKey === cssKey && this._lastCssResult) {
@@ -958,189 +902,15 @@ export class FoliateEngine {
         }
         this._lastCssSettingsKey = cssKey;
 
-        const alignValue = currentSettings.textAlign === 'justify' ? 'justify' :
-                          currentSettings.textAlign === 'center' ? 'center' : 'left';
-
-        const theme = getTheme(this.theme);
-
-        const readerStyle = {
-            spacing: currentSettings.lineHeight,
-            lineHeight: currentSettings.lineHeight,
-            justify: currentSettings.textAlign === 'justify',
-            hyphenate: currentSettings.hyphenation,
-            invert: false,
-            theme,
-            overrideFont: currentSettings.forcePublisherStyles,
-            // The theme forces every element's background, so the book's own
-            // rule for this class can't show. getCSS styles it instead.
-            mediaActiveClass: this.book?.media?.activeClass,
-        };
-        
         if (renderer.setStyles) {
-            
-            const colors = getThemeColors(this.theme);
-            const isDark = this.theme === 'dark';
-            if (this.view?.style) {
-                this.view.style.setProperty('--overlayer-highlight-blend-mode', isDark ? 'screen' : 'multiply');
-                this.view.style.setProperty('--overlayer-highlight-opacity', isDark ? '0.45' : '0.35');
-            }
-            
-            const fontFamilyCSS = currentSettings.fontFamily === 'original' ? '' : `
-                /* Font family override - applies to ALL elements with !important */
-                html, body, 
-                p, div, span, 
-                h1, h2, h3, h4, h5, h6,
-                li, ul, ol,
-                blockquote, q,
-                td, th, tr, table,
-                dd, dt, dl,
-                pre, code, samp, kbd,
-                em, strong, b, i, u,
-                small, sub, sup,
-                label, figcaption,
-                a, abbr, cite,
-                input, textarea, button,
-                ::before, ::after {
-                    font-family: ${currentSettings.fontFamily === 'serif' ? 'Georgia, "Times New Roman", serif' : currentSettings.fontFamily === 'sans' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif' : currentSettings.fontFamily === 'mono' ? '"SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace' : 'inherit'} !important;
-                }
-                
-                /* Override inline styles that specify font-family */
-                [style*="font-family"] {
-                    font-family: ${currentSettings.fontFamily === 'serif' ? 'Georgia, "Times New Roman", serif' : currentSettings.fontFamily === 'sans' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif' : currentSettings.fontFamily === 'mono' ? '"SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace' : 'inherit'} !important;
-                }
-            `;
-            
-            const textAlignCSS = `
-                /* Text alignment - comprehensive selector coverage */
-                body, p, div, 
-                h1, h2, h3, h4, h5, h6,
-                li, 
-                blockquote, q,
-                td, th,
-                dd, dt,
-                figcaption {
-                    text-align: ${alignValue} !important;
-                }
-                
-                /* Don't justify headers and captions */
-                h1, h2, h3, h4, h5, h6, figcaption {
-                    text-align: ${currentSettings.textAlign === 'justify' || currentSettings.textAlign === 'left' ? 'left' : currentSettings.textAlign} !important;
-                }
-                
-                /* Override align attributes */
-                [align="left"] { text-align: left !important; }
-                [align="right"] { text-align: right !important; }
-                [align="center"] { text-align: center !important; }
-                [align="justify"] { text-align: justify !important; }
-                
-                /* Override inline text-align styles */
-                [style*="text-align"] {
-                    text-align: ${alignValue} !important;
-                }
-            `;
-            
-            const fontSizeOverrideCSS = currentSettings.forcePublisherStyles ? '' : `
-                /* Force font-size inheritance on ALL text elements to override book CSS */
-                p, div, span,
-                h1, h2, h3, h4, h5, h6,
-                li, ul, ol,
-                blockquote, q,
-                td, th, tr, table,
-                dd, dt, dl,
-                pre, code,
-                em, strong, b, i, u,
-                small, sub, sup,
-                label, figcaption,
-                a, abbr, cite {
-                    font-size: inherit !important;
-                }
-                
-                /* Override inline font-size styles from book.
-                   Exclude html and body to preserve engine-set zoom font-size. */
-                :not(html):not(body)[style*="font-size"] {
-                    font-size: inherit !important;
-                }
-            `;
-
-            const customCSS = `
-                @namespace epub "http://www.idpf.org/2007/ops";
-                
-                :root {
-                    --reader-bg: ${colors.bg};
-                    --reader-fg: ${colors.fg};
-                    --reader-link: ${colors.link};
-                }
-                
-                @media screen {
-                    html {
-                        font-size: calc(${currentSettings.fontSize}px * var(--reader-zoom, 1)) !important;
-                        line-height: ${currentSettings.lineHeight} !important;
-                        color: ${colors.fg} !important;
-                        background: ${colors.bg} !important;
-                        letter-spacing: ${currentSettings.letterSpacing}em !important;
-                        word-spacing: ${currentSettings.wordSpacing}em !important;
-                        column-count: auto !important;
-                    }
-                    
-                    body {
-                        font-size: inherit !important;
-                        line-height: inherit !important;
-                        color: inherit !important;
-                        background: ${colors.bg} !important;
-                        letter-spacing: inherit !important;
-                        word-spacing: inherit !important;
-                        column-count: auto !important;
-                        column-width: auto !important;
-                    }
-                    
-                    ${fontSizeOverrideCSS}
-                    
-                    ${fontFamilyCSS}
-                    
-                    ${textAlignCSS}
-                    
-                    a:any-link {
-                        color: ${colors.link} !important;
-                    }
-                    
-                    /* Typography elements */
-                    p, li, blockquote, dd {
-                        line-height: ${currentSettings.lineHeight} !important;
-                        hyphens: ${currentSettings.hyphenation ? 'auto' : 'none'} !important;
-                    }
-                    
-                    ::selection {
-                        background: color-mix(in srgb, ${colors.fg} 35%, transparent) !important;
-                        color: ${colors.fg} !important;
-                    }
-
-                    /* The overlayer draws the selection (text-only rects). */
-                    html.${SELECTION_OVERLAY_CLASS} ::selection {
-                        background: transparent !important;
-                    }
-
-                    /* Suppress iOS native callout menu so Theorem's toolbar
-                       is not obscured by the system Look Up / Copy / Share popup.
-                       Native selection handles and the magnifying loupe still work. */
-                    html, body {
-                        -webkit-touch-callout: none;
-                    }
-                }
-            `;
-            
-            const foliateCSS = getCSS(readerStyle);
-            const comicCSS = isComicFormat(this.format) && this.flow === 'scroll' ? COMIC_SCROLL_CSS : '';
-            const cssResult = Array.isArray(foliateCSS)
-                ? `${foliateCSS[1]}\n${customCSS}\n${comicCSS}`
-                : `${foliateCSS}\n${customCSS}\n${comicCSS}`;
-            // Cache the pair, not only the second sheet: re-applying just the
-            // string dropped foliate's base sheet (line height, orphans/widows)
-            // from every section loaded afterwards, so the same page could break
-            // at a different place on the next open and a saved position came
-            // back one page early.
-            const styles: string | [string, string] = Array.isArray(foliateCSS)
-                ? [foliateCSS[0], cssResult]
-                : cssResult;
+            const styles = buildFoliateStyles({
+                currentSettings,
+                themeName: this.theme,
+                format: this.format,
+                flow: this.flow,
+                mediaActiveClass: this.book?.media?.activeClass,
+                viewStyle: this.view?.style,
+            });
             this._lastCssResult = styles;
             renderer.setStyles(styles);
         }
@@ -1982,691 +1752,15 @@ export class FoliateEngine {
     }
 
     getSelectionFromDocument(): { text: string; cfi: string; range: Range } | null {
-        
-        if (!this.view || !this.book) {
-            return null;
-        }
-
-        try {
-            const contents = this.view.renderer?.getContents?.() || [];
-            
-            for (const content of contents) {
-                
-                if (!content || typeof content.index !== 'number') continue;
-                
-                const doc = content.doc;
-                if (!doc) continue;
-
-                const selection = doc.getSelection();
-                if (selection && !selection.isCollapsed) {
-                    const text = selection.toString().trim();
-                    if (text) {
-                        const range = selection.getRangeAt(0);
-                        const cfi = this.getCFIFromRange(content.index, range);
-                        if (cfi) {
-                            return { text, cfi, range };
-                        }
-                    }
-                }
-            }
-        } catch (e) {
-            
-        }
-        return null;
-    }
-
-    private iframeListenersAttached = new WeakSet<Document>();
-    private selectionCheckInterval: ReturnType<typeof setInterval> | null = null;
-
-    private postMessageHandler: ((event: MessageEvent) => void) | null = null;
-
-    private isInteractiveTapTarget(target: EventTarget | null): boolean {
-        if (!(target instanceof Element)) {
-            return false;
-        }
-
-        if (
-            target.closest(
-                'a,button,input,textarea,select,summary,label,[role="button"],[contenteditable="true"],[data-no-viewport-tap]',
-            )
-        ) {
-            return true;
-        }
-
-        if (target instanceof SVGElement) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private notifyViewportTap(target: EventTarget | null): void {
-        if (!this.options.onViewportTap) {
-            return;
-        }
-        // A tap that just activated a highlight must not also toggle the
-        // viewport chrome / close the annotation popover it opened. The
-        // highlight overlay uses pointer-events:none, so event.target cannot
-        // tell us this; use the activation timestamp instead.
-        if (Date.now() - this._lastAnnotationActivatedAt < 420) {
-            return;
-        }
-        if (this.isInteractiveTapTarget(target)) {
-            return;
-        }
-        this._lastTapNotifiedAt = Date.now();
-        this.options.onViewportTap();
-    }
-
-    private shouldForceViewportTap(): boolean {
-        return this.options.shouldForceViewportTap?.() ?? false;
+        return this.selectionController.getSelectionFromDocument();
     }
 
     setupIframeSelectionListener(callback: (cfi: string, text: string, rangeOrEvent: Range | MouseEvent) => void): void {
-        if (!this.view?.renderer) return;
-
-        if (!this.postMessageHandler) {
-            this.postMessageHandler = (event: MessageEvent) => {
-                const contents = this.view?.renderer?.getContents?.() || [];
-                if (
-                    event.source != null
-                    && event.source !== window
-                    && !contents.some((c: any) => c.doc?.defaultView === event.source)
-                ) {
-                    return;
-                }
-                if (event.data?.type === 'foliate-selection') {
-                    
-                    const { sectionIndex, text, clientX, clientY, rect } = event.data;
-                    
-                    const content = contents.find((c: any) => c.index === sectionIndex);
-                    
-                    if (content?.doc) {
-                        
-                        const doc = content.doc;
-                        const selection = doc.getSelection();
-                        const frameElement = doc.defaultView?.frameElement;
-                        const frameRect = frameElement instanceof HTMLElement
-                            ? frameElement.getBoundingClientRect()
-                            : null;
-                        
-                        if (selection && !selection.isCollapsed) {
-                            try {
-                                const range = selection.getRangeAt(0);
-                                const cfi = this.getCFIFromRange(sectionIndex, range);
-                                
-                                if (cfi) {
-                                    try {
-                                        callback(cfi, text, range.cloneRange());
-                                    } catch {
-                                        const syntheticEvent = new MouseEvent('mouseup', {
-                                            clientX: (
-                                                frameRect
-                                                    ? frameRect.left + (clientX || (rect?.left + rect?.width / 2) || 0)
-                                                    : (clientX || (rect?.left + rect?.width / 2) || 0)
-                                            ),
-                                            clientY: (
-                                                frameRect
-                                                    ? frameRect.top + (clientY || (rect?.top) || 0)
-                                                    : (clientY || (rect?.top) || 0)
-                                            ),
-                                            bubbles: true
-                                        });
-                                        callback(cfi, text, syntheticEvent);
-                                    }
-                                }
-                            } catch (err) {
-                            }
-                        }
-                    }
-                } else if (event.data?.type === 'foliate-tap') {
-                    const hasSelection = Boolean(event.data?.hasSelection);
-                    if (hasSelection && !this.shouldForceViewportTap()) {
-                        return;
-                    }
-                    this.notifyViewportTap(null);
-                } else if (event.data?.type === 'foliate-footnote') {
-                    this.options.onFootnote?.({
-                        text: event.data.text,
-                        html: event.data.html,
-                        title: event.data.title,
-                        href: event.data.href,
-                        rect: event.data.rect,
-                    });
-                }
-            };
-            
-            window.addEventListener('message', this.postMessageHandler);
-        }
-
-        const contents = this.view.renderer.getContents?.() || [];
-        
-        for (const content of contents) {
-            const doc = content.doc;
-            const win = doc?.defaultView;
-            if (!doc || !win) {
-                continue;
-            }
-
-            if (this.iframeListenersAttached.has(doc)) {
-                continue;
-            }
-
-            this.iframeListenersAttached.add(doc);
-
-            const iframeElement = doc.defaultView?.frameElement as HTMLIFrameElement;
-            if (iframeElement) {
-                this.attachSelectionListenersToIframe(iframeElement, content.index, callback);
-            } else {
-                this.injectSelectionScript(doc, content.index, callback);
-            }
-
-        }
-
-        this.setupSelectionPolling(callback);
-    }
-
-    private attachSelectionListenersToIframe(
-        iframe: HTMLIFrameElement,
-        index: number,
-        callback: (cfi: string, text: string, rangeOrEvent: Range | MouseEvent) => void
-    ): void {
-        try {
-            const doc = iframe.contentDocument;
-            const win = iframe.contentWindow;
-            
-            if (!doc || !win) {
-                return;
-            }
-
-            if ((doc as any).__theorem_selection_attached) {
-                return;
-            }
-            (doc as any).__theorem_selection_attached = true;
-
-            if (doc.documentElement) {
-                doc.documentElement.style.touchAction = 'manipulation';
-            }
-            if (doc.body) {
-                doc.body.style.touchAction = 'manipulation';
-            }
-            
-            let lastSelectionKey = '';
-            let pointerDownX = 0;
-            let pointerDownY = 0;
-            let pointerDownAt = 0;
-            let pointerMoved = false;
-            const SELECTION_CAPTURE_DELAY = 12;
-            // Native selection handles move without any DOM touch events, so on
-            // touch devices a selectionchange burst is a handle drag in progress.
-            // Wait for it to settle instead of re-anchoring the toolbar every frame.
-            const SELECTION_SETTLE_DELAY_TOUCH = 260;
-            const isCoarsePointer = (): boolean => {
-                try {
-                    return Boolean(win.matchMedia?.('(pointer: coarse)').matches);
-                } catch {
-                    return false;
-                }
-            };
-            const SELECTION_INTERACTION_SUPPRESS_MS = 420;
-            const TAP_MAX_DISTANCE = 12;
-            const TAP_MAX_DURATION = 350;
-            let selectionCaptureTimeout: number | null = null;
-            let lastSelectionCapturedAt = 0;
-            // Track whether a touch gesture is active so the selection callback
-            // is deferred to touchend rather than fired on every selectionchange
-            // mid-drag (which caused the toolbar to flash while extending selection).
-            let isTouchActive = false;
-            let pendingTouchSelection = false;
-
-            const getEventPoint = (event?: MouseEvent | PointerEvent | TouchEvent): { x: number; y: number } | null => {
-                if (!event) {
-                    return null;
-                }
-                if ('changedTouches' in event && event.changedTouches.length > 0) {
-                    const touch = event.changedTouches[0];
-                    return { x: touch.clientX, y: touch.clientY };
-                }
-                if ('clientX' in event && typeof event.clientX === 'number') {
-                    return { x: event.clientX, y: event.clientY };
-                }
-                return null;
-            };
-
-            const scheduleSelectionCapture = (
-                event?: MouseEvent | PointerEvent | TouchEvent,
-                delay: number = SELECTION_CAPTURE_DELAY,
-            ) => {
-                if (selectionCaptureTimeout !== null) {
-                    window.clearTimeout(selectionCaptureTimeout);
-                    this.pendingTimeouts.delete(selectionCaptureTimeout);
-                }
-                const timerId = window.setTimeout(() => {
-                    this.pendingTimeouts.delete(timerId);
-                    selectionCaptureTimeout = null;
-                    if (!this.view) {
-                        return;
-                    }
-                    try {
-                        const selection = doc.getSelection();
-                        if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-                            lastSelectionKey = '';
-                            return;
-                        }
-
-                        const text = selection.toString().trim();
-                        if (!text) {
-                            return;
-                        }
-
-                        const range = selection.getRangeAt(0);
-                        const cfi = this.getCFIFromRange(index, range);
-                        if (!cfi) {
-                            return;
-                        }
-
-                        const selectionKey = `${cfi}::${text}`;
-                        if (selectionKey === lastSelectionKey) {
-                            return;
-                        }
-                        lastSelectionKey = selectionKey;
-
-                        lastSelectionCapturedAt = Date.now();
-                        
-                        this.selectionNavLockUntil = Date.now() + 2000;
-                        try {
-                            callback(cfi, text, range.cloneRange());
-                        } catch {
-                            const rect = range.getBoundingClientRect();
-                            const point = getEventPoint(event) ?? {
-                                x: rect.left + rect.width / 2,
-                                y: rect.top,
-                            };
-                            const iframeRect = iframe.getBoundingClientRect();
-                            const syntheticEvent = new MouseEvent('mouseup', {
-                                clientX: iframeRect.left + point.x,
-                                clientY: iframeRect.top + point.y,
-                                bubbles: true,
-                            });
-                            callback(cfi, text, syntheticEvent);
-                        }
-                    } catch (err) {
-                    }
-                }, delay);
-            };
-
-            doc.addEventListener(
-                'contextmenu',
-                (event: MouseEvent) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                },
-                true,
-            );
-
-            win.addEventListener(
-                'contextmenu',
-                (event: MouseEvent) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                },
-                true,
-            );
-
-            const suppressDoubleTapZoom = (event: Event) => {
-                event.preventDefault();
-            };
-
-            doc.addEventListener('dblclick', suppressDoubleTapZoom, true);
-            win.addEventListener('dblclick', suppressDoubleTapZoom, true);
-
-            win.addEventListener(
-                'pointerdown',
-                (event: PointerEvent) => {
-                    if (!event.isPrimary || event.button !== 0) {
-                        return;
-                    }
-                    pointerDownX = event.clientX;
-                    pointerDownY = event.clientY;
-                    pointerDownAt = Date.now();
-                    pointerMoved = false;
-                },
-                true,
-            );
-
-            win.addEventListener(
-                'pointermove',
-                (event: PointerEvent) => {
-                    if (pointerDownAt === 0) {
-                        return;
-                    }
-                    const distance = Math.hypot(
-                        event.clientX - pointerDownX,
-                        event.clientY - pointerDownY,
-                    );
-                    if (distance > TAP_MAX_DISTANCE) {
-                        pointerMoved = true;
-                    }
-                },
-                true,
-            );
-
-            win.addEventListener(
-                'pointercancel',
-                (event: PointerEvent) => {
-                    pointerDownAt = 0;
-                    pointerMoved = false;
-                    isTouchActive = false;
-                    pendingTouchSelection = false;
-                    // On mobile (Android), long-press triggers the native selection layer
-                    // and cancels DOM pointer/touch events. Process the pending selection.
-                    scheduleSelectionCapture(event, 30);
-                    const timerId = window.setTimeout(() => {
-                        this.pendingTimeouts.delete(timerId);
-                        scheduleSelectionCapture(undefined, 0);
-                    }, 80);
-                    this.pendingTimeouts.add(timerId);
-                },
-                true,
-            );
-
-            win.addEventListener(
-                'touchstart',
-                () => {
-                    isTouchActive = true;
-                    pendingTouchSelection = false;
-                },
-                { capture: true, passive: true },
-            );
-
-            win.addEventListener(
-                'touchend',
-                (event: TouchEvent) => {
-                    isTouchActive = false;
-                    if (pendingTouchSelection) {
-                        // Touch is finishing — process the deferred selection exactly once
-                        // at gesture end rather than once per selectionchange event mid-drag.
-                        pendingTouchSelection = false;
-                    }
-                    scheduleSelectionCapture(event);
-                },
-                { capture: true, passive: true },
-            );
-
-            win.addEventListener(
-                'touchcancel',
-                (event: TouchEvent) => {
-                    isTouchActive = false;
-                    pendingTouchSelection = false;
-                    pointerDownAt = 0;
-                    pointerMoved = false;
-                    // On mobile (Android), long-press triggers the native selection layer
-                    // and dispatches touchcancel. Capture the committed single-word selection.
-                    scheduleSelectionCapture(event, 30);
-                    const timerId = window.setTimeout(() => {
-                        this.pendingTimeouts.delete(timerId);
-                        scheduleSelectionCapture(undefined, 0);
-                    }, 80);
-                    this.pendingTimeouts.add(timerId);
-                },
-                { capture: true, passive: true },
-            );
-
-            doc.addEventListener('selectionchange', () => {
-                const sel = doc.getSelection();
-                // Always maintain the nav lock while selection is non-empty.
-                if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
-                    this.selectionNavLockUntil = Date.now() + 2000;
-                }
-                // While a touch gesture is active, defer the selection callback to
-                // touchend to prevent the toolbar from flashing during drag-to-select.
-                // Mouse/keyboard selections process immediately as before.
-                if (isTouchActive) {
-                    pendingTouchSelection = true;
-                    return;
-                }
-                scheduleSelectionCapture(
-                    undefined,
-                    isCoarsePointer() ? SELECTION_SETTLE_DELAY_TOUCH : SELECTION_CAPTURE_DELAY,
-                );
-            }, true);
-
-            win.addEventListener('mouseup', (event: MouseEvent) => {
-                scheduleSelectionCapture(event);
-            }, true);
-
-            win.addEventListener(
-                'pointerup',
-                (event: PointerEvent) => {
-                    if (!event.isPrimary || event.button !== 0) {
-                        pointerDownAt = 0;
-                        pointerMoved = false;
-                        return;
-                    }
-
-                    const elapsed = Date.now() - pointerDownAt;
-                    const distance = Math.hypot(
-                        event.clientX - pointerDownX,
-                        event.clientY - pointerDownY,
-                    );
-                    const isTap =
-                        pointerDownAt > 0
-                        && !pointerMoved
-                        && elapsed <= TAP_MAX_DURATION
-                        && distance <= TAP_MAX_DISTANCE;
-
-                    pointerDownAt = 0;
-                    pointerMoved = false;
-                    scheduleSelectionCapture(event);
-
-                    if (!isTap) {
-                        return;
-                    }
-
-                    const TAP_DEDUP_MS = 150;
-                    if (Date.now() - this._lastTapNotifiedAt < TAP_DEDUP_MS) {
-                        return;
-                    }
-
-                    const shouldSuppressInteraction =
-                        Date.now() - lastSelectionCapturedAt < SELECTION_INTERACTION_SUPPRESS_MS;
-                    if (shouldSuppressInteraction) {
-                        return;
-                    }
-
-                    const selection = doc.getSelection();
-                    const hasSelection = Boolean(
-                        selection
-                        && !selection.isCollapsed
-                        && selection.toString().trim().length > 0,
-                    );
-                    if (hasSelection && !this.shouldForceViewportTap()) {
-                        return;
-                    }
-                    this.notifyViewportTap(event.target);
-                },
-                true,
-            );
-            
-        } catch (err) {
-        }
-    }
-
-    private injectSelectionScript(
-        doc: Document, 
-        index: number, 
-        _callback: (cfi: string, text: string, event: MouseEvent) => void
-    ): void {
-        const script = doc.createElement('script');
-        script.textContent = `
-            (function() {
-                let lastSelection = '';
-                let pointerDownX = 0;
-                let pointerDownY = 0;
-                let pointerDownAt = 0;
-                let pointerMoved = false;
-                const SELECTION_CAPTURE_DELAY = 24;
-                const TAP_MAX_DISTANCE = 12;
-                const TAP_MAX_DURATION = 350;
-                
-                function postSelection(clientX, clientY) {
-                    var selection = document.getSelection();
-                    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-                        lastSelection = '';
-                        return false;
-                    }
-
-                    var text = selection.toString().trim();
-                    if (!text || text === lastSelection) {
-                        return false;
-                    }
-
-                    lastSelection = text;
-                    var range = selection.getRangeAt(0);
-                    var rect = range.getBoundingClientRect();
-                    window.parent.postMessage({
-                        type: 'foliate-selection',
-                        sectionIndex: ${index},
-                        text: text,
-                        clientX: Number.isFinite(clientX) ? clientX : rect.left + rect.width / 2,
-                        clientY: Number.isFinite(clientY) ? clientY : rect.top,
-                        rect: {
-                            left: rect.left,
-                            top: rect.top,
-                            width: rect.width,
-                            height: rect.height
-                        }
-                    }, '*');
-                    return true;
-                }
-                
-                document.addEventListener('pointerdown', function(e) {
-                    if (!e.isPrimary || e.button !== 0) {
-                        return;
-                    }
-                    pointerDownX = e.clientX;
-                    pointerDownY = e.clientY;
-                    pointerDownAt = Date.now();
-                    pointerMoved = false;
-                });
-
-                document.addEventListener('pointermove', function(e) {
-                    if (pointerDownAt === 0) {
-                        return;
-                    }
-                    var distance = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
-                    if (distance > TAP_MAX_DISTANCE) {
-                        pointerMoved = true;
-                    }
-                });
-
-                function handleCancel(e) {
-                    pointerDownAt = 0;
-                    pointerMoved = false;
-                    var touch = e && e.changedTouches && e.changedTouches.length > 0
-                        ? e.changedTouches[0]
-                        : null;
-                    var clientX = touch ? touch.clientX : (e && typeof e.clientX === 'number' ? e.clientX : undefined);
-                    var clientY = touch ? touch.clientY : (e && typeof e.clientY === 'number' ? e.clientY : undefined);
-                    setTimeout(function() {
-                        postSelection(clientX, clientY);
-                    }, 30);
-                    setTimeout(function() {
-                        postSelection();
-                    }, 80);
-                }
-
-                document.addEventListener('pointercancel', handleCancel, true);
-                document.addEventListener('touchcancel', handleCancel, { passive: true });
-
-                document.addEventListener('contextmenu', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }, true);
-                
-                document.addEventListener('pointerup', function(e) {
-                    const elapsed = Date.now() - pointerDownAt;
-                    const distance = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
-                    const isTap =
-                        pointerDownAt > 0
-                        && !pointerMoved
-                        && elapsed <= TAP_MAX_DURATION
-                        && distance <= TAP_MAX_DISTANCE;
-                    pointerDownAt = 0;
-                    pointerMoved = false;
-                    
-                    if (isTap) {
-                        var sel = document.getSelection();
-                        var hasSel = Boolean(
-                            sel
-                            && !sel.isCollapsed
-                            && sel.toString().trim().length > 0,
-                        );
-                        if (!hasSel) {
-                            window.parent.postMessage({
-                                type: 'foliate-tap',
-                                sectionIndex: ${index},
-                                hasSelection: false,
-                            }, '*');
-                            return;
-                        }
-                    }
-
-                    // Check selection after a short delay
-                    setTimeout(function() {
-                        var hasSelection = postSelection(e.clientX, e.clientY);
-                        if (isTap) {
-                            window.parent.postMessage({
-                                type: 'foliate-tap',
-                                sectionIndex: ${index},
-                                hasSelection: hasSelection,
-                            }, '*');
-                        }
-                    }, SELECTION_CAPTURE_DELAY);
-                });
-
-                document.addEventListener('touchend', function(e) {
-                    setTimeout(function() {
-                        var touch = e.changedTouches && e.changedTouches.length > 0
-                            ? e.changedTouches[0]
-                            : null;
-                        postSelection(touch ? touch.clientX : undefined, touch ? touch.clientY : undefined);
-                    }, SELECTION_CAPTURE_DELAY);
-                }, { passive: true });
-
-                document.addEventListener('selectionchange', function() {
-                    setTimeout(function() {
-                        postSelection();
-                    }, SELECTION_CAPTURE_DELAY);
-                });
-            })();
-        `;
-        
-        if (doc.head) {
-            doc.head.appendChild(script);
-        } else if (doc.body) {
-            doc.body.appendChild(script);
-        }
-    }
-
-    private setupSelectionPolling(_callback: (cfi: string, text: string, event: MouseEvent) => void): void {
-        
+        this.selectionController.setupIframeSelectionListener(callback);
     }
 
     clearSelection(): void {
-        if (!this.view) return;
-        
-        try {
-            const contents = this.view.renderer?.getContents?.() || [];
-            for (const content of contents) {
-                const doc = content.doc;
-                if (doc) {
-                    doc.getSelection()?.removeAllRanges();
-                }
-            }
-        } catch (e) {
-            
-        }
+        this.selectionController.clearSelection();
     }
 
     getCurrentSectionIndex(): number {
@@ -2702,20 +1796,11 @@ export class FoliateEngine {
             this.pendingUpdateFrame = null;
         }
 
-        if (this.selectionCheckInterval) {
-            clearInterval(this.selectionCheckInterval);
-            this.selectionCheckInterval = null;
-        }
-
         for (const timerId of this.pendingTimeouts) {
             window.clearTimeout(timerId);
         }
         this.pendingTimeouts.clear();
-
-        if (this.postMessageHandler) {
-            window.removeEventListener('message', this.postMessageHandler);
-            this.postMessageHandler = null;
-        }
+        this.selectionController.destroy();
         
         if (this.unsubscribeFromStyles) {
             this.unsubscribeFromStyles();

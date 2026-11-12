@@ -1,37 +1,57 @@
-import { canSetShelfParent, normalizeShelfHierarchy } from "../lib/shelf-hierarchy";
+import { canSetShelfParent } from "../lib/shelf-hierarchy";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { mergeSourceFolders, normalizeSourceFolders } from "../lib/source-folders";
-import { triggerVaultAutoSync } from "../lib/vault-sync";
+import { buildBookPageMarkdown } from "../lib/vault-sync";
 import { deferredJsonStorage, memoizePartialize } from "../lib/persist-storage";
 import { scheduleMutationSync } from "../lib/sync-orchestrator";
 import { deleteBookStorage } from "../lib/storage-manager";
 import { deleteGeneratedAudiobookFile } from "../lib/audiobook-files";
-import { coverDisplayUrl, getCoverImage, INLINE_COVER_MAX_CHARS } from "../lib/storage";
 import { persistBookLocations } from "../lib/book-locations";
 import {
-    sqliteSaveBookMetadata,
     sqliteDeleteBookMetadata,
-    sqliteLoadAllBooks,
     sqliteUpdateBookProgress,
     sqliteSaveBookAnnotations,
     sqliteUpsertAnnotation,
     sqliteDeleteAnnotation,
-    sqliteListCoverVersions,
     sqliteIndexBooksFtsBatch,
     sqliteIndexBookFts,
-    sqliteGetKv,
-    sqliteSetKv,
 } from "../lib/sqlite-storage";
 import { isTauri } from "../lib/env";
-import { loadStoredAnnotations } from "../lib/annotation-load";
 import { withMetadataStamp } from "../lib/book-edit-stamp";
-import { writeAllReportingFailures } from "../lib/legacy-sqlite-move";
-
-function persistBookToSqlite(book: Book): void {
-    if (!isTauri()) return;
-    sqliteSaveBookMetadata(book.id, JSON.stringify(book)).catch((e) => console.error("[catch]", e));
-}
+import {
+    booksByCategoryResultCache,
+    bookmarksResultCache,
+    type CachedBookMetadata,
+    cleanupDiscardedImportedBook,
+    type CompletionUpdateSource,
+    computeFtsHash,
+    createCacheEntry,
+    favoriteBooksResultCache,
+    findDuplicateBookIndex,
+    getBookAnnotationSlice,
+    getBookLookup,
+    getCachedBookLookup,
+    getLibraryTitleSet,
+    highlightsResultCache,
+    mergeImportedBookMetadata,
+    normalizeContentHash,
+    normalizeLibraryTitle,
+    persistBookToSqlite,
+    queueVaultSync,
+    recentBooksResultCache,
+    reconcileHydratedAnnotations,
+    searchBooksResultCache,
+    syncRecentBooksCacheWithBook,
+    updateBookById,
+} from "./libraryHelpers";
+import {
+    buildPartializedLibraryState,
+    getLibraryPartializeDeps,
+    handleLibraryRehydrate,
+    migrateLibraryPersistedState,
+    type PersistedLibraryState,
+    startingHydration,
+} from "./libraryMigration";
 import type {
     Annotation,
     Book,
@@ -42,552 +62,12 @@ import type {
     PdfViewState,
 } from "../types";
 
-interface CachedBookMetadata {
-    id: string;
-    title: string;
-    author: string;
-    coverPath?: string;
-    currentLocation?: string;
-    progress: number;
-    lastClickFraction?: number;
-    pageProgress?: {
-        currentPage: number;
-        endPage?: number;
-        totalPages: number;
-        range: string;
-    };
-    pdfViewState?: PdfViewState;
-    lastReadAt: Date;
-}
-
-type CompletionUpdateSource = "auto" | "manual";
-
-const createCacheEntry = (book: Book): CachedBookMetadata => ({
-    id: book.id,
-    title: book.title,
-    author: book.author,
-    coverPath: book.coverPath,
-    currentLocation: book.currentLocation,
-    progress: book.progress,
-    lastClickFraction: book.lastClickFraction,
-    pageProgress: book.pageProgress,
-    pdfViewState: book.pdfViewState,
-    lastReadAt: book.lastReadAt || new Date(),
-});
-
-function updateBookById(
-    books: Book[],
-    bookId: string,
-    updater: (book: Book) => Book,
-): { books: Book[]; updatedBook: Book | null } {
-    const index = books.findIndex((book) => book.id === bookId);
-    if (index === -1) {
-        return { books, updatedBook: null };
-    }
-
-    const currentBook = books[index];
-    // A user edit to the book's details is stamped, so sync can tell it is newer.
-    const nextBook = withMetadataStamp(currentBook, updater(currentBook));
-    if (nextBook === currentBook) {
-        return { books, updatedBook: currentBook };
-    }
-
-    const nextBooks = books.slice();
-    nextBooks[index] = nextBook;
-    return { books: nextBooks, updatedBook: nextBook };
-}
-
-const bookLookupCache = new WeakMap<Book[], Map<string, Book>>();
-
-const cachedBookLookupCache = new WeakMap<CachedBookMetadata[], Map<string, CachedBookMetadata>>();
-
-const annotationsByBookCache = new WeakMap<Annotation[], Map<string, Annotation[]>>();
-
-const recentBooksResultCache = new WeakMap<Book[], Book[]>();
-const favoriteBooksResultCache = new WeakMap<Book[], Book[]>();
-const booksByCategoryResultCache = new WeakMap<Book[], Map<string, Book[]>>();
-const highlightsResultCache = new WeakMap<Annotation[], Map<string, Annotation[]>>();
-const bookmarksResultCache = new WeakMap<Annotation[], Map<string, Annotation[]>>();
-const searchBooksResultCache = new WeakMap<Book[], Map<string, Book[]>>();
-const COVER_RESTORE_BATCH_SIZE = 48;
-
-function getBookLookup(books: Book[]): Map<string, Book> {
-    const existingLookup = bookLookupCache.get(books);
-    if (existingLookup) {
-        return existingLookup;
-    }
-    const nextLookup = new Map<string, Book>();
-    for (const book of books) {
-        nextLookup.set(book.id, book);
-    }
-    bookLookupCache.set(books, nextLookup);
-    return nextLookup;
-}
-
-const libraryTitleSetCache = new WeakMap<Book[], Set<string>>();
-
-export function normalizeLibraryTitle(title: string): string {
-    return title.toLowerCase().trim();
-}
-
-// Shared normalized-title membership index for title-based existence
-// checks (e.g. Discover cards). Built once per books-array identity and
-// shared across all callers: O(n) once, O(1) per lookup — replacing
-// per-card O(n) .find/.some scans on every store notification.
-export function getLibraryTitleSet(books: Book[]): Set<string> {
-    const existing = libraryTitleSetCache.get(books);
-    if (existing) {
-        return existing;
-    }
-    const next = new Set<string>();
-    for (const book of books) {
-        next.add(normalizeLibraryTitle(book.title));
-    }
-    libraryTitleSetCache.set(books, next);
-    return next;
-}
-
-function getCachedBookLookup(cache: CachedBookMetadata[]): Map<string, CachedBookMetadata> {
-    const existingLookup = cachedBookLookupCache.get(cache);
-    if (existingLookup) {
-        return existingLookup;
-    }
-    const nextLookup = new Map(cache.map((book) => [book.id, book]));
-    cachedBookLookupCache.set(cache, nextLookup);
-    return nextLookup;
-}
-
-function getAnnotationsByBookLookup(annotations: Annotation[]): Map<string, Annotation[]> {
-    const existingLookup = annotationsByBookCache.get(annotations);
-    if (existingLookup) {
-        return existingLookup;
-    }
-
-    const nextLookup = new Map<string, Annotation[]>();
-    for (const annotation of annotations) {
-        const existingAnnotations = nextLookup.get(annotation.bookId);
-        if (existingAnnotations) {
-            existingAnnotations.push(annotation);
-            continue;
-        }
-        nextLookup.set(annotation.bookId, [annotation]);
-    }
-
-    annotationsByBookCache.set(annotations, nextLookup);
-    return nextLookup;
-}
-
-function getBookAnnotationSlice(annotations: Annotation[], bookId: string): Annotation[] {
-    return getAnnotationsByBookLookup(annotations).get(bookId) ?? [];
-}
-
-function annotationTimestamp(annotation: Annotation): number {
-    const value = annotation.updatedAt ?? annotation.createdAt;
-    const ms = value ? new Date(value).getTime() : 0;
-    return Number.isNaN(ms) ? 0 : ms;
-}
-
-/**
- * Combine annotations loaded from storage with those already in memory
- * (added or synced while storage was still loading), dropping anything a
- * tombstone says was deleted. `purgedIds` are persisted rows that must be
- * removed from storage. Annotations are never dropped just because their
- * book is not loaded (yet).
- */
-export function reconcileHydratedAnnotations(
-    persisted: Annotation[],
-    inMemory: Annotation[],
-    tombstones: DeletionTombstone[],
-): { kept: Annotation[]; purgedIds: string[] } {
-    const deletedAnnotationIds = new Set<string>();
-    const deletedBookIds = new Set<string>();
-    for (const t of tombstones) {
-        if (t.entityType === "annotation") deletedAnnotationIds.add(t.entityId);
-        else if (t.entityType === "book") deletedBookIds.add(t.entityId);
-    }
-    const isDeleted = (a: Annotation) =>
-        deletedAnnotationIds.has(a.id) || (!!a.bookId && deletedBookIds.has(a.bookId));
-
-    const byId = new Map<string, Annotation>();
-    const purgedIds: string[] = [];
-    for (const annotation of persisted) {
-        if (isDeleted(annotation)) {
-            purgedIds.push(annotation.id);
-            continue;
-        }
-        byId.set(annotation.id, annotation);
-    }
-    for (const annotation of inMemory) {
-        if (isDeleted(annotation)) continue;
-        const stored = byId.get(annotation.id);
-        if (!stored || annotationTimestamp(annotation) >= annotationTimestamp(stored)) {
-            byId.set(annotation.id, annotation);
-        }
-    }
-    return { kept: [...byId.values()], purgedIds };
-}
-
-/**
- * Books and annotations that stores older than v7/v8 kept in the persisted KV
- * copy (desktop/mobile). They move to their SQLite tables at hydration, and
- * the KV copy keeps them (see `partialize`) until SQLite is confirmed to hold
- * every one, so a failed write is retried on the next launch instead of
- * losing the records. Reset at the start of each hydration.
- */
-let legacyPendingMove: { books: Book[]; annotations: Annotation[] } | null = null;
-
-/** Wraps the post-hydration callback; runs when a hydration starts. */
-function startingHydration<F>(afterHydration: F): F {
-    legacyPendingMove = null;
-    return afterHydration;
-}
-
-function isTombstoned(tombstones: DeletionTombstone[], entityType: "book" | "annotation", id: string): boolean {
-    return tombstones.some((t) => t.entityType === entityType && t.entityId === id);
-}
-
-/**
- * Write the legacy records SQLite does not hold yet. Rows already there are
- * left alone (they may be newer than the KV copy). Returns the records that
- * were missing, so the caller can show them this session either way.
- */
-async function moveMissingLegacyRecords<T extends { id: string }>(
-    kind: "books" | "annotations",
-    storedIds: ReadonlySet<string>,
-    write: (record: T) => Promise<unknown>,
-): Promise<T[]> {
-    const pending = legacyPendingMove?.[kind] as T[] | undefined;
-    if (!pending || pending.length === 0) return [];
-    const tombstones = useLibraryStore.getState().deletionTombstones;
-    const entityType = kind === "books" ? "book" : "annotation";
-    const missing = pending.filter((record) =>
-        record && record.id && !storedIds.has(record.id) && !isTombstoned(tombstones, entityType, record.id));
-    const moved = missing.length === 0 || await writeAllReportingFailures(`legacy ${kind}`, missing, write);
-    if (moved && legacyPendingMove) {
-        legacyPendingMove = { ...legacyPendingMove, [kind]: [] };
-        if (legacyPendingMove.books.length === 0 && legacyPendingMove.annotations.length === 0) {
-            legacyPendingMove = null;
-        }
-        // Rewrite the persisted copy without the records SQLite now holds.
-        useLibraryStore.setState({});
-    }
-    return missing;
-}
-
-function mergeBookIntoCachedEntry(entry: CachedBookMetadata, book: Book): CachedBookMetadata {
-    return {
-        ...entry,
-        title: book.title,
-        author: book.author,
-        coverPath: book.coverPath,
-        currentLocation: book.currentLocation,
-        progress: book.progress,
-        lastClickFraction: book.lastClickFraction,
-        pageProgress: book.pageProgress,
-        pdfViewState: book.pdfViewState,
-        lastReadAt: book.lastReadAt || entry.lastReadAt,
-    };
-}
-
-function syncRecentBooksCacheWithBook(
-    cache: CachedBookMetadata[],
-    book: Book,
-): CachedBookMetadata[] {
-    const index = cache.findIndex((entry) => entry.id === book.id);
-    if (index === -1) {
-        return cache;
-    }
-
-    const nextCache = cache.slice();
-    nextCache[index] = mergeBookIntoCachedEntry(cache[index], book);
-    return nextCache;
-}
-
-function normalizeContentHash(contentHash?: string): string | undefined {
-    if (typeof contentHash !== "string") {
-        return undefined;
-    }
-
-    const normalized = contentHash.trim().toLowerCase();
-    return normalized.length > 0 ? normalized : undefined;
-}
-
-// Hash of the book list last indexed into `books_fts`. The native startup
-// reconcile (`reconcile_books_fts`) deletes this key whenever it had to repair
-// the index, so a stale hash never hides an out-of-date index.
-const FTS_HASH_KV_KEY = "fts:booksHash";
-
-function fnv1aInto(hash: number, value: string): number {
-    let h = hash >>> 0;
-    for (let i = 0; i < value.length; i++) {
-        h ^= value.charCodeAt(i);
-        h = Math.imul(h, 0x01000193);
-    }
-    return h >>> 0;
-}
-
-export function computeFtsHash(books: Array<{ id: string; title: string; author: string }>): string {
-    let hash = 0x811c9dc5;
-    for (const book of books) {
-        hash = fnv1aInto(hash, book.id);
-        hash = fnv1aInto(hash, "\u0001");
-        hash = fnv1aInto(hash, book.title ?? "");
-        hash = fnv1aInto(hash, "\u0001");
-        hash = fnv1aInto(hash, book.author ?? "");
-        hash = fnv1aInto(hash, "\u0000");
-    }
-    return (hash >>> 0).toString(36);
-}
-
-function findDuplicateBookIndex(books: Book[], incomingBook: Book): number {
-    const incomingHash = normalizeContentHash(incomingBook.contentHash);
-    if (incomingHash) {
-        const byHashIndex = books.findIndex(
-            (book) => normalizeContentHash(book.contentHash) === incomingHash,
-        );
-        if (byHashIndex !== -1) {
-            return byHashIndex;
-        }
-    }
-
-    return books.findIndex((book) => {
-        const sameStoragePath = Boolean(
-            incomingBook.storagePath
-            && book.storagePath
-            && incomingBook.storagePath === book.storagePath,
-        );
-        if (sameStoragePath) {
-            return true;
-        }
-
-        return (
-            incomingBook.filePath === book.filePath
-            && incomingBook.format === book.format
-            && incomingBook.fileSize === book.fileSize
-        );
-    });
-}
-
-function isPlaceholderTitle(title: string): boolean {
-    return title === "Unknown" || title.includes(".");
-}
-
-function isPlaceholderAuthor(author: string): boolean {
-    return author === "Unknown Author" || author.trim().length === 0;
-}
-
-function mergeImportedBookMetadata(existingBook: Book, incomingBook: Book): Book {
-    let changed = false;
-    const nextBook = { ...existingBook };
-    if (incomingBook.sourceFolders?.length) {
-        const sourceFolders = mergeSourceFolders(existingBook.sourceFolders, incomingBook.sourceFolders);
-        if (JSON.stringify(sourceFolders) !== JSON.stringify(existingBook.sourceFolders ?? [])) {
-            nextBook.sourceFolders = sourceFolders;
-            changed = true;
-        }
-    }
-
-    if (existingBook.syncedWithoutFile && (incomingBook.storagePath || incomingBook.filePath)) {
-        nextBook.storagePath = incomingBook.storagePath || incomingBook.filePath;
-        nextBook.filePath = incomingBook.filePath || incomingBook.storagePath || existingBook.filePath;
-        nextBook.syncedWithoutFile = false;
-        nextBook.coverExtractionDone = false;
-        changed = true;
-    }
-
-    if (!existingBook.contentHash && incomingBook.contentHash) {
-        nextBook.contentHash = incomingBook.contentHash;
-        changed = true;
-    }
-
-    if (!existingBook.coverPath && incomingBook.coverPath) {
-        nextBook.coverPath = incomingBook.coverPath;
-        changed = true;
-    }
-
-    if (!existingBook.coverExtractionDone && incomingBook.coverExtractionDone) {
-        nextBook.coverExtractionDone = true;
-        changed = true;
-    }
-
-    if (isPlaceholderTitle(existingBook.title) && incomingBook.title && !isPlaceholderTitle(incomingBook.title)) {
-        nextBook.title = incomingBook.title;
-        changed = true;
-    }
-
-    if (isPlaceholderAuthor(existingBook.author) && incomingBook.author && !isPlaceholderAuthor(incomingBook.author)) {
-        nextBook.author = incomingBook.author;
-        changed = true;
-    }
-
-    if (!existingBook.description && incomingBook.description) {
-        nextBook.description = incomingBook.description;
-        changed = true;
-    }
-
-    if (!existingBook.publisher && incomingBook.publisher) {
-        nextBook.publisher = incomingBook.publisher;
-        changed = true;
-    }
-
-    if (!existingBook.publishedDate && incomingBook.publishedDate) {
-        nextBook.publishedDate = incomingBook.publishedDate;
-        changed = true;
-    }
-
-    if (!existingBook.language && incomingBook.language) {
-        nextBook.language = incomingBook.language;
-        changed = true;
-    }
-
-    if (!existingBook.isbn && incomingBook.isbn) {
-        nextBook.isbn = incomingBook.isbn;
-        changed = true;
-    }
-
-    if (!existingBook.series && incomingBook.series) {
-        nextBook.series = incomingBook.series;
-        changed = true;
-    }
-
-    if (existingBook.seriesIndex === undefined && incomingBook.seriesIndex !== undefined) {
-        nextBook.seriesIndex = incomingBook.seriesIndex;
-        changed = true;
-    }
-
-    return changed ? nextBook : existingBook;
-}
-
-function cleanupDiscardedImportedBook(book: Book): void {
-    if (!book.id) {
-        return;
-    }
-
-    if (isTauri()) {
-        deleteBookStorage(book.id).catch(e => console.error("[catch]", e));
-    }
-}
-
-function normalizePersistedBook(book: Book): Book {
-    const contentHash = normalizeContentHash(book.contentHash);
-    const hasLegacyPersistedCoverPath = typeof book.coverPath === "string" && book.coverPath.length > 0;
-    const fallbackPath = `sqlite://${book.id}`;
-    const normalizedFilePath = (
-        typeof book.filePath === "string" && book.filePath.length > 0
-    )
-        ? book.filePath
-        : (
-            typeof book.storagePath === "string" && book.storagePath.length > 0
-                ? book.storagePath
-                : fallbackPath
-        );
-    const normalizedStoragePath = (
-        typeof book.storagePath === "string" && book.storagePath.length > 0
-    )
-        ? book.storagePath
-        : normalizedFilePath;
-
-    return {
-        ...book,
-        contentHash,
-        filePath: normalizedFilePath,
-        sourceFolders: normalizeSourceFolders(book.sourceFolders),
-        storagePath: normalizedStoragePath,
-        coverExtractionDone: Boolean(book.coverExtractionDone || hasLegacyPersistedCoverPath),
-        series: typeof book.series === "string" && book.series.trim().length > 0 ? book.series.trim() : undefined,
-        seriesIndex: typeof book.seriesIndex === "number" && !Number.isNaN(book.seriesIndex) ? book.seriesIndex : undefined,
-    };
-}
-
-function collectBookIdsMissingCoverPath(
-    books: Book[],
-    recentBooksCache: CachedBookMetadata[],
-): string[] {
-    const ids = new Set<string>();
-
-    for (const book of books) {
-        if (!book.coverPath) {
-            ids.add(book.id);
-        }
-    }
-
-    for (const cachedBook of recentBooksCache) {
-        if (!cachedBook.coverPath) {
-            ids.add(cachedBook.id);
-        }
-    }
-
-    return [...ids];
-}
-
-function applyCoverLookupToBooks(books: Book[], coverLookup: Map<string, string>): Book[] {
-    let changed = false;
-
-    const nextBooks = books.map((book) => {
-        if (book.coverPath) {
-            return book;
-        }
-
-        const restoredCoverPath = coverLookup.get(book.id);
-        if (!restoredCoverPath) {
-            return book;
-        }
-
-        changed = true;
-        return {
-            ...book,
-            coverPath: restoredCoverPath,
-        };
-    });
-
-    return changed ? nextBooks : books;
-}
-
-function applyCoverLookupToRecentCache(
-    recentBooksCache: CachedBookMetadata[],
-    coverLookup: Map<string, string>,
-): CachedBookMetadata[] {
-    let changed = false;
-
-    const nextCache = recentBooksCache.map((cachedBook) => {
-        if (cachedBook.coverPath) {
-            return cachedBook;
-        }
-
-        const restoredCoverPath = coverLookup.get(cachedBook.id);
-        if (!restoredCoverPath) {
-            return cachedBook;
-        }
-
-        changed = true;
-        return {
-            ...cachedBook,
-            coverPath: restoredCoverPath,
-        };
-    });
-
-    return changed ? nextCache : recentBooksCache;
-}
-
-type LegacyCollection = Omit<Collection, "kind"> & {
-    kind?: "general" | "research";
+export {
+    computeFtsHash,
+    getLibraryTitleSet,
+    normalizeLibraryTitle,
+    reconcileHydratedAnnotations,
 };
-
-function normalizeCollectionKind(collection: LegacyCollection): Collection | null {
-    if (collection.kind === "research") {
-        return null;
-    }
-
-    return {
-        ...collection,
-        kind: "general",
-        groupBySeries: Boolean(collection.groupBySeries),
-    };
-}
-
-function queueVaultSync(): void {
-    triggerVaultAutoSync();
-}
 
 interface LibraryStore {
     books: Book[];
@@ -658,11 +138,6 @@ interface LibraryStore {
     setCurrentBookId: (bookId: string | undefined) => void;
 
 }
-
-type PersistedLibraryState = Pick<
-    LibraryStore,
-    "books" | "collections" | "annotations" | "deletionTombstones" | "lastScannedAt" | "recentBooksCache"
->;
 
 export const useLibraryStore = create<LibraryStore>()(
     persist(
@@ -755,6 +230,7 @@ export const useLibraryStore = create<LibraryStore>()(
                 // search index; a discarded duplicate must not come back as a row.
                 const addedIndices = new Set<number>();
                 const mergedIndices = new Set<number>();
+                const ftsReindexIndices = new Set<number>();
 
                 for (const incomingBook of incomingBooks) {
                     const duplicateIndex = findDuplicate(incomingBook);
@@ -789,6 +265,9 @@ export const useLibraryStore = create<LibraryStore>()(
                         }
                         nextBooks[duplicateIndex] = mergedBook;
                         mergedIndices.add(duplicateIndex);
+                        if (mergedBook.title !== duplicateBook.title || mergedBook.author !== duplicateBook.author) {
+                            ftsReindexIndices.add(duplicateIndex);
+                        }
 
                         const updatedCache = syncRecentBooksCacheWithBook(
                             nextRecentBooksCache,
@@ -817,8 +296,9 @@ export const useLibraryStore = create<LibraryStore>()(
                     for (const index of new Set([...addedIndices, ...mergedIndices])) {
                         persistBookToSqlite(nextBooks[index]);
                     }
-                    if (addedIndices.size > 0) {
-                        const ftsEntries: Array<[string, string, string]> = [...addedIndices]
+                    const indexedIndices = [...new Set([...addedIndices, ...ftsReindexIndices])];
+                    if (indexedIndices.length > 0) {
+                        const ftsEntries: Array<[string, string, string]> = indexedIndices
                             .map((index) => nextBooks[index])
                             .map(b => [b.id, b.title, b.author]);
                         sqliteIndexBooksFtsBatch(ftsEntries).catch(e => console.error("[catch]", e));
@@ -1591,29 +1071,19 @@ export const useLibraryStore = create<LibraryStore>()(
                 const highlights = annotations.filter(a => a.type === 'highlight' || a.type === 'note');
                 const bookmarks = annotations.filter(a => a.type === 'bookmark');
 
-                let markdown = `# Highlights for "${book.title}"\n\n`;
-                markdown += `by ${book.author}\n\n`;
-                markdown += `---\n\n`;
-
-                if (highlights.length > 0) {
-                    markdown += `## Highlights (${highlights.length})\n\n`;
-
-                    highlights.forEach((annotation, index) => {
-                        markdown += `### ${index + 1}. ${annotation.color || 'Highlight'}\n\n`;
-                        markdown += `> ${annotation.selectedText?.replace(/\n/g, ' ') || ''}\n\n`;
-
-                        if (annotation.noteContent) {
-                            markdown += `**Note:** ${annotation.noteContent}\n\n`;
-                        }
-
-                        markdown += `\`\`\`\nLocation: ${annotation.location}\n\`\`\`\n\n`;
-                        markdown += `---\n\n`;
-                    });
-                }
+                let markdown = buildBookPageMarkdown(
+                    {
+                        id: book.id,
+                        title: book.title,
+                        author: book.author || 'Unknown Author',
+                        format: book.format,
+                        filePath: book.filePath,
+                    },
+                    highlights,
+                );
 
                 if (bookmarks.length > 0) {
-                    markdown += `## Bookmarks (${bookmarks.length})\n\n`;
-
+                    markdown += `\n## Bookmarks (${bookmarks.length})\n\n`;
                     bookmarks.forEach((bookmark, index) => {
                         markdown += `${index + 1}. ${bookmark.selectedText || 'Bookmark'}\n`;
                         markdown += `   - Location: ${bookmark.location}\n\n`;
@@ -1696,280 +1166,16 @@ export const useLibraryStore = create<LibraryStore>()(
             name: "theorem-library",
             version: 11,
             storage: deferredJsonStorage,
-            migrate: (persistedState, version) => {
-                const persisted = (
-                    typeof persistedState === "object" && persistedState !== null
-                        ? persistedState
-                        : {}
-                ) as Partial<PersistedLibraryState>;
-
-                const books = Array.isArray(persisted.books)
-                    ? (persisted.books as Book[]).map((book) => normalizePersistedBook(book))
-                    : [];
-                const collections = Array.isArray(persisted.collections)
-                    ? (persisted.collections as LegacyCollection[])
-                        .map((collection) => normalizeCollectionKind(collection))
-                        .filter((collection): collection is Collection => Boolean(collection))
-                    : [];
-                const annotations = Array.isArray(persisted.annotations)
-                    ? (persisted.annotations as Annotation[]).map((annotation) => ({
-                        ...annotation,
-                        referenceId: typeof annotation.referenceId === "string"
-                            ? annotation.referenceId
-                            : undefined,
-                    }))
-                    : [];
-                const deletionTombstones = Array.isArray(persisted.deletionTombstones)
-                    ? persisted.deletionTombstones as DeletionTombstone[]
-                    : [];
-                const lastScannedAt = persisted.lastScannedAt
-                    ? new Date(persisted.lastScannedAt)
-                    : undefined;
-                const recentBooksCache = Array.isArray(persisted.recentBooksCache)
-                    ? persisted.recentBooksCache as CachedBookMetadata[]
-                    : [];
-
-                // On native platforms books and annotations live in SQLite. Any still in the
-                // KV copy stay there until hydration confirms SQLite holds them.
-                if (isTauri() && (books.length > 0 || annotations.length > 0)) {
-                    legacyPendingMove = { books, annotations };
-                }
-
-                // When upgrading from < 7 on native platforms, migrate existing annotations into SQLite
-                if (version < 7 && isTauri() && annotations.length > 0) {
-                    for (const ann of annotations) {
-                        if (ann && ann.id && ann.bookId) {
-                            void sqliteUpsertAnnotation(
-                                ann.id,
-                                ann.bookId,
-                                JSON.stringify(ann),
-                            ).catch((e) => console.error("[migration-catch]", e));
-                        }
-                    }
-                }
-
-                // When upgrading from < 8 on native platforms, migrate existing books into SQLite
-                if (version < 8 && isTauri() && books.length > 0) {
-                    for (const book of books) {
-                        if (book && book.id) {
-                            void sqliteSaveBookMetadata(
-                                book.id,
-                                JSON.stringify(book),
-                            ).catch((e) => console.error("[migration-catch]", e));
-                        }
-                    }
-                }
-
-                return {
-                    books: isTauri() ? [] : books,
-                    collections: normalizeShelfHierarchy(collections),
-                    annotations: isTauri() ? [] : annotations,
-                    deletionTombstones,
-                    lastScannedAt,
-                    recentBooksCache,
-                } as PersistedLibraryState;
-            },
+            migrate: (persistedState, version) => migrateLibraryPersistedState(persistedState, version),
             partialize: memoizePartialize(
-                (state) => [
-                    isTauri() ? legacyPendingMove?.books : state.books,
-                    state.collections,
-                    isTauri() ? legacyPendingMove?.annotations : state.annotations,
-                    state.deletionTombstones,
-                    state.lastScannedAt,
-                    state.recentBooksCache,
-                ],
-                (state): PersistedLibraryState => ({
-                    books: isTauri()
-                        ? legacyPendingMove?.books ?? []
-                        : (state.books.map(({ coverPath: _, locations: __, ...book }) => book) as Book[]),
-                    collections: state.collections,
-                    annotations: isTauri() ? legacyPendingMove?.annotations ?? [] : state.annotations,
-                    deletionTombstones: state.deletionTombstones,
-                    lastScannedAt: state.lastScannedAt,
-                    recentBooksCache: state.recentBooksCache.map(({ coverPath: _, ...book }) => book) as CachedBookMetadata[],
-                }),
+                (state) => getLibraryPartializeDeps(state),
+                (state): PersistedLibraryState => buildPartializedLibraryState(state),
             ),
             onRehydrateStorage: () => startingHydration((state: LibraryStore | undefined) => {
-                if (!state) {
-                    useLibraryStore.setState({ coversHydrated: true });
-                    return;
-                }
-
-                // A KV copy at the current version (migrate did not run) can still hold
-                // records whose move failed on an earlier launch: retry them.
-                if (isTauri() && !legacyPendingMove
-                    && ((state.books?.length ?? 0) > 0 || (state.annotations?.length ?? 0) > 0)) {
-                    legacyPendingMove = {
-                        books: (state.books ?? []).map((book) => normalizePersistedBook(book)),
-                        annotations: state.annotations ?? [],
-                    };
-                }
-
-                state.collections = normalizeShelfHierarchy(state.collections
-                    .map((collection) => normalizeCollectionKind(collection as LegacyCollection))
-                    .filter((collection): collection is Collection => Boolean(collection)));
-
-                if (isTauri()) {
-                    void loadStoredAnnotations().then(async (parsed) => {
-                        const legacyAnnotations = await moveMissingLegacyRecords<Annotation>(
-                            "annotations",
-                            new Set(parsed.map((annotation) => annotation.id)),
-                            (ann) => sqliteUpsertAnnotation(ann.id, ann.bookId, JSON.stringify(ann)),
-                        );
-                        for (const ann of legacyAnnotations) {
-                            parsed.push({
-                                ...ann,
-                                createdAt: ann.createdAt ? new Date(ann.createdAt) : new Date(),
-                                updatedAt: ann.updatedAt ? new Date(ann.updatedAt) : undefined,
-                            });
-                        }
-                        if (parsed.length === 0) return;
-                        // Books hydrate concurrently, so "book not loaded yet" must never
-                        // count as orphaned. Only explicit tombstones remove rows here.
-                        const current = useLibraryStore.getState();
-                        const { kept, purgedIds } = reconcileHydratedAnnotations(
-                            parsed,
-                            current.annotations,
-                            current.deletionTombstones,
-                        );
-                        useLibraryStore.setState({ annotations: kept });
-                        for (const id of purgedIds) {
-                            void sqliteDeleteAnnotation(id).catch((e) => console.error("[catch]", e));
-                        }
-                    }).catch((e) => console.error("[catch]", e));
-                } else {
-                    const { kept } = reconcileHydratedAnnotations(state.annotations, [], state.deletionTombstones ?? []);
-                    state.annotations = kept
-                        .map((annotation) => ({
-                            ...annotation,
-                            referenceId: typeof annotation.referenceId === "string"
-                                ? annotation.referenceId
-                                : undefined,
-                        }));
-                }
-
-                if (state.deletionTombstones?.length > 0) {
-                    const cutoff = new Date();
-                    cutoff.setDate(cutoff.getDate() - 90);
-                    const cutoffStr = cutoff.toISOString();
-                    state.deletionTombstones = state.deletionTombstones.filter(
-                        (t: { deletedAt: string }) => t.deletedAt > cutoffStr,
-                    );
-                }
-
-                const hydrateCoversAndFts = (books: Book[], recentCache: CachedBookMetadata[]) => {
-                    const bookIdsMissingCoverPath = collectBookIdsMissingCoverPath(
-                        books,
-                        recentCache,
-                    );
-
-                    useLibraryStore.setState({ coversHydrated: true });
-
-                    if (bookIdsMissingCoverPath.length > 0) {
-                        void (async () => {
-                            try {
-                                const allCovers = new Map<string, string>();
-                                if (isTauri()) {
-                                    const wanted = new Set(bookIdsMissingCoverPath);
-                                    const versions = await sqliteListCoverVersions();
-                                    for (const row of versions) {
-                                        if (!wanted.has(row.bookId)) continue;
-                                        if (row.dataUrlLen < INLINE_COVER_MAX_CHARS) {
-                                            const inline = await getCoverImage(row.bookId);
-                                            if (inline) allCovers.set(row.bookId, inline);
-                                        } else {
-                                            allCovers.set(row.bookId, coverDisplayUrl(row.bookId, row.updatedAt, row.isSvg));
-                                        }
-                                    }
-                                }
-                                for (let i = 0; !isTauri() && i < bookIdsMissingCoverPath.length; i += COVER_RESTORE_BATCH_SIZE) {
-                                    const batchIds = bookIdsMissingCoverPath.slice(i, i + COVER_RESTORE_BATCH_SIZE);
-                                    const batchEntries = await Promise.all(
-                                        batchIds.map(async (bookId) => {
-                                            const coverPath = await getCoverImage(bookId);
-                                            return [bookId, coverPath] as const;
-                                        }),
-                                    );
-
-                                    for (const [bookId, coverPath] of batchEntries) {
-                                        if (coverPath) {
-                                            allCovers.set(bookId, coverPath);
-                                        }
-                                    }
-                                }
-
-                                if (allCovers.size === 0) return;
-
-                                useLibraryStore.setState((currentState) => {
-                                    const nextBooks = applyCoverLookupToBooks(currentState.books, allCovers);
-                                    const recentBooksCache = applyCoverLookupToRecentCache(
-                                        currentState.recentBooksCache,
-                                        allCovers,
-                                    );
-
-                                    if (
-                                        nextBooks === currentState.books
-                                        && recentBooksCache === currentState.recentBooksCache
-                                    ) {
-                                        return currentState;
-                                    }
-
-                                    return {
-                                        books: nextBooks,
-                                        recentBooksCache,
-                                    };
-                                });
-                            } catch {
-
-                            }
-                        })();
-                    }
-
-                    if (books.length > 0 && isTauri()) {
-                        const ftsBatch = books.map((b: { id: string; title: string; author: string }) => [
-                            b.id,
-                            b.title,
-                            b.author,
-                        ] as [string, string, string]);
-                        void (async () => {
-                            const newHash = computeFtsHash(books);
-                            const prevHash = await sqliteGetKv(FTS_HASH_KV_KEY).catch(() => null);
-                            if (prevHash === newHash) {
-                                return;
-                            }
-                            await sqliteIndexBooksFtsBatch(ftsBatch).catch(e => console.error("[catch]", e));
-                            await sqliteSetKv(FTS_HASH_KV_KEY, newHash).catch(e => console.error("[catch]", e));
-                        })();
-                    }
-                };
-
-                if (isTauri()) {
-                    void sqliteLoadAllBooks().then(async (bookStrings) => {
-                        let loadedBooks: Book[] = [];
-                        if (bookStrings && bookStrings.length > 0) {
-                            loadedBooks = bookStrings.map((s) => {
-                                try {
-                                    const obj = JSON.parse(s);
-                                    return normalizePersistedBook(obj);
-                                } catch {
-                                    return null;
-                                }
-                            }).filter(Boolean) as Book[];
-                        }
-                        const legacyBooks = await moveMissingLegacyRecords<Book>(
-                            "books",
-                            new Set(loadedBooks.map((book) => book.id)),
-                            (book) => sqliteSaveBookMetadata(book.id, JSON.stringify(book)),
-                        );
-                        loadedBooks = legacyBooks.length > 0 ? [...loadedBooks, ...legacyBooks] : loadedBooks;
-                        if (loadedBooks.length > 0) {
-                            useLibraryStore.setState({ books: loadedBooks });
-                        }
-                        hydrateCoversAndFts(loadedBooks, useLibraryStore.getState().recentBooksCache);
-                    }).catch((e) => console.error("[catch]", e));
-                } else {
-                    hydrateCoversAndFts(state.books, state.recentBooksCache);
-                }
+                handleLibraryRehydrate(state, {
+                    getState: () => useLibraryStore.getState(),
+                    setState: (partial) => useLibraryStore.setState(partial),
+                });
             }),
         }
     )

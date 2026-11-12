@@ -2,33 +2,27 @@ import { NAV_CONTROL_ICON } from "../../ui/toolbar-styles";
 import { SELECT_ALL_EVENT } from "../../core/lib/keyboard-shortcuts";
 import { useSmartShelves } from "../../core/lib/useSmartShelves";
 
-import { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn, normalizeFilePath, normalizeAuthor, formatProgress, formatFileSize, formatRelativeDate } from "../../core/lib/utils";
+import { cn } from "../../core/lib/utils";
 import { FILTER_CHIP_SELECTED } from "../../ui/filter-chips";
-import { saveCoverImage, getBookData } from "../../core/lib/storage";
-import { sanitizeHtml } from "../../core/lib/sanitize";
-import { buildFallbackCoverSvg, shouldUseExtractedTitle, shouldUseExtractedAuthor } from "../../core/lib/cover-extractor";
-import { ensureFilenameForFormat, extractFilenameFromPath, pickAndImportBooksIncremental, scanBookFolder } from "../../core/lib/import";
-import { pickLibraryFolderMobile, scanLibraryFolderMobileDetailed } from "../../core/lib/mobile-folder-scan";
-import { describeFolderImport, importFolder, type FolderImportDeps, type FolderImportProgress } from "../../core/lib/folder-import";
 import { FolderImportStatus } from "./components/FolderImportStatus";
-import { isMobile, isTauri } from "../../core/lib/env";
-import { showOpenDirectoryDialog } from "../../core/lib/dialogs";
+import { isTauri } from "../../core/lib/env";
 import { useLibraryStore, useUIStore, useSettingsStore } from "../../core/store";
 import { LibraryFilterPanel } from "./LibraryFilterPanel";
 import { LibraryDailyReviewDeck } from "./components/LibraryDailyReviewDeck";
+import { EmptyLibrary, ImportButton } from "./components/LibraryEmptyState";
+import { RemoveFolderModal, type RemoveFolderTarget } from "./components/modals/RemoveFolderModal";
+import { useLibraryImportAndMetadata } from "./hooks/useLibraryImportAndMetadata";
 import type { Book, Collection, LibraryViewMode, LibrarySortBy, LibrarySortOrder, LibraryStatusFilter } from "../../core/types";
-import { FORMAT_DISPLAY_NAMES } from "../../core/types";
 import {
-    Plus, BookOpen, Loader2, FolderOpen, RefreshCw, Trash2, BookMarked, LayoutGrid, Rows3, Grid3X3, CheckCheck, RotateCcw, Star, Check, Compass, Pencil, Download, ListOrdered, X, CheckSquare, Folder, Funnel
+    Trash2, BookMarked, LayoutGrid, Rows3, Grid3X3, CheckCheck, RotateCcw, Download, ListOrdered, X, CheckSquare, Folder, Funnel
 } from "lucide-react";
 import { IconButton } from "../../ui/IconButton";
-import { Button, PageHeader, TheoremBookCover } from "../../ui";
-import { Modal, ModalHeader, ModalBody, ModalFooter, ConfirmDialog, AlertDialog } from "../../ui";
+import { Button, PageHeader, ConfirmDialog, AlertDialog } from "../../ui";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
-import { twoTierSearchBooks } from "../../core/lib/sqlite-storage";
+import { twoTierSearchBooks, sqliteQueryBooksWindow } from "../../core/lib/sqlite-storage";
 import { initTheoremCoreWasm, isWasmCoreReady } from "../../core/lib/theorem-core";
 import { exportBook, exportBooks } from "../../core/lib/book-export";
 import { EditBookModal } from "./components/modals/EditBookModal";
@@ -44,8 +38,6 @@ const viewModeIcons: Record<LibraryViewMode, React.ReactNode> = {
     list: <Rows3 className={NAV_CONTROL_ICON} />,
     compact: <Grid3X3 className={NAV_CONTROL_ICON} />,
 };
-
-
 
 /**
  * Fixed height of a list-view book row, in CSS pixels.
@@ -66,507 +58,13 @@ import { LIBRARY_LIST_ROW_HEIGHT } from "./row-height";
  * browser shares the exact same treatment without importing the Library route.
  */
 
-type ExtractMetadataFn = typeof import("../../core/lib/cover-extractor").extractMetadata;
+import { isBookMarkedRead } from "./components/BookCard";
+import { BookInfoModal, AddToShelfModal } from "./components/modals/LibraryBookModals";
 
-const IMPORT_METADATA_TIMEOUT_MS = isMobile() ? 9000 : 6000;
-const IMPORT_COVER_TIMEOUT_MS = isMobile() ? 7000 : 4000;
-const IMPORT_METADATA_QUEUE_CONCURRENCY = isMobile() ? 1 : 3;
-let extractMetadataPromise: Promise<ExtractMetadataFn> | null = null;
-
-async function getExtractMetadataFn(): Promise<ExtractMetadataFn> {
-    if (!extractMetadataPromise) {
-        extractMetadataPromise = import("../../core/lib/cover-extractor").then(
-            (module) => module.extractMetadata,
-        );
-    }
-    return extractMetadataPromise;
-}
-
-import { normalizeMetadataText, isBookMarkedRead } from "./components/BookCard";
-
-
+export { EmptyLibrary };
 export { BookCard, MemoizedBookCard } from "./components/BookCard";
+export { BookInfoModal, AddToShelfModal, RenameBookModal } from "./components/modals/LibraryBookModals";
 import { MemoizedBookCard } from "./components/BookCard";
-
-export function EmptyLibrary({
-    onAddBooks,
-    onScanFolder,
-    onBrowseDiscover,
-    isImporting,
-    isScanning,
-}: {
-    onAddBooks: () => void;
-    onScanFolder?: () => void;
-    onBrowseDiscover: () => void;
-    isImporting: boolean;
-    isScanning: boolean;
-}) {
-    return (
-        <div className="mx-auto w-full max-w-[26rem] min-w-0 px-4 sm:px-6 flex flex-col items-center justify-center py-24 text-center animate-fade-in">
-            <div className="w-16 h-16 bg-[var(--color-surface-muted)] flex items-center justify-center mb-6">
-                <BookOpen className="w-6 h-6 text-[color:var(--color-text-secondary)]" />
-            </div>
-            <h2 className="w-full break-words text-balance text-lg text-[color:var(--color-text-primary)] mb-2">
-                No Books Yet
-            </h2>
-            <p className="mx-auto w-full max-w-[24rem] break-words text-[color:var(--color-text-muted)] mb-8 text-sm leading-relaxed">
-                Add EPUB, PDF, MOBI, FB2 or comic files from this device, or find free books in Discover.
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-                <Button variant="primary"
-                    onClick={onAddBooks}
-                    disabled={isImporting}
-                     className={cn("min-w-[10.5rem] whitespace-nowrap px-6 py-2.5")}
-                >
-                    {isImporting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                        <Plus className="w-4 h-4" />
-                    )}
-                    <span>{isImporting ? "Importing..." : "Import Books"}</span>
-                </Button>
-
-                {onScanFolder && (
-                    <Button
-                        onClick={onScanFolder}
-                        disabled={isScanning}
-                         className={cn("min-w-[10.5rem] whitespace-nowrap px-6 py-2.5")}
-                    >
-                        {isScanning ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                            <FolderOpen className="w-4 h-4" />
-                        )}
-                        <span>{isScanning ? "Scanning..." : "Scan Folder"}</span>
-                    </Button>
-                )}
-            </div>
-            <button
-                type="button"
-                onClick={onBrowseDiscover}
-                className="mt-6 inline-flex items-center gap-2 text-sm text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-accent)] transition-colors"
-            >
-                <Compass className="w-4 h-4" />
-                Browse free books in Discover
-            </button>
-        </div>
-    );
-}
-
-function ImportButton({
-    onImport,
-    isLoading,
-}: {
-    onImport: () => void;
-    isLoading: boolean;
-}) {
-    return (
-        <Button variant="primary"
-            onClick={onImport}
-            disabled={isLoading}
-             className={cn("h-11 px-3.5 sm:h-10 sm:px-4")}
-        >
-            {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-                <Plus className="w-4 h-4" />
-            )}
-            <span className="hidden sm:inline">Add Books</span>
-            <span className="sm:hidden">Add</span>
-        </Button>
-    );
-}
-
-export function BookInfoModal({ book, isOpen, onClose, onEdit }: { book: Book | null; isOpen: boolean; onClose: () => void; onEdit?: (book: Book) => void }) {
-    if (!book) return null;
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} size="md" showCloseButton={true}>
-            <ModalBody className="p-0">
-                <div className="p-6">
-                    <div className="flex items-start gap-4">
-                        <div className="w-24 h-36 shrink-0 overflow-hidden">
-                            <TheoremBookCover
-                                title={book.title}
-                                author={book.author}
-                                coverUrl={book.coverPath}
-                            />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <h2 className="text-lg text-[color:var(--color-text-primary)] line-clamp-2">
-                                {book.title}
-                            </h2>
-                            <p className="text-sm text-[color:var(--color-text-secondary)] mt-1">
-                                {normalizeAuthor(book.author) || "Unknown Author"}
-                            </p>
-                            {book.rating && (
-                                <div className="flex items-center gap-1 mt-2">
-                                    {[...Array(5)].map((_, i) => (
-                                        <Star
-                                            key={i}
-                                            className={cn(
-                                                "w-4 h-4",
-                                                i < book.rating! ? "text-[color:var(--color-warning)] fill-current" : "text-[color:var(--color-border)]"
-                                            )}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="mt-6 space-y-3">
-                        {book.series && (
-                            <div className="p-3 bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
-                                <p className="text-xs text-[color:var(--color-text-muted)]">Series</p>
-                                <p className="text-sm text-[color:var(--color-text-primary)] mt-0.5">
-                                    {book.series}
-                                    {book.seriesIndex !== undefined ? ` • Volume ${book.seriesIndex}` : ""}
-                                </p>
-                            </div>
-                        )}
-                        {book.description && (
-                            <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)]">Description</p>
-                                <div
-                                    className="text-sm text-[color:var(--color-text-secondary)] mt-1 [&_a]:text-[var(--color-accent)] [&_a]:underline prose prose-sm max-w-none"
-                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(book.description) }}
-                                />
-                            </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-3">
-                            {book.publisher && (
-                                <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)]">Publisher</p>
-                                    <p className="text-sm text-[color:var(--color-text-secondary)]">{book.publisher}</p>
-                                </div>
-                            )}
-                            {book.publishedDate && (
-                                <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)]">Published</p>
-                                    <p className="text-sm text-[color:var(--color-text-secondary)]">{book.publishedDate}</p>
-                                </div>
-                            )}
-                            {book.language && (
-                                <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)]">Language</p>
-                                    <p className="text-sm text-[color:var(--color-text-secondary)]">{book.language}</p>
-                                </div>
-                            )}
-                            {book.isbn && (
-                                <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)]">ISBN</p>
-                                    <p className="text-sm text-[color:var(--color-text-secondary)]">{book.isbn}</p>
-                                </div>
-                            )}
-                            <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)]">Format</p>
-                                <p className="text-sm text-[color:var(--color-text-secondary)]">{FORMAT_DISPLAY_NAMES[book.format] || book.format}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)]">Size</p>
-                                <p className="text-sm text-[color:var(--color-text-secondary)]">{formatFileSize(book.fileSize)}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)]">Added</p>
-                                <p className="text-sm text-[color:var(--color-text-secondary)]">{formatRelativeDate(book.addedAt instanceof Date ? book.addedAt : new Date(book.addedAt))}</p>
-                            </div>
-                            {book.lastReadAt && (
-                                <div>
-                                    <p className="text-xs text-[color:var(--color-text-muted)]">Last Read</p>
-                                    <p className="text-sm text-[color:var(--color-text-secondary)]">{book.lastReadAt ? formatRelativeDate(book.lastReadAt instanceof Date ? book.lastReadAt : new Date(book.lastReadAt)) : "Never"}</p>
-                                </div>
-                            )}
-                        </div>
-                        {book.progress > 0 && (
-                            <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)]">Progress</p>
-                                <p className="text-sm text-[color:var(--color-text-secondary)]">{formatProgress(book.progress)}</p>
-                            </div>
-                        )}
-                        {book.tags.length > 0 && (
-                            <div>
-                                <p className="text-xs text-[color:var(--color-text-muted)] mb-1">Tags</p>
-                                <div className="flex flex-wrap gap-1">
-                                    {book.tags.map((tag: string) => (
-                                        <span
-                                            key={tag}
-                                            className="px-2 py-0.5 text-xs bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)]"
-                                        >
-                                            {tag}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </ModalBody>
-            <ModalFooter>
-                {onEdit && (
-                    <Button
-                        onClick={() => {
-                            onClose();
-                            onEdit(book);
-                        }}
-                         className="px-3 py-1.5 text-xs"
-                    >
-                        <Pencil className="w-3.5 h-3.5" />
-                        Edit
-                    </Button>
-                )}
-                <Button variant="ghost"
-                    onClick={onClose}
-                    
-                >
-                    Close
-                </Button>
-            </ModalFooter>
-        </Modal>
-    );
-}
-
-export function AddToShelfModal({
-    isOpen,
-    onClose,
-    bookId,
-    collections,
-    currentShelfIds,
-    onAddToShelf,
-    onRemoveFromShelf,
-    onCreateShelf,
-}: {
-    isOpen: boolean;
-    onClose: () => void;
-    bookId: string | null;
-    collections: Collection[];
-    /** Shelves `bookId` already belongs to, so the dialog can toggle membership. */
-    currentShelfIds?: ReadonlySet<string>;
-    onAddToShelf: (bookId: string | null, shelfId: string) => void;
-    onRemoveFromShelf?: (shelfId: string) => void;
-    onCreateShelf: (name: string) => void;
-}) {
-    const [newShelfName, setNewShelfName] = useState("");
-    const titleId = useId();
-
-    const handleCreateShelf = () => {
-        if (newShelfName.trim()) {
-            onCreateShelf(newShelfName.trim());
-            setNewShelfName("");
-        }
-    };
-
-    const [shelfSearch, setShelfSearch] = useState("");
-
-    useEffect(() => {
-        if (!isOpen) {
-            setShelfSearch("");
-            setNewShelfName("");
-        }
-    }, [isOpen, bookId]);
-
-    const filteredShelves = useMemo(
-        () => shelfSearch.trim()
-            ? collections.filter((s) => !s.smartRules && s.name.toLowerCase().includes(shelfSearch.toLowerCase()))
-            : collections.filter((s) => !s.smartRules),
-        [collections, shelfSearch],
-    );
-
-    const renderShelfItem = (shelf: Collection) => {
-        const isMember = !!currentShelfIds?.has(shelf.id);
-        return (
-            <button
-                key={shelf.id}
-                role="checkbox"
-                aria-checked={isMember}
-                onClick={() => {
-                    // Toggle rather than add-only, so a book can also be removed
-                    // from a shelf on a phone. The dialog stays open so several
-                    // shelves can be fixed in one go.
-                    if (isMember) {
-                        onRemoveFromShelf?.(shelf.id);
-                    } else {
-                        onAddToShelf(bookId, shelf.id);
-                    }
-                }}
-                className="w-full flex items-center gap-2 p-2 hover:bg-[var(--color-surface-muted)] transition-colors text-left"
-            >
-                <FolderOpen className="w-4 h-4 shrink-0 text-[color:var(--color-text-muted)]" />
-                <div className="flex-1 min-w-0">
-                    <p className={cn(
-                        "text-sm truncate",
-                        isMember
-                            ? "text-[color:var(--color-accent)]"
-                            : "text-[color:var(--color-text-primary)]"
-                    )}>
-                        {shelf.name}
-                    </p>
-                    <p className="text-[11px] text-[color:var(--color-text-muted)]">
-                        {shelf.bookIds.length} {shelf.bookIds.length === 1 ? "book" : "books"}
-                    </p>
-                </div>
-                {isMember && (
-                    <Check className="w-4 h-4 shrink-0 text-[color:var(--color-accent)]" />
-                )}
-            </button>
-        );
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={true} ariaLabelledby={titleId}>
-            <ModalBody className="p-0">
-                <div className="p-4 sm:p-6">
-                    <h2 id={titleId} className="text-base sm:text-lg text-[color:var(--color-text-primary)] mb-3">
-                        {currentShelfIds && currentShelfIds.size > 0 ? "Shelves" : "Add to Shelf"}
-                    </h2>
-
-                    {collections.length > 0 && (
-                        <input
-                            type="text"
-                            value={shelfSearch}
-                            onChange={(e) => setShelfSearch(e.target.value)}
-                            aria-label="Search shelves"
-                            placeholder="Search shelves..."
-                            className="w-full mb-2 px-2.5 py-1.5 bg-[var(--color-background)] border border-[var(--color-border)] text-sm text-[color:var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent)]"
-                        />
-                    )}
-
-                    {collections.length > 0 ? (
-                        <div className="max-h-48 sm:max-h-60 overflow-y-auto space-y-0.5 -mx-1 px-1 [content-visibility:auto] overscroll-contain">
-                            {filteredShelves.map((shelf) => renderShelfItem(shelf))}
-                            {filteredShelves.length === 0 && (
-                                <p className="text-sm text-[color:var(--color-text-muted)] text-center py-3">
-                                    No shelves match "{shelfSearch}"
-                                </p>
-                            )}
-                        </div>
-                    ) : (
-                        <p className="text-sm text-[color:var(--color-text-muted)] text-center py-3">
-                            No shelves yet. Create one below.
-                        </p>
-                    )}
-
-                    <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
-                        <p className="text-[11px] text-[color:var(--color-text-muted)] mb-2">Create New Shelf</p>
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={newShelfName}
-                                onChange={(e) => setNewShelfName(e.target.value)}
-                                aria-label="New shelf name"
-                                placeholder="Shelf name..."
-                                className={cn(
-                                    "flex-1 px-2.5 py-1.5",
-                                    "bg-[var(--color-background)] border border-[var(--color-border)]",
-                                    "text-sm text-[color:var(--color-text-primary)]",
-                                    "focus:outline-none focus:border-[var(--color-accent)]"
-                                )}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") handleCreateShelf();
-                                }}
-                            />
-                            <Button variant="primary"
-                                onClick={handleCreateShelf}
-                                disabled={!newShelfName.trim()}
-                                 className="text-xs px-3"
-                            >
-                                Create
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            </ModalBody>
-            <ModalFooter>
-                <Button variant="ghost"
-                    onClick={onClose}
-                    
-                >
-                    Cancel
-                </Button>
-            </ModalFooter>
-        </Modal>
-    );
-}
-
-export function RenameBookModal({
-    isOpen,
-    book,
-    onClose,
-    onSave,
-}: {
-    isOpen: boolean;
-    book: Book | null;
-    onClose: () => void;
-    onSave: (bookId: string, newTitle: string) => void;
-}) {
-    const [title, setTitle] = useState("");
-
-    useEffect(() => {
-        if (isOpen && book) {
-            setTitle(book.title);
-        }
-    }, [isOpen, book]);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (title.trim() && book) {
-            onSave(book.id, title.trim());
-            onClose();
-        }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            if (title.trim() && book) {
-                onSave(book.id, title.trim());
-                onClose();
-            }
-        }
-    };
-
-    if (!book) return null;
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={true}>
-            <form onSubmit={handleSubmit}>
-                <ModalHeader title="Rename Book" onClose={onClose} showCloseButton={true} />
-                <ModalBody>
-                    <div>
-                        <label htmlFor="rename-title"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
-                            Title
-                        </label>
-                        <input
-                            id="rename-title"
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            className="ui-input"
-                            autoFocus
-                        />
-                    </div>
-                </ModalBody>
-                <ModalFooter>
-                    <Button variant="ghost"
-                        
-                        onClick={onClose}
-                        
-                    >
-                        Cancel
-                    </Button>
-                    <Button variant="primary"
-                        type="submit"
-                        disabled={!title.trim() || title.trim() === book.title}
-                         className="disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        Save
-                    </Button>
-                </ModalFooter>
-            </form>
-        </Modal>
-    );
-}
 
 export function LibraryPage() {
     const books = useLibraryStore((state) => state.books);
@@ -597,14 +95,10 @@ export function LibraryPage() {
     const settings = useSettingsStore((state) => state.settings);
     const updateSettings = useSettingsStore((state) => state.updateSettings);
 
-    const [isImporting, setIsImporting] = useState(false);
-    const importInProgress = useRef(false);
-    const [isScanning, setIsScanning] = useState(false);
-    const scanInProgress = useRef(false);
-    const [folderImportProgress, setFolderImportProgress] = useState<FolderImportProgress | null>(null);
-    const folderImportAbort = useRef<AbortController | null>(null);
-    const [stoppingFolderImport, setStoppingFolderImport] = useState(false);
-    const [showFolderImport, setShowFolderImport] = useState(false);
+    const [selectedShelfId, setSelectedShelfId] = useState<string | null>(null);
+    const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+    const [showUnshelvedOnly, setShowUnshelvedOnly] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<LibraryStatusFilter>("all");
     const [selectedSourceFolder, setSelectedSourceFolder] = useState<SourceFolderSelection | null>(null);
     const sourceFolderIndex = useMemo(() => buildSourceFolderIndex(books), [books]);
     const sourceFolderBookIds = useMemo(() => selectedSourceFolder
@@ -615,16 +109,7 @@ export function LibraryPage() {
             setSelectedSourceFolder(null);
         }
     }, [sourceFolderIndex, selectedSourceFolder]);
-    const isExtractingCoversRef = useRef(false);
-    const isUnmountedRef = useRef(false);
-    const latestBooksRef = useRef(books);
-    latestBooksRef.current = books;
-    useEffect(() => {
-        isUnmountedRef.current = false;
-        return () => {
-            isUnmountedRef.current = true;
-        };
-    }, []);
+
     const [isSelecting, setIsSelecting] = useState(false);
 
     const [showFilterDropdown, setShowFilterDropdown] = useState(false);
@@ -640,182 +125,36 @@ export function LibraryPage() {
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ bookId?: string; title: string; batch?: boolean; bookIds?: string[] } | null>(null);
 
-    const extractedBookIdsRef = useRef<Set<string>>(new Set());
-    const pendingImportMetadataQueueRef = useRef<Book[]>([]);
-    const queuedImportMetadataIdsRef = useRef<Set<string>>(new Set());
-    const activeImportMetadataTasksRef = useRef(0);
+    const onPreservedFolderImported = useCallback((root: string) => {
+        setSelectedSourceFolder({ root, path: "" });
+        setSelectedShelfId(null);
+        sessionStorage.removeItem("theorem-selected-shelf");
+        setShowFavoritesOnly(false);
+        setShowUnshelvedOnly(false);
+    }, []);
 
-    const performImportedBookMetadataExtraction = useCallback(async (book: Book) => {
-        const latestBook = useLibraryStore
-            .getState()
-            .getBook(book.id) ?? book;
+    const {
+        isImporting,
+        isScanning,
+        folderImportProgress,
+        stoppingFolderImport,
+        showFolderImport,
+        setShowFolderImport,
+        handleAddBooks,
+        handleScanFolder,
+        stopFolderImport,
+    } = useLibraryImportAndMetadata({
+        books,
+        coversHydrated,
+        settings,
+        addBook,
+        updateBook,
+        updateSettings,
+        setLastScannedAt,
+        setAlertInfo,
+        onPreservedFolderImported,
+    });
 
-        if (latestBook.coverExtractionDone && latestBook.coverPath) {
-            return;
-        }
-
-        try {
-            const extractMetadata = await getExtractMetadataFn();
-            let data: ArrayBuffer | null = null;
-            const isContentUri = latestBook.filePath.startsWith("content://");
-            const hasOriginalFilePath = (
-                !latestBook.filePath.startsWith('browser://')
-                && !latestBook.filePath.startsWith('idb://')
-                && !latestBook.filePath.startsWith('sqlite://')
-                && !isContentUri
-            );
-
-            if (hasOriginalFilePath) {
-                data = await getBookData('', latestBook.filePath);
-            }
-
-            if (!data) {
-                const storagePath = latestBook.storagePath || latestBook.filePath;
-                data = await getBookData(latestBook.id, storagePath);
-            }
-
-            if (!data) {
-                
-                if (!latestBook.coverPath) {
-                    const fallbackSvg = buildFallbackCoverSvg(
-                        latestBook.title,
-                        latestBook.author || 'Unknown Author',
-                    );
-                    const blob = new Blob([fallbackSvg], { type: 'image/svg+xml' });
-                    const dataUrl = await saveCoverImage(latestBook.id, blob);
-                    updateBook(latestBook.id, {
-                        coverPath: dataUrl,
-                        coverExtractionDone: true,
-                    });
-                }
-                return;
-            }
-
-            const filename = ensureFilenameForFormat(
-                extractFilenameFromPath(latestBook.filePath),
-                latestBook.format,
-            );
-            const metadata = await extractMetadata(
-                data,
-                latestBook.format,
-                filename,
-                latestBook.id,
-                {
-                    metadataTimeoutMs: IMPORT_METADATA_TIMEOUT_MS,
-                    coverTimeoutMs: IMPORT_COVER_TIMEOUT_MS,
-                    allowFallbackCover: true,
-                },
-            );
-
-            const updates: Partial<Book> = {};
-
-            if (metadata.coverDataUrl) {
-                updates.coverPath = metadata.coverDataUrl;
-            }
-
-            const shouldUpdateTitle = shouldUseExtractedTitle(latestBook.title, metadata.title, latestBook.filePath);
-            if (shouldUpdateTitle) {
-                updates.title = normalizeMetadataText(metadata.title);
-            }
-
-            const shouldUpdateAuthor = shouldUseExtractedAuthor(latestBook.author, metadata.author);
-            if (shouldUpdateAuthor) {
-                updates.author = normalizeMetadataText(metadata.author);
-            }
-
-            if (metadata.description && !latestBook.description) {
-                updates.description = metadata.description;
-            }
-            if (metadata.publisher && !latestBook.publisher) {
-                updates.publisher = metadata.publisher;
-            }
-            if (metadata.language && !latestBook.language) {
-                updates.language = metadata.language;
-            }
-            if (metadata.publishedDate && !latestBook.publishedDate) {
-                updates.publishedDate = metadata.publishedDate;
-            }
-            if (metadata.series && !latestBook.series) {
-                updates.series = metadata.series;
-            }
-            if (metadata.seriesIndex !== undefined && latestBook.seriesIndex === undefined) {
-                updates.seriesIndex = metadata.seriesIndex;
-            }
-
-            const hasUsefulMetadataUpdate = (
-                Boolean(metadata.coverDataUrl)
-                || shouldUpdateTitle
-                || shouldUpdateAuthor
-                || Boolean(metadata.description && !latestBook.description)
-                || Boolean(metadata.publisher && !latestBook.publisher)
-                || Boolean(metadata.language && !latestBook.language)
-                || Boolean(metadata.publishedDate && !latestBook.publishedDate)
-                || Boolean(metadata.series && !latestBook.series)
-                || Boolean(metadata.seriesIndex !== undefined && latestBook.seriesIndex === undefined)
-            );
-
-            if (hasUsefulMetadataUpdate) {
-                updates.coverExtractionDone = true;
-            }
-
-            if (Object.keys(updates).length > 0) {
-                updateBook(latestBook.id, updates);
-            }
-
-        } catch (error) {
-        }
-    }, [updateBook]);
-
-    const pumpImportMetadataQueue = useCallback(() => {
-        while (
-            activeImportMetadataTasksRef.current < IMPORT_METADATA_QUEUE_CONCURRENCY
-            && pendingImportMetadataQueueRef.current.length > 0
-        ) {
-            const nextBook = pendingImportMetadataQueueRef.current.pop();
-            if (!nextBook) {
-                break;
-            }
-
-            if (extractedBookIdsRef.current.has(nextBook.id)) {
-                continue;
-            }
-
-            activeImportMetadataTasksRef.current += 1;
-            extractedBookIdsRef.current.add(nextBook.id);
-
-            void performImportedBookMetadataExtraction(nextBook)
-                .catch(e => console.error("[catch]", e))
-                .finally(() => {
-                    activeImportMetadataTasksRef.current = Math.max(0, activeImportMetadataTasksRef.current - 1);
-                    extractedBookIdsRef.current.delete(nextBook.id);
-                    queuedImportMetadataIdsRef.current.delete(nextBook.id);
-                    if (pendingImportMetadataQueueRef.current.length > 0) {
-                        pumpImportMetadataQueue();
-                    }
-                });
-        }
-    }, [performImportedBookMetadataExtraction]);
-
-    const extractImportedBookMetadata = useCallback((book: Book) => {
-        if (
-            book.coverExtractionDone
-            || queuedImportMetadataIdsRef.current.has(book.id)
-            || extractedBookIdsRef.current.has(book.id)
-        ) {
-            return;
-        }
-
-        queuedImportMetadataIdsRef.current.add(book.id);
-        pendingImportMetadataQueueRef.current.push(book);
-        pumpImportMetadataQueue();
-    }, [pumpImportMetadataQueue]);
-
-    const [selectedShelfId, setSelectedShelfId] = useState<string | null>(null);
-
-    const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-    const [showUnshelvedOnly, setShowUnshelvedOnly] = useState(false);
-    const [statusFilter, setStatusFilter] = useState<LibraryStatusFilter>("all");
-    
     useEffect(() => {
         const shelfId = sessionStorage.getItem("theorem-selected-shelf");
         if (shelfId) {
@@ -904,7 +243,60 @@ export function LibraryPage() {
         return () => { cancelled = true; };
     }, [wasmMatcherReady, debouncedSearchQuery, nativeSearchFailed]);
 
+    const WINDOW_PAGE_SIZE = 120;
+    const canUseSqliteWindow = isTauri()
+        && !debouncedSearchQuery.trim()
+        && !selectedShelfBookIds
+        && !sourceFolderBookIds
+        && !showFavoritesOnly
+        && !showUnshelvedOnly
+        && statusFilter === "all"
+        && settings.librarySortBy === "dateAdded"
+        && settings.librarySortOrder === "asc";
+
+    const [sqliteWindowLimit, setSqliteWindowLimit] = useState(WINDOW_PAGE_SIZE);
+    const [sqliteWindowIds, setSqliteWindowIds] = useState<string[] | null>(null);
+    const [sqliteWindowTotal, setSqliteWindowTotal] = useState(0);
+
+    useEffect(() => {
+        if (!canUseSqliteWindow) {
+            setSqliteWindowIds(null);
+            setSqliteWindowTotal(0);
+            setSqliteWindowLimit(WINDOW_PAGE_SIZE);
+            return;
+        }
+        let cancelled = false;
+        sqliteQueryBooksWindow(sqliteWindowLimit, 0).then((result) => {
+            if (cancelled) return;
+            if (result.totalCount === 0 && books.length > 0) {
+                setSqliteWindowIds(null);
+                setSqliteWindowTotal(0);
+                return;
+            }
+            setSqliteWindowIds(result.bookIds);
+            setSqliteWindowTotal(result.totalCount);
+        }, () => {
+            if (cancelled) return;
+            setSqliteWindowIds(null);
+            setSqliteWindowTotal(0);
+        });
+        return () => { cancelled = true; };
+    }, [canUseSqliteWindow, sqliteWindowLimit, books]);
+
     const sortedBooks = useMemo(() => {
+        if (canUseSqliteWindow && sqliteWindowIds && sqliteWindowIds.length > 0) {
+            const getBook = useLibraryStore.getState().getBook;
+            const windowed: Book[] = [];
+            for (const id of sqliteWindowIds) {
+                const book = getBook(id);
+                if (book && !book.tags.includes("rss")) {
+                    windowed.push(book);
+                }
+            }
+            if (windowed.length > 0) {
+                return windowed;
+            }
+        }
         return getFilteredAndSortedBooks({
             books,
             searchQuery: debouncedSearchQuery,
@@ -920,6 +312,8 @@ export function LibraryPage() {
             nativeSearchPending: isTauri() && !nativeSearchFailed,
         });
     }, [
+        canUseSqliteWindow,
+        sqliteWindowIds,
         books,
         debouncedSearchQuery,
         selectedShelfBookIds,
@@ -978,7 +372,19 @@ export function LibraryPage() {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [isSelecting, clearSelection]);
 
-    const scrollRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (currentRoute !== "library" && isSelecting) {
+            clearSelection();
+            setIsSelecting(false);
+        }
+    }, [currentRoute, isSelecting, clearSelection]);
+
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+    const assignScrollRef = useCallback((node: HTMLDivElement | null) => {
+        scrollRef.current = node;
+        setScrollEl(node);
+    }, []);
     const savedScrollOffset = useRef(0);
     const [scrollHeaderHeight, setScrollHeaderHeight] = useState(0);
     const scrollHeaderRef = useCallback((element: HTMLDivElement | null) => {
@@ -1014,7 +420,7 @@ export function LibraryPage() {
     });
 
     useEffect(() => {
-        const el = scrollRef.current;
+        const el = scrollEl;
         if (!el) return;
         const compute = () => {
             const w = el.clientWidth || (typeof window !== "undefined" ? window.innerWidth : 1280);
@@ -1031,6 +437,7 @@ export function LibraryPage() {
             if (w >= 640) return 3;
             return 2;
         };
+        setObservedCols(compute());
         let lastWidth = el.clientWidth;
         const observer = new ResizeObserver(() => {
             const currentWidth = el.clientWidth;
@@ -1043,7 +450,7 @@ export function LibraryPage() {
         });
         observer.observe(el);
         return () => observer.disconnect();
-    }, [isListView, isCompactView]);
+    }, [isListView, isCompactView, scrollEl]);
 
     const effectiveCols = isListView ? 1 : observedCols;
 
@@ -1078,151 +485,24 @@ export function LibraryPage() {
         overscan: 3,
     });
 
+    const virtualRows = rowVirtualizer.getVirtualItems();
+    const lastVirtualRowIndex = virtualRows.length > 0 ? virtualRows[virtualRows.length - 1].index : -1;
+    useEffect(() => {
+        if (!canUseSqliteWindow || !sqliteWindowIds || sqliteWindowIds.length >= sqliteWindowTotal) {
+            return;
+        }
+        const cols = isListView ? 1 : effectiveCols;
+        if ((lastVirtualRowIndex + 1) * cols >= sqliteWindowIds.length - cols * 3) {
+            setSqliteWindowLimit((limit) => Math.max(limit, sqliteWindowIds.length + WINDOW_PAGE_SIZE));
+        }
+    }, [canUseSqliteWindow, sqliteWindowIds, sqliteWindowTotal, isListView, effectiveCols, lastVirtualRowIndex]);
+
     useLayoutEffect(() => {
         if (currentRoute === "library") {
             rowVirtualizer.measure();
             rowVirtualizer.scrollToOffset(savedScrollOffset.current, { behavior: "auto" });
         }
     }, [currentRoute, rowVirtualizer, settings.libraryViewMode, effectiveCols, isCompactView, isListView]);
-
-    useEffect(() => {
-        if (!coversHydrated || isExtractingCoversRef.current || books.length === 0) {
-            return;
-        }
-
-        const knownBookIds = new Set(books.map((book) => book.id));
-        extractedBookIdsRef.current.forEach((bookId) => {
-            if (!knownBookIds.has(bookId)) {
-                extractedBookIdsRef.current.delete(bookId);
-            }
-        });
-
-        const hasPendingFallback = books.some(
-            (book) =>
-                !book.coverPath
-                && !extractedBookIdsRef.current.has(book.id)
-                && !book.syncedWithoutFile,
-        );
-
-        if (!hasPendingFallback) {
-            return;
-        }
-
-        const generateFallbacks = async () => {
-            isExtractingCoversRef.current = true;
-
-            try {
-                const extractMetadata = await getExtractMetadataFn();
-
-                while (!isUnmountedRef.current) {
-                    const batch = latestBooksRef.current.filter(
-                        (book) =>
-                            !book.coverPath
-                            && !extractedBookIdsRef.current.has(book.id)
-                            && !book.syncedWithoutFile,
-                    );
-                    if (batch.length === 0) {
-                        break;
-                    }
-
-                    for (const book of batch) {
-                        if (isUnmountedRef.current) break;
-                        extractedBookIdsRef.current.add(book.id);
-
-                        try {
-                            const isContentUri = book.filePath.startsWith("content://");
-                            const hasOriginalFilePath = (
-                                !book.filePath.startsWith('browser://')
-                                && !book.filePath.startsWith('idb://')
-                                && !book.filePath.startsWith('sqlite://')
-                                && !isContentUri
-                            );
-
-                            let data: ArrayBuffer | null = null;
-                            if (hasOriginalFilePath) {
-                                data = await getBookData('', book.filePath);
-                            }
-                            if (!data) {
-                                const storagePath = book.storagePath || book.filePath;
-                                data = await getBookData(book.id, storagePath);
-                            }
-
-                            if (data) {
-                                const filename = ensureFilenameForFormat(
-                                    extractFilenameFromPath(book.filePath),
-                                    book.format,
-                                );
-                                const metadata = await extractMetadata(
-                                    data,
-                                    book.format,
-                                    filename,
-                                    book.id,
-                                    { allowFallbackCover: true },
-                                );
-                                const updates: Partial<Book> = {};
-                                if (metadata.coverDataUrl) {
-                                    updates.coverPath = metadata.coverDataUrl;
-                                }
-
-                                if (shouldUseExtractedTitle(book.title, metadata.title, book.filePath)) {
-                                    updates.title = normalizeMetadataText(metadata.title);
-                                }
-                                if (metadata.author && !book.author) {
-                                    updates.author = metadata.author;
-                                }
-                                if (metadata.description && !book.description) {
-                                    updates.description = metadata.description;
-                                }
-                                if (metadata.publisher && !book.publisher) {
-                                    updates.publisher = metadata.publisher;
-                                }
-                                if (metadata.language && !book.language) {
-                                    updates.language = metadata.language;
-                                }
-                                if (metadata.publishedDate && !book.publishedDate) {
-                                    updates.publishedDate = metadata.publishedDate;
-                                }
-
-                                const hasAnyUpdate = (
-                                    Boolean(metadata.coverDataUrl)
-                                    || updates.title !== undefined
-                                    || updates.author !== undefined
-                                    || updates.description !== undefined
-                                    || updates.publisher !== undefined
-                                    || updates.language !== undefined
-                                    || updates.publishedDate !== undefined
-                                );
-
-                                if (hasAnyUpdate) {
-                                    updates.coverExtractionDone = true;
-                                    if (!isUnmountedRef.current) updateBook(book.id, updates);
-                                }
-                            } else {
-                                const fallbackSvg = buildFallbackCoverSvg(
-                                    book.title,
-                                    book.author || 'Unknown Author',
-                                );
-                                const blob = new Blob([fallbackSvg], { type: 'image/svg+xml' });
-                                const dataUrl = await saveCoverImage(book.id, blob);
-                                if (!isUnmountedRef.current) {
-                                    updateBook(book.id, {
-                                        coverPath: dataUrl,
-                                        coverExtractionDone: true,
-                                    });
-                                }
-                            }
-                        } catch {
-                            // Keep this book in extractedBookIdsRef so a failing asset doesn't loop forever.
-                        }
-                    }
-                }
-            } finally {
-                isExtractingCoversRef.current = false;
-            }
-        };
-
-        void generateFallbacks();
-    }, [coversHydrated, books, updateBook]);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -1239,156 +519,6 @@ export function LibraryPage() {
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [showFilterDropdown]);
-
-    const handleAddBooks = useCallback(async () => {
-        if (scanInProgress.current || importInProgress.current) return;
-        importInProgress.current = true;
-        setIsImporting(true);
-        const failedImports: Array<{ source: string; message: string }> = [];
-        try {
-            const importBooks = isTauri()
-                ? (await import("../../core/lib/native-import-jobs")).pickAndImportNativeJob
-                : pickAndImportBooksIncremental;
-            await importBooks(
-                (book) => {
-                    addBook(book);
-                    void extractImportedBookMetadata(book);
-                },
-                (source, error) => {
-                    failedImports.push({
-                        source,
-                        message: error instanceof Error ? error.message : String(error),
-                    });
-                },
-            );
-        } catch (err) {
-            failedImports.push({ source: "Import", message: err instanceof Error ? err.message : String(err) });
-        } finally {
-            importInProgress.current = false;
-            setIsImporting(false);
-        }
-        if (failedImports.length > 0) {
-            const preview = failedImports
-                .slice(0, 3)
-                .map((failure) => `- ${failure.source}: ${failure.message}`)
-                .join('\n');
-            setAlertInfo({
-                title: "Import Errors",
-                message: `Some books failed to import (${failedImports.length}).\n\n${preview}` +
-                    (failedImports.length > 3 ? `\n\n(+${failedImports.length - 3} more)` : ''),
-            });
-        }
-    }, [addBook, extractImportedBookMetadata]);
-
-    const runFolderImport = useCallback(async (root: string, preserve: boolean, scan: FolderImportDeps["scan"]) => {
-        const controller = new AbortController();
-        folderImportAbort.current = controller;
-        setStoppingFolderImport(false);
-        try {
-            const result = await importFolder(root, preserve, {
-                scan,
-                importBooks: async (paths, onBook, onFailure, options) => {
-                    const { importBooksIncremental } = await import("../../core/lib/import");
-                    return importBooksIncremental(paths, onBook, onFailure, { ...options, durable: true });
-                },
-                getBooks: () => useLibraryStore.getState().books,
-                addBooks: (batch) => useLibraryStore.getState().addBooks(batch),
-                updateBooks: (updates) => useLibraryStore.getState().updateBooks(updates),
-                onBooksAdded: (batch) => {
-                    for (const book of batch) void extractImportedBookMetadata(book);
-                },
-                onProgress: (progress) => setFolderImportProgress(progress.phase === "scanning" ? progress : null),
-            }, controller.signal);
-            if (!result.cancelled) setLastScannedAt(new Date());
-            if (preserve && result.imported + result.alreadyInLibrary > 0) {
-                setSelectedSourceFolder({ root, path: "" });
-                setSelectedShelfId(null);
-                sessionStorage.removeItem("theorem-selected-shelf");
-                setShowFavoritesOnly(false);
-                setShowUnshelvedOnly(false);
-            }
-            const summary = describeFolderImport(result);
-            if (summary) setAlertInfo(summary);
-        } finally {
-            folderImportAbort.current = null;
-            setFolderImportProgress(null);
-            setStoppingFolderImport(false);
-        }
-    }, [extractImportedBookMetadata, setLastScannedAt]);
-
-    const stopFolderImport = useCallback(() => {
-        setStoppingFolderImport(true);
-        folderImportAbort.current?.abort();
-    }, []);
-
-    const handleScanFolder = useCallback(async (preserve: boolean) => {
-        if (scanInProgress.current || isImporting) return;
-        if (!isTauri()) {
-            setAlertInfo({ title: "Not Available", message: "Folder scanning requires the desktop app." });
-            return;
-        }
-
-        scanInProgress.current = true;
-        setIsScanning(true);
-        try {
-            if (isMobile()) {
-
-                const pickedFolder = await pickLibraryFolderMobile();
-                if (!pickedFolder) {
-                    setIsScanning(false);
-                    return;
-                }
-
-                const prevScanFolders = settings.scanFolders;
-                const nextFolders = prevScanFolders.includes(pickedFolder)
-                    ? prevScanFolders
-                    : [...prevScanFolders, pickedFolder];
-                updateSettings({ scanFolders: nextFolders });
-
-                try {
-                    await runFolderImport(pickedFolder, preserve, (root) => scanLibraryFolderMobileDetailed(root));
-                } catch (err) {
-                    updateSettings({ scanFolders: prevScanFolders });
-                    throw err;
-                }
-                return;
-            }
-
-            const defaultDesktopFolder = settings.scanFolders[0]?.startsWith("content://")
-                ? undefined
-                : settings.scanFolders[0] || undefined;
-            const selectedFolder = await showOpenDirectoryDialog({
-                title: "Scan Library Folder",
-                defaultPath: defaultDesktopFolder,
-            });
-            if (!selectedFolder) {
-                return;
-            }
-
-            const normalizedFolderPath = normalizeFilePath(selectedFolder);
-            if (!normalizedFolderPath) {
-                return;
-            }
-
-            const nextFolders = settings.scanFolders.includes(normalizedFolderPath)
-                ? settings.scanFolders
-                : [...settings.scanFolders, normalizedFolderPath];
-            updateSettings({ scanFolders: nextFolders });
-
-            setIsScanning(true);
-            await runFolderImport(normalizedFolderPath, preserve, (root, signal) => scanBookFolder(root, signal));
-        } catch (err) {
-            setAlertInfo({ title: "Scan Error", message: err instanceof Error ? err.message : 'Failed to scan selected folder.' });
-        } finally {
-            scanInProgress.current = false;
-            setIsScanning(false);
-        }
-    }, [
-        isImporting,
-        runFolderImport,
-        settings.scanFolders,
-        updateSettings,
-    ]);
 
     const handleOpenBook = useCallback((book: Book) => {
         import("../../features/reader"); 
@@ -1594,8 +724,7 @@ export function LibraryPage() {
         onClose={() => setShowFolderImport(false)}
         onContinue={(preserve) => { setShowFolderImport(false); void handleScanFolder(preserve); }} />;
 
-    const [folderToRemove, setFolderToRemove] = useState<{ root: string; name: string; count: number } | null>(null);
-    const [removeFolderDeleteBooks, setRemoveFolderDeleteBooks] = useState(false);
+    const [folderToRemove, setFolderToRemove] = useState<RemoveFolderTarget | null>(null);
 
     const handleInitiateRemoveFolder = useCallback((root: string) => {
         const entry = sourceFolderIndex.get(root);
@@ -1603,7 +732,6 @@ export function LibraryPage() {
             ? entry.name
             : root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || root;
         const count = entry?.folders.get("")?.size ?? 0;
-        setRemoveFolderDeleteBooks(false);
         setFolderToRemove({ root, name: displayName, count });
     }, [sourceFolderIndex]);
 
@@ -1767,7 +895,7 @@ export function LibraryPage() {
             </PageHeader>
             {selectedSourceFolder && (
                 <div className="flex items-center gap-2 my-3 animate-fade-in">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] max-w-full">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] text-[color:var(--color-text-primary)] max-w-full">
                         <Folder className="w-3.5 h-3.5 text-[color:var(--color-text-secondary)] shrink-0" />
                         <span className="truncate max-w-[200px] sm:max-w-[320px]" title={selectedSourceFolder.root}>
                             {selectedSourceFolder.path || sourceFolderIndex.get(selectedSourceFolder.root)?.name || selectedSourceFolder.root.replace(/\\/g, "/").split("/").filter(Boolean).pop() || selectedSourceFolder.root}
@@ -1902,10 +1030,14 @@ export function LibraryPage() {
             <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                 <div className="flex min-h-0 flex-1 flex-col w-full">
                     
-                    <div className={cn(
-                        "md:hidden shrink-0 overflow-hidden transition-colors duration-300",
-                        showFilterDropdown ? "max-h-[800px] mb-8 opacity-100" : "max-h-0 opacity-0 mb-0"
-                    )}>
+                    <div
+                        className={cn(
+                            "md:hidden shrink-0 overflow-hidden transition-colors duration-300",
+                            showFilterDropdown ? "max-h-[800px] mb-8 opacity-100" : "max-h-0 opacity-0 mb-0"
+                        )}
+                        inert={!showFilterDropdown}
+                        aria-hidden={!showFilterDropdown}
+                    >
                         <div className="w-full border-t-2 border-b-2 border-[var(--color-border)] bg-[var(--color-surface-muted)]">
                             <LibraryFilterPanel
                                 variant="sheet"
@@ -1914,7 +1046,7 @@ export function LibraryPage() {
                         </div>
                     </div>
 
-                    <section aria-label="Library books" ref={scrollRef} onScroll={(event) => {
+                    <section aria-label="Library books" ref={assignScrollRef} onScroll={(event) => {
                         if (currentRoute === "library") savedScrollOffset.current = event.currentTarget.scrollTop;
                     }} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid [content-visibility:auto] pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                         <div ref={scrollHeaderRef} className="flow-root">
@@ -2089,51 +1221,11 @@ export function LibraryPage() {
                 onCancel={() => setDeleteConfirm(null)}
             />
 
-            {folderToRemove && (
-                <Modal isOpen={!!folderToRemove} onClose={() => setFolderToRemove(null)} size="sm" showCloseButton={true}>
-                    <ModalHeader title="Remove Folder" onClose={() => setFolderToRemove(null)} showCloseButton={true} />
-                    <ModalBody>
-                        <p className="text-sm leading-relaxed text-[color:var(--color-text-primary)] font-medium">
-                            Remove &ldquo;{folderToRemove.name}&rdquo; from your library?
-                        </p>
-                        <p className="text-xs text-[color:var(--color-text-muted)] mt-1 truncate" title={folderToRemove.root}>
-                            {folderToRemove.root}
-                        </p>
-                        <p className="text-xs text-[color:var(--color-text-muted)] mt-3">
-                            Your original book files on your device will never be deleted.
-                        </p>
-                        {folderToRemove.count > 0 && (
-                            <label className="flex items-center gap-2 mt-4 text-xs text-[color:var(--color-text-primary)] cursor-pointer select-none">
-                                <input
-                                    type="checkbox"
-                                    checked={removeFolderDeleteBooks}
-                                    onChange={(e) => setRemoveFolderDeleteBooks(e.target.checked)}
-                                    className="rounded border-[var(--color-border)] text-[color:var(--color-accent)]"
-                                />
-                                <span>Also remove {folderToRemove.count} {folderToRemove.count === 1 ? "book" : "books"} from Theorem library</span>
-                            </label>
-                        )}
-                    </ModalBody>
-                    <ModalFooter>
-                        <Button variant="ghost"
-                            
-                            onClick={() => setFolderToRemove(null)}
-                            
-                        >
-                            Cancel
-                        </Button>
-                        <Button variant="danger"
-                            
-                            onClick={() => {
-                                handleConfirmRemoveFolder(folderToRemove.root, removeFolderDeleteBooks);
-                            }}
-                            
-                        >
-                            Remove Folder
-                        </Button>
-                    </ModalFooter>
-                </Modal>
-            )}
+            <RemoveFolderModal
+                folderToRemove={folderToRemove}
+                onClose={() => setFolderToRemove(null)}
+                onConfirm={handleConfirmRemoveFolder}
+            />
         </div>
     );
 }

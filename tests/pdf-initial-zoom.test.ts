@@ -17,6 +17,10 @@ const engine = readFileSync(
     resolve("src/features/reader/engines/pdfjs-engine.tsx"),
     "utf-8",
 );
+const helpers = readFileSync(
+    resolve("src/features/reader/engines/pdf/pdf-helpers.ts"),
+    "utf-8",
+);
 
 describe("PDF opens directly at its real zoom level", () => {
     it("computes one opening scale from the zoom mode, not the raw saved zoom", () => {
@@ -50,7 +54,7 @@ describe("PDF opens directly at its real zoom level", () => {
     });
 
     it("has a points-based fit-page helper so page-fit works before load", () => {
-        expect(engine).toContain("function getFitPageScaleFromPts(");
+        expect(helpers).toContain("function getFitPageScaleFromPts(");
         expect(engine).toMatch(
             /openingScale = initialZoomMode === 'page-fit'\s*\?\s*getFitPageScaleFromPts\(/,
         );
@@ -84,7 +88,7 @@ describe("PDF reveal waits for the opening zoom to converge", () => {
         expect(engine).toMatch(
             /if \(Math\.abs\(fitted - scaleRef\.current\) > ZOOM_SETTLE_EPSILON\) \{/,
         );
-        expect(engine).toContain("const ZOOM_SETTLE_EPSILON = 0.0005;");
+        expect(helpers).toContain("const ZOOM_SETTLE_EPSILON = 0.0005;");
     });
 
     it("reveals immediately when the opening scale is already correct", () => {
@@ -100,9 +104,9 @@ describe("PDF reveal waits for the opening zoom to converge", () => {
     });
 
     it("bounds the wait with the stabilization window", () => {
-        expect(engine).toContain("const INITIAL_RENDER_STABILIZATION_MS = 300;");
+        expect(helpers).toContain("const INITIAL_RENDER_STABILIZATION_MS = 300;");
         const debounce = Number(
-            engine.match(/const RESIZE_OBSERVER_DEBOUNCE_MS = (\d+);/)?.[1],
+            helpers.match(/const RESIZE_OBSERVER_DEBOUNCE_MS = (\d+);/)?.[1],
         );
         // The re-fit must be able to land inside the polling budget.
         expect(debounce).toBeLessThan(300);

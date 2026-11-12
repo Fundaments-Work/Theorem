@@ -501,7 +501,8 @@ export async function downsampleCoverImage(blob: Blob, maxWidth = 200, maxHeight
             });
             return new Blob([new Uint8Array(result.data)], { type: result.mimeType });
         } catch {
-            // Fallback to DOM canvas
+            // Native runtime: return the original blob instead of invoking a DOM canvas.
+            return blob;
         }
     }
 
@@ -560,6 +561,19 @@ export async function downsampleCoverImage(blob: Blob, maxWidth = 200, maxHeight
 const thumbnailCache = new Map<string, string>();
 
 async function generateThumbnail(dataUrl: string, maxWidth: number, maxHeight: number): Promise<string | null> {
+    if (isTauri()) {
+        if (dataUrl.startsWith("data:image/svg+xml")) {
+            return dataUrl;
+        }
+        try {
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            const resized = await downsampleCoverImage(blob, maxWidth, maxHeight);
+            return await blobToDataUrl(resized);
+        } catch {
+            return null;
+        }
+    }
     if (typeof window === "undefined" || !window.HTMLCanvasElement) return null;
     return new Promise((resolve) => {
         const img = new Image();

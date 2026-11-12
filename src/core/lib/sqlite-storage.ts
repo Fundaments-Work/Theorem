@@ -1,5 +1,5 @@
 import { isTauri } from './env';
-import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import type { SyncConflict } from '../types';
 
 export interface SqliteStorageStats {
@@ -25,25 +25,15 @@ export interface SqliteBlobStats {
 }
 
 /**
- * SQLite commands run on Rust's blocking thread pool (see
- * `src-tauri/src/offload_commands.rs`) instead of the UI thread, so two calls
- * in flight could finish in either order. Running them one at a time, in
- * call order, keeps the semantics the UI thread used to give: a later write
- * to a key always wins, and a read sees every write issued before it.
+ * SQLite commands run on Rust's blocking thread pool (`offload_commands.rs`)
+ * backed by SQLite WAL + r2d2; KV writes/reads preserve FIFO ordering in Rust
+ * (`KvSlotGuard`) so non-KV reads run concurrently without a JS IPC queue.
  */
-let sqliteQueueTail: Promise<unknown> = Promise.resolve();
-
-export function invokeSqliteInOrder<T = unknown>(command: string, args?: InvokeArgs): Promise<T> {
-    const run = sqliteQueueTail.then(() => invoke<T>(command, args));
-    sqliteQueueTail = run.catch(() => undefined);
-    return run;
-}
-
 async function getInvoke() {
     if (!isTauri()) {
         throw new Error('SQLite storage commands are only available in Tauri runtime.');
     }
-    return invokeSqliteInOrder;
+    return invoke;
 }
 
 export async function sqliteSaveBookData(id: string, data: ArrayBuffer): Promise<string> {

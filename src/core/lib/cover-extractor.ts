@@ -4,6 +4,7 @@ import { saveCoverImage, downsampleCoverImage } from './storage';
 import { getConfiguredPdfJs, PDFJS_ASSET_OPTIONS } from './pdfjs-runtime';
 import { normalizeAuthor } from './utils';
 import { isMobile, isTauri } from './env';
+import { openWebBook } from './reader-runtime-bridge';
 
 const DEFAULT_METADATA_TIMEOUT_MS = isMobile() ? 15000 : 10000;
 const DEFAULT_COVER_TIMEOUT_MS = isMobile() ? 12000 : 5000;
@@ -588,7 +589,6 @@ export async function extractMetadata(
             }
         }
 
-        const { makeBook } = await import('../../features/reader/foliate-js-runtime/view.js');
         const mimeType = getMimeType(format);
 
         let bookInput: File | Blob;
@@ -602,7 +602,7 @@ export async function extractMetadata(
 
         try {
             book = await withTimeout(
-                makeBook(bookInput),
+                openWebBook(bookInput),
                 metadataTimeoutMs,
                 'opening book with foliate',
             );
@@ -610,7 +610,7 @@ export async function extractMetadata(
             if (isMobile() && !(bookInput instanceof File)) {
                 const fileFallback = new File([data], filename, { type: mimeType });
                 book = await withTimeout(
-                    makeBook(fileFallback),
+                    openWebBook(fileFallback),
                     metadataTimeoutMs,
                     'opening book with File fallback',
                 );
