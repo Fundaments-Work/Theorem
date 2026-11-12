@@ -183,6 +183,7 @@ jobs:
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
+          uploadUpdaterJson: false
           retryAttempts: 2
           args: --target x86_64-unknown-linux-gnu --config src-tauri/tauri.ci.conf.json
 
@@ -266,6 +267,7 @@ jobs:
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
+          uploadUpdaterJson: false
           retryAttempts: 2
           args: --target x86_64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
@@ -283,6 +285,7 @@ jobs:
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
+          uploadUpdaterJson: false
           retryAttempts: 2
           args: --target x86_64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
@@ -363,6 +366,7 @@ jobs:
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
+          uploadUpdaterJson: false
           retryAttempts: 2
           args: --target aarch64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
@@ -380,6 +384,7 @@ jobs:
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
+          uploadUpdaterJson: false
           retryAttempts: 2
           args: --target aarch64-apple-darwin --config src-tauri/tauri.ci.conf.json
 
@@ -432,6 +437,7 @@ jobs:
           releaseName: "Theorem ${{ env.RELEASE_TAG }}"
           releaseDraft: true
           prerelease: ${{ needs.create-release.outputs.prerelease }}
+          uploadUpdaterJson: false
           retryAttempts: 2
           args: --config src-tauri/tauri.ci.conf.json
 
