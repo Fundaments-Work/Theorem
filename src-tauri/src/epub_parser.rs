@@ -674,15 +674,15 @@ pub(crate) fn read_rootfile_path_inner<R: std::io::Read + std::io::Seek>(
 }
 
 struct EpubMeta {
-    container: Option<String>,
-    opf_path: String,
-    opf: Option<String>,
-    nav_path: Option<String>,
-    nav: Option<String>,
-    ncx_path: Option<String>,
-    ncx: Option<String>,
-    encryption: Option<String>,
-    sections: HashMap<String, String>,
+    container: Option<Box<str>>,
+    opf_path: Box<str>,
+    opf: Option<Box<str>>,
+    nav_path: Option<Box<str>>,
+    nav: Option<Box<str>>,
+    ncx_path: Option<Box<str>>,
+    ncx: Option<Box<str>>,
+    encryption: Option<Box<str>>,
+    sections: HashMap<Box<str>, Box<str>>,
     toc: Option<Box<[TocItemDto]>>,
 }
 
@@ -711,11 +711,14 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
 
     let nav = nav_path
         .as_ref()
-        .and_then(|p| read_zip_entry_inner(archive, p));
+        .and_then(|p| read_zip_entry_inner(archive, p))
+        .map(String::into_boxed_str);
     let ncx = ncx_path
         .as_ref()
-        .and_then(|p| read_zip_entry_inner(archive, p));
-    let encryption = read_zip_entry_inner(archive, "META-INF/encryption.xml");
+        .and_then(|p| read_zip_entry_inner(archive, p))
+        .map(String::into_boxed_str);
+    let encryption =
+        read_zip_entry_inner(archive, "META-INF/encryption.xml").map(String::into_boxed_str);
 
     let mut sections = HashMap::new();
 
@@ -723,7 +726,7 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
     for css_href in &css_hrefs {
         let full_css_path = resolve_relative(&opf_path, css_href);
         if let Some(css_text) = read_zip_entry_inner(archive, &full_css_path) {
-            sections.insert(full_css_path, css_text);
+            sections.insert(full_css_path.into_boxed_str(), css_text.into_boxed_str());
         }
     }
 
@@ -731,7 +734,10 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
     for spine_href in spine_hrefs.iter().take(5) {
         let full_spine_path = resolve_relative(&opf_path, spine_href);
         if let Some(spine_text) = read_zip_entry_inner(archive, &full_spine_path) {
-            sections.insert(full_spine_path, spine_text);
+            sections.insert(
+                full_spine_path.into_boxed_str(),
+                spine_text.into_boxed_str(),
+            );
         }
     }
 
@@ -761,12 +767,12 @@ fn read_epub_metadata_inner<R: std::io::Read + std::io::Seek>(
     };
 
     Some(EpubMeta {
-        container: Some(container_text),
-        opf_path,
-        opf: Some(opf_text),
-        nav_path,
+        container: Some(container_text.into_boxed_str()),
+        opf_path: opf_path.into_boxed_str(),
+        opf: Some(opf_text.into_boxed_str()),
+        nav_path: nav_path.map(String::into_boxed_str),
         nav,
-        ncx_path,
+        ncx_path: ncx_path.map(String::into_boxed_str),
         ncx,
         encryption,
         sections,
@@ -781,25 +787,25 @@ fn read_epub_metadata(archive: &mut zip::ZipArchive<File>) -> Option<EpubMeta> {
 #[derive(serde::Serialize)]
 pub struct ZipPrefetch {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub container: Option<String>,
+    pub container: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub opf_path: Option<String>,
+    pub opf_path: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub opf: Option<String>,
+    pub opf: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nav_path: Option<String>,
+    pub nav_path: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nav: Option<String>,
+    pub nav: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ncx_path: Option<String>,
+    pub ncx_path: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ncx: Option<String>,
+    pub ncx: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub encryption: Option<String>,
-    pub sizes: HashMap<String, u64>,
+    pub encryption: Option<Box<str>>,
+    pub sizes: HashMap<Box<str>, u64>,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     #[serde(default)]
-    pub sections: HashMap<String, String>,
+    pub sections: HashMap<Box<str>, Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toc: Option<Box<[TocItemDto]>>,
 }
@@ -843,11 +849,11 @@ fn prefetch_sync(app: &tauri::AppHandle, path: &str) -> Result<ZipPrefetch, Stri
     let mut archive =
         crate::zip_util::open_zip_archive(file).map_err(|e| format!("Not a valid zip: {e}"))?;
 
-    let mut sizes: HashMap<String, u64> = HashMap::with_capacity(archive.len());
+    let mut sizes: HashMap<Box<str>, u64> = HashMap::with_capacity(archive.len());
     for i in 0..archive.len() {
         if let Ok(f) = archive.by_index(i) {
             if let Ok(name) = f.name() {
-                sizes.insert(name.to_string(), f.size());
+                sizes.insert(name.into(), f.size());
             }
         }
     }
@@ -1212,9 +1218,9 @@ mod tests {
         let meta = read_epub_metadata_inner(&mut archive);
         assert!(meta.is_some());
         let meta = meta.unwrap();
-        assert_eq!(meta.opf_path, "OEBPS/content.opf");
-        assert_eq!(meta.nav_path, Some("OEBPS/nav.xhtml".to_string()));
-        assert_eq!(meta.ncx_path, Some("OEBPS/toc.ncx".to_string()));
+        assert_eq!(&*meta.opf_path, "OEBPS/content.opf");
+        assert_eq!(meta.nav_path.as_deref(), Some("OEBPS/nav.xhtml"));
+        assert_eq!(meta.ncx_path.as_deref(), Some("OEBPS/toc.ncx"));
         assert!(meta.nav.unwrap().contains("nav"));
         assert!(meta.ncx.unwrap().contains("ncx"));
         assert!(meta.toc.is_some());

@@ -195,27 +195,27 @@ fn ingest_file(
 
     Ok(Ingested::Added(Box::new(
         crate::batch_ingest::NativeBookRecord {
-            id,
-            title: metadata.title,
-            author: metadata.author,
-            file_path: file_path.to_string(),
-            storage_path: Some(dest_path.to_string_lossy().into_owned()),
-            format,
-            content_hash: Some(content_hash),
+            id: id.into_boxed_str(),
+            title: metadata.title.into_boxed_str(),
+            author: metadata.author.into_boxed_str(),
+            file_path: file_path.into(),
+            storage_path: Some(dest_path.to_string_lossy().into_owned().into_boxed_str()),
+            format: format.into_boxed_str(),
+            content_hash: Some(content_hash.into_boxed_str()),
             cover_extraction_done: metadata.cover_data_url.is_some(),
-            cover_path: metadata.cover_data_url,
-            description: metadata.description,
-            publisher: metadata.publisher,
-            published_date: metadata.published_date,
-            language: metadata.language,
-            isbn: metadata.isbn,
-            series: metadata.series,
+            cover_path: metadata.cover_data_url.map(String::into_boxed_str),
+            description: metadata.description.map(String::into_boxed_str),
+            publisher: metadata.publisher.map(String::into_boxed_str),
+            published_date: metadata.published_date.map(String::into_boxed_str),
+            language: metadata.language.map(String::into_boxed_str),
+            isbn: metadata.isbn.map(String::into_boxed_str),
+            series: metadata.series.map(String::into_boxed_str),
             series_index: metadata.series_index,
             file_size,
-            added_at: now_iso(),
+            added_at: now_iso().into_boxed_str(),
             progress: 0.0,
             is_favorite: false,
-            tags: Vec::new(),
+            tags: Box::default(),
         },
     )))
 }
@@ -246,22 +246,28 @@ fn book_record_json(record: &crate::batch_ingest::NativeBookRecord) -> serde_jso
     let optional = [
         (
             "description",
-            record.description.clone().map(serde_json::Value::from),
+            record.description.as_deref().map(serde_json::Value::from),
         ),
         (
             "publisher",
-            record.publisher.clone().map(serde_json::Value::from),
+            record.publisher.as_deref().map(serde_json::Value::from),
         ),
         (
             "publishedDate",
-            record.published_date.clone().map(serde_json::Value::from),
+            record
+                .published_date
+                .as_deref()
+                .map(serde_json::Value::from),
         ),
         (
             "language",
-            record.language.clone().map(serde_json::Value::from),
+            record.language.as_deref().map(serde_json::Value::from),
         ),
-        ("isbn", record.isbn.clone().map(serde_json::Value::from)),
-        ("series", record.series.clone().map(serde_json::Value::from)),
+        ("isbn", record.isbn.as_deref().map(serde_json::Value::from)),
+        (
+            "series",
+            record.series.as_deref().map(serde_json::Value::from),
+        ),
         (
             "seriesIndex",
             record.series_index.map(serde_json::Value::from),
@@ -270,7 +276,7 @@ fn book_record_json(record: &crate::batch_ingest::NativeBookRecord) -> serde_jso
             "coverPath",
             record
                 .cover_path
-                .clone()
+                .as_deref()
                 .filter(|url| url.len() < INLINE_COVER_MAX_CHARS)
                 .map(serde_json::Value::from),
         ),
@@ -317,21 +323,21 @@ pub(super) fn ingest_and_register(output: &Output, ctx: &Ctx, paths: &[String]) 
     let outcomes = ingest_files(ctx, paths, &known);
 
     let mut report = ImportReport::default();
-    let mut seen: HashMap<String, (String, String)> = HashMap::new();
+    let mut seen: HashMap<Box<str>, (Box<str>, Box<str>)> = HashMap::new();
     let mut to_register = Vec::new();
     for (path, outcome) in &outcomes {
         match outcome {
             Ok(Ingested::Added(record)) => {
                 let hash = record.content_hash.clone().unwrap_or_default();
                 // The same content twice in one import: keep the first.
-                if let Some((existing_id, title)) = seen.get(&hash) {
-                    if let Some(storage) = &record.storage_path {
+                if let Some((existing_id, title)) = seen.get(hash.as_ref()) {
+                    if let Some(storage) = record.storage_path.as_deref() {
                         let _ = std::fs::remove_file(storage);
                     }
                     report.duplicates.push(ImportDuplicate {
                         path: path.clone(),
-                        existing_id: existing_id.clone(),
-                        title: title.clone(),
+                        existing_id: existing_id.to_string(),
+                        title: title.to_string(),
                     });
                     continue;
                 }
@@ -357,7 +363,7 @@ pub(super) fn ingest_and_register(output: &Output, ctx: &Ctx, paths: &[String]) 
         Err(e) => {
             // Nothing was registered: do not leave orphaned copies behind.
             for record in &to_register {
-                if let Some(storage) = &record.storage_path {
+                if let Some(storage) = record.storage_path.as_deref() {
                     let _ = std::fs::remove_file(storage);
                 }
             }

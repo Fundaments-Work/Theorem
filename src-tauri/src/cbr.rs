@@ -151,6 +151,31 @@ pub(crate) fn convert_cbr_to_cbz_file_cancellable(
     }
 }
 
+/// Sink collecting up to `max_bytes`, failing before allocating unbounded RAM on spoofed sizes.
+struct BoundedBufferWriter {
+    target: Arc<Mutex<Vec<u8>>>,
+    max_bytes: usize,
+}
+
+impl Write for BoundedBufferWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut guard = self
+            .target
+            .lock()
+            .map_err(|_| std::io::Error::other("CBR buffer mutex poisoned"))?;
+        if guard.len().saturating_add(buf.len()) > self.max_bytes {
+            return Err(std::io::Error::other(
+                "CBR entry exceeds maximum allowed size",
+            ));
+        }
+        guard.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Extract metadata & cover from a CBR comic archive.
 pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
     let archive = rars::ArchiveReader::read_path(path)
@@ -162,10 +187,10 @@ pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
     let mut series_index = None;
 
     // Scan members for ComicInfo.xml and candidate image files
-    let mut comic_info_idx = None;
-    let mut image_entries: Vec<(String, usize, u64)> = Vec::new();
+    let mut comic_info_raw: Option<Vec<u8>> = None;
+    let mut image_entries: Vec<(String, Vec<u8>, u64)> = Vec::new();
 
-    for (idx, member) in archive.members().enumerate() {
+    for member in archive.members() {
         if member.meta.is_directory {
             continue;
         }
@@ -173,8 +198,11 @@ pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
         let lower = name.to_lowercase();
         let base_name = lower.rsplit('/').next().unwrap_or(&lower);
 
-        if base_name == "comicinfo.xml" && member.meta.unpacked_size <= MAX_CBR_META_BYTES {
-            comic_info_idx = Some(idx);
+        if base_name == "comicinfo.xml"
+            && member.meta.unpacked_size <= MAX_CBR_META_BYTES
+            && comic_info_raw.is_none()
+        {
+            comic_info_raw = Some(member.meta.name.clone());
         } else if (lower.ends_with(".jpg")
             || lower.ends_with(".jpeg")
             || lower.ends_with(".png")
@@ -182,46 +210,62 @@ pub(crate) fn parse_cbr_native(path: &Path) -> Result<ParsedMetadata, String> {
             || lower.ends_with(".avif"))
             && member.meta.unpacked_size <= MAX_CBR_COVER_BYTES
         {
-            image_entries.push((name, idx, member.meta.unpacked_size));
+            image_entries.push((name, member.meta.name.clone(), member.meta.unpacked_size));
         }
     }
 
-    // Parse ComicInfo.xml if present
-    if let Some(idx) = comic_info_idx {
-        if let Ok(Some(data)) = archive.read_member_at(idx, None) {
-            if data.len() as u64 <= MAX_CBR_META_BYTES {
-                if let Ok(xml_str) = String::from_utf8(data) {
-                    if let Some(t) = extract_xml_tag_text(&xml_str, "Title") {
-                        if !t.trim().is_empty() {
-                            title = t;
-                        }
+    image_entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let cover_raw = image_entries.into_iter().next().map(|(_, raw, _)| raw);
+
+    let meta_bytes = Arc::new(Mutex::new(Vec::new()));
+    let cover_bytes = Arc::new(Mutex::new(Vec::new()));
+    if comic_info_raw.is_some() || cover_raw.is_some() {
+        let meta_buf = meta_bytes.clone();
+        let cover_buf = cover_bytes.clone();
+        let meta_target = comic_info_raw.clone();
+        let cover_target = cover_raw.clone();
+        let _ = archive.extract_to(None, |meta| {
+            if meta_target.as_deref() == Some(meta.name.as_slice()) {
+                return Ok(Box::new(BoundedBufferWriter {
+                    target: meta_buf.clone(),
+                    max_bytes: MAX_CBR_META_BYTES as usize,
+                }));
+            }
+            if cover_target.as_deref() == Some(meta.name.as_slice()) {
+                return Ok(Box::new(BoundedBufferWriter {
+                    target: cover_buf.clone(),
+                    max_bytes: MAX_CBR_COVER_BYTES as usize,
+                }));
+            }
+            Ok(Box::new(std::io::sink()))
+        });
+    }
+
+    if let Ok(guard) = meta_bytes.lock() {
+        if !guard.is_empty() {
+            if let Ok(xml_str) = std::str::from_utf8(&guard) {
+                if let Some(t) = extract_xml_tag_text(xml_str, "Title") {
+                    if !t.trim().is_empty() {
+                        title = t;
                     }
-                    if let Some(s) = extract_xml_tag_text(&xml_str, "Series") {
-                        if !s.trim().is_empty() {
-                            series = Some(s);
-                        }
+                }
+                if let Some(s) = extract_xml_tag_text(xml_str, "Series") {
+                    if !s.trim().is_empty() {
+                        series = Some(s);
                     }
-                    if let Some(num_str) = extract_xml_tag_text(&xml_str, "Number") {
-                        if let Ok(parsed_num) = num_str.trim().parse::<f64>() {
-                            series_index = Some(parsed_num);
-                        }
+                }
+                if let Some(num_str) = extract_xml_tag_text(xml_str, "Number") {
+                    if let Ok(idx) = num_str.trim().parse::<f64>() {
+                        series_index = Some(idx);
                     }
                 }
             }
         }
     }
 
-    // Sort images alphabetically by filename to find the cover (first page)
-    image_entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-    if let Some((name, cover_idx, _)) = image_entries.first() {
-        let read_res = archive
-            .read_member(name.as_bytes(), None)
-            .or_else(|_| archive.read_member_at(*cover_idx, None));
-        if let Ok(Some(img_bytes)) = read_res {
-            if img_bytes.len() as u64 <= MAX_CBR_COVER_BYTES {
-                cover_data_url = downsample_cover_to_data_url(&img_bytes);
-            }
+    if let Ok(guard) = cover_bytes.lock() {
+        if !guard.is_empty() {
+            cover_data_url = downsample_cover_to_data_url(&guard);
         }
     }
 

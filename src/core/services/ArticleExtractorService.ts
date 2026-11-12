@@ -20,16 +20,20 @@ function resolveAbsoluteUrls(doc: Document, baseUrl: string): void {
         if (!rawSrc) {
             continue;
         }
-        if (!isSafeImageUrl(rawSrc)) {
-            img.removeAttribute("src");
-            continue;
-        }
         // Data and blob URIs are already absolute; resolving them is a no-op.
         if (/^(?:data|blob):/i.test(rawSrc)) {
+            if (!isSafeImageUrl(rawSrc)) {
+                img.removeAttribute("src");
+            }
             continue;
         }
         try {
-            img.setAttribute("src", new URL(rawSrc, baseUrl).href);
+            const resolved = new URL(rawSrc, baseUrl).href;
+            if (!isSafeImageUrl(resolved)) {
+                img.removeAttribute("src");
+                continue;
+            }
+            img.setAttribute("src", resolved);
         } catch {
             img.removeAttribute("src");
         }

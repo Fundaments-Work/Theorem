@@ -578,7 +578,15 @@ fn read_object_body(
     }
 }
 
-pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, String> {
+fn pdf_io_err(context: impl std::fmt::Display, e: std::io::Error) -> crate::error::AppError {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        crate::error::AppError::not_found(format!("{context}: {e}"))
+    } else {
+        crate::error::AppError::io(format!("{context}: {e}"))
+    }
+}
+
+pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, crate::error::AppError> {
     let clean = normalize_pdf_path(&path);
     let target = if clean.exists() {
         clean
@@ -586,25 +594,33 @@ pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, Strin
         PathBuf::from(&path)
     };
 
-    let meta = fs::metadata(&target)
-        .map_err(|e| format!("prefetch_pdf_structure: cannot stat '{target:?}': {e}"))?;
+    let meta = fs::metadata(&target).map_err(|e| {
+        pdf_io_err(
+            format!("prefetch_pdf_structure: cannot stat '{target:?}'"),
+            e,
+        )
+    })?;
     let file_size = meta.len();
 
-    let mut file = fs::File::open(&target)
-        .map_err(|e| format!("prefetch_pdf_structure: cannot open '{target:?}': {e}"))?;
+    let mut file = fs::File::open(&target).map_err(|e| {
+        pdf_io_err(
+            format!("prefetch_pdf_structure: cannot open '{target:?}'"),
+            e,
+        )
+    })?;
 
     // --- Step 1: Extract best-effort metadata from head + tail chunks ----------
     const HEAD: u64 = 65536;
     let head_len = HEAD.min(file_size) as usize;
     let head = read_up_to(&mut file, 0, head_len)
-        .map_err(|e| format!("prefetch_pdf_structure: head read failed: {e}"))?;
+        .map_err(|e| pdf_io_err("prefetch_pdf_structure: head read failed", e))?;
     let head_meta = extract_pdf_metadata(&head);
 
     let tail_meta = if file_size > HEAD {
         let tail_start = file_size.saturating_sub(HEAD);
         let tail_len = (file_size - tail_start) as usize;
         let tail = read_up_to(&mut file, tail_start, tail_len)
-            .map_err(|e| format!("prefetch_pdf_structure: tail read failed: {e}"))?;
+            .map_err(|e| pdf_io_err("prefetch_pdf_structure: tail read failed", e))?;
         extract_pdf_metadata(&tail)
     } else {
         extract_pdf_metadata(&[])
@@ -618,7 +634,7 @@ pub(crate) fn prefetch_pdf_structure(path: String) -> Result<PdfStructure, Strin
     let eof_read_len = file_size.min(2048) as usize;
     let eof_start = file_size.saturating_sub(eof_read_len as u64);
     let eof_buf = read_up_to(&mut file, eof_start, eof_read_len)
-        .map_err(|e| format!("prefetch_pdf_structure: eof read failed: {e}"))?;
+        .map_err(|e| pdf_io_err("prefetch_pdf_structure: eof read failed", e))?;
 
     // --- Step 3: Parse XRef table for accurate page count and MediaBox --------
     let mut accurate_page_count: Option<u32> = None;
@@ -689,19 +705,19 @@ fn normalize_pdf_path(raw: &str) -> PathBuf {
     PathBuf::from(s_clean)
 }
 
-pub(crate) fn read_pdf_file(path: String) -> Result<Response, String> {
+pub(crate) fn read_pdf_file(path: String) -> Result<Response, crate::error::AppError> {
     let clean = normalize_pdf_path(&path);
     let target = if clean.exists() {
         clean
     } else {
         PathBuf::from(&path)
     };
-    let data =
-        fs::read(&target).map_err(|e| format!("Failed to read PDF file '{target:?}': {e}"))?;
+    let data = fs::read(&target)
+        .map_err(|e| pdf_io_err(format!("Failed to read PDF file '{target:?}'"), e))?;
     Ok(Response::new(data))
 }
 
-pub(crate) fn read_pdf_file_size(path: String) -> Result<u64, String> {
+pub(crate) fn read_pdf_file_size(path: String) -> Result<u64, crate::error::AppError> {
     let clean = normalize_pdf_path(&path);
     let target = if clean.exists() {
         clean
@@ -710,10 +726,14 @@ pub(crate) fn read_pdf_file_size(path: String) -> Result<u64, String> {
     };
     fs::metadata(&target)
         .map(|metadata| metadata.len())
-        .map_err(|e| format!("Failed to read PDF file metadata '{target:?}': {e}"))
+        .map_err(|e| pdf_io_err(format!("Failed to read PDF file metadata '{target:?}'"), e))
 }
 
-pub(crate) fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<Response, String> {
+pub(crate) fn read_pdf_range(
+    path: String,
+    offset: u64,
+    length: u64,
+) -> Result<Response, crate::error::AppError> {
     if length == 0 {
         return Ok(Response::new(Vec::new()));
     }
@@ -726,7 +746,7 @@ pub(crate) fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<R
     };
 
     let metadata = fs::metadata(&target)
-        .map_err(|e| format!("Failed to read PDF file metadata '{target:?}': {e}"))?;
+        .map_err(|e| pdf_io_err(format!("Failed to read PDF file metadata '{target:?}'"), e))?;
     let file_size = metadata.len();
     if offset >= file_size {
         return Ok(Response::new(Vec::new()));
@@ -734,34 +754,34 @@ pub(crate) fn read_pdf_range(path: String, offset: u64, length: u64) -> Result<R
 
     let clamped_len = length.min(file_size.saturating_sub(offset));
     let read_len = usize::try_from(clamped_len).map_err(|_| {
-        format!(
+        crate::error::AppError::invalid_input(format!(
             "Requested PDF range is too large for this platform: {}",
             clamped_len
-        )
+        ))
     })?;
 
     let mut file = fs::File::open(&target)
-        .map_err(|e| format!("Failed to open PDF file '{target:?}': {e}"))?;
+        .map_err(|e| pdf_io_err(format!("Failed to open PDF file '{target:?}'"), e))?;
     file.seek(SeekFrom::Start(offset))
-        .map_err(|e| format!("Failed to seek PDF file '{target:?}': {e}"))?;
+        .map_err(|e| pdf_io_err(format!("Failed to seek PDF file '{target:?}'"), e))?;
 
     let mut buffer = vec![0_u8; read_len];
     file.read_exact(&mut buffer)
-        .map_err(|e| format!("Failed to read PDF range from '{target:?}': {e}"))?;
+        .map_err(|e| pdf_io_err(format!("Failed to read PDF range from '{target:?}'"), e))?;
 
     Ok(Response::new(buffer))
 }
 
-pub(crate) fn get_pdf_metadata(path: String) -> Result<PdfMetadata, String> {
+pub(crate) fn get_pdf_metadata(path: String) -> Result<PdfMetadata, crate::error::AppError> {
     let metadata = fs::metadata(&path)
-        .map_err(|e| format!("Failed to read PDF file metadata '{}': {}", path, e))?;
+        .map_err(|e| pdf_io_err(format!("Failed to read PDF file metadata '{}'", path), e))?;
     let file_size = metadata.len();
 
     const HEAD_SIZE: u64 = 65536;
     let first_chunk_size = HEAD_SIZE.min(file_size);
 
-    let mut file =
-        fs::File::open(&path).map_err(|e| format!("Failed to open PDF file '{}': {}", path, e))?;
+    let mut file = fs::File::open(&path)
+        .map_err(|e| pdf_io_err(format!("Failed to open PDF file '{}'", path), e))?;
 
     let mut first_bytes = vec![0_u8; first_chunk_size as usize];
     file.read_exact(&mut first_bytes)

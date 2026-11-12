@@ -60,7 +60,9 @@ export function isSafeImageUrl(value: string | null | undefined): boolean {
     }
     const scheme = schemeOf(trimmed);
     if (scheme === null) {
-        return true;
+        // Reject protocol-relative authority URLs (`//...` or `/\...` variants).
+        const stripped = trimmed.replace(/[\u0000-\u0020\u007f]+/g, "");
+        return !/^[/\\]{2}/.test(stripped);
     }
     if (scheme === "data:") {
         return DATA_IMAGE_RE.test(trimmed);

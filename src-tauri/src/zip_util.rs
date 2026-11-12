@@ -41,6 +41,41 @@ pub(crate) fn open_zip_archive<R: Read + Seek>(mut reader: R) -> ZipResult<ZipAr
     ZipArchive::new(reader)
 }
 
+/// Read up to `max_bytes` from a ZIP entry, rejecting both oversized declared
+/// lengths and compressed entries whose inflated stream exceeds the limit.
+pub(crate) fn read_zip_entry_bytes_bounded<R: Read>(
+    entry: &mut zip::read::ZipFile<'_, R>,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    if entry.size() > max_bytes as u64 {
+        return Err(format!(
+            "ZIP entry '{label}' exceeds maximum allowed size ({max_bytes} bytes)"
+        ));
+    }
+    let mut buf = Vec::with_capacity((entry.size() as usize).min(max_bytes));
+    entry
+        .take((max_bytes as u64).saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Failed to read ZIP entry '{label}': {e}"))?;
+    if buf.len() > max_bytes {
+        return Err(format!(
+            "ZIP entry '{label}' exceeds maximum allowed size ({max_bytes} bytes)"
+        ));
+    }
+    Ok(buf)
+}
+
+/// Read a UTF-8 string entry up to `max_bytes` from a ZIP archive.
+pub(crate) fn read_zip_entry_string_bounded<R: Read>(
+    entry: &mut zip::read::ZipFile<'_, R>,
+    max_bytes: usize,
+    label: &str,
+) -> Result<String, String> {
+    let bytes = read_zip_entry_bytes_bounded(entry, max_bytes, label)?;
+    String::from_utf8(bytes).map_err(|e| format!("ZIP entry '{label}' is not valid UTF-8: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Cursor, Read, Write};
@@ -91,5 +126,18 @@ mod tests {
     #[test]
     fn rejects_too_short_input() {
         assert!(open_zip_archive(Cursor::new(b"PK".to_vec())).is_err());
+    }
+
+    #[test]
+    fn bounded_zip_reader_rejects_oversized_entries() {
+        let mut archive = open_zip_archive(Cursor::new(zip_bytes())).unwrap();
+        let mut entry = archive.by_name("hello.txt").unwrap();
+        assert!(super::read_zip_entry_bytes_bounded(&mut entry, 4, "hello.txt").is_err());
+        drop(entry);
+        let mut entry2 = archive.by_name("hello.txt").unwrap();
+        assert_eq!(
+            super::read_zip_entry_string_bounded(&mut entry2, 5, "hello.txt").unwrap(),
+            "hello"
+        );
     }
 }

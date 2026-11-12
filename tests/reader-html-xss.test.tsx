@@ -187,4 +187,12 @@ describe("reader HTML sanitization and XSS guards", () => {
         expect(document.body.textContent).toContain('Before <script>alert("xss")</script>');
         expect(document.body.textContent).toContain("needle");
     });
+
+    it("rejects protocol-relative external URLs in isSafeImageUrl", async () => {
+        const { isSafeImageUrl, isSafeLinkUrl } = await import("../src/core/lib/url-safety");
+        expect(isSafeImageUrl("//attacker.example/cover.png")).toBe(false);
+        expect(isSafeImageUrl("  //attacker.example/cover.png  ")).toBe(false);
+        expect(isSafeImageUrl("covers/local.png")).toBe(true);
+        expect(isSafeLinkUrl("//cdn.example.com/feed")).toBe(true);
+    });
 });

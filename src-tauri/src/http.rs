@@ -49,40 +49,96 @@ fn is_ipv6_link_local(ip: Ipv6Addr) -> bool {
 }
 
 fn is_ipv6_private_or_local(ip: Ipv6Addr) -> bool {
+    let segs = ip.segments();
     ip.is_loopback()
         || ip.is_unspecified()
         || is_ipv6_link_local(ip)
-        || (ip.segments()[0] & 0xfe00) == 0xfc00
+        || (segs[0] & 0xfe00) == 0xfc00
         || ip.to_ipv4_mapped().is_some_and(is_ipv4_private_or_local)
+}
+
+fn is_metadata_or_unspecified_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.is_link_local() || v4.is_unspecified(),
+        std::net::IpAddr::V6(v6) => {
+            let segs = v6.segments();
+            v6.is_unspecified()
+                || is_ipv6_link_local(v6)
+                || (segs[0] == 0xfd00 && segs[1] == 0x0ec2)
+                || v6
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
+        }
+    }
+}
+
+fn is_private_or_local_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => is_ipv4_private_or_local(v4),
+        std::net::IpAddr::V6(v6) => is_ipv6_private_or_local(v6),
+    }
+}
+
+fn is_local_domain(domain: &str) -> bool {
+    let lower = domain.to_ascii_lowercase();
+    lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower.ends_with(".local")
+        || lower.ends_with(".internal")
 }
 
 fn is_metadata_or_unspecified_url(url: &reqwest::Url) -> bool {
     match url.host() {
-        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("metadata.google.internal"),
-        Some(url::Host::Ipv4(ip)) => ip.is_link_local() || ip.is_unspecified(),
-        Some(url::Host::Ipv6(ip)) => {
-            ip.is_unspecified()
-                || is_ipv6_link_local(ip)
-                || ip
-                    .to_ipv4_mapped()
-                    .is_some_and(|v4| v4.is_link_local() || v4.is_unspecified())
+        Some(url::Host::Domain(domain)) => {
+            domain.eq_ignore_ascii_case("metadata.google.internal")
+                || domain.eq_ignore_ascii_case("metadata.goog")
         }
+        Some(url::Host::Ipv4(ip)) => is_metadata_or_unspecified_ip(std::net::IpAddr::V4(ip)),
+        Some(url::Host::Ipv6(ip)) => is_metadata_or_unspecified_ip(std::net::IpAddr::V6(ip)),
         None => true,
     }
 }
 
 fn is_local_or_private_url(url: &reqwest::Url) -> bool {
     match url.host() {
-        Some(url::Host::Domain(domain)) => {
-            let lower = domain.to_ascii_lowercase();
-            lower == "localhost"
-                || lower.ends_with(".localhost")
-                || lower.ends_with(".local")
-                || lower.ends_with(".internal")
-        }
+        Some(url::Host::Domain(domain)) => is_local_domain(domain),
         Some(url::Host::Ipv4(ip)) => is_ipv4_private_or_local(ip),
         Some(url::Host::Ipv6(ip)) => is_ipv6_private_or_local(ip),
         None => true,
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct SafeDnsResolver;
+
+impl reqwest::dns::Resolve for SafeDnsResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let local_domain = is_local_domain(&host);
+            let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+                .filter(|addr| {
+                    let ip = addr.ip();
+                    if is_metadata_or_unspecified_ip(ip) {
+                        return false;
+                    }
+                    if !local_domain && is_private_or_local_ip(ip) {
+                        return false;
+                    }
+                    true
+                })
+                .collect();
+            if addrs.is_empty() {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "Blocked resolution to restricted or private IP address",
+                ))
+                    as Box<dyn std::error::Error + Send + Sync>);
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
     }
 }
 
@@ -232,6 +288,7 @@ pub(crate) fn client() -> Result<&'static reqwest::Client, String> {
             .tls_backend_preconfigured(tls_config()?)
             .user_agent(THEOREM_USER_AGENT)
             .connect_timeout(CONNECT_TIMEOUT)
+            .dns_resolver(std::sync::Arc::new(SafeDnsResolver))
             .redirect(safe_redirect_policy())
             .build()
             .map_err(|e| e.to_string())
@@ -249,6 +306,7 @@ pub(crate) fn download_client() -> Result<&'static reqwest::Client, String> {
             .user_agent(BROWSER_USER_AGENT)
             .cookie_store(true)
             .connect_timeout(CONNECT_TIMEOUT)
+            .dns_resolver(std::sync::Arc::new(SafeDnsResolver))
             .redirect(safe_redirect_policy())
             .build()
             .map_err(|e| e.to_string())
@@ -267,6 +325,7 @@ pub(crate) fn blocking_client() -> Result<&'static reqwest::blocking::Client, St
             .cookie_store(true)
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(BLOCKING_TIMEOUT)
+            .dns_resolver(std::sync::Arc::new(SafeDnsResolver))
             .redirect(safe_redirect_policy())
             .build()
             .map_err(|e| e.to_string())

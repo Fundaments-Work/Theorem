@@ -1,6 +1,7 @@
 //! Whole-file reads and disk-backed CBR->CBZ conversion for the reader.
 
 use crate::cbr;
+use crate::error::AppError;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::fs;
@@ -9,20 +10,30 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 use tauri::{ipc::Response, AppHandle, Manager};
 
-pub(crate) fn read_file(path: String) -> Result<Response, String> {
-    let data = fs::read(&path).map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
+fn io_error(context: impl std::fmt::Display, e: std::io::Error) -> AppError {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        AppError::not_found(format!("{context}: {e}"))
+    } else {
+        AppError::io(format!("{context}: {e}"))
+    }
+}
+
+pub(crate) fn read_file(path: String) -> Result<Response, AppError> {
+    let data =
+        fs::read(&path).map_err(|e| io_error(format!("Failed to read file '{}'", path), e))?;
     Ok(Response::new(data))
 }
 
-pub(crate) fn read_cbr_as_cbz(path: String) -> Result<Response, String> {
-    let bytes = cbr::convert_cbr_to_cbz(Path::new(&path))?;
+pub(crate) fn read_cbr_as_cbz(path: String) -> Result<Response, AppError> {
+    let bytes = cbr::convert_cbr_to_cbz(Path::new(&path)).map_err(AppError::io)?;
     Ok(Response::new(bytes))
 }
 
-pub(crate) fn prepare_cbr_as_cbz(app: &AppHandle, path: String) -> Result<String, String> {
+pub(crate) fn prepare_cbr_as_cbz(app: &AppHandle, path: String) -> Result<String, AppError> {
     static NEXT_TMP: AtomicU64 = AtomicU64::new(0);
     let src = Path::new(&path);
-    let meta = fs::metadata(src).map_err(|e| format!("Failed to stat CBR '{}': {}", path, e))?;
+    let meta =
+        fs::metadata(src).map_err(|e| io_error(format!("Failed to stat CBR '{}'", path), e))?;
     let mtime_ns = meta
         .modified()
         .ok()
@@ -42,10 +53,10 @@ pub(crate) fn prepare_cbr_as_cbz(app: &AppHandle, path: String) -> Result<String
     let cache_dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| format!("Cache dir unavailable: {e}"))?
+        .map_err(|e| AppError::io(format!("Cache dir unavailable: {e}")))?
         .join("cbr-cache");
     fs::create_dir_all(&cache_dir)
-        .map_err(|e| format!("Failed to create CBR cache directory: {e}"))?;
+        .map_err(|e| io_error("Failed to create CBR cache directory", e))?;
     let dest = cache_dir.join(format!("{key}.cbz"));
     if dest.is_file() {
         return Ok(dest.to_string_lossy().into_owned());
@@ -56,13 +67,13 @@ pub(crate) fn prepare_cbr_as_cbz(app: &AppHandle, path: String) -> Result<String
         std::process::id(),
         NEXT_TMP.fetch_add(1, Ordering::Relaxed)
     ));
-    cbr::convert_cbr_to_cbz_file(src, &tmp)?;
+    cbr::convert_cbr_to_cbz_file(src, &tmp).map_err(AppError::io)?;
     if let Err(err) = fs::rename(&tmp, &dest) {
         let _ = fs::remove_file(&tmp);
         if dest.is_file() {
             return Ok(dest.to_string_lossy().into_owned());
         }
-        return Err(format!("Failed to store converted CBZ: {err}"));
+        return Err(io_error("Failed to store converted CBZ", err));
     }
     Ok(dest.to_string_lossy().into_owned())
 }

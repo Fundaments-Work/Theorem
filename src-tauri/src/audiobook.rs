@@ -210,10 +210,16 @@ fn expand_sample_table(
     if uniform == 0 && sample_count > stsz.len().saturating_sub(12) / 4 {
         return Vec::new();
     }
-    let sizes: Vec<u64> = if uniform != 0 {
-        vec![u64::from(uniform); sample_count]
+    // Even for uniform sample size, sample_count cannot meaningfully exceed `stts` starts.
+    let bounded_count = if uniform != 0 {
+        sample_count.min(starts.len())
     } else {
-        (0..sample_count)
+        sample_count
+    };
+    let sizes: Vec<u64> = if uniform != 0 {
+        vec![u64::from(uniform); bounded_count]
+    } else {
+        (0..bounded_count)
             .map(|i| u64::from(be_u32(stsz, 12 + i * 4).unwrap_or(0)))
             .collect()
     };
@@ -435,7 +441,8 @@ fn read_top_box(file: &mut std::fs::File, kind: &[u8; 4]) -> Option<Vec<u8>> {
     file.seek(SeekFrom::Start(0)).ok()?;
     let mut pos = 0u64;
     loop {
-        if pos + 8 > file_len {
+        let min_end = pos.checked_add(8)?;
+        if min_end > file_len {
             return None;
         }
         file.seek(SeekFrom::Start(pos)).ok()?;
@@ -444,16 +451,24 @@ fn read_top_box(file: &mut std::fs::File, kind: &[u8; 4]) -> Option<Vec<u8>> {
         let size = u32::from_be_bytes(header[..4].try_into().ok()?) as u64;
         let box_kind: [u8; 4] = header[4..].try_into().ok()?;
         let (body_start, body_size) = match size {
-            0 => (pos + 8, file_len - pos - 8),
+            0 => (min_end, file_len.checked_sub(min_end)?),
             1 => {
+                let large_start = pos.checked_add(16)?;
+                if large_start > file_len {
+                    return None;
+                }
                 let mut large = [0u8; 8];
                 file.read_exact(&mut large).ok()?;
                 let s = u64::from_be_bytes(large);
-                (pos + 16, s.checked_sub(16)?)
+                (large_start, s.checked_sub(16)?)
             }
             // A size below the 8-byte header is corrupt; bail out instead of wrapping.
-            s => (pos + 8, s.checked_sub(8)?),
+            s => (min_end, s.checked_sub(8)?),
         };
+        let box_end = body_start.checked_add(body_size)?;
+        if box_end > file_len {
+            return None;
+        }
         if &box_kind == kind {
             if body_size > 64 * 1024 * 1024 {
                 return None;
@@ -463,11 +478,7 @@ fn read_top_box(file: &mut std::fs::File, kind: &[u8; 4]) -> Option<Vec<u8>> {
             file.read_exact(&mut buf).ok()?;
             return Some(buf);
         }
-        pos = if size == 0 {
-            file_len
-        } else {
-            body_start + body_size
-        };
+        pos = if size == 0 { file_len } else { box_end };
     }
 }
 
@@ -977,5 +988,15 @@ mod tests {
 
         let samples = expand_sample_table(&stts, &[], &stsz, &stco, &[]);
         assert!(samples.is_empty());
+
+        // size == 1 large 64-bit box with near-u64::MAX must return None without wrapping.
+        let mut large_box = vec![0, 0, 0, 1];
+        large_box.extend_from_slice(b"free");
+        large_box.extend_from_slice(&(u64::MAX - 4).to_be_bytes());
+        large_box.resize(32, 0);
+        let large_path = temp_mp3("large-wrap.m4b", &large_box);
+        let mut f = std::fs::File::open(&large_path).unwrap();
+        assert!(read_top_box(&mut f, b"moov").is_none());
+        std::fs::remove_file(large_path).ok();
     }
 }

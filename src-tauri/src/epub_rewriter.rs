@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 
 use crate::database;
 use crate::epub_parser::{
@@ -244,6 +244,7 @@ fn rewrite_zip(
             (normalize_entry_name(&name), entry.is_dir())
         };
 
+        const MAX_EPUB_ENTRY_BYTES: usize = 128 * 1024 * 1024;
         let target_opf = normalize_entry_name(opf_path);
         let mut buf: Vec<u8> = Vec::new();
         if name == target_opf {
@@ -257,25 +258,31 @@ fn rewrite_zip(
                     let mut entry = archive
                         .by_index(i)
                         .map_err(|e| format!("Failed to read zip entry {i}: {e}"))?;
-                    entry
-                        .read_to_end(&mut buf)
-                        .map_err(|e| format!("Failed to read entry {i}: {e}"))?;
+                    buf = crate::zip_util::read_zip_entry_bytes_bounded(
+                        &mut entry,
+                        MAX_EPUB_ENTRY_BYTES,
+                        &name,
+                    )?;
                 }
             } else {
                 let mut entry = archive
                     .by_index(i)
                     .map_err(|e| format!("Failed to read zip entry {i}: {e}"))?;
-                entry
-                    .read_to_end(&mut buf)
-                    .map_err(|e| format!("Failed to read entry {i}: {e}"))?;
+                buf = crate::zip_util::read_zip_entry_bytes_bounded(
+                    &mut entry,
+                    MAX_EPUB_ENTRY_BYTES,
+                    &name,
+                )?;
             }
         } else {
             let mut entry = archive
                 .by_index(i)
                 .map_err(|e| format!("Failed to read zip entry {i}: {e}"))?;
-            entry
-                .read_to_end(&mut buf)
-                .map_err(|e| format!("Failed to read entry {i}: {e}"))?;
+            buf = crate::zip_util::read_zip_entry_bytes_bounded(
+                &mut entry,
+                MAX_EPUB_ENTRY_BYTES,
+                &name,
+            )?;
         }
 
         if is_dir {
@@ -435,6 +442,7 @@ pub fn rewrite_epub_metadata_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
 
     fn create_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));

@@ -4,6 +4,7 @@ use crate::database;
 use crate::http;
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
@@ -12,6 +13,13 @@ const MAX_DICT_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DICT_ENTRY_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DICT_TAR_BYTES: usize = 512 * 1024 * 1024;
 
+static DICT_DOWNLOAD_GEN: AtomicU64 = AtomicU64::new(0);
+
+#[tauri::command]
+pub(crate) fn cancel_stardict_download() {
+    DICT_DOWNLOAD_GEN.fetch_add(1, Ordering::SeqCst);
+}
+
 #[tauri::command]
 pub(crate) async fn download_and_extract_stardict(
     app: AppHandle,
@@ -19,6 +27,9 @@ pub(crate) async fn download_and_extract_stardict(
 ) -> Result<serde_json::Value, String> {
     use futures::StreamExt;
 
+    let download_gen = DICT_DOWNLOAD_GEN
+        .fetch_add(1, Ordering::SeqCst)
+        .wrapping_add(1);
     let parsed_url = http::validate_http_url(&url)?;
     let response = http::download_client()?
         .get(parsed_url)
@@ -26,6 +37,10 @@ pub(crate) async fn download_and_extract_stardict(
         .send()
         .await
         .map_err(|e| format!("Download failed: {e}"))?;
+
+    if DICT_DOWNLOAD_GEN.load(Ordering::SeqCst) != download_gen {
+        return Err("Download cancelled".to_string());
+    }
 
     let status = response.status();
     if !status.is_success() {
@@ -43,6 +58,9 @@ pub(crate) async fn download_and_extract_stardict(
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
+        if DICT_DOWNLOAD_GEN.load(Ordering::SeqCst) != download_gen {
+            return Err("Download cancelled".to_string());
+        }
         let chunk = chunk.map_err(|e| format!("Stream error: {e}"))?;
         downloaded = downloaded.saturating_add(chunk.len() as u64);
         if downloaded > MAX_DICT_DOWNLOAD_BYTES as u64 {
@@ -71,6 +89,9 @@ pub(crate) async fn download_and_extract_stardict(
         .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."));
     let dict_dir = app_data.join("dictionaries").join(&id);
+    if DICT_DOWNLOAD_GEN.load(Ordering::SeqCst) != download_gen {
+        return Err("Download cancelled".to_string());
+    }
     std::fs::create_dir_all(&dict_dir).map_err(|e| {
         format!(
             "Failed to create dictionary directory {}: {e}",
@@ -306,31 +327,41 @@ fn extract_stardict_parts_from_tar_bz2(data: &[u8]) -> Result<StardictParts, Str
 }
 
 #[tauri::command]
-pub(crate) async fn fetch_online_definition(term: String) -> Result<serde_json::Value, String> {
+pub(crate) async fn fetch_online_definition(
+    term: String,
+) -> Result<serde_json::Value, crate::error::AppError> {
+    const MAX_DICT_API_BYTES: usize = 2 * 1024 * 1024;
     let clean = term.trim();
     if clean.is_empty() {
-        return Err("Term is empty".to_string());
+        return Err(crate::error::AppError::invalid_input("Term is empty"));
     }
 
     let encoded = percent_encoding::utf8_percent_encode(clean, percent_encoding::NON_ALPHANUMERIC)
         .to_string();
     let url = format!("https://api.dictionaryapi.dev/api/v2/entries/en/{encoded}");
 
-    let resp = http::client()?
+    let resp = http::client()
+        .map_err(crate::error::AppError::network)?
         .get(&url)
         .timeout(std::time::Duration::from_secs(4))
         .send()
         .await
-        .map_err(|e| format!("Network request failed: {e}"))?;
+        .map_err(|e| crate::error::AppError::network(format!("Network request failed: {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status().as_u16()));
+        return Err(crate::error::AppError::network(format!(
+            "HTTP {}",
+            resp.status().as_u16()
+        )));
     }
 
-    let json: serde_json::Value = resp
-        .json()
+    let bytes = http::read_response_bytes_bounded(resp, MAX_DICT_API_BYTES)
         .await
-        .map_err(|e| format!("JSON parse error: {e}"))?;
-
-    Ok(json)
+        .map_err(crate::error::AppError::network)?;
+    serde_json::from_slice(&bytes).map_err(|e| {
+        crate::error::AppError::new(
+            crate::error::ErrorKind::Corrupt,
+            format!("JSON parse error: {e}"),
+        )
+    })
 }

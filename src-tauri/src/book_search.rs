@@ -4,7 +4,6 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,8 +133,11 @@ pub fn search_epub_spine(
     // 1. Locate container.xml -> OPF
     let mut opf_path = String::new();
     if let Ok(mut container) = archive.by_name("META-INF/container.xml") {
-        let mut content = String::new();
-        if container.read_to_string(&mut content).is_ok() {
+        if let Ok(content) = crate::zip_util::read_zip_entry_string_bounded(
+            &mut container,
+            1024 * 1024,
+            "META-INF/container.xml",
+        ) {
             opf_path = extract_opf_path(&content);
         }
     }
@@ -168,11 +170,7 @@ pub fn search_epub_spine(
         let mut entry = archive
             .by_name(&opf_path)
             .map_err(|e| format!("Cannot read OPF: {e}"))?;
-        let mut s = String::new();
-        entry
-            .read_to_string(&mut s)
-            .map_err(|e| format!("Failed to read OPF string: {e}"))?;
-        s
+        crate::zip_util::read_zip_entry_string_bounded(&mut entry, 16 * 1024 * 1024, &opf_path)?
     };
 
     let spine_hrefs = parse_ordered_spine_hrefs(&opf_content);
@@ -191,8 +189,11 @@ pub fn search_epub_spine(
         };
 
         if let Ok(mut entry) = archive.by_name(&full_path) {
-            let mut text = String::new();
-            if entry.read_to_string(&mut text).is_ok() {
+            if let Ok(text) = crate::zip_util::read_zip_entry_string_bounded(
+                &mut entry,
+                16 * 1024 * 1024,
+                &full_path,
+            ) {
                 section_texts.push((idx, full_path, text));
             }
         }

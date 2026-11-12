@@ -150,16 +150,17 @@ pub async fn epub_read_entry(
     app: tauri::AppHandle,
     path: String,
     name: String,
-) -> Result<Response, String> {
+) -> Result<Response, crate::error::AppError> {
     tauri::async_runtime::spawn_blocking(move || {
         let resolved = crate::epub_parser::resolve_book_path(&app, &path)
-            .ok_or_else(|| format!("file not found: {path}"))?;
-        read_entry(&resolved, &name)?
+            .ok_or_else(|| crate::error::AppError::not_found(format!("file not found: {path}")))?;
+        read_entry(&resolved, &name)
+            .map_err(crate::error::AppError::io)?
             .map(Response::new)
-            .ok_or_else(|| ENTRY_NOT_FOUND.to_string())
+            .ok_or_else(|| crate::error::AppError::not_found(ENTRY_NOT_FOUND))
     })
     .await
-    .map_err(|e| format!("join error: {e}"))?
+    .map_err(|e| crate::error::AppError::internal(format!("join error: {e}")))?
 }
 
 #[cfg(test)]

@@ -532,7 +532,7 @@ pub mod engine {
                     let gap = resample_to_48k(&vec![0.0f32; CHUNK_GAP_SRC_SAMPLES], 44_100);
                     push_pcm(&mut ogg, &encoder, &gap, &mut granule, &mut packet_buf)?;
                 }
-                let result = desktop::tts_synthesize_impl(
+                let (result, _pin) = desktop::tts_synthesize_pinned(
                     app.clone(),
                     chunk,
                     voice.to_string(),
@@ -542,7 +542,6 @@ pub mod engine {
                 .await
                 .map_err(|e| format!("Synthesis failed: {e}"))?;
                 let wav_path = std::path::Path::new(&result.path);
-                let _pin = desktop::pin_cache_path(wav_path);
                 let (samples, wav_rate) = read_wav_mono(wav_path)
                     .map_err(|e| format!("Failed to read synthesized chunk: {e}"))?;
                 let samples = if wav_rate != TARGET_SAMPLE_RATE {

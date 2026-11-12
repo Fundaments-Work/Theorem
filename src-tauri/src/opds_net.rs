@@ -314,6 +314,8 @@ async fn load_with_origin(
 pub struct SearchRequest {
     pub href: String,
     pub kind: SearchKind,
+    #[serde(default)]
+    pub catalog_url: Option<String>,
 }
 
 #[tauri::command]
@@ -327,10 +329,16 @@ pub async fn opds_search(
     query: String,
     auth: Option<Credentials>,
 ) -> Result<Loaded, OpdsError> {
-    let origin = check_url(&search_ref.href)?;
+    let origin = match search_ref.catalog_url.as_deref() {
+        Some(base) => check_url(base)?,
+        None => check_url(&search_ref.href)?,
+    };
     let template = match search_ref.kind {
         SearchKind::Template => search_ref.href,
-        SearchKind::Description => match load(&search_ref.href, auth.as_ref()).await?.outcome {
+        SearchKind::Description => match load_with_origin(&search_ref.href, &origin, auth.as_ref())
+            .await?
+            .outcome
+        {
             Outcome::OpenSearch { templates } => templates
                 .into_iter()
                 .next()
@@ -450,8 +458,10 @@ pub async fn opds_download(
     id: String,
     url: String,
     auth: Option<Credentials>,
+    catalog_url: Option<String>,
 ) -> Result<DownloadedFile, OpdsError> {
-    download(&url, auth.as_ref(), |received, total| {
+    let origin = catalog_url.as_deref().map(check_url).transpose()?;
+    download_with_origin(&url, origin.as_ref(), auth.as_ref(), |received, total| {
         let _ = app.emit(
             "opds-download-progress",
             Progress {
@@ -471,13 +481,23 @@ pub async fn opds_download(
 pub async fn download(
     url: &str,
     auth: Option<&Credentials>,
+    on_progress: impl FnMut(u64, Option<u64>),
+) -> Result<DownloadedFile, OpdsError> {
+    download_with_origin(url, None, auth, on_progress).await
+}
+
+pub async fn download_with_origin(
+    url: &str,
+    origin: Option<&reqwest::Url>,
+    auth: Option<&Credentials>,
     mut on_progress: impl FnMut(u64, Option<u64>),
 ) -> Result<DownloadedFile, OpdsError> {
     let url = url.to_string();
     let parsed = check_url(&url)?;
+    let scoped_auth = auth_for_target(origin, &parsed, auth);
     let resp = request(
         parsed,
-        auth,
+        scoped_auth,
         "application/epub+zip, application/pdf, application/octet-stream, */*;q=0.5",
     )?
     .timeout(Duration::from_secs(600))
@@ -1016,6 +1036,7 @@ mod tests {
         let req = SearchRequest {
             href: search_ref.href,
             kind: search_ref.kind,
+            catalog_url: None,
         };
         let template = match req.kind {
             SearchKind::Template => req.href,
@@ -1086,9 +1107,10 @@ mod tests {
             SearchRequest {
                 href: format!("{catalog_base}/osd.xml"),
                 kind: SearchKind::Description,
+                catalog_url: Some(catalog_base.clone()),
             },
             "test".into(),
-            Some(creds),
+            Some(creds.clone()),
         )
         .await
         .unwrap();
@@ -1097,6 +1119,24 @@ mod tests {
             attacker_seen.lock().unwrap()[1].1,
             None,
             "third-party OpenSearch template target must not receive catalog credentials"
+        );
+
+        let origin = check_url(&catalog_base).unwrap();
+        let _ = download_with_origin(
+            &format!("{attacker_base}/opds"),
+            Some(&origin),
+            Some(&creds),
+            |_, _| {},
+        )
+        .await;
+        assert_eq!(
+            attacker_seen
+                .lock()
+                .unwrap()
+                .last()
+                .and_then(|r| r.1.clone()),
+            None,
+            "cross-origin acquisition download must not receive catalog credentials"
         );
     }
 }

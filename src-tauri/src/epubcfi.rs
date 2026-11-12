@@ -17,7 +17,7 @@ pub struct CfiLocation {
     /// 0-based position in the OPF spine
     pub spine_index: usize,
     /// Content-document steps: (number, is_text_node)
-    pub steps: Vec<(u32, bool)>,
+    pub steps: Box<[(u32, bool)]>,
     /// Character offset within the final node, when the CFI carries one
     pub offset: Option<u32>,
 }
@@ -141,7 +141,7 @@ pub fn parse(cfi: &str) -> Result<CfiLocation, String> {
 
     Ok(CfiLocation {
         spine_index,
-        steps,
+        steps: steps.into_boxed_slice(),
         offset,
     })
 }
@@ -377,7 +377,7 @@ mod tests {
     fn parses_spine_and_offsets() {
         let loc = parse("epubcfi(/6/4!/4/10/2:33)").unwrap();
         assert_eq!(loc.spine_index, 1); // /4 -> 2nd itemref
-        assert_eq!(loc.steps, vec![(4, false), (10, false), (2, false)]);
+        assert_eq!(&*loc.steps, &[(4, false), (10, false), (2, false)]);
         assert_eq!(loc.offset, Some(33));
     }
 
@@ -391,7 +391,7 @@ mod tests {
     fn ignores_id_assertions() {
         let loc = parse("epubcfi(/6/4[chap01ref]!/4[body01]/10[para05])").unwrap();
         assert_eq!(loc.spine_index, 1);
-        assert_eq!(loc.steps, vec![(4, false), (10, false)]);
+        assert_eq!(&*loc.steps, &[(4, false), (10, false)]);
     }
 
     #[test]
@@ -441,7 +441,7 @@ mod tests {
         let tree = sample_tree();
         let bad_loc = CfiLocation {
             spine_index: 0,
-            steps: vec![(0, false)],
+            steps: Box::from([(0, false)]),
             offset: None,
         };
         assert!(resolve_text(&tree, &bad_loc).is_err());

@@ -116,13 +116,15 @@ pub fn parse_mobi_file(path: &Path) -> Result<MobiMetadata, String> {
 
     let mut full_title = pdb_title;
     if title_offset > 0 && title_len > 0 && title_len < 1024 {
-        let abs_title_offset = (rec0_offset + title_offset) as u64;
-        if file.seek(SeekFrom::Start(abs_title_offset)).is_ok() {
-            let mut title_buf = vec![0u8; title_len as usize];
-            if file.read_exact(&mut title_buf).is_ok() {
-                let parsed = String::from_utf8_lossy(&title_buf).trim().to_string();
-                if !parsed.is_empty() {
-                    full_title = parsed;
+        if let Some(abs_title_offset) = u64::from(rec0_offset).checked_add(u64::from(title_offset))
+        {
+            if file.seek(SeekFrom::Start(abs_title_offset)).is_ok() {
+                let mut title_buf = vec![0u8; title_len as usize];
+                if file.read_exact(&mut title_buf).is_ok() {
+                    let parsed = String::from_utf8_lossy(&title_buf).trim().to_string();
+                    if !parsed.is_empty() {
+                        full_title = parsed;
+                    }
                 }
             }
         }

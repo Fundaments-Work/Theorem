@@ -128,12 +128,33 @@ function statusError(status: number, headers: Headers): OpdsError {
     return new OpdsError("http", `The catalog answered with HTTP ${status}.`, { status });
 }
 
+function effectivePort(url: URL): string {
+    if (url.port) return url.port;
+    return url.protocol === "https:" ? "443" : url.protocol === "http:" ? "80" : "";
+}
+
+function sameOrigin(originUrl: string | undefined, targetUrl: string): boolean {
+    if (!originUrl) return true;
+    try {
+        const origin = new URL(originUrl);
+        const target = new URL(targetUrl);
+        return (
+            origin.protocol === target.protocol
+            && origin.hostname.toLowerCase() === target.hostname.toLowerCase()
+            && effectivePort(origin) === effectivePort(target)
+        );
+    } catch {
+        return false;
+    }
+}
+
 /** Browser (web build) path: fetch, then hand the bytes to the same Rust parser via WebAssembly. */
-async function loadInBrowser(startUrl: string, auth?: OpdsCredentials): Promise<OpdsLoaded> {
+async function loadInBrowser(startUrl: string, auth?: OpdsCredentials, originUrl?: string): Promise<OpdsLoaded> {
     if (!(await initTheoremCoreWasm())) {
         throw new OpdsError("unsupported", "The catalog parser could not start in this browser.");
     }
     let url = startUrl.trim();
+    const origin = originUrl ?? url;
     const seen = new Set<string>();
     for (let hop = 0; hop <= MAX_HOPS; hop++) {
         if (seen.has(url)) break;
@@ -141,7 +162,8 @@ async function loadInBrowser(startUrl: string, auth?: OpdsCredentials): Promise<
         let response: Response;
         try {
             if (!/^https?:\/\//i.test(url)) throw new OpdsError("invalidUrl", ERROR_MESSAGES.invalidUrl);
-            response = await fetch(browserCatalogUrl(url), { headers: { Accept: ACCEPT, ...basicAuth(auth) } });
+            const scopedAuth = sameOrigin(origin, url) ? auth : undefined;
+            response = await fetch(browserCatalogUrl(url), { headers: { Accept: ACCEPT, ...basicAuth(scopedAuth) } });
         } catch (e) {
             if (e instanceof OpdsError) throw e;
             // A cross-origin block and an unreachable host look identical to fetch(); say the useful thing.
@@ -200,6 +222,8 @@ export interface LoadOptions {
     auth?: OpdsCredentials;
     /** Skip the short-lived cache (pull-to-refresh, retry). */
     force?: boolean;
+    /** Catalog origin for scoping Basic Auth credentials. */
+    originUrl?: string;
 }
 
 export interface LoadedFeed {
@@ -253,21 +277,24 @@ function readOffline(url: string): OpdsLoaded | null {
 }
 
 async function loadRaw(url: string, opts: LoadOptions = {}): Promise<OpdsLoaded> {
-    const key = cacheKey(url, opts.auth);
+    const scopedAuth = sameOrigin(opts.originUrl, url) ? opts.auth : undefined;
+    const key = cacheKey(url, scopedAuth);
     const hit = feedCache.get(key);
     if (!opts.force && hit && Date.now() - hit.at < FEED_TTL_MS) return hit.loaded;
     let loaded: OpdsLoaded;
     try {
-        loaded = isTauri() ? await loadNative(url, opts.auth) : await loadInBrowser(url, opts.auth);
+        loaded = isTauri()
+            ? await loadNative(url, scopedAuth)
+            : await loadInBrowser(url, scopedAuth, opts.originUrl ?? url);
     } catch (error) {
-        const offline = error instanceof OpdsError && OFFLINE_FALLBACK_KINDS.has(error.kind) && offlineEligible(url, opts.auth) ? readOffline(url) : null;
+        const offline = error instanceof OpdsError && OFFLINE_FALLBACK_KINDS.has(error.kind) && offlineEligible(url, scopedAuth) ? readOffline(url) : null;
         if (offline) return offline;
         throw error;
     }
     // Only documents that are feeds are worth keeping; an auth challenge must be re-asked.
     if (loaded.outcome.type === "feed") {
         remember(key, loaded);
-        if (offlineEligible(url, opts.auth)) saveOffline(url, loaded);
+        if (offlineEligible(url, scopedAuth)) saveOffline(url, loaded);
     }
     return loaded;
 }
@@ -284,20 +311,21 @@ export const OpdsService = {
     },
 
     /** Run the catalog's own search. Resolves OpenSearch description documents on the way. */
-    async search(ref: OpdsSearchRef, query: string, auth?: OpdsCredentials): Promise<LoadedFeed> {
+    async search(ref: OpdsSearchRef, query: string, auth?: OpdsCredentials, originUrl?: string): Promise<LoadedFeed> {
         const q = query.trim();
         if (!q) throw new OpdsError("invalidUrl", "Enter something to search for.");
+        const origin = originUrl ?? ref.href;
         if (isTauri()) {
             const { invoke } = await import("@tauri-apps/api/core");
             try {
-                return expectFeed(await invoke<OpdsLoaded>("opds_search", { searchRef: ref, query: q, auth: auth ?? null }));
+                return expectFeed(await invoke<OpdsLoaded>("opds_search", { searchRef: { ...ref, catalogUrl: origin }, query: q, auth: auth ?? null }));
             } catch (e) {
                 throw fromNative(e);
             }
         }
         let template = ref.href;
         if (ref.kind === "description") {
-            const described = await loadRaw(ref.href, { auth });
+            const described = await loadRaw(ref.href, { auth, originUrl: origin });
             if (described.outcome.type !== "openSearch" || described.outcome.templates.length === 0) {
                 throw new OpdsError("unsupported", "This catalog's search description could not be read.");
             }
@@ -306,16 +334,16 @@ export const OpdsService = {
         await initTheoremCoreWasm();
         const url = wasmOpdsExpandSearch(template, q);
         if (!url) throw new OpdsError("unsupported", "This catalog's search could not be started.");
-        return expectFeed(await loadRaw(url, { auth }));
+        return expectFeed(await loadRaw(url, { auth, originUrl: origin }));
     },
 
     /**
      * The full entry for a partial one (catalogs that list books and put the downloads one click
      * deeper). Several editions in one feed are merged into a single book.
      */
-    async loadDetail(entry: OpdsEntry, auth?: OpdsCredentials): Promise<OpdsEntry> {
+    async loadDetail(entry: OpdsEntry, auth?: OpdsCredentials, originUrl?: string): Promise<OpdsEntry> {
         if (!entry.detailHref) return entry;
-        const { feed } = await OpdsService.load(entry.detailHref, { auth });
+        const { feed } = await OpdsService.load(entry.detailHref, { auth, originUrl });
         const detail = mergeEditions(feed.entries);
         if (!detail) return entry;
         return {
@@ -336,7 +364,7 @@ export const OpdsService = {
      */
     async download(
         acquisition: OpdsAcquisition,
-        opts: { auth?: OpdsCredentials; onProgress?: (received: number, total?: number) => void } = {},
+        opts: { auth?: OpdsCredentials; originUrl?: string; onProgress?: (received: number, total?: number) => void } = {},
     ): Promise<Book> {
         const failures: unknown[] = [];
         const addBook = (book: Book) => useLibraryStore.getState().addBook(book);
@@ -350,7 +378,12 @@ export const OpdsService = {
             });
             let file: OpdsDownloadedFile | undefined;
             try {
-                file = await invoke<OpdsDownloadedFile>("opds_download", { id, url: acquisition.href, auth: opts.auth ?? null });
+                file = await invoke<OpdsDownloadedFile>("opds_download", {
+                    id,
+                    url: acquisition.href,
+                    auth: opts.auth ?? null,
+                    catalogUrl: opts.originUrl ?? null,
+                });
                 const imported = await importBooksIncremental([file.path], addBook, (_source, err) => failures.push(err));
                 if (imported[0]) return imported[0];
                 throw failures[0] instanceof Error ? failures[0] : new OpdsError("unsupported", "Theorem could not import this file.");
@@ -364,7 +397,8 @@ export const OpdsService = {
 
         let response: Response;
         try {
-            response = await fetch(browserCatalogUrl(acquisition.href), { headers: basicAuth(opts.auth) });
+            const scopedAuth = sameOrigin(opts.originUrl, acquisition.href) ? opts.auth : undefined;
+            response = await fetch(browserCatalogUrl(acquisition.href), { headers: basicAuth(scopedAuth) });
         } catch {
             throw new OpdsError("cors", ERROR_MESSAGES.cors);
         }

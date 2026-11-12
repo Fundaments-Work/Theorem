@@ -399,25 +399,25 @@ fn highlights_export(
                 let file_path = b.and_then(|b| book_str(b, "filePath")).unwrap_or("");
 
                 let source = crate::vault_export::ExportSource {
-                    id: b_id.clone(),
-                    title: title.to_string(),
-                    author: author.to_string(),
-                    format: format.to_string(),
-                    file_path: file_path.to_string(),
+                    id: b_id.as_str().into(),
+                    title: title.into(),
+                    author: author.into(),
+                    format: format.into(),
+                    file_path: file_path.into(),
                 };
 
                 let vault_annos: Vec<crate::vault_export::VaultAnnotation> = annos
                     .iter()
                     .map(|a| crate::vault_export::VaultAnnotation {
-                        id: book_str(a, "id").unwrap_or("").to_string(),
-                        book_id: b_id.clone(),
-                        r#type: book_str(a, "type").unwrap_or("highlight").to_string(),
-                        selected_text: book_str(a, "selectedText").map(str::to_string),
-                        note_content: book_str(a, "noteContent").map(str::to_string),
-                        color: book_str(a, "color").map(str::to_string),
-                        created_at: book_str(a, "createdAt").unwrap_or("").to_string(),
-                        updated_at: book_str(a, "updatedAt").map(str::to_string),
-                        chapter_title: book_str(a, "chapterTitle").map(str::to_string),
+                        id: book_str(a, "id").unwrap_or("").into(),
+                        book_id: b_id.as_str().into(),
+                        r#type: book_str(a, "type").unwrap_or("highlight").into(),
+                        selected_text: book_str(a, "selectedText").map(Box::from),
+                        note_content: book_str(a, "noteContent").map(Box::from),
+                        color: book_str(a, "color").map(Box::from),
+                        created_at: book_str(a, "createdAt").unwrap_or("").into(),
+                        updated_at: book_str(a, "updatedAt").map(Box::from),
+                        chapter_title: book_str(a, "chapterTitle").map(Box::from),
                         chapter_index: a
                             .get("chapterIndex")
                             .and_then(|v| v.as_u64())

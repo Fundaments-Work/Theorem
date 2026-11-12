@@ -333,18 +333,28 @@ impl StarDict {
                 match DictZipHeader::parse(&mut dict_handle) {
                     Ok(dz) => (comp, Some(dz)),
                     Err(_) => {
-                        // Standard sequential GZIP (lacks RA chunk header) — decompress to .dict on disk
+                        // Standard sequential GZIP (lacks RA chunk header) — decompress to .dict on disk (bounded)
+                        const MAX_DICT_DECOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
                         let uncomp_path = dir.join("dict.dict");
                         if !uncomp_path.exists() {
                             let gz_handle = File::open(&comp)
                                 .map_err(|e| format!("Failed to reopen .dict.dz: {e}"))?;
-                            let mut decoder = flate2::read::GzDecoder::new(gz_handle);
+                            let decoder = flate2::read::GzDecoder::new(gz_handle);
+                            let mut bounded = decoder.take(MAX_DICT_DECOMPRESSED_BYTES + 1);
                             let mut out_file = File::create(&uncomp_path).map_err(|e| {
                                 format!("Failed to create uncompressed dict file: {e}")
                             })?;
-                            std::io::copy(&mut decoder, &mut out_file).map_err(|e| {
-                                format!("Failed to decompress standard gzip dict: {e}")
-                            })?;
+                            let copied =
+                                std::io::copy(&mut bounded, &mut out_file).map_err(|e| {
+                                    let _ = std::fs::remove_file(&uncomp_path);
+                                    format!("Failed to decompress standard gzip dict: {e}")
+                                })?;
+                            if copied > MAX_DICT_DECOMPRESSED_BYTES {
+                                let _ = std::fs::remove_file(&uncomp_path);
+                                return Err(
+                                    "Decompressed dictionary exceeds maximum size".to_string()
+                                );
+                            }
                         }
                         (uncomp_path, None)
                     }

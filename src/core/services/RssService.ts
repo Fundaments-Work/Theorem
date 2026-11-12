@@ -739,7 +739,7 @@ export async function fetchAndParseFeed(
                     `3. Check if the site requires authentication`
                 );
             }
-            if (error.message.includes('failed to fetch') || error.message.includes('network')) {
+            if (fetchError instanceof TypeError) {
                 throw new Error(
                     `Network error: Unable to reach ${url}. ` +
                     `Please check:\n` +
