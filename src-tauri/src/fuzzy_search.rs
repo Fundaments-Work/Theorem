@@ -43,8 +43,14 @@ pub fn match_string(
     haystack: &str,
     indices: &mut Vec<u32>,
 ) -> Option<u32> {
-    let mut scratch = FuzzyScratch::default();
-    match_string_with_scratch(matcher, pattern, haystack, indices, &mut scratch)
+    thread_local! {
+        static SCRATCH: std::cell::RefCell<FuzzyScratch> =
+            std::cell::RefCell::new(FuzzyScratch::default());
+    }
+    SCRATCH.with(|cell| {
+        let mut scratch = cell.borrow_mut();
+        match_string_with_scratch(matcher, pattern, haystack, indices, &mut scratch)
+    })
 }
 
 /// Matches a single string using a caller-supplied [`FuzzyScratch`] buffer.
@@ -275,8 +281,9 @@ pub async fn two_tier_search_books(
 
         // Tier 1: FTS5 Candidate Retrieval from SQLite Disk
         let candidates = crate::database::with_connection(&app, |conn| {
+            type FtsCandidate = (Box<str>, Box<str>, Option<Box<str>>);
             let terms: Vec<&str> = trimmed.split_whitespace().collect();
-            let mut candidates: Vec<(String, String, Option<String>)> = Vec::new();
+            let mut candidates: Vec<FtsCandidate> = Vec::new();
 
             // Construct prefix-matched FTS5 query terms
             let fts_match: String = terms
@@ -302,9 +309,9 @@ pub async fn two_tier_search_books(
                 ) {
                     if let Ok(rows) = stmt.query_map(rusqlite::params![&fts_match], |row| {
                         Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, String>(0)?.into_boxed_str(),
+                            row.get::<_, String>(1)?.into_boxed_str(),
+                            row.get::<_, Option<String>>(2)?.map(String::into_boxed_str),
                         ))
                     }) {
                         for r in rows.flatten() {
@@ -323,15 +330,15 @@ pub async fn two_tier_search_books(
                 {
                     if let Ok(rows) = stmt.query_map([], |row| {
                         Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, String>(0)?.into_boxed_str(),
+                            row.get::<_, String>(1)?.into_boxed_str(),
+                            row.get::<_, Option<String>>(2)?.map(String::into_boxed_str),
                         ))
                     }) {
-                        let existing: std::collections::HashSet<String> =
+                        let existing: std::collections::HashSet<Box<str>> =
                             candidates.iter().map(|c| c.0.clone()).collect();
                         for r in rows.flatten() {
-                            if !existing.contains(&r.0) {
+                            if !existing.contains(r.0.as_ref()) {
                                 candidates.push(r);
                             }
                         }
@@ -358,9 +365,9 @@ pub async fn two_tier_search_books(
                     &mut scratch,
                 )?;
                 Some(TwoTierSearchResult {
-                    book_id: book_id.into_boxed_str(),
-                    title: title.into_boxed_str(),
-                    author: author.map(String::into_boxed_str),
+                    book_id,
+                    title,
+                    author,
                     score: hit.score,
                     title_indices: hit.title_indices,
                     author_indices: hit.author_indices,

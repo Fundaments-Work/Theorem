@@ -62,7 +62,7 @@ fn ingest(paths: &[String], cache: &Path, known: &[KnownBook], cancel: &AtomicBo
                 );
                 new_known.push(KnownBook {
                     size: book.file_size,
-                    hash: book.content_hash.clone().unwrap().into(),
+                    hash: book.content_hash.clone().unwrap(),
                 });
                 (path, Outcome::Imported)
             }
@@ -298,7 +298,7 @@ fn stopping_an_import_keeps_finished_books_and_leaves_no_partial_files() {
         .filter_map(|i| match i {
             IngestItem::Imported { book, .. } => Some(KnownBook {
                 size: book.file_size,
-                hash: book.content_hash.clone().unwrap().into(),
+                hash: book.content_hash.clone().unwrap(),
             }),
             _ => None,
         })

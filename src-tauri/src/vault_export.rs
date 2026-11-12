@@ -16,26 +16,26 @@ const MAX_BOOK_PAGE_FILE_NAME_LENGTH: usize = 180;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultBook {
-    pub id: String,
-    pub title: String,
-    pub author: Option<String>,
-    pub format: Option<String>,
-    pub file_path: Option<String>,
+    pub id: Box<str>,
+    pub title: Box<str>,
+    pub author: Option<Box<str>>,
+    pub format: Option<Box<str>>,
+    pub file_path: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultAnnotation {
-    pub id: String,
-    pub book_id: String,
-    pub r#type: String, // "highlight" | "note"
-    pub selected_text: Option<String>,
-    pub note_content: Option<String>,
-    pub color: Option<String>,
-    pub created_at: String,
-    pub updated_at: Option<String>,
+    pub id: Box<str>,
+    pub book_id: Box<str>,
+    pub r#type: Box<str>, // "highlight" | "note"
+    pub selected_text: Option<Box<str>>,
+    pub note_content: Option<Box<str>>,
+    pub color: Option<Box<str>>,
+    pub created_at: Box<str>,
+    pub updated_at: Option<Box<str>>,
     #[serde(default)]
-    pub chapter_title: Option<String>,
+    pub chapter_title: Option<Box<str>>,
     #[serde(default)]
     pub chapter_index: Option<usize>,
 }
@@ -43,28 +43,28 @@ pub struct VaultAnnotation {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultVocabularyMeaning {
-    pub part_of_speech: Option<String>,
-    pub definitions: Vec<String>,
+    pub part_of_speech: Option<Box<str>>,
+    pub definitions: Box<[Box<str>]>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultVocabularyTerm {
-    pub id: String,
-    pub term: String,
-    pub language: Option<String>,
-    pub phonetic: Option<String>,
-    pub meanings: Option<Vec<VaultVocabularyMeaning>>,
-    pub contexts: Option<Vec<String>>,
+    pub id: Box<str>,
+    pub term: Box<str>,
+    pub language: Option<Box<str>>,
+    pub phonetic: Option<Box<str>>,
+    pub meanings: Option<Box<[VaultVocabularyMeaning]>>,
+    pub contexts: Option<Box<[Box<str>]>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultRssArticle {
-    pub id: String,
-    pub title: String,
-    pub author: Option<String>,
-    pub url: Option<String>,
+    pub id: Box<str>,
+    pub title: Box<str>,
+    pub author: Option<Box<str>>,
+    pub url: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -88,17 +88,17 @@ pub enum VaultHighlightGrouping {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultExportPayload {
-    pub vault_path: String,
-    pub highlights_folder: Option<String>,
-    pub vocabulary_file_name: Option<String>,
-    pub export_preset: Option<String>,
-    pub highlight_grouping: Option<String>,
-    pub custom_pages: Option<HashMap<String, String>>,
-    pub books: Vec<VaultBook>,
-    pub annotations: Vec<VaultAnnotation>,
-    pub vocabulary_terms: Vec<VaultVocabularyTerm>,
-    pub rss_articles: Option<Vec<VaultRssArticle>>,
-    pub generated_at: Option<String>,
+    pub vault_path: Box<str>,
+    pub highlights_folder: Option<Box<str>>,
+    pub vocabulary_file_name: Option<Box<str>>,
+    pub export_preset: Option<Box<str>>,
+    pub highlight_grouping: Option<Box<str>>,
+    pub custom_pages: Option<HashMap<Box<str>, Box<str>>>,
+    pub books: Box<[VaultBook]>,
+    pub annotations: Box<[VaultAnnotation]>,
+    pub vocabulary_terms: Box<[VaultVocabularyTerm]>,
+    pub rss_articles: Option<Box<[VaultRssArticle]>>,
+    pub generated_at: Option<Box<str>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,11 +112,11 @@ pub struct VaultExportResult {
 
 #[derive(Debug, Clone)]
 pub struct ExportSource {
-    pub id: String,
-    pub title: String,
-    pub author: String,
-    pub format: String,
-    pub file_path: String,
+    pub id: Box<str>,
+    pub title: Box<str>,
+    pub author: Box<str>,
+    pub format: Box<str>,
+    pub file_path: Box<str>,
 }
 
 fn to_yaml_string(value: &str) -> String {
@@ -184,8 +184,8 @@ fn clamp_file_name_length(file_name: &str, max_len: usize) -> String {
 
 fn build_export_source(
     book_id: &str,
-    books_by_id: &HashMap<String, &VaultBook>,
-    rss_by_id: &HashMap<String, &VaultRssArticle>,
+    books_by_id: &HashMap<&str, &VaultBook>,
+    rss_by_id: &HashMap<&str, &VaultRssArticle>,
 ) -> ExportSource {
     let rss_article_id = if let Some(stripped) = book_id.strip_prefix("rss:") {
         stripped.trim()
@@ -227,37 +227,33 @@ fn build_export_source(
 
         return ExportSource {
             id: book.id.clone(),
-            title: title.to_string(),
-            author: author.to_string(),
-            format: book.format.clone().unwrap_or_else(|| "epub".to_string()),
-            file_path: file_path.to_string(),
+            title: title.into(),
+            author: author.into(),
+            format: book.format.as_deref().unwrap_or("epub").into(),
+            file_path: file_path.into(),
         };
     }
 
     if let Some(art) = rss_article {
         return ExportSource {
-            id: book_id.to_string(),
+            id: book_id.into(),
             title: if art.title.trim().is_empty() {
-                "RSS Article".to_string()
+                "RSS Article".into()
             } else {
-                art.title.trim().to_string()
+                art.title.trim().into()
             },
-            author: art
-                .author
-                .as_deref()
-                .unwrap_or("Unknown Author")
-                .to_string(),
-            format: "rss".to_string(),
-            file_path: art.url.as_deref().unwrap_or("").to_string(),
+            author: art.author.as_deref().unwrap_or("Unknown Author").into(),
+            format: "rss".into(),
+            file_path: art.url.as_deref().unwrap_or("").into(),
         };
     }
 
     ExportSource {
-        id: book_id.to_string(),
-        title: "Untitled Document".to_string(),
-        author: "Unknown Author".to_string(),
-        format: "unknown".to_string(),
-        file_path: String::new(),
+        id: book_id.into(),
+        title: "Untitled Document".into(),
+        author: "Unknown Author".into(),
+        format: "unknown".into(),
+        file_path: "".into(),
     }
 }
 
@@ -383,7 +379,7 @@ pub fn build_book_page_markdown(
     lines.push(String::new());
     lines.push(format!("# {}", source.title));
 
-    if !source.author.is_empty() && source.author != "Unknown Author" {
+    if !source.author.is_empty() && &*source.author != "Unknown Author" {
         lines.push(format!("*{}*", source.author));
     }
 
@@ -534,7 +530,7 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &
             term.contexts
                 .as_ref()
                 .and_then(|c| c.first())
-                .map_or("", String::as_str),
+                .map_or("", AsRef::as_ref),
         );
 
         lines.push("---card---".to_string());
@@ -572,7 +568,7 @@ pub fn build_vocabulary_markdown(terms: &[VaultVocabularyTerm], _generated_at: &
 pub fn export_vault_snapshot_impl(
     payload: &VaultExportPayload,
 ) -> Result<VaultExportResult, String> {
-    let vault_path = Path::new(&payload.vault_path);
+    let vault_path = Path::new(&*payload.vault_path);
     if !vault_path.exists() {
         fs::create_dir_all(vault_path)
             .map_err(|e| format!("Failed to create vault directory: {e}"))?;
@@ -594,26 +590,27 @@ pub fn export_vault_snapshot_impl(
 
     let generated_at = payload
         .generated_at
-        .clone()
+        .as_deref()
+        .map(str::to_owned)
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
-    let books_by_id: HashMap<String, &VaultBook> =
-        payload.books.iter().map(|b| (b.id.clone(), b)).collect();
-    let rss_by_id: HashMap<String, &VaultRssArticle> = payload
+    let books_by_id: HashMap<&str, &VaultBook> =
+        payload.books.iter().map(|b| (b.id.as_ref(), b)).collect();
+    let rss_by_id: HashMap<&str, &VaultRssArticle> = payload
         .rss_articles
         .as_deref()
         .unwrap_or(&[])
         .iter()
-        .map(|a| (a.id.clone(), a))
+        .map(|a| (a.id.as_ref(), a))
         .collect();
 
     // Group annotations by book_id. BTreeMap: a stable order keeps the
     // " 2" suffix of colliding file names on the same book every run.
-    let mut grouped_annotations: BTreeMap<String, Vec<VaultAnnotation>> = BTreeMap::new();
+    let mut grouped_annotations: BTreeMap<&str, Vec<VaultAnnotation>> = BTreeMap::new();
     for anno in &payload.annotations {
-        if anno.r#type == "highlight" || anno.r#type == "note" {
+        if &*anno.r#type == "highlight" || &*anno.r#type == "note" {
             grouped_annotations
-                .entry(anno.book_id.clone())
+                .entry(anno.book_id.as_ref())
                 .or_default()
                 .push(anno.clone());
         }
@@ -644,8 +641,8 @@ pub fn export_vault_snapshot_impl(
         let abs_path = pages_dir.join(file_name);
         let content = if preset == VaultExportPreset::Custom {
             custom_pages
-                .and_then(|pages| pages.get(book_id))
-                .cloned()
+                .and_then(|pages| pages.get(*book_id))
+                .map(|s| s.to_string())
                 .unwrap_or_else(|| {
                     build_book_page_markdown(
                         &source,
@@ -811,7 +808,7 @@ mod tests {
             annos: Vec<(&str, &str)>,
         ) -> VaultExportPayload {
             VaultExportPayload {
-                vault_path: self.0.to_string_lossy().into_owned(),
+                vault_path: self.0.to_string_lossy().into_owned().into_boxed_str(),
                 highlights_folder: None,
                 vocabulary_file_name: None,
                 export_preset: None,
@@ -820,10 +817,10 @@ mod tests {
                 books: books
                     .into_iter()
                     .map(|(id, title)| VaultBook {
-                        id: id.to_string(),
-                        title: title.to_string(),
-                        author: Some("Same Author".to_string()),
-                        format: Some("epub".to_string()),
+                        id: id.into(),
+                        title: title.into(),
+                        author: Some("Same Author".into()),
+                        format: Some("epub".into()),
                         file_path: None,
                     })
                     .collect(),
@@ -831,19 +828,19 @@ mod tests {
                     .into_iter()
                     .enumerate()
                     .map(|(i, (book_id, text))| VaultAnnotation {
-                        id: format!("a{i}"),
-                        book_id: book_id.to_string(),
-                        r#type: "highlight".to_string(),
-                        selected_text: Some(text.to_string()),
+                        id: format!("a{i}").into_boxed_str(),
+                        book_id: book_id.into(),
+                        r#type: "highlight".into(),
+                        selected_text: Some(text.into()),
                         note_content: None,
-                        color: Some("yellow".to_string()),
-                        created_at: "2026-09-01T10:00:00Z".to_string(),
+                        color: Some("yellow".into()),
+                        created_at: "2026-09-01T10:00:00Z".into(),
                         updated_at: None,
                         chapter_title: None,
                         chapter_index: None,
                     })
                     .collect(),
-                vocabulary_terms: vec![],
+                vocabulary_terms: Box::default(),
                 rss_articles: None,
                 generated_at: None,
             }
@@ -989,15 +986,15 @@ mod tests {
     #[test]
     fn test_build_vocabulary_markdown() {
         let terms = vec![VaultVocabularyTerm {
-            id: "vocab-1".to_string(),
-            term: "ephemeral".to_string(),
-            language: Some("en".to_string()),
-            phonetic: Some("ɪˈfɛmərəl".to_string()),
-            meanings: Some(vec![VaultVocabularyMeaning {
-                part_of_speech: Some("adjective".to_string()),
-                definitions: vec!["Lasting for a very short time.".to_string()],
-            }]),
-            contexts: Some(vec!["Fame is ephemeral in this modern age.".to_string()]),
+            id: "vocab-1".into(),
+            term: "ephemeral".into(),
+            language: Some("en".into()),
+            phonetic: Some("ɪˈfɛmərəl".into()),
+            meanings: Some(Box::from([VaultVocabularyMeaning {
+                part_of_speech: Some("adjective".into()),
+                definitions: Box::from(["Lasting for a very short time.".into()]),
+            }])),
+            contexts: Some(Box::from(["Fame is ephemeral in this modern age.".into()])),
         }];
 
         let md = build_vocabulary_markdown(&terms, "2026-09-13T12:00:00Z");
@@ -1009,34 +1006,34 @@ mod tests {
     #[test]
     fn test_build_book_page_markdown() {
         let source = ExportSource {
-            id: "book-1".to_string(),
-            title: "Dune".to_string(),
-            author: "Frank Herbert".to_string(),
-            format: "epub".to_string(),
-            file_path: "/books/dune.epub".to_string(),
+            id: "book-1".into(),
+            title: "Dune".into(),
+            author: "Frank Herbert".into(),
+            format: "epub".into(),
+            file_path: "/books/dune.epub".into(),
         };
 
         let annotations = vec![
             VaultAnnotation {
-                id: "anno-1".to_string(),
-                book_id: "book-1".to_string(),
-                r#type: "highlight".to_string(),
-                selected_text: Some("Fear is the mind-killer.".to_string()),
+                id: "anno-1".into(),
+                book_id: "book-1".into(),
+                r#type: "highlight".into(),
+                selected_text: Some("Fear is the mind-killer.".into()),
                 note_content: None,
-                color: Some("yellow".to_string()),
-                created_at: "2026-09-01T12:00:00Z".to_string(),
+                color: Some("yellow".into()),
+                created_at: "2026-09-01T12:00:00Z".into(),
                 updated_at: None,
                 chapter_title: None,
                 chapter_index: None,
             },
             VaultAnnotation {
-                id: "anno-2".to_string(),
-                book_id: "book-1".to_string(),
-                r#type: "note".to_string(),
-                selected_text: Some("I must not fear.".to_string()),
-                note_content: Some("The Litany Against Fear.".to_string()),
-                color: Some("blue".to_string()),
-                created_at: "2026-09-01T12:05:00Z".to_string(),
+                id: "anno-2".into(),
+                book_id: "book-1".into(),
+                r#type: "note".into(),
+                selected_text: Some("I must not fear.".into()),
+                note_content: Some("The Litany Against Fear.".into()),
+                color: Some("blue".into()),
+                created_at: "2026-09-01T12:05:00Z".into(),
                 updated_at: None,
                 chapter_title: None,
                 chapter_index: None,
@@ -1091,11 +1088,11 @@ mod tests {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Source {
-            id: String,
-            title: String,
-            author: String,
-            format: String,
-            file_path: String,
+            id: Box<str>,
+            title: Box<str>,
+            author: Box<str>,
+            format: Box<str>,
+            file_path: Box<str>,
         }
         #[derive(Deserialize)]
         struct Input {
@@ -1265,12 +1262,12 @@ mod tests {
         let vault = TempVault::new("custom-preset");
         let mut custom = HashMap::new();
         custom.insert(
-            "b1".to_string(),
-            "# Custom Note for B1\n\n> Custom content".to_string(),
+            "b1".into(),
+            "# Custom Note for B1\n\n> Custom content".into(),
         );
 
         let mut payload = vault.payload(vec![("b1", "Book One")], vec![("b1", "Text 1")]);
-        payload.export_preset = Some("custom".to_string());
+        payload.export_preset = Some("custom".into());
         payload.custom_pages = Some(custom);
 
         let res = export_vault_snapshot_impl(&payload).unwrap();
@@ -1286,45 +1283,45 @@ mod tests {
     #[test]
     fn test_chapter_wise_grouping_and_ordering() {
         let source = ExportSource {
-            id: "b1".to_string(),
-            title: "Test Book".to_string(),
-            author: "Author".to_string(),
-            format: "epub".to_string(),
-            file_path: "b1.epub".to_string(),
+            id: "b1".into(),
+            title: "Test Book".into(),
+            author: "Author".into(),
+            format: "epub".into(),
+            file_path: "b1.epub".into(),
         };
         let annotations = vec![
             VaultAnnotation {
-                id: "a1".to_string(),
-                book_id: "b1".to_string(),
-                r#type: "highlight".to_string(),
-                selected_text: Some("Quote in chapter 2".to_string()),
+                id: "a1".into(),
+                book_id: "b1".into(),
+                r#type: "highlight".into(),
+                selected_text: Some("Quote in chapter 2".into()),
                 note_content: None,
-                color: Some("yellow".to_string()),
-                created_at: "2026-09-01T10:00:00Z".to_string(),
+                color: Some("yellow".into()),
+                created_at: "2026-09-01T10:00:00Z".into(),
                 updated_at: None,
-                chapter_title: Some("Chapter 2: The Second".to_string()),
+                chapter_title: Some("Chapter 2: The Second".into()),
                 chapter_index: Some(1),
             },
             VaultAnnotation {
-                id: "a2".to_string(),
-                book_id: "b1".to_string(),
-                r#type: "highlight".to_string(),
-                selected_text: Some("Quote in chapter 1".to_string()),
+                id: "a2".into(),
+                book_id: "b1".into(),
+                r#type: "highlight".into(),
+                selected_text: Some("Quote in chapter 1".into()),
                 note_content: None,
-                color: Some("yellow".to_string()),
-                created_at: "2026-09-01T11:00:00Z".to_string(),
+                color: Some("yellow".into()),
+                created_at: "2026-09-01T11:00:00Z".into(),
                 updated_at: None,
-                chapter_title: Some("Chapter 1: The Beginning".to_string()),
+                chapter_title: Some("Chapter 1: The Beginning".into()),
                 chapter_index: Some(0),
             },
             VaultAnnotation {
-                id: "a3".to_string(),
-                book_id: "b1".to_string(),
-                r#type: "note".to_string(),
+                id: "a3".into(),
+                book_id: "b1".into(),
+                r#type: "note".into(),
                 selected_text: None,
-                note_content: Some("Uncategorized general note".to_string()),
-                color: Some("yellow".to_string()),
-                created_at: "2026-09-01T12:00:00Z".to_string(),
+                note_content: Some("Uncategorized general note".into()),
+                color: Some("yellow".into()),
+                created_at: "2026-09-01T12:00:00Z".into(),
                 updated_at: None,
                 chapter_title: None,
                 chapter_index: None,
