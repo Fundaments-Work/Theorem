@@ -24,7 +24,7 @@ export function Button({ variant = "default", className, type = "button", ...pro
     return (
         <button
             type={type}
-            className={cn(VARIANT_CLASS[variant], "disabled:opacity-50", className)}
+            className={cn(VARIANT_CLASS[variant], className)}
             {...props}
         />
     );

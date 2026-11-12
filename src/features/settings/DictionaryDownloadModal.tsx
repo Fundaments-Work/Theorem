@@ -103,6 +103,7 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
             let aborted = false;
             abortRef.current = () => {
                 aborted = true;
+                void invoke("cancel_stardict_download").catch(() => {});
             };
 
             const result = await invoke<{
@@ -135,9 +136,12 @@ export function DictionaryDownloadModal({ isOpen, onClose }: DictionaryDownloadM
         } catch (err) {
             unlistenRef.current?.();
             unlistenRef.current = null;
+            const wasCancelled = abortRef.current === null;
             abortRef.current = null;
             const message = err instanceof Error ? err.message : (typeof err === "string" ? err : JSON.stringify(err));
-            setError(message || "Download failed");
+            if (!wasCancelled && !/Download cancelled/i.test(message)) {
+                setError(message || "Download failed");
+            }
             setActiveDownload(null);
         } finally {
             setStage(null);

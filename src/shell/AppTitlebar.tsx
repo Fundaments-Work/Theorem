@@ -268,10 +268,10 @@ export const AppTitlebar = memo(function AppTitlebar({
                         </div>
                     </button>
 
-                    {/* Visually hidden on phones (the logo takes the space) but still the page's heading for assistive tech. */}
-                    <h1 className="sr-only sm:not-sr-only sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
+                    {/* Visually hidden on phones (the logo takes the space) while pages render their own h1 headings. */}
+                    <span className="sr-only sm:not-sr-only sm:block font-sans text-sm text-[color:var(--color-text-primary)] truncate">
                         {getPageTitle()}
-                    </h1>
+                    </span>
                 </div>
 
                 {isSearchVisible && (

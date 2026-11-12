@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useCallback, useEffect } from "react";
+import { memo, useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { X } from "lucide-react";
@@ -131,22 +131,69 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
         }, [isLibraryRoute, dismissed, showDailyHighlight, dailyReviewStatus.completed, dailyCards.length, handleDismiss])
     );
 
-    if (
-        !isLibraryRoute ||
-        dismissed ||
-        !showDailyHighlight ||
-        dailyReviewStatus.completed ||
-        dailyCards.length === 0 ||
-        selectedShelf ||
-        showFavoritesOnly ||
-        isSelecting
-    ) {
+    const isOpen =
+        isLibraryRoute &&
+        !dismissed &&
+        showDailyHighlight &&
+        !dailyReviewStatus.completed &&
+        dailyCards.length > 0 &&
+        !selectedShelf &&
+        !showFavoritesOnly &&
+        !isSelecting;
+
+    const dialogRef = useRef<HTMLDivElement | null>(null);
+    const previousFocusRef = useRef<HTMLElement | null>(null);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        const container = dialogRef.current;
+        if (container) {
+            const firstFocusable = container.querySelector<HTMLElement>(
+                'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            );
+            (firstFocusable ?? container).focus();
+        }
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                handleDismiss();
+                return;
+            }
+            if (event.key !== "Tab" || !dialogRef.current) return;
+            const focusables = [...dialogRef.current.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            )].filter((el) => el.offsetParent !== null || el === document.activeElement);
+            if (focusables.length === 0) {
+                event.preventDefault();
+                return;
+            }
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            if (event.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.removeEventListener("keydown", handleKeyDown);
+            previousFocusRef.current?.focus();
+        };
+    }, [isOpen, handleDismiss]);
+
+    if (!isOpen) {
         return null;
     }
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[var(--z-modal)] bg-[var(--color-background)] flex flex-col items-center justify-start p-4 sm:p-6 overflow-x-hidden overflow-y-auto overscroll-contain [content-visibility:auto] motion-safe:animate-fade-in"
+            ref={dialogRef}
+            tabIndex={-1}
+            className="fixed inset-0 z-[var(--z-modal)] bg-[var(--color-background)] flex flex-col items-center justify-start p-4 sm:p-6 overflow-x-hidden overflow-y-auto overscroll-contain [content-visibility:auto] outline-none motion-safe:animate-fade-in"
             role="dialog"
             aria-modal="true"
             aria-label="Daily Review"
@@ -156,7 +203,7 @@ export const LibraryDailyReviewDeck = memo(function LibraryDailyReviewDeck({
                     type="button"
                     onClick={handleDismiss}
                     onPointerDown={(e) => e.stopPropagation()}
-                    className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 p-2 rounded-full text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface)]/80 transition-colors touch-manipulation cursor-pointer shadow-xs"
+                    className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 p-2 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] transition-colors touch-manipulation cursor-pointer"
                     title="Dismiss for today (Esc)"
                     aria-label="Dismiss for today"
                 >

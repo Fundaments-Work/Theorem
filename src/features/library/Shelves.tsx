@@ -13,7 +13,8 @@ import { SeriesGroupHeader } from "./components/SeriesGroupHeader";
 import { SeriesGroupContinue } from "./components/SeriesGroupContinue";
 import { TOOLBAR_ICON_BUTTON } from "../../ui/toolbar-styles";
 import { Button, ConfirmDialog, PageHeader } from "../../ui";
-import { MemoizedBookCard, BookInfoModal, AddToShelfModal, RenameBookModal } from "./Library";
+import { MemoizedBookCard } from "./components/BookCard";
+import { BookInfoModal, AddToShelfModal, RenameBookModal } from "./components/modals/LibraryBookModals";
 import { LIBRARY_LIST_ROW_HEIGHT } from "./row-height";
 import { getFilteredAndSortedBooks } from "./filtering";
 import { useDebounce } from "../../core/lib/useDebounce";
@@ -486,8 +487,21 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
         );
     }, [addToShelfBookId, collections]);
 
-    const scrollRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+    const assignScrollRef = useCallback((node: HTMLDivElement | null) => {
+        scrollRef.current = node;
+        setScrollEl(node);
+    }, []);
     const currentRoute = useUIStore((state) => state.currentRoute);
+
+    useEffect(() => {
+        if (currentRoute !== "shelves" && isSelecting) {
+            clearSelection();
+            lastSelectedIndexRef.current = null;
+            setIsSelecting(false);
+        }
+    }, [currentRoute, isSelecting, clearSelection]);
     const isListView = viewMode === "list";
     const isCompactView = viewMode === "compact";
 
@@ -511,7 +525,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
     });
 
     useEffect(() => {
-        const el = scrollRef.current;
+        const el = scrollEl;
         if (!el) return;
         const compute = () => {
             const w = el.clientWidth || (typeof window !== "undefined" ? window.innerWidth : 1280);
@@ -540,7 +554,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
         setCols(compute());
         observer.observe(el);
         return () => observer.disconnect();
-    }, [isListView, isCompactView]);
+    }, [isListView, isCompactView, scrollEl]);
 
     const effectiveCols = isListView ? 1 : cols;
 
@@ -731,7 +745,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
 
                             <div
                                 className={cn(
-                                    "absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg py-1.5 z-30 transition-[opacity,transform] duration-150 origin-top-right",
+                                    "absolute right-0 top-full mt-2 w-56 border border-[var(--color-border)] bg-[var(--color-surface)] py-1.5 z-30 transition-[opacity,transform] duration-150 origin-top-right",
                                     showShelfMenu
                                         ? "opacity-100 scale-100 pointer-events-auto"
                                         : "opacity-0 scale-95 pointer-events-none"
@@ -808,7 +822,7 @@ function ShelfDetail({ shelf, onBack, onNavigate, onCreateChild }: ShelfDetailPr
             ) : (
                 <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6 md:gap-10 relative">
                     <div className="flex min-h-0 flex-1 flex-col w-full">
-                        <section ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
+                        <section ref={assignScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                 {shelfBooks.length === 0 ? (
                     <div className="text-center py-16 border-2 border-dashed border-[var(--color-border)]">
                         <p className="text-[color:var(--color-text-muted)] text-xs">No documents match criteria</p>

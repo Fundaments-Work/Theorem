@@ -67,7 +67,7 @@ type PersistableStore = {
 
 interface SectionProps {
     title: string;
-    description?: string;
+    description?: React.ReactNode;
     icon: React.ReactNode;
     children: React.ReactNode;
 }
@@ -93,7 +93,7 @@ function Section({ title, description, icon, children }: SectionProps) {
 
 interface SettingRowProps {
     label: string;
-    description?: string;
+    description?: React.ReactNode;
     htmlFor?: string;
     children: React.ReactNode;
 }
@@ -383,6 +383,16 @@ export const SettingsPage = memo(function SettingsPage() {
     const [showDictDownloadModal, setShowDictDownloadModal] = useState(false);
     const [dictionaryRemovedName, setDictionaryRemovedName] = useState<string | null>(null);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
+    const [dailyGoalDraft, setDailyGoalDraft] = useState(() => String(stats.dailyGoal));
+    const [yearlyGoalDraft, setYearlyGoalDraft] = useState(() => String(stats.yearlyBookGoal));
+    const [accentHexDraft, setAccentHexDraft] = useState(() => settings.accentColor.replace("#", ""));
+    const [highlightsNameDraft, setHighlightsNameDraft] = useState(() => highlightsExportName);
+    const [vocabularyNameDraft, setVocabularyNameDraft] = useState(() => settings.vault.vocabularyFileName);
+    useEffect(() => { setDailyGoalDraft(String(stats.dailyGoal)); }, [stats.dailyGoal]);
+    useEffect(() => { setYearlyGoalDraft(String(stats.yearlyBookGoal)); }, [stats.yearlyBookGoal]);
+    useEffect(() => { setAccentHexDraft(settings.accentColor.replace("#", "")); }, [settings.accentColor]);
+    useEffect(() => { setHighlightsNameDraft(highlightsExportName); }, [highlightsExportName]);
+    useEffect(() => { setVocabularyNameDraft(settings.vault.vocabularyFileName); }, [settings.vault.vocabularyFileName]);
     const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
     const [removeDictionaryInfo, setRemoveDictionaryInfo] = useState<{ id: string; name: string } | null>(null);
     const [alertInfo, setAlertInfo] = useState<{ title: string; message: string } | null>(null);
@@ -773,8 +783,15 @@ export const SettingsPage = memo(function SettingsPage() {
                                 <input
                                     id="daily-goal"
                                     type="number"
-                                    value={stats.dailyGoal}
-                                    onChange={(e) => updateStats({ dailyGoal: Math.max(1, Math.min(180, parseInt(e.target.value) || 0)) })}
+                                    value={dailyGoalDraft}
+                                    onChange={(e) => setDailyGoalDraft(e.target.value)}
+                                    onBlur={() => {
+                                        const parsed = Number.parseInt(dailyGoalDraft, 10);
+                                        const next = Number.isFinite(parsed) ? Math.max(1, Math.min(180, parsed)) : stats.dailyGoal;
+                                        setDailyGoalDraft(String(next));
+                                        if (next !== stats.dailyGoal) updateStats({ dailyGoal: next });
+                                    }}
+                                    onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
                                     min={1}
                                     max={180}
                                     className={cn(
@@ -797,8 +814,15 @@ export const SettingsPage = memo(function SettingsPage() {
                                 <input
                                     id="yearly-book-goal"
                                     type="number"
-                                    value={stats.yearlyBookGoal}
-                                    onChange={(e) => updateStats({ yearlyBookGoal: Math.max(1, Math.min(100, parseInt(e.target.value) || 0)) })}
+                                    value={yearlyGoalDraft}
+                                    onChange={(e) => setYearlyGoalDraft(e.target.value)}
+                                    onBlur={() => {
+                                        const parsed = Number.parseInt(yearlyGoalDraft, 10);
+                                        const next = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : stats.yearlyBookGoal;
+                                        setYearlyGoalDraft(String(next));
+                                        if (next !== stats.yearlyBookGoal) updateStats({ yearlyBookGoal: next });
+                                    }}
+                                    onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
                                     min={1}
                                     max={100}
                                     className={cn(
@@ -911,11 +935,17 @@ export const SettingsPage = memo(function SettingsPage() {
                                         <input
                                             id="accent-hex"
                                             type="text"
-                                            value={settings.accentColor.replace("#", "")}
+                                            value={accentHexDraft}
                                             onChange={(e) => {
                                                 const raw = e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6);
+                                                setAccentHexDraft(raw);
                                                 if (raw.length === 6) {
                                                     updateSettings({ accentColor: "#" + raw.toLowerCase() });
+                                                }
+                                            }}
+                                            onBlur={() => {
+                                                if (!/^[0-9a-fA-F]{6}$/.test(accentHexDraft)) {
+                                                    setAccentHexDraft(settings.accentColor.replace("#", ""));
                                                 }
                                             }}
                                             maxLength={6}
@@ -1123,7 +1153,7 @@ export const SettingsPage = memo(function SettingsPage() {
                     {isLinuxDesktop && (
                         <Section
                             title="Terminal CLI"
-                            description="Expose Theorem's native engines (dictionary, search, library, article extraction, sync) to your terminal, scripts, and AI agents via the `theorem` command. Includes an interactive TUI (`theorem tui`)."
+                            description={<>Expose Theorem&apos;s native engines (dictionary, search, library, article extraction, sync) to your terminal, scripts, and AI agents via the <code className="font-mono">theorem</code> command, including an interactive TUI (<code className="font-mono">theorem tui</code>).</>}
                             icon={<Terminal className="w-5 h-5" />}
                         >
                             <SettingRow
@@ -1131,7 +1161,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 description={
                                     cliEnabled
                                         ? `Active at ${cliStatus?.linkPath ?? "~/.local/bin/theorem"} — run 'theorem help' in any terminal${cliStatus?.isAppImage ? " (AppImage mode: the symlink tracks the AppImage file)" : ""}`
-                                        : "Symlink the executable into ~/.local/bin so `theorem` is on your $PATH (no sudo required). Re-checked automatically at every startup."
+                                        : <>Symlink the executable into <code className="font-mono">~/.local/bin</code> so <code className="font-mono">theorem</code> is on your PATH (no sudo required). Re-checked automatically at every startup.</>
                                 }
                             >
                                 <Toggle
@@ -1179,7 +1209,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                             vaultPath: e.target.value,
                                         })}
                                         aria-label="Export folder"
-                                        placeholder="/Users/you/Documents/MarkdownExport"
+                                        placeholder="Select a folder for exported Markdown notes"
                                         className={cn(
                                             "ui-input",
                                             "min-w-[20rem] sm:w-[28rem]"
@@ -1298,12 +1328,13 @@ export const SettingsPage = memo(function SettingsPage() {
                                         </div>
                                         <input
                                             type="text"
-                                            value={highlightsExportName}
-                                            onChange={(e) => (
-                                                updateVaultSettings({
-                                                    highlightsFileName: normalizeHighlightsExportName(e.target.value),
-                                                })
-                                            )}
+                                            value={highlightsNameDraft}
+                                            onChange={(e) => setHighlightsNameDraft(e.target.value)}
+                                            onBlur={() => {
+                                                const normalized = normalizeHighlightsExportName(highlightsNameDraft.trim());
+                                                setHighlightsNameDraft(normalized);
+                                                updateVaultSettings({ highlightsFileName: normalized });
+                                            }}
                                             placeholder="Books"
                                             className={cn("ui-input", "min-w-[16rem]")}
                                         />
@@ -1316,8 +1347,13 @@ export const SettingsPage = memo(function SettingsPage() {
                                         </div>
                                         <input
                                             type="text"
-                                            value={settings.vault.vocabularyFileName}
-                                            onChange={(e) => updateVaultSettings({ vocabularyFileName: e.target.value })}
+                                            value={vocabularyNameDraft}
+                                            onChange={(e) => setVocabularyNameDraft(e.target.value)}
+                                            onBlur={() => {
+                                                const trimmed = vocabularyNameDraft.trim() || "Vocabulary.md";
+                                                setVocabularyNameDraft(trimmed);
+                                                updateVaultSettings({ vocabularyFileName: trimmed });
+                                            }}
                                             placeholder="Vocabulary.md"
                                             className={cn("ui-input", "min-w-[16rem]")}
                                         />
@@ -1375,7 +1411,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                 {buildInfo && (
                                     <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-subtle)]">
                                         <span className="text-[12px] text-[color:var(--color-text-secondary)]">Build</span>
-                                        <span className="text-[12px] text-[color:var(--color-text-primary)]"title="Source commit this binary was built from">
+                                        <span className="text-[12px] text-[color:var(--color-text-primary)]" title="Source commit this binary was built from">
                                             {buildInfo.gitHash} · {buildInfo.buildDate}
                                         </span>
                                     </div>

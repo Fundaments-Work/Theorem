@@ -15,6 +15,7 @@ import { TheoremLogo } from "../../shell/TheoremLogo";
 
 interface OnboardingFlowProps {
     onComplete: () => void;
+    onSkip?: () => void;
 }
 
 export function LibraryIllustration() {
@@ -305,7 +306,7 @@ const steps: OnboardingStep[] = [
     },
 ];
 
-export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
+export function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowProps) {
     const [currentStep, setCurrentStep] = useState(0);
     const step = steps[currentStep];
     const isFirst = currentStep === 0;
@@ -326,8 +327,8 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     }, [isFirst]);
 
     const handleSkip = useCallback(() => {
-        onComplete();
-    }, [onComplete]);
+        (onSkip ?? onComplete)();
+    }, [onSkip, onComplete]);
 
     return <OnboardingFrame label="Feature guide" title={step.title} step={currentStep} total={steps.length} visual={step.illustration} onSkip={handleSkip} skipLabel="Skip" skipHidden={isLast} onStepChange={setCurrentStep} actions={<>
         <IconButton label="Back" className="min-h-11 min-w-11" icon={<ArrowLeft className="h-5 w-5" />} onClick={handleBack} disabled={isFirst} />

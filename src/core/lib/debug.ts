@@ -54,7 +54,7 @@ export async function logTrace(message: string) {
     if (_trace) {
         await _trace(message);
     } else {
-        console.log("[trace]", message);
+        console.debug("[trace]", message);
     }
 }
 

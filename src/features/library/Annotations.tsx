@@ -659,22 +659,30 @@ export function AnnotationsPage() {
                                 {filteredVocabularyTerms.map((term) => (
                                     <div
                                         key={term.id}
-                                        onClick={() => setSelectedVocabTerm(term)}
-                                        className="border border-[var(--color-border)] bg-[var(--color-surface)] p-4 flex flex-col gap-2 cursor-pointer hover:border-[var(--color-text-muted)] transition-colors"
-                                        role="button"
-                                        tabIndex={0}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedVocabTerm(term); }}
+                                        className="border border-[var(--color-border)] bg-[var(--color-surface)] p-4 flex flex-col gap-2 hover:border-[var(--color-text-muted)] transition-colors"
                                     >
                                         <div className="flex items-center justify-between gap-2">
-                                            <span className="text-sm font-medium text-[color:var(--color-text-primary)] truncate">{term.term}</span>
                                             <button
-                                                onClick={(e) => { e.stopPropagation(); deleteVocabularyTerm(term.id); setSelectedVocabTerm(null); }}
+                                                type="button"
+                                                onClick={() => setSelectedVocabTerm(term)}
+                                                className="min-w-0 flex-1 text-left cursor-pointer"
+                                            >
+                                                <span className="text-sm text-[color:var(--color-text-primary)] truncate block">{term.term}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => { deleteVocabularyTerm(term.id); setSelectedVocabTerm(null); }}
                                                 className="shrink-0 p-1 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-error)] transition-colors"
                                                 aria-label={`Delete ${term.term}`}
                                             >
                                                 <Trash2 className="w-3.5 h-3.5" />
                                             </button>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedVocabTerm(term)}
+                                            className="flex flex-col gap-2 text-left cursor-pointer"
+                                        >
                                         {term.meanings[0]?.partOfSpeech && (
                                             <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.meanings[0].partOfSpeech}</span>
                                         )}
@@ -687,6 +695,7 @@ export function AnnotationsPage() {
                                         {term.language && (
                                             <span className="text-[10px] text-[color:var(--color-text-muted)]">{term.language}</span>
                                         )}
+                                        </button>
                                     </div>
                                 ))}
                             </div>
@@ -695,14 +704,14 @@ export function AnnotationsPage() {
                                 {filteredVocabularyTerms.map((term) => (
                                     <div
                                         key={term.id}
-                                        onClick={() => setSelectedVocabTerm(term)}
-                                        className="px-4 py-3 flex items-center justify-between gap-4 cursor-pointer hover:bg-[var(--color-surface-muted)] transition-colors group"
-                                        role="button"
-                                        tabIndex={0}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedVocabTerm(term); }}
+                                        className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-[var(--color-surface-muted)] transition-colors group"
                                     >
-                                        <div className="flex items-baseline gap-3 min-w-0 flex-1">
-                                            <span className="font-serif text-sm font-medium text-[color:var(--color-text-primary)] shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedVocabTerm(term)}
+                                            className="flex items-baseline gap-3 min-w-0 flex-1 text-left cursor-pointer"
+                                        >
+                                            <span className="font-serif text-sm text-[color:var(--color-text-primary)] shrink-0">
                                                 {term.term}
                                             </span>
                                             {term.meanings[0]?.partOfSpeech && (
@@ -716,7 +725,7 @@ export function AnnotationsPage() {
                                                     return isHtml(def) ? (term.meanings[0]?.partOfSpeech || "Definition") : def;
                                                 })()}
                                             </span>
-                                        </div>
+                                        </button>
                                         <div className="flex items-center gap-2 shrink-0">
                                             {term.language && (
                                                 <span className="font-mono text-[10px] text-[color:var(--color-text-muted)] uppercase hidden sm:inline">
@@ -724,8 +733,8 @@ export function AnnotationsPage() {
                                                 </span>
                                             )}
                                             <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
+                                                type="button"
+                                                onClick={() => {
                                                     deleteVocabularyTerm(term.id);
                                                     setSelectedVocabTerm(null);
                                                 }}

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import {
     Play, Heart, Trash2, Star, Check, Headphones, MoreHorizontal, Info, BookMarked, BookOpen,
     Download, CheckSquare, CheckCheck, RotateCcw, CloudOff, Pencil, ExternalLink,
@@ -8,11 +8,34 @@ import { toast } from "sonner";
 import { isTauri, isTauriDesktop } from "../../../core/lib/env";
 import { useMediaQuery } from "../../../core/lib/use-media-query";
 import { useLibraryStore, useUIStore } from "../../../core/store";
-import type { Book, LibraryViewMode } from "../../../core/types";
+import type { Book, Collection, LibraryViewMode } from "../../../core/types";
 import { LIBRARY_LIST_ROW_HEIGHT } from "../row-height";
 import { attachAudiobookToBook } from "../audiobook-attach";
 import { ContextMenu, TheoremBookCover, HighlightMatch } from "../../../ui";
 import type { ContextMenuItem } from "../../../ui";
+
+/** Empty shelf array shared across unshelved books so selectors stay stable. */
+const EMPTY_BOOK_SHELVES: Collection[] = [];
+const bookShelvesIndexCache = new WeakMap<Collection[], Map<string, Collection[]>>();
+
+function getBookShelvesForBook(collections: Collection[], bookId: string): Collection[] {
+    let byBook = bookShelvesIndexCache.get(collections);
+    if (!byBook) {
+        byBook = new Map<string, Collection[]>();
+        for (const col of collections) {
+            for (const id of col.bookIds) {
+                let list = byBook.get(id);
+                if (!list) {
+                    list = [];
+                    byBook.set(id, list);
+                }
+                list.push(col);
+            }
+        }
+        bookShelvesIndexCache.set(collections, byBook);
+    }
+    return byBook.get(bookId) ?? EMPTY_BOOK_SHELVES;
+}
 
 /** Below this width a context-menu submenu has no room, so it opens as an action sheet. */
 const WIDE_VIEWPORT_MEDIA_QUERY = "(min-width: 640px)";
@@ -72,9 +95,7 @@ export const BookCard = memo(function BookCard({
     const clickCountRef = useRef(0);
     const isCompleted = isBookMarkedRead(book);
 
-    const collections = useLibraryStore((state) => state.collections);
-    const collectionSets = useMemo(() => collections.map(c => ({ ...c, bookIdSet: new Set(c.bookIds) })), [collections]);
-    const bookShelves = collectionSets.filter((c) => c.bookIdSet.has(book.id));
+    const bookShelves = useLibraryStore((state) => getBookShelvesForBook(state.collections, book.id));
 
     // Phones open nested groups in place instead of as a flyout; see the "more"
     // entry in contextMenuItems. Resolved with matchMedia rather than a CSS class
@@ -342,7 +363,7 @@ export const BookCard = memo(function BookCard({
                         </div>
 
                         {book.syncedWithoutFile && !isSelecting && (
-                            <div className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center text-white pointer-events-none z-10"style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
+                            <div className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center text-[color:var(--color-accent-contrast)] pointer-events-none z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
                                 <CloudOff className="w-3 h-3" />
                             </div>
                         )}
@@ -414,7 +435,7 @@ export const BookCard = memo(function BookCard({
                     </div>
 
                     <div className="flex-1 min-w-0 pr-2 sm:pr-4">
-                        <h3 className="text-sm font-medium text-[color:var(--color-text-primary)] line-clamp-1 break-words transition-colors group-hover:text-[color:var(--color-accent)]">
+                        <h3 className="text-sm text-[color:var(--color-text-primary)] line-clamp-1 break-words transition-colors group-hover:text-[color:var(--color-accent)]">
                             <HighlightMatch text={book.title} indices={titleHighlightIndices} />
                         </h3>
                         <div className="flex items-center gap-1.5 text-xs text-[color:var(--color-text-secondary)] line-clamp-1 mt-0.5">
@@ -581,7 +602,7 @@ export const BookCard = memo(function BookCard({
                 </div>
 
                 {book.syncedWithoutFile && !isSelecting && (
-                    <div className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center text-white pointer-events-none z-10"style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
+                    <div className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center text-[color:var(--color-accent-contrast)] pointer-events-none z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 90%, transparent)' }} title="Book file not available locally">
                         <CloudOff className="w-2.5 h-2.5" />
                     </div>
                 )}

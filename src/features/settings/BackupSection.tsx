@@ -152,11 +152,11 @@ export function BackupSection() {
                 <div className="p-4 sm:p-5 space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex items-start gap-3 min-w-0 flex-1">
-                            <div className="p-2 rounded bg-[var(--color-surface-muted)] text-[color:var(--color-accent)] shrink-0 mt-0.5">
+                            <div className="p-2 bg-[var(--color-surface-muted)] text-[color:var(--color-accent)] shrink-0 mt-0.5">
                                 <Download className="w-4 h-4" aria-hidden="true" />
                             </div>
                             <div className="min-w-0 flex-1">
-                                <h3 className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                                <h3 className="text-sm text-[color:var(--color-text-primary)]">
                                     Create Backup File
                                 </h3>
                                 <p className="text-xs text-[color:var(--color-text-muted)] mt-0.5">
@@ -192,7 +192,7 @@ export function BackupSection() {
                                     className={cn(
                                         "min-h-8 px-3 py-1 font-sans text-xs transition-colors cursor-pointer",
                                         !value && "border-l border-[var(--color-border)]",
-                                        includeDictionaries === value ? "ui-selected font-medium" : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
+                                        includeDictionaries === value ? "ui-selected" : "text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
                                     )}
                                 >
                                     {value ? "On" : "Off"}
@@ -208,11 +208,11 @@ export function BackupSection() {
                 {/* Restore Backup */}
                 <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-start gap-3 min-w-0 flex-1">
-                        <div className="p-2 rounded bg-[var(--color-surface-muted)] text-[color:var(--color-accent)] shrink-0 mt-0.5">
+                        <div className="p-2 bg-[var(--color-surface-muted)] text-[color:var(--color-accent)] shrink-0 mt-0.5">
                             <Upload className="w-4 h-4" aria-hidden="true" />
                         </div>
                         <div className="min-w-0 flex-1">
-                            <h3 className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                            <h3 className="text-sm text-[color:var(--color-text-primary)]">
                                 Restore from Backup
                             </h3>
                             <p className="text-xs text-[color:var(--color-text-muted)] mt-0.5">
@@ -244,7 +244,7 @@ export function BackupSection() {
                     <div className="flex items-center gap-2.5 border-b border-[var(--color-border)] px-4 py-3 bg-[var(--color-surface-muted)]">
                         <History className="w-4 h-4 text-[color:var(--color-text-muted)] shrink-0" aria-hidden="true" />
                         <div>
-                            <p className="text-xs font-medium text-[color:var(--color-text-primary)]">
+                            <p className="text-xs text-[color:var(--color-text-primary)]">
                                 Automatic Copies
                             </p>
                             <p className="font-sans text-[11px] text-[color:var(--color-text-secondary)]">

@@ -1,7 +1,8 @@
 import { formatReadingTime } from "../../core/lib/utils";
+import { localDateKey } from "../../core/lib/date-keys";
 import { useMemo } from "react";
-import type { Annotation, HighlightColor } from "../../core/types";
-import { HIGHLIGHT_SOLID_COLORS } from "../../core/lib/design-tokens";
+import type { Annotation } from "../../core/types";
+import { getShareCardThemePalette } from "../../core/lib/design-tokens";
 import { useSettingsStore } from "../../core/store";
 import { TheoremLogo } from "../../shell/TheoremLogo";
 import { TheoremBookCover } from "../../ui/TheoremBookCover";
@@ -49,99 +50,13 @@ const CARD_WIDTH_PX = 1080;
 const CARD_HEIGHTS = { square: 1080, story: 1920 };
 
 
-function getThemeStyles(
-    theme: CardTheme,
-    appTheme: "light" | "dark" | "system",
-    appAccent: string,
-    accent?: HighlightColor,
-) {
-    const defaultAccent = appAccent || "#c6f135";
-    const tintAccent = accent ? HIGHLIGHT_SOLID_COLORS[accent] : defaultAccent;
-
-    if (theme === "match") {
-        const isDark = typeof document !== "undefined"
-            ? document.body.classList.contains("theme-dark") ||
-              appTheme === "dark" ||
-              (appTheme === "system" && Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches))
-            : appTheme === "dark";
-
-        const customAccent = isDark || (appAccent && appAccent !== "#c6f135") ? (appAccent || "#c6f135") : "#1c1c1c";
-
-        if (isDark) {
-            return {
-                bg: "#121316",
-                fg: "#f2f0eb",
-                subtext: "#a8a59e",
-                accent: customAccent,
-                cardBg: "rgba(255,255,255,0.06)",
-                border: "rgba(255,255,255,0.12)",
-                progressTrack: "rgba(255,255,255,0.14)",
-            };
-        }
-        return {
-            bg: "#faf8f5",
-            fg: "#1a1918",
-            subtext: "#57544f",
-            accent: customAccent,
-            cardBg: "rgba(0,0,0,0.04)",
-            border: "rgba(0,0,0,0.1)",
-            progressTrack: "rgba(0,0,0,0.1)",
-        };
-    }
-
-    switch (theme) {
-        case "dark":
-            return {
-                bg: "#121316",
-                fg: "#f2f0eb",
-                subtext: "#a8a59e",
-                accent: "#c6f135",
-                cardBg: "rgba(255,255,255,0.06)",
-                border: "rgba(255,255,255,0.12)",
-                progressTrack: "rgba(255,255,255,0.14)",
-            };
-        case "tinted":
-            // Deep rich dark forest/obsidian tint with glowing accent borders & badges, high-contrast crisp text!
-            return {
-                bg: "#0d140e",
-                fg: "#f4f8f4",
-                subtext: "rgba(244,248,244,0.78)",
-                accent: tintAccent,
-                cardBg: "rgba(198,241,53,0.06)",
-                border: "rgba(198,241,53,0.18)",
-                progressTrack: "rgba(198,241,53,0.15)",
-            };
-        case "sepia":
-            // Warm vintage paper with elevated cream stationery cards and rich espresso/bistre ink
-            return {
-                bg: "#f4ede2",
-                fg: "#1a120b",
-                subtext: "#594231",
-                accent: "#9a3c08",
-                cardBg: "rgba(255, 255, 255, 0.76)",
-                border: "rgba(100, 70, 45, 0.16)",
-                progressTrack: "rgba(100, 70, 45, 0.14)",
-            };
-        default:
-            return {
-                bg: "#faf8f5",
-                fg: "#1a1918",
-                subtext: "#57544f",
-                accent: "#1a1918",
-                cardBg: "rgba(0,0,0,0.04)",
-                border: "rgba(0,0,0,0.1)",
-                progressTrack: "rgba(0,0,0,0.1)",
-            };
-    }
-}
-
 export function ShareCard({ kind, annotation, book, statsData, format, theme, showNote }: ShareCardProps) {
     const appTheme = useSettingsStore((s) => s.settings.theme);
     const appAccent = useSettingsStore((s) => s.settings.accentColor);
     const height = CARD_HEIGHTS[format];
     const isStory = format === "story";
     const colors = useMemo(
-        () => getThemeStyles(theme, appTheme, appAccent, annotation?.color),
+        () => getShareCardThemePalette(theme, appTheme, appAccent, annotation?.color),
         [theme, appTheme, appAccent, annotation?.color]
     );
 
@@ -183,7 +98,7 @@ export function ShareCard({ kind, annotation, book, statsData, format, theme, sh
         for (let i = 27; i >= 0; i--) {
             const d = new Date(today);
             d.setDate(d.getDate() - i);
-            const dateStr = d.toISOString().split("T")[0];
+            const dateStr = localDateKey(d);
             const minutes = activityMap.get(dateStr) || 0;
             let level = 0;
             if (minutes > 0) level = 1;
@@ -447,15 +362,17 @@ export function ShareCard({ kind, annotation, book, statsData, format, theme, sh
                     gridTemplateColumns: "repeat(7, 1fr)",
                     gap: isStory ? 10 : 6,
                 }}>
-                    {heatmapDays.map((day, idx) => (
+                    {heatmapDays.map((day) => (
                         <div
-                            key={idx}
+                            key={day.date}
+                            data-date={day.date}
+                            data-level={day.level}
                             style={{
                                 height: isStory ? 44 : 20,
                                 borderRadius: 0,
                                 background: day.level === 0 ? colors.border : colors.accent,
                                 opacity: day.level === 0 ? 0.3 : 0.3 + day.level * 0.175,
-                                transition: "all 0.2s ease",
+                                transition: "opacity 0.2s ease",
                             }}
                         />
                     ))}

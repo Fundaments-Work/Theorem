@@ -1,31 +1,42 @@
 // @vitest-environment node
-// End-to-end check against the real book from the bug report:
-// book-cache/02009b16-5826-4f98-a414-a483c27045df.book
-//   Title: "0132180146.pdf"  Creator: "Adobe InDesign CS3 (5.0.4)"
-// The library title is the long CUDA title; the file on disk is that title too.
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+// End-to-end check against a minimal synthetic PDF carrying an archival record id
+// as `/Title` ("0132180146.pdf") alongside `/Creator` ("Adobe InDesign CS3 (5.0.4)").
 import { describe, expect, it } from "vitest";
 import { resolvePdfDisplayTitle } from "../src/features/reader/engines/pdf-display-title";
 import { shouldUseExtractedTitle } from "../src/core/lib/cover-extractor";
-
-const BOOK_CACHE = join(
-    process.env.HOME ?? "",
-    ".local/share/work.fundamentals.theorem/book-cache",
-);
-const BOOK_FILE = join(BOOK_CACHE, "02009b16-5826-4f98-a414-a483c27045df.book");
 
 const LIBRARY_TITLE =
     "CUDA by Example An Introduction to General-Purpose GPU Programming (Jason Sanders,Edward Kandrot)";
 const SOURCE_FILENAME = `${LIBRARY_TITLE} (Z-Library).pdf`;
 const FILE_PATH = `/books/CUDA/${SOURCE_FILENAME}`;
 
-// Not every machine has the book; the pure-logic suite covers the same cases.
-describe.skipIf(!existsSync(BOOK_FILE))("real PDF from the bug report", () => {
+function buildSyntheticPdfWithArchivalTitle(): Uint8Array {
+    const objects = [
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n",
+        "4 0 obj\n<< /Title (0132180146.pdf) /Creator (Adobe InDesign CS3 (5.0.4)) >>\nendobj\n",
+    ];
+    let body = "%PDF-1.4\n";
+    const offsets = [0];
+    for (const obj of objects) {
+        offsets.push(body.length);
+        body += obj;
+    }
+    const xrefOffset = body.length;
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let i = 1; i <= objects.length; i++) {
+        body += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+    }
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 4 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+    return new TextEncoder().encode(body);
+}
+
+describe("PDF with archival record-id metadata", () => {
     it("shows the library name, not the archival record id", async () => {
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
         const task = pdfjs.getDocument({
-            data: new Uint8Array(readFileSync(BOOK_FILE)),
+            data: buildSyntheticPdfWithArchivalTitle(),
             verbosity: 0,
         });
         try {

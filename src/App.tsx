@@ -206,7 +206,12 @@ function App() {
                 label,
                 keys,
                 category: "Navigation",
-                handler: () => setRoute(route),
+                handler: () => {
+                    const { showDiscover, showFeeds } = useSettingsStore.getState();
+                    if (route === "opds" && !showDiscover) return;
+                    if (route === "feeds" && !showFeeds) return;
+                    setRoute(route);
+                },
             })),
             
             { label: "Find / Search",       keys: "Ctrl+F", category: "Search",     handler: () => {
@@ -573,7 +578,9 @@ function App() {
                 useUIStore.getState().setRoute("library");
             });
             await register("CommandOrControl+Shift+R", () => {
-                useUIStore.getState().setRoute("feeds");
+                if (useSettingsStore.getState().showFeeds) {
+                    useUIStore.getState().setRoute("feeds");
+                }
             });
         };
         void registerGlobal().catch(() => {});
@@ -683,23 +690,26 @@ function App() {
 
     return (
         <>
-            {isReaderMode ? (
+            {isReaderMode && (
                 <RouteErrorBoundary>
                     <Suspense fallback={<PageLoader message="Opening reader..." className="fixed inset-0" />}>
                         <ReaderPage />
                     </Suspense>
                 </RouteErrorBoundary>
-            ) : (
-                <>
-                    <div className="flex h-screen min-h-[100dvh] bg-[var(--color-background)]">
-                        <div className="hidden md:block">
-                            <Sidebar />
-                        </div>
+            )}
+            <div
+                className={isReaderMode ? "hidden" : "flex h-screen min-h-[100dvh] bg-[var(--color-background)]"}
+                inert={isReaderMode}
+                aria-hidden={isReaderMode}
+            >
+                <div className="hidden md:block">
+                    <Sidebar />
+                </div>
 
-                        <div className="relative flex-1 flex flex-col min-w-0">
-                            <AppTitlebar title="Theorem" />
-                            <AnnouncementBar />
-                            {showLibraryRoute && <Suspense fallback={null}><ImportProgressPanel /></Suspense>}
+                <div className="relative flex-1 flex flex-col min-w-0">
+                    <AppTitlebar title="Theorem" />
+                    <AnnouncementBar />
+                    {!isReaderMode && <Suspense fallback={null}><ImportProgressPanel /></Suspense>}
 
                             <main id="app-main" ref={mainScrollRef} className="flex flex-1 flex-col overflow-y-auto pb-[calc(4rem+var(--spacing-lg)+var(--safe-area-bottom))] md:px-8 md:py-6 scrollbar-solid overscroll-contain">
                                 <div className={showLibraryRoute ? "flex flex-1 flex-col min-h-0" : "hidden"} aria-hidden={!showLibraryRoute}>
@@ -791,8 +801,6 @@ function App() {
                             />
                         </Suspense>
                     )}
-                </>
-            )}
             <Toaster position="bottom-right" />
         </>
     );

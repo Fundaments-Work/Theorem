@@ -82,7 +82,7 @@ const BookmarkCard = memo(function BookmarkCard({
     return (
         <div
             onClick={goTo}
-            className="group relative flex items-center justify-between gap-3 sm:gap-4 p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)] hover:shadow-xs transition-[border-color,box-shadow] overflow-hidden cursor-pointer h-[88px]"
+            className="group relative flex items-center justify-between gap-3 sm:gap-4 p-3 border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-accent)] transition-colors overflow-hidden cursor-pointer h-[88px]"
             title={isArticle ? "Open article at this bookmark" : "Open in reader at this bookmark"}
         >
             {/* Bookmark ribbon tab fold on top-left edge */}
@@ -94,7 +94,7 @@ const BookmarkCard = memo(function BookmarkCard({
             />
 
             {/* Left Cover Preview Thumbnail */}
-            <div className="w-10 sm:w-11 h-14 sm:h-15 shrink-0 rounded-sm overflow-hidden shadow-xs border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] flex items-center justify-center">
+            <div className="w-10 sm:w-11 h-14 sm:h-15 shrink-0 overflow-hidden border border-[var(--color-border-subtle)] bg-[var(--color-surface-muted)] flex items-center justify-center">
                 <TheoremBookCover
                     title={source?.title || "Book"}
                     author={source?.author}
@@ -106,7 +106,7 @@ const BookmarkCard = memo(function BookmarkCard({
             {/* Middle Content */}
             <div className="min-w-0 flex-1 flex flex-col justify-center">
                 <div className="flex items-center gap-2">
-                    <h4 className="font-serif text-sm sm:text-[15px] font-medium text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
+                    <h4 className="font-serif text-sm sm:text-[15px] text-[color:var(--color-text-primary)] truncate group-hover:text-[color:var(--color-accent)] transition-colors">
                         <HighlightMatch text={bookmark.chapterTitle || source?.title || "Bookmark"} query={searchQuery} />
                     </h4>
                 </div>
@@ -147,7 +147,7 @@ const BookmarkCard = memo(function BookmarkCard({
                         e.stopPropagation();
                         goTo();
                     }}
-                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans font-medium text-[color:var(--color-accent)] bg-[var(--color-surface-muted)] hover:bg-[var(--color-accent)] hover:text-white rounded-lg border border-[var(--color-border)] hover:border-transparent transition-colors shrink-0 cursor-pointer touch-manipulation shadow-2xs"
+                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-sans text-[color:var(--color-accent)] bg-[var(--color-surface-muted)] hover:bg-[var(--color-accent)] hover:text-[color:var(--color-accent-contrast)] border border-[var(--color-border)] hover:border-transparent transition-colors shrink-0 cursor-pointer touch-manipulation"
                 >
                     <span>Jump to Page</span>
                     <ArrowUpRight className="w-3.5 h-3.5" />
@@ -168,7 +168,7 @@ const BookmarkCard = memo(function BookmarkCard({
                         aria-label="Bookmark options"
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
-                        className="p-1.5 rounded-md text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)] transition-colors cursor-pointer"
+                        className="p-2 text-[color:var(--color-text-muted)] hover:text-[color:var(--color-accent)] transition-colors cursor-pointer"
                     >
                         <MoreVertical className="w-4 h-4" />
                     </button>
@@ -176,7 +176,7 @@ const BookmarkCard = memo(function BookmarkCard({
                     {menuOpen && (
                         <div
                             role="menu"
-                            className="absolute right-0 top-full z-30 mt-1 w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg"
+                            className="absolute right-0 top-full z-30 mt-1 w-36 border border-[var(--color-border)] bg-[var(--color-surface)] py-1"
                         >
                             <button
                                 role="menuitem"

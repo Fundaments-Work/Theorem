@@ -104,6 +104,21 @@ export function getRssFeedById(feeds: RssFeed[], feedId: string): RssFeed | unde
     return map.get(feedId);
 }
 
+const normalizeFeedUrl = (u: string) => u.toLowerCase().replace(/\/+$/, '');
+const rssFeedByNormalizedUrlCache = new WeakMap<RssFeed[], Map<string, RssFeed>>();
+
+export function getRssFeedByNormalizedUrl(feeds: RssFeed[], url: string): RssFeed | undefined {
+    let map = rssFeedByNormalizedUrlCache.get(feeds);
+    if (!map) {
+        map = new Map();
+        for (let i = 0; i < feeds.length; i++) {
+            map.set(normalizeFeedUrl(feeds[i].url), feeds[i]);
+        }
+        rssFeedByNormalizedUrlCache.set(feeds, map);
+    }
+    return map.get(normalizeFeedUrl(url));
+}
+
 function getRssArticleTimestamp(article: RssArticle): number {
     const dateValue = article.publishedAt ?? article.fetchedAt;
     const timestamp = new Date(dateValue).getTime();
@@ -298,9 +313,7 @@ export const useRssStore = create<RssStore>()(
                     const { feed, articles } = await materializeFeed(url, parsed);
 
                     const normalizeUrl = (u: string) => u.toLowerCase().replace(/\/+$/, '');
-                    const normalizedNewUrl = normalizeUrl(url);
-
-                    const existing = get().feeds.find(f => normalizeUrl(f.url) === normalizedNewUrl);
+                    const existing = getRssFeedByNormalizedUrl(get().feeds, url);
                     if (existing) {
                         set({ isLoading: false, error: 'This feed is already subscribed.' });
                         return null;
@@ -400,7 +413,7 @@ export const useRssStore = create<RssStore>()(
             },
 
             refreshFeed: async (feedId: string) => {
-                const feed = get().feeds.find(f => f.id === feedId);
+                const feed = getRssFeedById(get().feeds, feedId);
                 if (!feed) return;
 
                 try {
@@ -447,7 +460,7 @@ export const useRssStore = create<RssStore>()(
                     if (isTauri()) {
                         void persistRss("refresh feed", ({ sqliteSaveRssFeed, sqliteSaveRssArticle }) => {
                             const writes: Promise<unknown>[] = [];
-                            const updatedFeed = get().feeds.find(f => f.id === feedId);
+                            const updatedFeed = getRssFeedById(get().feeds, feedId);
                             if (updatedFeed) {
                                 writes.push(sqliteSaveRssFeed({
                                     id: updatedFeed.id,
@@ -490,7 +503,7 @@ export const useRssStore = create<RssStore>()(
 
             markArticleRead: (articleId: string) => {
                 set(state => {
-                    const article = state.articles.find(a => a.id === articleId);
+                    const article = getRssArticleById(state.articles, articleId);
                     if (!article) return state;
                     const wasRead = article.isRead;
                     return {
@@ -513,7 +526,7 @@ export const useRssStore = create<RssStore>()(
             toggleArticleRead: (articleId: string) => {
                 let nextRead = false;
                 set(state => {
-                    const article = state.articles.find(a => a.id === articleId);
+                    const article = getRssArticleById(state.articles, articleId);
                     if (!article) return state;
                     const newRead = !article.isRead;
                     nextRead = newRead;
@@ -540,7 +553,7 @@ export const useRssStore = create<RssStore>()(
             toggleArticleFavorite: (articleId: string) => {
                 let nextFav = false;
                 set(state => {
-                    const article = state.articles.find(a => a.id === articleId);
+                    const article = getRssArticleById(state.articles, articleId);
                     nextFav = article ? !article.isFavorite : false;
                     return {
                         articles: state.articles.map(a =>
@@ -560,7 +573,7 @@ export const useRssStore = create<RssStore>()(
             toggleArticleSaved: (articleId: string) => {
                 let nextSaved = false;
                 set(state => {
-                    const article = state.articles.find(a => a.id === articleId);
+                    const article = getRssArticleById(state.articles, articleId);
                     nextSaved = article ? !article.isSaved : false;
                     return {
                         articles: state.articles.map(a =>
@@ -575,7 +588,7 @@ export const useRssStore = create<RssStore>()(
                     void persistRss("toggle saved", ({ sqliteMarkArticleSaved, sqliteSaveRssArticle }) => {
                         const writes: Promise<unknown>[] = [sqliteMarkArticleSaved(articleId, nextSaved)];
                         if (nextSaved) {
-                            const article = get().articles.find(a => a.id === articleId) || get().currentArticle;
+                            const article = getRssArticleById(get().articles, articleId) || get().currentArticle;
                             if (article && (article.content || article.fullContent)) {
                                 writes.push(sqliteSaveRssArticle(
                                     { ...rssArticleRow(article), isSaved: true },
@@ -641,7 +654,7 @@ export const useRssStore = create<RssStore>()(
             },
 
             loadArticle: async (articleId: string) => {
-                const existing = get().articles.find((a) => a.id === articleId);
+                const existing = getRssArticleById(get().articles, articleId);
                 if (existing) return existing;
 
                 if (isTauri()) {
@@ -683,7 +696,7 @@ export const useRssStore = create<RssStore>()(
             },
 
             openArticleInReader: (article: RssArticle) => {
-                let fresh = get().articles.find(a => a.id === article.id) || article;
+                let fresh = getRssArticleById(get().articles, article.id) || article;
                 if (isTauri()) {
                     void persistRss("open article", ({ sqliteGetRssArticleContent, sqliteSaveRssArticle }) =>
                         sqliteGetRssArticleContent(fresh.id).then((cached) => {
@@ -737,7 +750,7 @@ export const useRssStore = create<RssStore>()(
                 }));
                 if (isTauri()) {
                     void persistRss("save extracted content", ({ sqliteSaveRssArticle }) => {
-                        const a = get().articles.find(art => art.id === articleId);
+                        const a = getRssArticleById(get().articles, articleId);
                         if (!a) return undefined;
                         return sqliteSaveRssArticle(
                             { ...rssArticleRow(a), contentSource: 'extracted' },
@@ -777,7 +790,7 @@ export const useRssStore = create<RssStore>()(
                         if (isCompleted) {
                             writes.push(sqliteMarkArticleRead(articleId, true));
                         }
-                        const a = get().articles.find(art => art.id === articleId) || get().currentArticle;
+                        const a = getRssArticleById(get().articles, articleId) || get().currentArticle;
                         if (a) {
                             writes.push(sqliteSaveRssArticle(
                                 {
@@ -798,7 +811,7 @@ export const useRssStore = create<RssStore>()(
 
             fetchFullArticle: async (articleId: string) => {
                 const state = get();
-                const article = state.articles.find(a => a.id === articleId) || state.currentArticle;
+                const article = getRssArticleById(state.articles, articleId) || state.currentArticle;
                 if (!article || !article.url) {
                     return null;
                 }

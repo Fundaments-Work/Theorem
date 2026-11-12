@@ -4,86 +4,22 @@ import {
     Check, StickyNote, Bookmark, BookOpen
 } from "lucide-react";
 import { cn } from "../../../core/lib/utils";
+import { REVIEW_CARD_PALETTES, type ReviewCardPalette } from "../../../core/lib/design-tokens";
 import { bookmarkPositionLabel } from "./bookmark-position";
 
-interface CardColorTheme {
-    border: string;       // single card border
-    borderSubtle: string; // divider line
-    bgWash: string;       // ambient background wash
-    accent: string;       // accent color for icons
-}
+import type { Annotation } from "../../../core/types";
+import type { ResolvedAnnotationSource } from "../../../core/lib/annotation-source";
 
-const CARD_PALETTES: CardColorTheme[] = [
-    {
-        // Terracotta
-        border: "rgba(224, 108, 83, 0.22)",
-        borderSubtle: "rgba(224, 108, 83, 0.12)",
-        bgWash: "rgba(224, 108, 83, 0.05)",
-        accent: "#e06c53",
-    },
-    {
-        // Sage Green
-        border: "rgba(78, 155, 103, 0.22)",
-        borderSubtle: "rgba(78, 155, 103, 0.12)",
-        bgWash: "rgba(78, 155, 103, 0.05)",
-        accent: "#4e9b67",
-    },
-    {
-        // Cobalt Blue
-        border: "rgba(79, 120, 207, 0.22)",
-        borderSubtle: "rgba(79, 120, 207, 0.12)",
-        bgWash: "rgba(79, 120, 207, 0.05)",
-        accent: "#4f78cf",
-    },
-    {
-        // Warm Ochre
-        border: "rgba(217, 130, 43, 0.22)",
-        borderSubtle: "rgba(217, 130, 43, 0.12)",
-        bgWash: "rgba(217, 130, 43, 0.05)",
-        accent: "#d9822b",
-    },
-    {
-        // Amethyst / Mauve
-        border: "rgba(155, 89, 182, 0.22)",
-        borderSubtle: "rgba(155, 89, 182, 0.12)",
-        bgWash: "rgba(155, 89, 182, 0.05)",
-        accent: "#9b59b6",
-    },
-    {
-        // Teal
-        border: "rgba(47, 158, 153, 0.22)",
-        borderSubtle: "rgba(47, 158, 153, 0.12)",
-        bgWash: "rgba(47, 158, 153, 0.05)",
-        accent: "#2f9e99",
-    },
-    {
-        // Rose / Crimson
-        border: "rgba(217, 83, 111, 0.22)",
-        borderSubtle: "rgba(217, 83, 111, 0.12)",
-        bgWash: "rgba(217, 83, 111, 0.05)",
-        accent: "#d9536f",
-    },
-    {
-        // Olive Lime
-        border: "rgba(139, 168, 50, 0.22)",
-        borderSubtle: "rgba(139, 168, 50, 0.12)",
-        bgWash: "rgba(139, 168, 50, 0.05)",
-        accent: "#8ba832",
-    },
-];
-
-function getCardColor(card?: Annotation, index?: number): CardColorTheme {
-    if (!card) return CARD_PALETTES[0];
+function getCardColor(card?: Annotation, index?: number): ReviewCardPalette {
+    if (!card) return REVIEW_CARD_PALETTES[0];
     let hash = 0;
     const str = card.id || String(index ?? 0);
     for (let i = 0; i < str.length; i++) {
         hash = (hash << 5) - hash + str.charCodeAt(i);
         hash |= 0;
     }
-    return CARD_PALETTES[Math.abs(hash) % CARD_PALETTES.length];
+    return REVIEW_CARD_PALETTES[Math.abs(hash) % REVIEW_CARD_PALETTES.length];
 }
-import type { Annotation } from "../../../core/types";
-import type { ResolvedAnnotationSource } from "../../../core/lib/annotation-source";
 
 export interface ReviewCardStackProps {
     cards: Annotation[];
@@ -336,7 +272,7 @@ export function ReviewCardStack({
             {deckTitle && (
                 <div className="mb-3 flex items-center justify-between gap-3 px-1 select-none">
                     <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-serif text-sm font-medium text-[color:var(--color-text-primary)] truncate">
+                        <span className="font-serif text-sm text-[color:var(--color-text-primary)] truncate">
                             {deckTitle}
                         </span>
                         {deckSubtitle && (
@@ -383,9 +319,9 @@ export function ReviewCardStack({
                 {isFinished ? (
                     /* Completion Card in Native Theorem Swiss Style */
                     <div
-                        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 sm:p-12 shadow-xl dark:shadow-2xl w-full min-h-[380px] flex flex-col items-center justify-center text-center"
+                        className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 sm:p-12 w-full min-h-[380px] flex flex-col items-center justify-center text-center"
                     >
-                        <div className="w-12 h-12 rounded-2xl bg-[var(--color-surface-muted)] border border-[var(--color-border)] flex items-center justify-center mb-4 text-[color:var(--color-accent)] shadow-xs">
+                        <div className="w-12 h-12 bg-[var(--color-surface-muted)] border border-[var(--color-border)] flex items-center justify-center mb-4 text-[color:var(--color-accent)]">
                             <Check className="w-6 h-6 stroke-[2]" />
                         </div>
 
@@ -420,7 +356,7 @@ export function ReviewCardStack({
                         </div>
                     </div>
                 ) : cards.length === 0 ? (
-                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 flex flex-col items-center justify-center text-center w-full min-h-[380px]">
+                    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] p-8 flex flex-col items-center justify-center text-center w-full min-h-[380px]">
                         <p className="font-serif text-lg text-[color:var(--color-text-primary)] mb-1">No Highlights Yet</p>
                         <p className="font-sans text-xs text-[color:var(--color-text-muted)] max-w-[20rem] mx-auto">
                             Highlight passages while reading books or RSS feeds to review them here.
@@ -525,12 +461,12 @@ export function ReviewCardStack({
                                         {nextCard.type === "bookmark" ? (
                                             <div className="flex flex-col items-center justify-center text-center">
                                                 <div
-                                                    className="w-10 h-10 rounded-xl flex items-center justify-center bg-[var(--color-surface)] border text-[color:var(--color-accent)] mb-2 shadow-xs"
+                                                    className="w-10 h-10 flex items-center justify-center bg-[var(--color-surface)] border text-[color:var(--color-accent)] mb-2"
                                                     style={{ borderColor: "var(--color-border-subtle)", color: nextColor.accent }}
                                                 >
                                                     <Bookmark className="w-5 h-5 fill-current" />
                                                 </div>
-                                                <p className="font-serif text-sm font-medium text-[color:var(--color-text-primary)] line-clamp-1">
+                                                <p className="font-serif text-sm text-[color:var(--color-text-primary)] line-clamp-1">
                                                     {nextCard.chapterTitle || "Bookmark"}
                                                 </p>
                                             </div>
@@ -566,7 +502,7 @@ export function ReviewCardStack({
                             onPointerCancel={handlePointerUp}
                             onClick={handleCardClick}
                             className={cn(
-                                "relative w-full rounded-2xl border bg-[var(--color-surface)] p-6 sm:p-8 flex flex-col justify-between overflow-hidden touch-none select-none z-10 cursor-grab active:cursor-grabbing shadow-xl dark:shadow-2xl"
+                                "relative w-full border bg-[var(--color-surface)] p-6 sm:p-8 flex flex-col justify-between overflow-hidden touch-none select-none z-10 cursor-grab active:cursor-grabbing"
                             )}
                             style={{
                                 width: "100%",
@@ -595,13 +531,13 @@ export function ReviewCardStack({
                                 {topCard.type === "bookmark" ? (
                                     <div className="flex flex-col items-center justify-center text-center my-auto">
                                         <div
-                                            className="w-14 h-14 rounded-2xl flex items-center justify-center bg-[var(--color-surface)] border shadow-xs mb-3 text-[color:var(--color-accent)]"
+                                            className="w-14 h-14 flex items-center justify-center bg-[var(--color-surface)] border mb-3 text-[color:var(--color-accent)]"
                                             style={{ color: topColor.accent, borderColor: topColor.border }}
                                         >
                                             <Bookmark className="w-7 h-7 fill-current" />
                                         </div>
 
-                                        <h3 className="font-serif text-xl sm:text-2xl text-[color:var(--color-text-primary)] font-medium text-center leading-snug mb-2 max-w-[28rem] px-2">
+                                        <h3 className="font-serif text-xl sm:text-2xl text-[color:var(--color-text-primary)] text-center leading-snug mb-2 max-w-[28rem] px-2">
                                             {topCard.chapterTitle || "Bookmark"}
                                         </h3>
 
@@ -613,7 +549,7 @@ export function ReviewCardStack({
 
                                         {topCard.noteContent && (
                                             <div
-                                                className="bg-[var(--color-surface)]/80 border rounded-xl p-3 max-w-[24rem] mx-auto mb-4 text-xs font-sans text-[color:var(--color-text-primary)]"
+                                                className="bg-[var(--color-surface)]/80 border p-3 max-w-[24rem] mx-auto mb-4 text-xs font-sans text-[color:var(--color-text-primary)]"
                                                 style={{ borderColor: topColor.borderSubtle }}
                                             >
                                                 {topCard.noteContent}
@@ -627,7 +563,7 @@ export function ReviewCardStack({
                                                 onClose?.();
                                                 onGoToSource(topCard.bookId, topCard.location);
                                             }}
-                                            className="ui-btn-primary mx-auto text-xs px-5 py-2 rounded-xl flex items-center gap-2 shadow-sm cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                                            className="ui-btn-primary mx-auto text-xs px-5 py-2 flex items-center gap-2 cursor-pointer"
                                         >
                                             <BookOpen className="w-4 h-4" />
                                             <span>Jump to Bookmark</span>

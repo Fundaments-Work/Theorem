@@ -124,7 +124,8 @@ describe("page structure", () => {
 
     it("the Markdown export folder field has a label, not just a placeholder", () => {
         const settings = src("src/features/settings/Settings.tsx");
-        const field = settings.slice(settings.lastIndexOf("<input", settings.indexOf('placeholder="/Users/you/Documents/MarkdownExport"')), settings.indexOf('placeholder="/Users/you/Documents/MarkdownExport"'));
+        const anchor = 'placeholder="Select a folder for exported Markdown notes"';
+        const field = settings.slice(settings.lastIndexOf("<input", settings.indexOf(anchor)), settings.indexOf(anchor));
         expect(field).toContain('aria-label="Export folder"');
     });
 

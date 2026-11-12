@@ -85,6 +85,12 @@ export const Sidebar = memo(function Sidebar() {
                         aria-label="Support Theorem on Buy Me Momo"
                     >
                         <MomoIcon className={NAV_CONTROL_ICON} />
+                        <span
+                            className="pointer-events-none absolute left-full top-1/2 z-30 ml-1 hidden -translate-y-1/2 whitespace-nowrap border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-2 py-1 text-xs text-[color:var(--color-text-primary)] group-hover:flex group-focus-visible:flex"
+                            aria-hidden="true"
+                        >
+                            Support Theorem on Buy Me Momo
+                        </span>
                     </button>
                 )}
                 {/* Utilities, apart from the destinations: the same pair phones keep in the top bar. */}

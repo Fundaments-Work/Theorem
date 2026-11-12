@@ -36,7 +36,17 @@ export function ReadingSetup({ onComplete }: { onComplete: (destination?: Destin
         catch { setError("Your goal could not be saved. Try again, or skip this step."); }
         finally { setBusy(false); }
     }
-    if (tour) return <OnboardingFlow onComplete={() => setTour(false)} />;
+    if (tour) {
+        return (
+            <OnboardingFlow
+                onSkip={() => setTour(false)}
+                onComplete={() => {
+                    setTour(false);
+                    go(1);
+                }}
+            />
+        );
+    }
     const back=<IconButton label="Back" className="min-h-11 min-w-11" icon={<ArrowLeft className="h-5 w-5" />} onClick={()=>go(step-1)} disabled={busy} />;
     const visual=step===0 ? <ReaderIllustration /> : step===2 ? <LibraryIllustration /> : <div className="flex w-full flex-col items-center gap-5">
         <div className="flex items-baseline gap-3"><span className="font-mono text-7xl text-[color:var(--color-accent)] sm:text-8xl">{days}</span><span className="text-sm text-[color:var(--color-text-secondary)]">days / week</span></div>

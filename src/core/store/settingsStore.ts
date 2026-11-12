@@ -212,6 +212,8 @@ export const useSettingsStore = create<SettingsStore>()(
             },
 
             resetSettings: () => {
+                applyAppTheme(defaultAppSettings.theme, defaultAppSettings.accentColor);
+                applyReaderStyles(defaultReaderSettings);
                 set({
                     settings: defaultAppSettings,
                     showDiscover: true,

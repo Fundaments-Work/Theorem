@@ -118,7 +118,7 @@ export const AnnotationListCard = memo(function AnnotationListCard({
                 <div className="min-w-0 flex flex-col justify-center">
                     <div
                         onClick={onOpen}
-                        className="font-sans text-xs font-medium text-[color:var(--color-text-primary)] truncate cursor-pointer hover:underline"
+                        className="font-sans text-xs text-[color:var(--color-text-primary)] truncate cursor-pointer hover:underline"
                         title={openTitle}
                     >
                         <HighlightMatch text={sourceTitle} query={searchQuery} />

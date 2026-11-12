@@ -301,7 +301,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label htmlFor="edit-author"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-author" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Author
                                 </label>
                                 <input
@@ -313,7 +313,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-publisher"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-publisher" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Publisher
                                 </label>
                                 <input
@@ -328,7 +328,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label htmlFor="edit-date"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-date" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Published Date
                                 </label>
                                 <input
@@ -341,7 +341,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-language"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-language" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Language
                                 </label>
                                 <input
@@ -357,7 +357,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label htmlFor="edit-isbn"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-isbn" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     ISBN
                                 </label>
                                 <input
@@ -369,7 +369,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="edit-category"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                                <label htmlFor="edit-category" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                     Category
                                 </label>
                                 <input
@@ -383,7 +383,7 @@ export function EditBookModal({ isOpen, book, onClose }: EditBookModalProps) {
                         </div>
 
                         <div>
-                            <label htmlFor="edit-tags"className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
+                            <label htmlFor="edit-tags" className="block text-sm text-[color:var(--color-text-primary)] mb-1.5">
                                 Tags
                             </label>
                             <input

@@ -33,6 +33,7 @@ export function Modal({
     children,
     className,
     size = "md",
+    showCloseButton = false,
     ariaLabelledby,
     ariaLabel,
 }: ModalProps) {
@@ -70,6 +71,19 @@ export function Modal({
                 >
                     {!hasHeader && !ariaLabelledby && <Dialog.Title className="sr-only">{ariaLabel ?? "Dialog"}</Dialog.Title>}
                     <Dialog.Description className="sr-only" />
+                    {showCloseButton && !hasHeader && (
+                        <Dialog.Close asChild>
+                            <button
+                                type="button"
+                                className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center text-[color:var(--color-text-secondary)] transition-colors duration-200 ease-out hover:text-[color:var(--color-accent)]"
+                                aria-label="Close"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </Dialog.Close>
+                    )}
                     <ModalHeaderContext.Provider value={setHasHeader}>{children}</ModalHeaderContext.Provider>
                 </Dialog.Content>
             </Dialog.Portal>

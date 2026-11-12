@@ -21,6 +21,7 @@ import {
 export interface OpdsEntrySheetProps {
     entry: OpdsEntry | null;
     auth?: OpdsCredentials;
+    originUrl?: string;
     onClose: () => void;
     /** Open a related feed (an author's books, a subject) in the browser. Absent in Discover. */
     onOpenFeed?: (href: string, title: string) => void;
@@ -28,10 +29,10 @@ export interface OpdsEntrySheetProps {
 
 const chip = "border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 text-[11px] text-[color:var(--color-text-muted)]";
 
-export function OpdsEntrySheet({ entry, auth, onClose, onOpenFeed }: OpdsEntrySheetProps) {
+export function OpdsEntrySheet({ entry, auth, originUrl, onClose, onOpenFeed }: OpdsEntrySheetProps) {
     const setRoute = useUIStore((state) => state.setRoute);
     const books = useLibraryStore((state) => state.books);
-    const { download, isBusy } = useCatalogDownload(auth);
+    const { download, isBusy } = useCatalogDownload(auth, originUrl);
 
     const [full, setFull] = useState<OpdsEntry | null>(entry);
     const [loadingDetail, setLoadingDetail] = useState(false);
@@ -44,7 +45,7 @@ export function OpdsEntrySheet({ entry, auth, onClose, onOpenFeed }: OpdsEntrySh
         if (!entry || entryAction(entry).kind !== "partial") return;
         let cancelled = false;
         setLoadingDetail(true);
-        OpdsService.loadDetail(entry, auth)
+        OpdsService.loadDetail(entry, auth, originUrl)
             .then((detail) => {
                 if (!cancelled) setFull(detail);
             })

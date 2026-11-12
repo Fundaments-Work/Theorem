@@ -82,7 +82,7 @@ export function CatalogsPage() {
                 </div>
             )}
 
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-solid">
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-solid pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                 <div className="mx-auto w-full max-w-[var(--layout-content-max-width)] px-4 py-6 pb-12 sm:px-6 lg:px-8 lg:py-8 lg:pb-16">
                     {active ? (
                         <OpdsBrowser key={active.id} catalog={active} scrollRef={scrollRef} />

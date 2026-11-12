@@ -711,3 +711,157 @@ export function getSettingsChanges(
 export function initReaderStyles(settings: ReaderSettings): void {
     applyReaderStyles(settings);
 }
+
+export interface ReviewCardPalette {
+    border: string;
+    borderSubtle: string;
+    bgWash: string;
+    accent: string;
+}
+
+export const REVIEW_CARD_PALETTES: ReviewCardPalette[] = [
+    {
+        border: "rgba(224, 108, 83, 0.22)",
+        borderSubtle: "rgba(224, 108, 83, 0.12)",
+        bgWash: "rgba(224, 108, 83, 0.05)",
+        accent: "#e06c53",
+    },
+    {
+        border: "rgba(78, 155, 103, 0.22)",
+        borderSubtle: "rgba(78, 155, 103, 0.12)",
+        bgWash: "rgba(78, 155, 103, 0.05)",
+        accent: "#4e9b67",
+    },
+    {
+        border: "rgba(79, 120, 207, 0.22)",
+        borderSubtle: "rgba(79, 120, 207, 0.12)",
+        bgWash: "rgba(79, 120, 207, 0.05)",
+        accent: "#4f78cf",
+    },
+    {
+        border: "rgba(217, 130, 43, 0.22)",
+        borderSubtle: "rgba(217, 130, 43, 0.12)",
+        bgWash: "rgba(217, 130, 43, 0.05)",
+        accent: "#d9822b",
+    },
+    {
+        border: "rgba(155, 89, 182, 0.22)",
+        borderSubtle: "rgba(155, 89, 182, 0.12)",
+        bgWash: "rgba(155, 89, 182, 0.05)",
+        accent: "#9b59b6",
+    },
+    {
+        border: "rgba(47, 158, 153, 0.22)",
+        borderSubtle: "rgba(47, 158, 153, 0.12)",
+        bgWash: "rgba(47, 158, 153, 0.05)",
+        accent: "#2f9e99",
+    },
+    {
+        border: "rgba(217, 83, 111, 0.22)",
+        borderSubtle: "rgba(217, 83, 111, 0.12)",
+        bgWash: "rgba(217, 83, 111, 0.05)",
+        accent: "#d9536f",
+    },
+    {
+        border: "rgba(139, 168, 50, 0.22)",
+        borderSubtle: "rgba(139, 168, 50, 0.12)",
+        bgWash: "rgba(139, 168, 50, 0.05)",
+        accent: "#8ba832",
+    },
+];
+
+export interface ShareCardThemePalette {
+    bg: string;
+    fg: string;
+    subtext: string;
+    accent: string;
+    cardBg: string;
+    border: string;
+    progressTrack: string;
+}
+
+export function getShareCardThemePalette(
+    theme: "match" | "dark" | "tinted" | "sepia",
+    appTheme: "light" | "dark" | "system",
+    appAccent: string,
+    accent?: HighlightColor,
+): ShareCardThemePalette {
+    const defaultAccent = appAccent || DEFAULT_ACCENT_COLOR;
+    const tintAccent = accent ? HIGHLIGHT_SOLID_COLORS[accent] : defaultAccent;
+
+    if (theme === "match") {
+        const isDark = typeof document !== "undefined"
+            ? document.body.classList.contains("theme-dark") ||
+              appTheme === "dark" ||
+              (appTheme === "system" && Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches))
+            : appTheme === "dark";
+
+        const customAccent = isDark || (appAccent && appAccent !== DEFAULT_ACCENT_COLOR)
+            ? (appAccent || DEFAULT_ACCENT_COLOR)
+            : "#1c1c1c";
+
+        if (isDark) {
+            return {
+                bg: "#121316",
+                fg: "#f2f0eb",
+                subtext: "#a8a59e",
+                accent: customAccent,
+                cardBg: "rgba(255,255,255,0.06)",
+                border: "rgba(255,255,255,0.12)",
+                progressTrack: "rgba(255,255,255,0.14)",
+            };
+        }
+        return {
+            bg: "#faf8f5",
+            fg: "#1a1918",
+            subtext: "#57544f",
+            accent: customAccent,
+            cardBg: "rgba(0,0,0,0.04)",
+            border: "rgba(0,0,0,0.1)",
+            progressTrack: "rgba(0,0,0,0.1)",
+        };
+    }
+
+    switch (theme) {
+        case "dark":
+            return {
+                bg: "#121316",
+                fg: "#f2f0eb",
+                subtext: "#a8a59e",
+                accent: DEFAULT_ACCENT_COLOR,
+                cardBg: "rgba(255,255,255,0.06)",
+                border: "rgba(255,255,255,0.12)",
+                progressTrack: "rgba(255,255,255,0.14)",
+            };
+        case "tinted":
+            return {
+                bg: "#0d140e",
+                fg: "#f4f8f4",
+                subtext: "rgba(244,248,244,0.78)",
+                accent: tintAccent,
+                cardBg: "rgba(198,241,53,0.06)",
+                border: "rgba(198,241,53,0.18)",
+                progressTrack: "rgba(198,241,53,0.15)",
+            };
+        case "sepia":
+            return {
+                bg: "#f4ede2",
+                fg: "#1a120b",
+                subtext: "#594231",
+                accent: "#9a3c08",
+                cardBg: "rgba(255, 255, 255, 0.76)",
+                border: "rgba(100, 70, 45, 0.16)",
+                progressTrack: "rgba(100, 70, 45, 0.14)",
+            };
+        default:
+            return {
+                bg: "#faf8f5",
+                fg: "#1a1918",
+                subtext: "#57544f",
+                accent: "#1a1918",
+                cardBg: "rgba(0,0,0,0.04)",
+                border: "rgba(0,0,0,0.1)",
+                progressTrack: "rgba(0,0,0,0.1)",
+            };
+    }
+}

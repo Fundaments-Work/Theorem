@@ -308,8 +308,11 @@ export function DeviceSyncSection() {
     const handleCloseQr = useCallback(() => {
         setIsQrModalOpen(false);
         setQrData(null);
+        if (useUIStore.getState().deviceSyncStatus === "hosting") {
+            setDeviceSyncStatus("idle");
+        }
         void closePairingQr().catch(() => {});
-    }, []);
+    }, [setDeviceSyncStatus]);
 
     // Leaving the page withdraws a QR code still on screen.
     useEffect(() => () => {
@@ -584,7 +587,7 @@ export function DeviceSyncSection() {
     return (
         <Section
             title="Device Sync"
-            description="Sync your library, annotations, and settings between devices on the same network"
+            description="Sync your library, progress and highlights directly between your devices, on any network"
             icon={<Smartphone className="w-5 h-5" />}
         >
             

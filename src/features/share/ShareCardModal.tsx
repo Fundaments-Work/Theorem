@@ -196,6 +196,8 @@ export function ShareCardModal(props: ShareCardModalProps) {
                             {([["square", "Square (1:1)"], ["story", "Story (9:16)"]] as const).map(([val, label]) => (
                                 <button
                                     key={val}
+                                    type="button"
+                                    aria-pressed={format === val}
                                     onClick={() => setFormat(val)}
                                     className={`ui-btn w-full justify-center md:justify-start text-xs ${format === val ? "ui-btn-primary" : ""}`}
                                 >
@@ -213,6 +215,8 @@ export function ShareCardModal(props: ShareCardModalProps) {
                             {([["match", "App Theme"], ["dark", "Dark"], ["tinted", "Tinted"], ["sepia", "Sepia"]] as const).map(([val, label]) => (
                                 <button
                                     key={val}
+                                    type="button"
+                                    aria-pressed={theme === val}
                                     onClick={() => setTheme(val)}
                                     className={`ui-btn w-full justify-center md:justify-start text-xs ${theme === val ? "ui-btn-primary" : ""}`}
                                 >
@@ -243,7 +247,7 @@ export function ShareCardModal(props: ShareCardModalProps) {
 
             <ModalFooter>
                 {toast && (
-                    <div className={`absolute bottom-full left-0 right-0 mb-2 flex items-center justify-center gap-1.5 text-xs py-2 bg-[var(--color-surface)] border border-[var(--color-border)] ${toast.type === "success" ? "text-[var(--color-success,#22c55e)]" : "text-[var(--color-error)]"}`}>
+                    <div className={`absolute bottom-full left-0 right-0 mb-2 flex items-center justify-center gap-1.5 text-xs py-2 bg-[var(--color-surface)] border border-[var(--color-border)] ${toast.type === "success" ? "text-[color:var(--color-success)]" : "text-[color:var(--color-error)]"}`}>
                         {toast.type === "success" ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
                         {toast.message}
                     </div>

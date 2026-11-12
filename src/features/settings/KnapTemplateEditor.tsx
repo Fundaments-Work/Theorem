@@ -184,6 +184,7 @@ export function KnapTemplateEditor({ template, onChange }: KnapTemplateEditorPro
                     ref={textareaRef}
                     value={template}
                     onChange={(e) => onChange(e.target.value)}
+                    aria-label="Custom note template"
                     rows={10}
                     spellCheck={false}
                     className="w-full resize-y border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 font-mono text-xs leading-relaxed text-[color:var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none"

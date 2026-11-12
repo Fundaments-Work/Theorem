@@ -6,8 +6,10 @@ import { GlobalLoader } from "./ui/loading";
 import { initSentry } from "./core/lib/sentry";
 import { readStartupDbHealth } from "./core/lib/db-health";
 import { suspendPersistence } from "./core/lib/persist-storage";
+import { registerReaderCoreRuntime } from "./features/reader/lib/register-core-runtime";
 import "./index.css";
 
+registerReaderCoreRuntime();
 void initSentry(import.meta.env.VITE_SENTRY_DSN as string | undefined, import.meta.env.MODE);
 
 const DatabaseRecovery = lazy(() => import("./shell/DatabaseRecovery"));

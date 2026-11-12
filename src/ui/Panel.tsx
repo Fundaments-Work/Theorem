@@ -80,7 +80,7 @@ export function FloatingPanel({
             aria-hidden={!visible || undefined}
             inert={!visible}
             className={cn(
-                'fixed z-[150] flex flex-col reader-sheet border-2',
+                'fixed z-[var(--z-reader-sheet)] flex flex-col reader-sheet border-2',
                 
                 'left-0 right-0 bottom-0 max-h-[var(--layout-floating-panel-max-height)]',
                 

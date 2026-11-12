@@ -127,7 +127,11 @@ export function useOpdsBrowser(catalog: OpdsCatalog) {
             setState((prev) => ({ ...prev, crumbs, status: "loading", error: null, moreError: null }));
             const creds = authRef.current;
             try {
-                const { feed } = await OpdsService.load(target.url, { auth: creds, force: opts.force });
+                const { feed } = await OpdsService.load(target.url, {
+                    auth: creds,
+                    force: opts.force,
+                    ...(creds ? { originUrl: catalog.url } : {}),
+                });
                 if (id !== requestId.current) return;
                 const save = pendingSave.current;
                 if (save && creds && save.username === creds.username && save.password === creds.password) {
@@ -199,7 +203,10 @@ export function useOpdsBrowser(catalog: OpdsCatalog) {
         const id = requestId.current;
         setState((prev) => ({ ...prev, loadingMore: true, moreError: null }));
         try {
-            const { feed } = await OpdsService.load(next, { auth: authRef.current });
+            const { feed } = await OpdsService.load(next, {
+                auth: authRef.current,
+                ...(authRef.current ? { originUrl: catalog.url } : {}),
+            });
             if (id !== requestId.current) return;
             setState((prev) => {
                 const entries = mergeBy(prev.entries, feed.entries, (e) => e.id);
@@ -250,7 +257,11 @@ export function useOpdsBrowser(catalog: OpdsCatalog) {
             const id = ++requestId.current;
             setState((prev) => ({ ...prev, status: "loading", error: null }));
             try {
-                const { feed, finalUrl } = await OpdsService.search(ref, q, authRef.current);
+                const { feed, finalUrl } = await (
+                    authRef.current
+                        ? OpdsService.search(ref, q, authRef.current, catalog.url)
+                        : OpdsService.search(ref, q, authRef.current)
+                );
                 if (id !== requestId.current) return false;
                 // Searching from a search replaces it instead of stacking results on results.
                 const base = state.searchQuery ? state.crumbs.slice(0, -1) : state.crumbs;

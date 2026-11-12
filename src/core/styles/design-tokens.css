@@ -133,6 +133,12 @@
     --z-modal: 200;
     --z-popover: 300;
     --z-tooltip: 400;
+    --z-reader-bar: 140;
+    --z-reader-menu-backdrop: 141;
+    --z-reader-menu: 142;
+    --z-reader-sheet: 150;
+    --z-reader-overlay: 160;
+    --z-reader-floating: 170;
 
     
     --container-width-sm: 40rem;
@@ -332,6 +338,18 @@
 
 
 :root {
+    --cover-plate-bg: #0e0e11;
+    --cover-plate-fg: #f4f4f5;
+    --cover-plate-border: #27272a;
+    --cover-plate-rule: #3f3f46;
+    --cover-plate-muted: #a1a1aa;
+    --cover-plate-emblem: #71717a;
+    --reader-swatch-light-bg: #ffffff;
+    --reader-swatch-light-fg: #1a1a1a;
+    --reader-swatch-sepia-bg: #fbf3e0;
+    --reader-swatch-sepia-fg: #5f4b32;
+    --reader-swatch-dark-bg: #1a1a1a;
+    --reader-swatch-dark-fg: #e5e5e5;
     --highlight-yellow: #f4b400;
     --highlight-yellow-soft: rgba(244, 180, 0, 0.26);
     --highlight-yellow-picker: #ffe082;
@@ -698,9 +716,8 @@
 
 .ui-page-title {
     font-size: 1.45rem;
-    font-weight: var(--font-weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    font-weight: var(--font-weight-regular);
+    letter-spacing: var(--tracking-headline);
     line-height: 1.1;
     color: var(--color-text-primary);
 }

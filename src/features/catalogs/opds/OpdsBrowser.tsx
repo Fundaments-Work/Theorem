@@ -115,7 +115,7 @@ export function OpdsBrowser({
     const { state } = browser;
     const removeCatalog = useOpdsStore((s) => s.removeCatalog);
     const inLibrary = useInLibrary();
-    const { download, isBusy } = useCatalogDownload(browser.auth);
+    const { download, isBusy } = useCatalogDownload(browser.auth, catalog.url);
 
     const [selected, setSelected] = useState<OpdsEntry | null>(null);
     const [query, setQuery] = useState("");
@@ -227,6 +227,7 @@ export function OpdsBrowser({
                 <OpdsEntrySheet
                     entry={selected}
                     auth={browser.auth}
+                    originUrl={catalog.url}
                     onClose={() => setSelected(null)}
                     onOpenFeed={(href, label) => browser.open(href, label)}
                 />
@@ -250,7 +251,11 @@ export function OpdsBrowser({
                         </button>
                     )}
                     <div className="min-w-0 flex-1">
-                        <h2 className="truncate text-lg text-[color:var(--color-text-primary)]">{title}</h2>
+                        {!renderHome ? (
+                            <h1 className="truncate text-lg text-[color:var(--color-text-primary)]">{title}</h1>
+                        ) : (
+                            <h2 className="truncate text-lg text-[color:var(--color-text-primary)]">{title}</h2>
+                        )}
                         {feed?.subtitle && state.crumbs.length === 1 && (
                             <p className="truncate text-xs text-[color:var(--color-text-muted)]">{feed.subtitle}</p>
                         )}
@@ -281,7 +286,7 @@ export function OpdsBrowser({
                             <DropdownMenu.Content
                                 align="end"
                                 sideOffset={4}
-                                className="z-[var(--z-popover,60)] min-w-44 border border-[var(--color-border)] bg-[var(--color-surface-elevated)] py-1 text-xs shadow-lg"
+                                className="z-[var(--z-popover)] min-w-44 border border-[var(--color-border)] bg-[var(--color-surface-elevated)] py-1 text-xs shadow-lg"
                             >
                                 <DropdownMenu.Item
                                     onSelect={browser.refresh}
@@ -479,6 +484,7 @@ export function OpdsBrowser({
             <OpdsEntrySheet
                 entry={selected}
                 auth={browser.auth}
+                originUrl={catalog.url}
                 onClose={() => setSelected(null)}
                 onOpenFeed={(href, label) => browser.open(href, label)}
             />

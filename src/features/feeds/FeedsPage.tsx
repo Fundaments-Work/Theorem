@@ -103,71 +103,70 @@ export function FeedListItem({
     
     return (
         <div
-            role="button"
-            tabIndex={0}
-            aria-pressed={isSelected}
-            onClick={onSelect}
-            onKeyDown={(event) => {
-                if (event.target !== event.currentTarget) return;
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelect();
-                }
-            }}
             className={cn(
-                "group relative flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors",
+                "group relative flex items-center gap-2.5 px-3 py-2 transition-colors",
                 isSelected
                     ? "md:bg-[var(--color-accent)]/10 md:text-[color:var(--color-accent)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)] hover:bg-[var(--color-surface-muted)]"
                     : "hover:bg-[var(--color-surface-muted)] text-[color:var(--color-text-secondary)] hover:text-[color:var(--color-text-primary)]",
                 "active:bg-[var(--color-surface-muted)]"
             )}
         >
-            
-            <div className={cn(
-                "w-6 h-6 flex items-center justify-center flex-shrink-0 overlay",
-                isSelected
-                    ? "md:text-[color:var(--color-accent)] text-[color:var(--color-text-muted)]"
-                    : "text-[color:var(--color-text-muted)]",
-            )}>
-                {feed.iconUrl && isSafeImageUrl(feed.iconUrl) ? (
-                    <img
-                        src={feed.iconUrl}
-                        alt=""
-                        className="w-4 h-4"
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                    />
-                ) : (
-                    <Rss className="w-4 h-4" />
-                )}
-            </div>
-
-            <div className="flex-1 min-w-0">
-                <p className={cn(
-                    "text-sm truncate",
-                )}>
-                    {deduplicateFeedTitle(feed.title)}
-                </p>
-            </div>
-
-            {feed.unreadCount > 0 && (
-                <span className={cn(
-                    "text-[10px] px-1.5 py-0.5 flex-shrink-0",
+            <button
+                type="button"
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                onClick={onSelect}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelect();
+                    }
+                }}
+                className="flex flex-1 min-w-0 items-center gap-2.5 text-left cursor-pointer"
+            >
+                <div className={cn(
+                    "w-6 h-6 flex items-center justify-center flex-shrink-0 overlay",
                     isSelected
-                        ? "ui-selected"
-                        : "bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]",
+                        ? "md:text-[color:var(--color-accent)] text-[color:var(--color-text-muted)]"
+                        : "text-[color:var(--color-text-muted)]",
                 )}>
-                    {feed.unreadCount}
-                </span>
-            )}
+                    {feed.iconUrl && isSafeImageUrl(feed.iconUrl) ? (
+                        <img
+                            src={feed.iconUrl}
+                            alt=""
+                            className="w-4 h-4"
+                            onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                        />
+                    ) : (
+                        <Rss className="w-4 h-4" />
+                    )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">
+                        {deduplicateFeedTitle(feed.title)}
+                    </p>
+                </div>
+
+                {feed.unreadCount > 0 && (
+                    <span className={cn(
+                        "text-[10px] px-1.5 py-0.5 flex-shrink-0",
+                        isSelected
+                            ? "ui-selected"
+                            : "bg-[var(--color-surface-muted)] text-[color:var(--color-text-muted)]",
+                    )}>
+                        {feed.unreadCount}
+                    </span>
+                )}
+            </button>
 
             {onRefresh && (
                 <button
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onRefresh();
-                    }}
+                    type="button"
+                    onClick={onRefresh}
                     disabled={isRefreshing}
                     className={cn(
                         "p-1.5 transition-colors flex-shrink-0",
@@ -742,7 +741,7 @@ export function FeedsPage() {
                 "md:flex md:w-64"
             )}>
                 
-                <div ref={feedListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain">
+                <div ref={feedListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                     <div className="p-2 pt-4">
                         <div
                             className="relative w-full"
@@ -932,7 +931,7 @@ export function FeedsPage() {
                     </button>
                 </header>
 
-                <div ref={articleListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain">
+                <div ref={articleListScrollRef} className="flex-1 overflow-y-auto scrollbar-solid [content-visibility:auto] overscroll-contain pb-[calc(var(--layout-bottom-nav-height)+var(--safe-area-bottom)+var(--spacing-lg))] md:pb-0">
                     {isLoading && feeds.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
                             <Loader2 className="w-6 h-6 motion-safe:animate-spin text-[color:var(--color-text-muted)]" />

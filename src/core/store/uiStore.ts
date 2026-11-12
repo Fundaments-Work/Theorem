@@ -56,20 +56,22 @@ export const useUIStore = create<UIStore>()(
             if (pushHistory && typeof window !== "undefined") {
                 window.history.pushState({ route, bookId }, "");
             }
-            set((_state) => ({
+            set((state) => ({
                 currentRoute: route,
                 currentBookId: bookId,
                 searchQuery: "",
                 searchCommittedQuery: "",
+                ...(route !== state.currentRoute ? { selectedBooks: [] } : {}),
             }));
         },
         goBack: () => {
             if (typeof window !== "undefined" && window.history.length > 1) {
                 window.history.back();
             } else {
-                set((_state) => ({
+                set((state) => ({
                     currentRoute: "library",
                     currentBookId: undefined,
+                    ...(state.currentRoute !== "library" ? { selectedBooks: [] } : {}),
                 }));
             }
         },

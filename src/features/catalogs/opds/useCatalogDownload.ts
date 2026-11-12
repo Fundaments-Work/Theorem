@@ -9,7 +9,7 @@ import { formatBytes } from "./opds-ui-utils";
  * "Add to Library" for catalog entries, shared by the Discover and catalog cards and the detail
  * sheet so progress, errors and the success toast read the same everywhere.
  */
-export function useCatalogDownload(auth?: OpdsCredentials) {
+export function useCatalogDownload(auth?: OpdsCredentials, originUrl?: string) {
     const setRoute = useUIStore((state) => state.setRoute);
     const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
     const inFlightRef = useRef<Set<string>>(new Set());
@@ -25,12 +25,13 @@ export function useCatalogDownload(auth?: OpdsCredentials) {
                 let full = entry;
                 if (entry.primary === undefined && entry.detailHref) {
                     toast.loading("Finding the download…", { id: toastId });
-                    full = await OpdsService.loadDetail(entry, auth);
+                    full = await OpdsService.loadDetail(entry, auth, originUrl);
                 }
                 const acquisition = full.primary !== undefined ? full.acquisitions[full.primary] : undefined;
                 if (!acquisition) throw new Error("There is no direct download for this book.");
                 await OpdsService.download(acquisition, {
                     auth,
+                    originUrl,
                     onProgress: (received, total) => {
                         const label = total ? `${Math.round((received / total) * 100)}% of ${formatBytes(total)}` : formatBytes(received);
                         toast.loading(`Adding "${entry.title}" · ${label}`, { id: toastId });
@@ -53,7 +54,7 @@ export function useCatalogDownload(auth?: OpdsCredentials) {
                 });
             }
         },
-        [auth, setRoute],
+        [auth, originUrl, setRoute],
     );
 
     return { download, isBusy: (id: string) => busy.has(id) };
