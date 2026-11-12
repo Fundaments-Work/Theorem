@@ -1,23 +1,25 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use iroh::endpoint::{self, presets::N0, RelayMode};
+#[cfg(test)]
+use iroh::endpoint::RelayMode;
+use iroh::endpoint::{self};
 use iroh::protocol::{ProtocolHandler, Router};
-use iroh::{PublicKey, SecretKey};
+use iroh::PublicKey;
 use iroh_docs::engine::LiveEvent;
-use iroh_mdns_address_lookup::MdnsAddressLookup;
 use tauri::Emitter;
-use tokio::sync::Mutex;
 
 use theorem_sync_core::sync_crypto;
 use theorem_sync_core::sync_persistence;
 use theorem_sync_core::sync_protocol::{PairedDevice, PairingRequest, PairingResponse};
 
-use crate::sync_access::{self, PairingCheck, PairingSessions, PeerAllowlist, PeerGate};
-
-const ALPN: &[u8] = b"theorem-sync/v1";
-pub const ALPN_BYTES: &[u8] = ALPN;
+#[cfg(test)]
+use crate::sync_access::PeerGate;
+use crate::sync_access::{self, PairingCheck};
+#[cfg(test)]
+pub(crate) use crate::sync_state::transport_config;
+pub use crate::sync_state::{
+    AcceptLoopHandle, DocsApiSnapshot, IrohSyncEndpoint, SyncTransportState, ALPN, ALPN_BYTES,
+};
 
 /// One remote doc entry delivered over the IPC bridge.
 #[derive(serde::Serialize, Clone)]
@@ -30,13 +32,13 @@ struct EntryPayload {
 struct EntryBatchPayload {
     entries: Vec<EntryPayload>,
     /// Items another device deleted (their newest entry is a deletion).
-    deleted: Vec<crate::sync_commands::DeletedDocKey>,
+    deleted: Vec<crate::sync_state::DeletedDocKey>,
 }
 
 #[derive(Default)]
 struct PendingBatch {
     entries: Vec<EntryPayload>,
-    deleted: Vec<crate::sync_commands::DeletedDocKey>,
+    deleted: Vec<crate::sync_state::DeletedDocKey>,
 }
 
 impl PendingBatch {
@@ -90,7 +92,7 @@ impl<R: tauri::Runtime> EntryBatcher<R> {
         }
     }
 
-    fn push_deleted(self: &Arc<Self>, deleted: crate::sync_commands::DeletedDocKey) {
+    fn push_deleted(self: &Arc<Self>, deleted: crate::sync_state::DeletedDocKey) {
         let should_flush = {
             let mut guard = self.pending.lock().unwrap_or_else(|e| e.into_inner());
             guard.entries.retain(|e| e.key != deleted.key);
@@ -141,186 +143,6 @@ struct IrohEnvelope {
     msg_type: String,
     #[serde(rename = "d")]
     data: serde_json::Value,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct IrohPeerInfo {
-    pub public_key: PublicKey,
-    pub device_id: String,
-    pub device_name: String,
-    pub fingerprint: String,
-}
-
-/// Generic over the Tauri runtime only so tests can use the mock runtime.
-pub struct SyncTransportState<R: tauri::Runtime = tauri::Wry> {
-    pub app_handle: tauri::AppHandle<R>,
-    pub device_id: String,
-    pub fingerprint: String,
-    /// What paired devices see; the user can rename it (`set_device_name`).
-    pub device_name: std::sync::RwLock<String>,
-    pub app_data_dir: PathBuf,
-    pub paired_devices: Mutex<HashMap<String, PairedDevice>>,
-    pub docs_api: Mutex<Option<DocsApiSnapshot>>,
-    /// Incremented each time an accept loop spawns; lets readers detect a
-    /// snapshot that outlived its engine (stale generation = dead actor).
-    pub docs_generation: std::sync::atomic::AtomicU64,
-    /// The devices allowed to connect, kept in step with `paired_devices`.
-    pub allowlist: Arc<PeerAllowlist>,
-    /// The secret of the pairing QR code on screen, if any.
-    pub pairing: PairingSessions,
-    /// Pairing requests waiting for the user to accept or decline them.
-    pub pairing_confirms: std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
-}
-
-impl<R: tauri::Runtime> SyncTransportState<R> {
-    pub fn device_name(&self) -> String {
-        self.device_name
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    }
-
-    /// Saves the paired devices and updates who may connect. Every change to
-    /// `paired_devices` goes through here so the two never disagree.
-    pub fn persist_paired(&self, devices: &HashMap<String, PairedDevice>) -> Result<(), String> {
-        self.allowlist.set_paired(devices);
-        sync_persistence::save_paired_devices(&self.app_data_dir, devices)
-    }
-}
-
-#[derive(Clone)]
-pub struct DocsApiSnapshot {
-    pub api: iroh_docs::api::DocsApi,
-    pub author: iroh_docs::AuthorId,
-    pub blobs: iroh_blobs::api::Store,
-    /// This device's deletions in its docs (`sync_deletions`).
-    pub own_deletions: Arc<crate::sync_deletions::OwnDeletions>,
-    /// Generation of the accept loop that produced this snapshot.
-    pub generation: u64,
-}
-
-/// How long a connection may go silent before it counts as gone. iroh sends
-/// a keep-alive every 5 s, so a live device never gets near this; a device
-/// that vanished (app killed, out of range) is reported offline after it,
-/// instead of after QUIC's default 30 s.
-pub const CONNECTION_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
-
-pub(crate) fn transport_config() -> iroh::endpoint::QuicTransportConfig {
-    let builder = iroh::endpoint::QuicTransportConfig::builder();
-    match CONNECTION_IDLE_TIMEOUT.try_into() {
-        Ok(idle) => builder.max_idle_timeout(Some(idle)),
-        Err(_) => builder,
-    }
-    .build()
-}
-
-pub struct IrohSyncEndpoint {
-    pub endpoint: iroh::endpoint::Endpoint,
-    pub public_key: PublicKey,
-    pub peer_info: IrohPeerInfo,
-}
-
-impl IrohSyncEndpoint {
-    pub async fn new(
-        key_path: &PathBuf,
-        device_id: String,
-        device_name: String,
-        fingerprint: String,
-        allowlist: Arc<PeerAllowlist>,
-    ) -> Result<Self, String> {
-        let secret_key = load_or_create_key(key_path)?;
-        let public_key = secret_key.public();
-        let builder = iroh::endpoint::Endpoint::builder(N0)
-            .secret_key(secret_key)
-            .alpns(vec![
-                ALPN.to_vec(),
-                iroh_blobs::ALPN.to_vec(),
-                iroh_docs::ALPN.to_vec(),
-                iroh_gossip::ALPN.to_vec(),
-            ])
-            .relay_mode(RelayMode::Default)
-            .transport_config(transport_config())
-            .hooks(PeerGate::new(allowlist, ALPN));
-
-        let builder = if std::env::var("THEOREM_DISABLE_MDNS").is_err() {
-            builder.address_lookup(MdnsAddressLookup::builder())
-        } else {
-            log::info!("[iroh-sync] mDNS disabled via THEOREM_DISABLE_MDNS env var");
-            builder
-        };
-        let endpoint = builder
-            .bind()
-            .await
-            .map_err(|e| format!("iroh bind: {e}"))?;
-        let peer_info = IrohPeerInfo {
-            public_key,
-            device_id: device_id.clone(),
-            device_name,
-            fingerprint,
-        };
-        Ok(Self {
-            endpoint,
-            public_key,
-            peer_info,
-        })
-    }
-
-    pub fn public_key_string(&self) -> String {
-        self.public_key.to_string()
-    }
-
-    pub async fn close(&self) {
-        self.endpoint.close().await;
-    }
-}
-
-/// The device's sync identity. A new one is made only when there is none, or
-/// when the file is not a key at all (then it is kept as `iroh-key.corrupt`):
-/// a key that merely failed to read is never replaced, because a new identity
-/// silently unpairs every device.
-pub fn load_or_create_key(path: &PathBuf) -> Result<SecretKey, String> {
-    match std::fs::read(path) {
-        Ok(bytes) => match <[u8; 32]>::try_from(bytes) {
-            Ok(arr) => {
-                // Keys written by older versions were readable by other users.
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-                }
-                return Ok(SecretKey::from_bytes(&arr));
-            }
-            Err(_) => {
-                log::warn!(
-                    "[iroh-sync] Sync key file is malformed; keeping it as iroh-key.corrupt"
-                );
-                let _ = std::fs::rename(path, path.with_extension("corrupt"));
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(format!("read sync key: {e}")),
-    }
-    let key = SecretKey::generate();
-    if let Some(p) = path.parent() {
-        std::fs::create_dir_all(p).ok();
-    }
-    write_private(path, &key.to_bytes()).map_err(|e| format!("write sync key: {e}"))?;
-    Ok(key)
-}
-
-/// Writes a file only this user can read.
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
 }
 
 async fn send_on_bi(
@@ -426,10 +248,10 @@ pub fn subscribe_doc_events<R: tauri::Runtime>(
                         if hash == iroh_blobs::Hash::EMPTY {
                             // A deletion. It counts only if nothing in this doc
                             // is newer (this device may have written the key since).
-                            if crate::sync_commands::is_deletable_key(&key)
+                            if crate::sync_state::is_deletable_key(&key)
                                 && newest_is_deletion(&doc, &key).await
                             {
-                                batcher.push_deleted(crate::sync_commands::DeletedDocKey {
+                                batcher.push_deleted(crate::sync_state::DeletedDocKey {
                                     key,
                                     at: entry.timestamp() / 1000,
                                 });
@@ -633,7 +455,7 @@ async fn own_deletions<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Option<Arc<crate::sync_deletions::OwnDeletions>> {
     use tauri::Manager;
-    let sync_state = app.try_state::<crate::sync_commands::SyncState>()?;
+    let sync_state = app.try_state::<crate::sync_state::SyncState>()?;
     let guard = sync_state.transport_state.docs_api.lock().await;
     guard.as_ref().map(|s| s.own_deletions.clone())
 }
@@ -694,7 +516,7 @@ pub(crate) fn sync_outcome(result: Result<(usize, usize), &str>) -> (bool, usize
 /// Marks when this device last completed a sync with `peer`.
 async fn record_last_sync<R: tauri::Runtime>(app: &tauri::AppHandle<R>, peer: &PublicKey) {
     use tauri::Manager;
-    let Some(sync_state) = app.try_state::<crate::sync_commands::SyncState>() else {
+    let Some(sync_state) = app.try_state::<crate::sync_state::SyncState>() else {
         return;
     };
     let state = &sync_state.transport_state;
@@ -794,13 +616,6 @@ impl<R: tauri::Runtime> ProtocolHandler for PairingProtocolHandler<R> {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), send.stopped()).await;
         Ok(())
     }
-}
-
-/// Handle to a running accept loop: a cancel signal plus the task handle so
-/// callers can wait for the loop (and its iroh-docs engine) to actually stop.
-pub struct AcceptLoopHandle {
-    pub cancel: tokio::sync::watch::Sender<bool>,
-    pub join: tokio::task::JoinHandle<()>,
 }
 
 pub fn start_accept_loop(
@@ -1222,25 +1037,7 @@ async fn handle_pair_req<R: tauri::Runtime>(
     };
 
     let mut devices = state.paired_devices.lock().await;
-    if !paired.iroh_node_id.is_empty() {
-        let existing_by_key = devices
-            .values()
-            .find(|d| d.iroh_node_id == paired.iroh_node_id && d.device_id != paired.device_id)
-            .map(|d| d.device_id.clone());
-        if let Some(id) = existing_by_key {
-            devices.remove(&id);
-        }
-    }
-    if !paired.fingerprint.is_empty() {
-        let old_id = devices
-            .values()
-            .find(|d| d.fingerprint == paired.fingerprint && d.device_id != paired.device_id)
-            .map(|d| d.device_id.clone());
-        if let Some(id) = old_id {
-            devices.remove(&id);
-        }
-    }
-    devices.insert(paired.device_id.clone(), paired);
+    state.upsert_paired_device(&mut devices, paired);
     let _ = state.persist_paired(&devices);
     drop(devices);
 
@@ -1315,7 +1112,7 @@ async fn handle_pair_req<R: tauri::Runtime>(
         fingerprint: sync_crypto::get_frontend_fingerprint()
             .unwrap_or_else(|| state.fingerprint.clone()),
         sync_doc_ticket,
-        relay_url: crate::sync_commands::get_iroh_relay_url(),
+        relay_url: crate::sync_state::get_iroh_relay_url(),
         protocol: theorem_sync_core::sync_protocol::SYNC_PROTOCOL,
     };
 
@@ -1351,19 +1148,16 @@ pub async fn send_pair_request(
     serde_json::from_value(resp_env.data).map_err(|e| format!("parse pair resp: {e}"))
 }
 
-pub fn load_paired_devices_from_disk(
-    app_data_dir: &std::path::Path,
-) -> HashMap<String, PairedDevice> {
-    sync_persistence::load_paired_devices(app_data_dir)
-}
-
 #[cfg(test)]
 mod pairing_tests {
     //! The pairing protocol between two real endpoints over loopback, with the
     //! user's answer on the host scripted.
     use super::*;
+    use crate::sync_access::{PairingSessions, PeerAllowlist};
     use iroh::endpoint::presets;
+    use std::collections::HashMap;
     use tauri::Listener;
+    use tokio::sync::Mutex;
 
     struct Host {
         state: Arc<SyncTransportState<tauri::test::MockRuntime>>,
@@ -1621,6 +1415,35 @@ mod pairing_tests {
             .expect("host answered or hung");
         assert!(reply.map(|r| r.is_empty()).unwrap_or(true));
         assert!(paired_node_ids(&host).await.is_empty());
+        host.router.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn upsert_paired_device_queues_replaced_sync_doc_id_for_drop() {
+        let host = host().await;
+        let mut devices = HashMap::new();
+        let make = |device_id: &str, key: &str, doc_id: &str| PairedDevice {
+            device_id: device_id.to_string(),
+            device_name: "Peer".to_string(),
+            iroh_node_id: key.to_string(),
+            last_ip: String::new(),
+            last_port: 0,
+            paired_at: "0Z".to_string(),
+            last_sync_at: None,
+            fingerprint: "fp1".to_string(),
+            peer_relay_url: String::new(),
+            sync_doc_id: doc_id.to_string(),
+            sync_doc_ticket: String::new(),
+            protocol: 4,
+        };
+        host.state
+            .upsert_paired_device(&mut devices, make("d1", "k1", "doc-old"));
+        host.state
+            .upsert_paired_device(&mut devices, make("d1", "k1", "doc-new"));
+        assert_eq!(
+            sync_persistence::load_docs_to_drop(&host.state.app_data_dir),
+            vec!["doc-old".to_string()]
+        );
         host.router.shutdown().await.unwrap();
     }
 }

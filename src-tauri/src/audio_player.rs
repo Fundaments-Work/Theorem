@@ -58,6 +58,7 @@ pub fn wsola_stretch_mono(input: &[f32], speed: f32, sample_rate: u32) -> Vec<f3
     output.extend_from_slice(&prev_tail[..hop_size]);
 
     let mut current_input_pos = 0.0f32;
+    let mut last_frame_end = win_size;
 
     while (current_input_pos as usize) + win_size + search_range < input.len() {
         current_input_pos += (hop_size as f32) * speed;
@@ -96,10 +97,14 @@ pub fn wsola_stretch_mono(input: &[f32], speed: f32, sample_rate: u32) -> Vec<f3
         }
 
         prev_tail.copy_from_slice(best_frame);
+        last_frame_end = best_pos + win_size;
     }
 
     if win_size > hop_size {
         output.extend_from_slice(&prev_tail[hop_size..win_size]);
+    }
+    if last_frame_end < input.len() {
+        output.extend_from_slice(&input[last_frame_end..]);
     }
 
     output
@@ -153,6 +158,7 @@ pub fn wsola_stretch(input: &[f32], speed: f32, sample_rate: u32, channels: u16)
     prev_tail.copy_from_slice(&input[..win_size * channels]);
 
     let mut current_pos = 0.0f32;
+    let mut last_frame_end = win_size;
 
     while (current_pos as usize) + win_size + search_range < num_frames {
         current_pos += (hop_size as f32) * speed;
@@ -194,6 +200,7 @@ pub fn wsola_stretch(input: &[f32], speed: f32, sample_rate: u32, channels: u16)
         }
 
         prev_tail.copy_from_slice(best_frame);
+        last_frame_end = best_pos + win_size;
     }
 
     if win_size > hop_size {
@@ -202,6 +209,9 @@ pub fn wsola_stretch(input: &[f32], speed: f32, sample_rate: u32, channels: u16)
                 output.push(prev_tail[f * channels + c]);
             }
         }
+    }
+    if last_frame_end < num_frames {
+        output.extend_from_slice(&input[last_frame_end * channels..num_frames * channels]);
     }
 
     output
@@ -609,157 +619,131 @@ pub(crate) mod imp {
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_status() -> Result<AudioPlayerStatus, String> {
     imp::status()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_play(path: String) -> Result<(), String> {
     imp::play(path)
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_append(path: String) -> Result<(), String> {
     imp::append(path)
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_pause() -> Result<(), String> {
     imp::pause()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_resume() -> Result<(), String> {
     imp::resume()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_stop() -> Result<(), String> {
     imp::stop()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_seek(seconds: f64) -> Result<(), String> {
     imp::seek(seconds)
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_set_speed(speed: f32) -> Result<(), String> {
     imp::set_speed(speed)
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_get_speed() -> Result<f32, String> {
     imp::get_speed()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_set_volume(volume: f32) -> Result<(), String> {
     imp::set_volume(volume)
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_get_volume() -> Result<f32, String> {
     imp::get_volume()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_position() -> Result<f64, String> {
     imp::position()
 }
 
 #[cfg(not(target_os = "android"))]
-#[tauri::command]
 pub fn tts_audio_finished() -> Result<bool, String> {
     imp::finished()
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_play(_path: String) -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_append(_path: String) -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_pause() -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_resume() -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_stop() -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_seek(_seconds: f64) -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_set_speed(_speed: f32) -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_get_speed() -> Result<f32, String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_set_volume(_volume: f32) -> Result<(), String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_get_volume() -> Result<f32, String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_position() -> Result<f64, String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_finished() -> Result<bool, String> {
     Err("Native playback is desktop-only".to_string())
 }
 
 #[cfg(target_os = "android")]
-#[tauri::command]
 pub fn tts_audio_status() -> Result<AudioPlayerStatus, String> {
     Err("Native playback is desktop-only".to_string())
 }
@@ -958,6 +942,21 @@ mod tests {
         assert!(
             (reported_dur - actual_dur).abs() < 1e-6,
             "reported duration {reported_dur} drifted from actual stretched duration {actual_dur}"
+        );
+    }
+
+    #[test]
+    fn wsola_stretch_preserves_trailing_samples() {
+        let sample_rate = 24_000;
+        let mut input = vec![0.0f32; sample_rate as usize];
+        let tail_start = input.len() - 120;
+        for sample in &mut input[tail_start..] {
+            *sample = 0.75;
+        }
+        let output = wsola_stretch_mono(&input, 1.5, sample_rate);
+        assert!(
+            output.iter().rev().take(120).any(|&s| s > 0.5),
+            "tail marker amplitude should survive stretching"
         );
     }
 }

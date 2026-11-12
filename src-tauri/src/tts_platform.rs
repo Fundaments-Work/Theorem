@@ -11,7 +11,6 @@ use crate::tts_linux;
 /// `languageWarning` when the engine has no voice for `lang`. Desktop OS
 /// voices answer `completionEvents: true`: `tts-utterance-done` (or
 /// `tts-utterance-error`) follows when the narration process exits.
-#[tauri::command]
 #[allow(unused_variables, unreachable_code)]
 pub(crate) fn tts_speak(
     app: tauri::AppHandle,
@@ -20,7 +19,7 @@ pub(crate) fn tts_speak(
     speed: Option<f32>,
     lang: Option<String>,
     utterance_id: Option<String>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, crate::error::AppError> {
     #[cfg(target_os = "android")]
     return tauri_plugin_android_tts_audio::tts_speak(
         &app,
@@ -31,16 +30,19 @@ pub(crate) fn tts_speak(
             lang,
             utterance_id,
         },
-    );
+    )
+    .map_err(crate::error::AppError::internal);
     #[cfg(not(target_os = "android"))]
     let on_end = tts_desktop::emit_utterance_end(app, utterance_id);
     #[cfg(target_os = "linux")]
-    tts_linux::linux_tts_speak(&text, speed, lang.as_deref(), on_end)?;
+    tts_linux::linux_tts_speak(&text, speed, lang.as_deref(), on_end)
+        .map_err(crate::error::AppError::io)?;
     #[cfg(target_os = "macos")]
     {
         let mut cmd = std::process::Command::new("say");
         cmd.args(tts_desktop::mac_say_args(&text, &voice, speed));
-        tts_desktop::spawn_tracked(cmd, None, on_end).map_err(|e| format!("say: {e}"))?;
+        tts_desktop::spawn_tracked(cmd, None, on_end)
+            .map_err(|e| crate::error::AppError::io(format!("say: {e}")))?;
     }
     #[cfg(target_os = "windows")]
     {
@@ -56,58 +58,58 @@ pub(crate) fn tts_speak(
             tts_desktop::windows_rate(speed).to_string(),
         )
         .env("THEOREM_TTS_VOICE", &voice);
-        tts_desktop::spawn_tracked(cmd, Some(text), on_end).map_err(|e| format!("TTS: {e}"))?;
+        tts_desktop::spawn_tracked(cmd, Some(text), on_end)
+            .map_err(|e| crate::error::AppError::io(format!("TTS: {e}")))?;
     }
     Ok(serde_json::json!({ "completionEvents": true }))
 }
 
-#[tauri::command]
 #[allow(unused_variables, unreachable_code)]
-pub(crate) fn tts_stop(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn tts_stop(app: tauri::AppHandle) -> Result<(), crate::error::AppError> {
     #[cfg(target_os = "android")]
-    return tauri_plugin_android_tts_audio::tts_stop(&app);
+    return tauri_plugin_android_tts_audio::tts_stop(&app)
+        .map_err(crate::error::AppError::internal);
     #[cfg(target_os = "linux")]
-    return tts_linux::linux_tts_stop();
+    return tts_linux::linux_tts_stop().map_err(crate::error::AppError::io);
     // macOS/Windows: stop only the narration process we started.
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     tts_desktop::stop_tracked();
     Ok(())
 }
 
-#[tauri::command]
-pub(crate) fn tts_pause(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn tts_pause(app: tauri::AppHandle) -> Result<(), crate::error::AppError> {
     tts_stop(app)
 }
 
-#[tauri::command]
-pub(crate) fn tts_resume(_app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn tts_resume(_app: tauri::AppHandle) -> Result<(), crate::error::AppError> {
     Ok(())
 }
 
-#[tauri::command]
 #[allow(unused_variables)]
-pub(crate) fn tts_get_engines(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    tauri_plugin_android_tts_audio::tts_get_engines(&app)
+pub(crate) fn tts_get_engines(
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, crate::error::AppError> {
+    tauri_plugin_android_tts_audio::tts_get_engines(&app).map_err(crate::error::AppError::internal)
 }
 
-#[tauri::command]
 #[allow(unused_variables)]
 pub(crate) fn tts_set_engine(
     app: tauri::AppHandle,
     engine: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, crate::error::AppError> {
     tauri_plugin_android_tts_audio::tts_set_engine(&app, engine)
+        .map_err(crate::error::AppError::internal)
 }
 
-#[tauri::command]
 #[allow(unused_variables)]
-pub(crate) async fn tts_synthesize_to_file(
+pub(crate) fn tts_synthesize_to_file(
     app: tauri::AppHandle,
     text: String,
     voice: String,
     file_name: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, crate::error::AppError> {
     tauri_plugin_android_tts_audio::tts_synthesize_to_file(&app, text, voice, file_name)
+        .map_err(crate::error::AppError::internal)
 }
 
 #[allow(unused_variables, unreachable_code)]

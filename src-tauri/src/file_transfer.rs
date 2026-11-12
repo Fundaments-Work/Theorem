@@ -33,7 +33,7 @@ async fn connect_peer(
     peer_device_id: &str,
     timeout: std::time::Duration,
 ) -> Result<PeerConnection, String> {
-    use crate::sync_commands::{get_or_init_iroh, get_sync_state};
+    use crate::sync_state::{get_or_init_iroh, get_sync_state};
 
     let ep = get_or_init_iroh(app).await?;
     let sync_state = get_sync_state(app)?;
@@ -151,7 +151,7 @@ const UNPAIRED_REQUEST: &str = "?unpaired";
 const HELLO_ANSWER: &str = "HELLO ";
 
 fn our_hello(app: &tauri::AppHandle) -> Option<PeerHello> {
-    let state = crate::sync_commands::get_sync_state(app).ok()?;
+    let state = crate::sync_state::get_sync_state(app).ok()?;
     Some(PeerHello {
         name: state.transport_state.device_name(),
         protocol: SYNC_PROTOCOL,
@@ -165,7 +165,7 @@ fn forget_device_that_removed_us(app: &tauri::AppHandle, device_id: &str) {
     let app = app.clone();
     let device_id = device_id.to_string();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = crate::sync_commands::forget_device(&app, &device_id, true).await {
+        if let Err(e) = crate::sync_state::forget_device_from_peer(&app, &device_id).await {
             log::warn!("[iroh-sync] Could not forget a device that removed this one: {e}");
         }
     });
@@ -224,7 +224,7 @@ pub async fn probe_peer(app: &tauri::AppHandle, peer_device_id: &str) -> Result<
             .strip_prefix(HELLO_ANSWER)
             .and_then(|json| serde_json::from_str::<PeerHello>(json).ok())
         {
-            crate::sync_commands::note_peer_hello(app, &peer.device_id, &theirs).await;
+            crate::sync_state::note_peer_hello(app, &peer.device_id, &theirs).await;
         }
         return Ok(());
     }
@@ -237,7 +237,7 @@ pub async fn probe_peer(app: &tauri::AppHandle, peer_device_id: &str) -> Result<
 }
 
 async fn emit_presence_by_id(app: &tauri::AppHandle, peer_device_id: &str, online: bool) {
-    let Ok(state) = crate::sync_commands::get_sync_state(app) else {
+    let Ok(state) = crate::sync_state::get_sync_state(app) else {
         return;
     };
     let node = state
@@ -331,7 +331,7 @@ pub struct FileTransferHandler {
     pub data_dir: PathBuf,
     /// Its allowlist is checked again here, behind the endpoint's gate,
     /// before any file is read; its paired devices learn names and removals.
-    pub state: std::sync::Arc<crate::iroh_sync::SyncTransportState>,
+    pub state: std::sync::Arc<crate::sync_state::SyncTransportState>,
 }
 
 impl std::fmt::Debug for FileTransferHandler {
@@ -636,7 +636,7 @@ impl FileTransferHandler {
 
     async fn note_hello(&self, node: &iroh::PublicKey, hello: &PeerHello) {
         if let Some(device_id) = self.device_id_of(node).await {
-            crate::sync_commands::note_peer_hello(&self.state.app_handle, &device_id, hello).await;
+            crate::sync_state::note_peer_hello(&self.state.app_handle, &device_id, hello).await;
         }
     }
 
@@ -743,25 +743,36 @@ pub async fn download_book_file(
     app: tauri::AppHandle,
     peer_device_id: String,
     book_id: String,
-) -> Result<String, String> {
+) -> Result<String, crate::error::AppError> {
     if !crate::sync_access::is_valid_book_id(&book_id) {
-        return Err("invalid book id".to_string());
+        return Err(crate::error::AppError::invalid_input("invalid book id"));
     }
-    let dest = crate::database::materialized_book_path(&app, &book_id)?;
-    let (mut reader, size) = connect_and_request(&app, &peer_device_id, &book_id).await?;
+    let dest = crate::database::materialized_book_path(&app, &book_id)
+        .map_err(crate::error::AppError::invalid_input)?;
+    let (mut reader, size) = connect_and_request(&app, &peer_device_id, &book_id)
+        .await
+        .map_err(|e| {
+            if e.contains("PEER_BOOK_DELETED") {
+                crate::error::AppError::not_found(e)
+            } else {
+                crate::error::AppError::network(e)
+            }
+        })?;
     if size > MAX_BOOK_BYTES {
-        return Err(format!("peer offered a {size}-byte file; refusing"));
+        return Err(crate::error::AppError::invalid_input(format!(
+            "peer offered a {size}-byte file; refusing"
+        )));
     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .map_err(|e| format!("create dir: {e}"))?;
+            .map_err(|e| crate::error::AppError::io(format!("create dir: {e}")))?;
     }
 
     let tmp_dest = dest.with_extension("download.tmp");
     let mut file = tokio::fs::File::create(&tmp_dest)
         .await
-        .map_err(|e| format!("create tmp file: {e}"))?;
+        .map_err(|e| crate::error::AppError::io(format!("create tmp file: {e}")))?;
 
     let total: u64 = size;
     let mut remaining: u64 = total;
@@ -794,17 +805,17 @@ pub async fn download_book_file(
             Ok(Ok(n)) => n,
             Ok(Err(e)) => {
                 let _ = tokio::fs::remove_file(&tmp_dest).await;
-                return Err(format!("read chunk: {e}"));
+                return Err(crate::error::AppError::network(format!("read chunk: {e}")));
             }
             Err(_) => {
                 let _ = tokio::fs::remove_file(&tmp_dest).await;
-                return Err("read chunk timed out".to_string());
+                return Err(crate::error::AppError::network("read chunk timed out"));
             }
         };
 
         if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut file, &buf[..n]).await {
             let _ = tokio::fs::remove_file(&tmp_dest).await;
-            return Err(format!("write chunk: {e}"));
+            return Err(crate::error::AppError::io(format!("write chunk: {e}")));
         }
 
         downloaded += n as u64;
@@ -828,12 +839,12 @@ pub async fn download_book_file(
 
     tokio::io::AsyncWriteExt::flush(&mut file)
         .await
-        .map_err(|e| format!("flush file: {e}"))?;
+        .map_err(|e| crate::error::AppError::io(format!("flush file: {e}")))?;
     drop(file);
 
     tokio::fs::rename(&tmp_dest, &dest)
         .await
-        .map_err(|e| format!("rename to final dest: {e}"))?;
+        .map_err(|e| crate::error::AppError::io(format!("rename to final dest: {e}")))?;
 
     Ok(dest.to_string_lossy().into_owned())
 }

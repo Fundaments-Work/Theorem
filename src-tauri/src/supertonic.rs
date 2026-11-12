@@ -1066,21 +1066,23 @@ pub mod desktop {
     // ── Command implementation bodies ────────────────────────────────────────
 
     /// Synthesize `text` (one page / one generation unit) to a cached WAV file.
-    pub async fn tts_synthesize_impl(
+    /// Synthesize text and return both metadata and an active cache pin so
+    /// callers (e.g. `audiobook_gen`) can read the WAV before eviction runs.
+    pub(crate) async fn tts_synthesize_pinned(
         app: tauri::AppHandle,
         text: String,
         voice: String,
         speed: f32,
         lang: String,
-    ) -> Result<SynthesisResult, String> {
+    ) -> Result<(SynthesisResult, CachePathPin), String> {
         tokio::task::spawn_blocking(move || {
             let key = cache_key(&text, &voice, speed, &lang);
             let dir = cache_dir(&app);
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let out_path = dir.join(format!("{key}.wav"));
-            let _pin = pin_cache_path(&out_path);
+            let pin = pin_cache_path(&out_path);
             if let Some(hit) = cached_synthesis(&out_path) {
-                return Ok(hit);
+                return Ok((hit, pin));
             }
 
             ensure_engine(&app)?;
@@ -1097,10 +1099,22 @@ pub mod desktop {
                     trim_cache(&dir, CACHE_LIMIT_BYTES);
                 });
             }
-            Ok(result)
+            Ok((result, pin))
         })
         .await
         .map_err(|e| format!("Synthesis task failed: {e}"))?
+    }
+
+    pub async fn tts_synthesize_impl(
+        app: tauri::AppHandle,
+        text: String,
+        voice: String,
+        speed: f32,
+        lang: String,
+    ) -> Result<SynthesisResult, String> {
+        tts_synthesize_pinned(app, text, voice, speed, lang)
+            .await
+            .map(|(result, _pin)| result)
     }
 
     /// Fire-and-forget prefetch of the next page.

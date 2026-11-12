@@ -39,7 +39,7 @@
 //! ([`fold_single_deletions`]), and markers, unlike empty entries, cannot be
 //! put back over. A new pairing gets a new doc: groups only.
 
-use crate::sync_commands::{content_of, record_meta, DeletedDocKey};
+use crate::sync_state::{content_of, record_meta, DeletedDocKey};
 use serde_json::value::RawValue;
 use std::collections::{BTreeMap, HashMap, HashSet};
 

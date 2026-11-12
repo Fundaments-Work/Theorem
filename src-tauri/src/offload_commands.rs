@@ -8,9 +8,10 @@
 //! still-synchronous function on the blocking thread pool. Rust callers
 //! (CLI, sync) keep using the originals directly.
 //!
-//! Ordering: SQLite calls from JS are serialised by the FIFO queue in
-//! `src/core/lib/sqlite-storage.ts`, preserving the in-order execution the
-//! main thread used to give for free.
+//! Ordering: SQLite KV calls execute in FIFO order via [`KvSlotGuard`] (using a
+//! per-chain oneshot slot reserved synchronously before awaiting) so write-then-read
+//! KV sequences stay deterministic without blocking unrelated SQLite queries or
+//! requiring a JS-side serialized command queue.
 //!
 //! Generated from the command signatures; when adding a blocking command,
 //! add a wrapper here and register `offload_commands::<name>` in `lib.rs`.
@@ -18,10 +19,38 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use tauri::ipc::Response;
 use tauri::AppHandle;
+use tokio::sync::oneshot;
 
 use crate::error::AppError;
+
+static KV_TAIL: Mutex<Option<oneshot::Receiver<()>>> = Mutex::new(None);
+
+struct KvSlotGuard {
+    prev: Option<oneshot::Receiver<()>>,
+    next: oneshot::Sender<()>,
+}
+
+impl KvSlotGuard {
+    fn reserve() -> Self {
+        Self::reserve_on(&KV_TAIL)
+    }
+
+    fn reserve_on(tail: &Mutex<Option<oneshot::Receiver<()>>>) -> Self {
+        let (next, rx) = oneshot::channel();
+        let prev = tail.lock().unwrap_or_else(|e| e.into_inner()).replace(rx);
+        Self { prev, next }
+    }
+
+    async fn wait(self) -> oneshot::Sender<()> {
+        if let Some(prev) = self.prev {
+            let _ = prev.await;
+        }
+        self.next
+    }
+}
 
 /// Errors keep their kind when the command returns an `AppError` and become
 /// `Internal` when it returns a `String`; either way the webview receives the
@@ -37,6 +66,20 @@ where
         .await
         .map_err(|e| AppError::internal(format!("Background task failed: {e}")))?
         .map_err(AppError::from)
+}
+
+async fn offload_kv<T, F>(task: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, AppError> + Send + 'static,
+{
+    let slot = KvSlotGuard::reserve();
+    let release = slot.wait().await;
+    offload(move || {
+        let _release = release;
+        task()
+    })
+    .await
 }
 
 #[tauri::command]
@@ -260,7 +303,7 @@ pub async fn sqlite_clear_all_storage(app: AppHandle) -> Result<(), AppError> {
 
 #[tauri::command]
 pub async fn sqlite_get_kv(app: AppHandle, key: String) -> Result<Option<String>, AppError> {
-    offload(move || crate::database::sqlite_get_kv(app, key)).await
+    offload_kv(move || crate::database::sqlite_get_kv(app, key)).await
 }
 
 #[tauri::command]
@@ -275,27 +318,27 @@ pub async fn sqlite_batch_get_kv(
     app: AppHandle,
     keys: Vec<String>,
 ) -> Result<Vec<(String, String)>, AppError> {
-    offload(move || crate::database::sqlite_batch_get_kv(app, keys)).await
+    offload_kv(move || crate::database::sqlite_batch_get_kv(app, keys)).await
 }
 
 #[tauri::command]
 pub async fn sqlite_set_kv(app: AppHandle, key: String, value: String) -> Result<(), AppError> {
-    offload(move || crate::database::sqlite_set_kv(app, key, value)).await
+    offload_kv(move || crate::database::sqlite_set_kv(app, key, value)).await
 }
 
 #[tauri::command]
 pub async fn sqlite_delete_kv(app: AppHandle, key: String) -> Result<(), AppError> {
-    offload(move || crate::database::sqlite_delete_kv(app, key)).await
+    offload_kv(move || crate::database::sqlite_delete_kv(app, key)).await
 }
 
 #[tauri::command]
 pub async fn sqlite_count_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, AppError> {
-    offload(move || crate::database::sqlite_count_kv_by_prefix(app, prefix)).await
+    offload_kv(move || crate::database::sqlite_count_kv_by_prefix(app, prefix)).await
 }
 
 #[tauri::command]
 pub async fn sqlite_delete_kv_by_prefix(app: AppHandle, prefix: String) -> Result<u64, AppError> {
-    offload(move || crate::database::sqlite_delete_kv_by_prefix(app, prefix)).await
+    offload_kv(move || crate::database::sqlite_delete_kv_by_prefix(app, prefix)).await
 }
 
 #[tauri::command]
@@ -834,4 +877,173 @@ pub async fn native_import_results(
 #[tauri::command]
 pub async fn native_import_discard(app: AppHandle, job_id: String) -> Result<(), AppError> {
     offload(move || crate::import_jobs::discard(&app, &job_id)).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_status() -> Result<crate::audio_player::AudioPlayerStatus, AppError> {
+    offload(crate::audio_player::tts_audio_status).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_play(path: String) -> Result<(), AppError> {
+    offload(move || crate::audio_player::tts_audio_play(path)).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_append(path: String) -> Result<(), AppError> {
+    offload(move || crate::audio_player::tts_audio_append(path)).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_pause() -> Result<(), AppError> {
+    offload(crate::audio_player::tts_audio_pause).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_resume() -> Result<(), AppError> {
+    offload(crate::audio_player::tts_audio_resume).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_stop() -> Result<(), AppError> {
+    offload(crate::audio_player::tts_audio_stop).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_seek(seconds: f64) -> Result<(), AppError> {
+    offload(move || crate::audio_player::tts_audio_seek(seconds)).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_set_speed(speed: f32) -> Result<(), AppError> {
+    offload(move || crate::audio_player::tts_audio_set_speed(speed)).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_get_speed() -> Result<f32, AppError> {
+    offload(crate::audio_player::tts_audio_get_speed).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_set_volume(volume: f32) -> Result<(), AppError> {
+    offload(move || crate::audio_player::tts_audio_set_volume(volume)).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_get_volume() -> Result<f32, AppError> {
+    offload(crate::audio_player::tts_audio_get_volume).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_position() -> Result<f64, AppError> {
+    offload(crate::audio_player::tts_audio_position).await
+}
+
+#[tauri::command]
+pub async fn tts_audio_finished() -> Result<bool, AppError> {
+    offload(crate::audio_player::tts_audio_finished).await
+}
+
+#[tauri::command]
+pub async fn tts_speak(
+    app: AppHandle,
+    text: String,
+    voice: String,
+    speed: Option<f32>,
+    lang: Option<String>,
+    utterance_id: Option<String>,
+) -> Result<serde_json::Value, AppError> {
+    offload(move || crate::tts_platform::tts_speak(app, text, voice, speed, lang, utterance_id))
+        .await
+}
+
+#[tauri::command]
+pub async fn tts_stop(app: AppHandle) -> Result<(), AppError> {
+    offload(move || crate::tts_platform::tts_stop(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_pause(app: AppHandle) -> Result<(), AppError> {
+    offload(move || crate::tts_platform::tts_pause(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_resume(app: AppHandle) -> Result<(), AppError> {
+    offload(move || crate::tts_platform::tts_resume(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_get_engines(app: AppHandle) -> Result<serde_json::Value, AppError> {
+    offload(move || crate::tts_platform::tts_get_engines(app)).await
+}
+
+#[tauri::command]
+pub async fn tts_set_engine(app: AppHandle, engine: String) -> Result<serde_json::Value, AppError> {
+    offload(move || crate::tts_platform::tts_set_engine(app, engine)).await
+}
+
+#[tauri::command]
+pub async fn tts_synthesize_to_file(
+    app: AppHandle,
+    text: String,
+    voice: String,
+    file_name: String,
+) -> Result<serde_json::Value, AppError> {
+    offload(move || crate::tts_platform::tts_synthesize_to_file(app, text, voice, file_name)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex as StdMutex};
+
+    #[tokio::test]
+    async fn kv_slots_preserve_fifo_order_without_blocking_independent_work() {
+        let tail = Arc::new(Mutex::new(None));
+        let log = Arc::new(StdMutex::new(Vec::new()));
+        let (first_started_tx, first_started_rx) = oneshot::channel::<()>();
+        let (allow_first_finish_tx, allow_first_finish_rx) = oneshot::channel::<()>();
+
+        let slot1 = KvSlotGuard::reserve_on(&tail);
+        let slot2 = KvSlotGuard::reserve_on(&tail);
+        let slot3 = KvSlotGuard::reserve_on(&tail);
+
+        let log1 = log.clone();
+        let h1 = tokio::spawn(async move {
+            let release = slot1.wait().await;
+            let _ = first_started_tx.send(());
+            let _ = allow_first_finish_rx.await;
+            log1.lock().unwrap().push("kv1");
+            drop(release);
+        });
+
+        let log2 = log.clone();
+        let h2 = tokio::spawn(async move {
+            let release = slot2.wait().await;
+            log2.lock().unwrap().push("kv2");
+            drop(release);
+        });
+
+        let log3 = log.clone();
+        let h3 = tokio::spawn(async move {
+            let release = slot3.wait().await;
+            log3.lock().unwrap().push("kv3");
+            drop(release);
+        });
+
+        let _ = first_started_rx.await;
+
+        // Non-KV work completes immediately while KV slots wait on kv1.
+        let non_kv_log = log.clone();
+        let non_kv = tokio::spawn(async move {
+            non_kv_log.lock().unwrap().push("non_kv");
+        });
+        non_kv.await.unwrap();
+
+        let _ = allow_first_finish_tx.send(());
+        let _ = tokio::join!(h1, h2, h3);
+
+        let recorded = log.lock().unwrap().clone();
+        assert_eq!(recorded, vec!["non_kv", "kv1", "kv2", "kv3"]);
+    }
 }
