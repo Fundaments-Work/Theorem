@@ -3468,7 +3468,7 @@ dependencies = [
  "hex",
  "iroh",
  "iroh-blobs",
- "iroh-gossip",
+ "iroh-gossip 0.101.0",
  "iroh-metrics",
  "iroh-tickets",
  "irpc",
@@ -3513,6 +3513,33 @@ dependencies = [
  "n0-future",
  "postcard",
  "rand 0.10.3",
+ "serde",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "iroh-gossip"
+version = "0.102.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f78267c0d936a3f51b8aa24419a7a267e42d1800ac99315f48045f2540c57922"
+dependencies = [
+ "blake3",
+ "bytes",
+ "data-encoding",
+ "derive_more",
+ "hex",
+ "indexmap 2.14.2",
+ "iroh",
+ "iroh-base",
+ "iroh-metrics",
+ "irpc",
+ "n0-error",
+ "n0-future",
+ "postcard",
+ "rand 0.10.3",
+ "rustc-hash",
  "serde",
  "tokio",
  "tokio-util",
@@ -8286,7 +8313,7 @@ dependencies = [
  "iroh",
  "iroh-blobs",
  "iroh-docs",
- "iroh-gossip",
+ "iroh-gossip 0.102.0",
  "iroh-mdns-address-lookup",
  "iroh-relay",
  "jni 0.22.4",
