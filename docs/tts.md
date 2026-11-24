@@ -12,7 +12,7 @@ Rust library with consistent quality. Each platform has its own backend:
 
 | Platform | Backend | Why |
 |----------|---------|-----|
-| Linux | `spd-say` (speech-dispatcher) | Standard Linux speech interface |
+| Linux | `spd-say` (speech-dispatcher); not available inside Flatpak | Standard Linux speech interface |
 | macOS | `say` command | Built-in, high-quality voices |
 | Windows | PowerShell `System.Speech` | .NET speech synthesis |
 | Android | Native TTS plugin | Android's TextToSpeech API |

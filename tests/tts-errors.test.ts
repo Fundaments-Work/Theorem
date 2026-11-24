@@ -43,6 +43,10 @@ describe("describeTtsError", () => {
         const { describeTtsError } = await import("../src/features/reader/audio/tts-errors");
         expect(describeTtsError("spd-say: No such file or directory (os error 2)", "platform").title)
             .toBe("No system voice is installed");
+        const flatpak = describeTtsError("system voice unavailable in Flatpak: No such file or directory (os error 2)", "platform");
+        expect(flatpak.title).toBe("No system voice in the Flatpak");
+        expect(flatpak.description).toContain("Neural Voice");
+        expect(flatpak.description).not.toContain("spd-say");
         expect(describeTtsError("Model file missing: vocoder.onnx", "neural").title)
             .toBe("The neural voice is not fully installed");
         expect(describeTtsError("ONNX Runtime library is not downloaded yet", "neural").title)

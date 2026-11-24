@@ -13,7 +13,18 @@ pub fn linux_tts_speak(
 ) -> Result<(), String> {
     let mut cmd = Command::new("spd-say");
     cmd.args(spd_say_args(text, speed, lang));
-    spawn_tracked(cmd, None, on_end).map_err(|e| format!("spd-say: {e}"))
+    spawn_tracked(cmd, None, on_end)
+        .map_err(|e| speak_error(&e.to_string(), crate::linux_sandbox::flatpak_id().is_some()))
+}
+
+/// The runtime a Flatpak runs on has no `spd-say`, and installing it on the
+/// host would not help, so the listener is told something else there.
+fn speak_error(cause: &str, flatpak: bool) -> String {
+    if flatpak {
+        format!("system voice unavailable in Flatpak: {cause}")
+    } else {
+        format!("spd-say: {cause}")
+    }
 }
 
 /// Drops our waiting `spd-say -w` first (so it reports no end), then asks the
@@ -32,4 +43,19 @@ pub fn linux_tts_stop() -> Result<(), String> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::speak_error;
+
+    #[test]
+    fn the_flatpak_error_does_not_ask_for_spd_say() {
+        assert_eq!(speak_error("gone", false), "spd-say: gone");
+        let error = speak_error("gone", true);
+        assert!(
+            error.contains("Flatpak") && !error.contains("spd-say"),
+            "{error}"
+        );
+    }
 }
