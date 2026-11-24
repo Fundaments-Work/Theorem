@@ -17,7 +17,7 @@ For the maintainer-facing submission templates (Homebrew, WinGet), see
 | [AUR](https://wiki.archlinux.org/title/AUR_submission_guidelines) | Arch | `yay -S theorem-bin` | 🟡 template (`docs/PKGBUILD`) |
 | Homebrew cask | macOS | `brew install --cask theorem` | 🟡 template (`packaging/homebrew`) |
 | WinGet | Windows | `winget install Fundaments-Work.Theorem` | 🟡 template (`packaging/winget`) |
-| Flathub | Linux | `flatpak install flathub …` | ⬜ not started |
+| Flathub | Linux | `flatpak install flathub …` | 🟡 app ready, not submitted (`packaging/linux`) |
 | F-Droid | Android | F-Droid client auto-updates | ⬜ not started |
 
 ---
@@ -114,6 +114,42 @@ makepkg -si
 
 To publish: bump `pkgver`, regenerate hashes with `makepkg -g`, run
 `makepkg --printsrcinfo > .SRCINFO`, and push to the AUR.
+
+### Flatpak (Flathub)
+
+Not submitted yet ([#189](https://github.com/Fundaments-Work/Theorem/issues/189)).
+What is in this repository is the app's side of it:
+
+- **ID.** The Flatpak ID is `work.fundaments.theorem`, because Flathub requires
+  control of the ID's domain and the project's domain is `fundaments.work`. The
+  Tauri identifier stays `work.fundamentals.theorem`: it names the data folder,
+  the Android package and the sync identity, and must not change.
+- **Metadata.** `packaging/linux/` holds the desktop entry and the AppStream
+  metainfo, named after the Flatpak ID. Flathub wants them in a tagged stable
+  release. At each stable tag add a `<release>` entry and point the screenshot
+  URLs at that tag, then run `appstreamcli validate` and `desktop-file-validate`.
+- **No manifest here.** Flathub's
+  [generative AI policy](https://docs.flathub.org/docs/for-app-authors/requirements#generative-ai-policy)
+  bars AI-generated or AI-assisted content in manifests, and AI tools from opening
+  the submission or writing its commits, description or replies. The manifest is
+  written by hand, outside this repository. AI-assisted application code and
+  metadata must be disclosed in the submission.
+
+Inside Flatpak (`src-tauri/src/linux_sandbox.rs`: `/.flatpak-info` exists and
+`FLATPAK_ID` is well formed) the app behaves differently in these places:
+
+| Area | Behaviour |
+|------|-----------|
+| Single instance | D-Bus name `<Flatpak ID>.SingleInstance`. A Flatpak may own names under its own ID only. `tauri-plugin-single-instance` 2.5.5 (`platform_impl/linux.rs`) logs any failure other than `NameTaken` and launches normally, so the default name would allow two instances on one library |
+| Tray icon | Image written under `$XDG_RUNTIME_DIR/app/<Flatpak ID>/tray-icon`, which the host sees at the same path |
+| Updates | The updater plugin is not registered and Settings → Help points to the software centre |
+| `theorem` command | The symlink is refused and Settings hides Terminal CLI; use `flatpak run <Flatpak ID> …` |
+| System voice | The runtime has no `spd-say`; the error says so and offers the neural voice |
+
+On every Linux build, the tray is skipped when no appindicator library loads:
+`libappindicator-sys` 0.9 panics in that case, which ends a release build.
+Without a tray, closing the main window is left to the page's close handler
+instead of hiding a window nothing could bring back.
 
 ---
 
