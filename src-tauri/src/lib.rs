@@ -121,6 +121,24 @@ fn shared_http_client() -> Result<&'static reqwest::blocking::Client, String> {
     http::blocking_client()
 }
 
+/// The single-instance plugin. Its D-Bus name is built from the Tauri
+/// identifier; a Flatpak may only own names under its own ID, and the plugin
+/// starts a second instance when it cannot own its name.
+#[cfg(all(
+    not(any(target_os = "android", target_os = "ios")),
+    not(debug_assertions)
+))]
+fn single_instance_plugin<F>(callback: F) -> tauri::plugin::TauriPlugin<tauri::Wry>
+where
+    F: FnMut(&tauri::AppHandle, Vec<String>, String) + Send + Sync + 'static,
+{
+    let builder = tauri_plugin_single_instance::Builder::new().callback(callback);
+    match linux_sandbox::flatpak_id() {
+        Some(id) => builder.dbus_id(id).build(),
+        None => builder.build(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // First, so a panic anywhere below is written to the log file once the
@@ -203,7 +221,7 @@ pub fn run() {
         not(any(target_os = "android", target_os = "ios")),
         not(debug_assertions)
     ))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+    let builder = builder.plugin(single_instance_plugin(|app, argv, cwd| {
         if let Some(book_id) = argv
             .iter()
             .find_map(|a| a.strip_prefix("--open-book=").map(str::to_string))
