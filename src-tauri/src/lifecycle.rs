@@ -65,6 +65,9 @@ pub(crate) fn app_quit_ready(app: AppHandle) {
 pub(crate) struct BuildInfo {
     build_date: String,
     git_hash: String,
+    /// Running inside Flatpak: updates come from the software centre and
+    /// nothing can be installed into the host.
+    flatpak: bool,
 }
 
 #[tauri::command]
@@ -72,6 +75,7 @@ pub(crate) fn app_build_info() -> BuildInfo {
     BuildInfo {
         build_date: env!("THEOREM_BUILD_DATE").to_string(),
         git_hash: env!("THEOREM_GIT_HASH").to_string(),
+        flatpak: crate::linux_sandbox::flatpak_id().is_some(),
     }
 }
 

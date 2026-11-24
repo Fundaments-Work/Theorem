@@ -64,6 +64,7 @@ mod cli_install;
 mod dictionary_net;
 mod library_folder;
 mod lifecycle;
+mod linux_sandbox;
 mod open_files;
 mod pdf;
 mod reader_files;
