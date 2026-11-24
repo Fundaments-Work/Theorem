@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Theorem
+GenericName=E-book Reader
+Comment=Read books, PDFs, comics and feeds, and keep your highlights as Markdown
+Exec=theorem %F
+Icon=work.fundaments.theorem
+Terminal=false
+Categories=Education;Literature;
+Keywords=ebook;epub;pdf;mobi;comic;rss;reader;annotate;highlights;obsidian;logseq;
+MimeType=application/epub+zip;application/x-mobipocket-ebook;application/vnd.amazon.ebook;application/vnd.amazon.mobi8-ebook;application/x-fictionbook+xml;application/vnd.comicbook+zip;application/vnd.comicbook-rar;application/pdf;
+StartupWMClass=theorem

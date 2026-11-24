@@ -64,6 +64,7 @@ mod cli_install;
 mod dictionary_net;
 mod library_folder;
 mod lifecycle;
+mod linux_sandbox;
 mod open_files;
 mod pdf;
 mod reader_files;
@@ -120,6 +121,24 @@ fn shared_http_client() -> Result<&'static reqwest::blocking::Client, String> {
     http::blocking_client()
 }
 
+/// The single-instance plugin. Its D-Bus name is built from the Tauri
+/// identifier; a Flatpak may only own names under its own ID, and the plugin
+/// starts a second instance when it cannot own its name.
+#[cfg(all(
+    not(any(target_os = "android", target_os = "ios")),
+    not(debug_assertions)
+))]
+fn single_instance_plugin<F>(callback: F) -> tauri::plugin::TauriPlugin<tauri::Wry>
+where
+    F: FnMut(&tauri::AppHandle, Vec<String>, String) + Send + Sync + 'static,
+{
+    let builder = tauri_plugin_single_instance::Builder::new().callback(callback);
+    match linux_sandbox::flatpak_id() {
+        Some(id) => builder.dbus_id(id).build(),
+        None => builder.build(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // First, so a panic anywhere below is written to the log file once the
@@ -140,7 +159,10 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(PendingOpenFiles::default())
-        .manage(QuitCoordinator::default())
+        .manage(QuitCoordinator::default());
+    #[cfg(desktop)]
+    let builder = builder.manage(tray::TrayState::default());
+    let builder = builder
         .register_asynchronous_uri_scheme_protocol(
             cover_protocol::COVER_SCHEME,
             |ctx, request, responder| {
@@ -167,8 +189,16 @@ pub fn run() {
 
                     #[cfg(not(debug_assertions))]
                     {
-                        let _ = window.hide();
-                        api.prevent_close();
+                        // A hidden window comes back through the tray. Without
+                        // one the page's own close handler decides instead.
+                        #[cfg(target_os = "linux")]
+                        let hide = window.state::<tray::TrayState>().is_built();
+                        #[cfg(not(target_os = "linux"))]
+                        let hide = true;
+                        if hide {
+                            let _ = window.hide();
+                            api.prevent_close();
+                        }
                     }
                 }
             }
@@ -191,7 +221,7 @@ pub fn run() {
         not(any(target_os = "android", target_os = "ios")),
         not(debug_assertions)
     ))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+    let builder = builder.plugin(single_instance_plugin(|app, argv, cwd| {
         if let Some(book_id) = argv
             .iter()
             .find_map(|a| a.strip_prefix("--open-book=").map(str::to_string))
@@ -222,8 +252,15 @@ pub fn run() {
                 )
                 .build(),
         )
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    // Flatpak updates the app itself, and `/app` is read-only.
+    #[cfg(desktop)]
+    let builder = if linux_sandbox::flatpak_id().is_some() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    };
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());

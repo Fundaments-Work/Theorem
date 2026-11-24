@@ -392,12 +392,12 @@ export const SettingsPage = memo(function SettingsPage() {
     const cliEnabled = settings.cli?.enabled ?? false;
     // Compile-time stamp of the binary (build.rs) — makes a stale release
     // build (UI embedded at compile time) visible at a glance.
-    const [buildInfo, setBuildInfo] = useState<{ buildDate: string; gitHash: string } | null>(null);
+    const [buildInfo, setBuildInfo] = useState<{ buildDate: string; gitHash: string; flatpak: boolean } | null>(null);
 
     useEffect(() => {
         if (!isTauri()) return;
-        invoke<{ build_date: string; git_hash: string }>("app_build_info")
-            .then((info) => setBuildInfo({ buildDate: info.build_date, gitHash: info.git_hash }))
+        invoke<{ build_date: string; git_hash: string; flatpak?: boolean }>("app_build_info")
+            .then((info) => setBuildInfo({ buildDate: info.build_date, gitHash: info.git_hash, flatpak: info.flatpak === true }))
             .catch(() => { /* non-Tauri or older binary without the stamp */ });
     }, []);
 
@@ -406,6 +406,9 @@ export const SettingsPage = memo(function SettingsPage() {
         const timer = setTimeout(() => setDictionaryRemovedName(null), 3000);
         return () => clearTimeout(timer);
     }, [dictionaryRemovedName]);
+
+    // A Flatpak is updated by the software centre and cannot install a host command.
+    const isFlatpak = buildInfo?.flatpak ?? false;
 
     const refreshCliStatus = async () => {
         try {
@@ -1119,7 +1122,7 @@ export const SettingsPage = memo(function SettingsPage() {
                         </Suspense>
                     </div>
 
-                    {isLinuxDesktop && (
+                    {isLinuxDesktop && !isFlatpak && (
                         <Section
                             title="Terminal CLI"
                             description="Expose Theorem's native engines (dictionary, search, library, article extraction, sync) to your terminal, scripts, and AI agents via the `theorem` command. Includes an interactive TUI (`theorem tui`)."
@@ -1432,7 +1435,12 @@ export const SettingsPage = memo(function SettingsPage() {
                         icon={<AlertCircle className="w-5 h-5" />}
                     >
                         <div className="space-y-2">
-                             {isTauriDesktop() && (updateInfo ? (
+                             {isFlatpak && (
+                                 <p className="text-[12px] text-[color:var(--color-text-secondary)]">
+                                     Updates to this Flatpak come from your software centre.
+                                 </p>
+                             )}
+                             {isTauriDesktop() && !isFlatpak && (updateInfo ? (
                                  <div className="space-y-2">
                                      <div className="p-3 border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">
                                          <p className="text-[12px]">{updateInfo.prerelease ? "Beta" : "Update"} Available: v{updateInfo.version}</p>
@@ -1475,7 +1483,7 @@ export const SettingsPage = memo(function SettingsPage() {
                                      <span>{updateChecking ? "Checking..." : "Check for Updates"}</span>
                                  </button>
                              ))}
-                            <a
+                            {!isFlatpak && <a
                                 href="https://github.com/fundaments-work/theorem/releases"
                                 target="_blank"
                                 rel="noopener noreferrer"
@@ -1487,7 +1495,7 @@ export const SettingsPage = memo(function SettingsPage() {
                             >
                                 <Download className="w-4 h-4" />
                                 <span>Download Latest Release</span>
-                            </a>
+                            </a>}
                             <a
                                 href="https://github.com/fundaments-work/theorem/issues"
                                 target="_blank"

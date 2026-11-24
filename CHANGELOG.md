@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features & Enhancements
+
+- **Ready for Flatpak (#189)** — Inside Flatpak, Theorem keeps to one running instance, shows its tray icon from a path the desktop can read, leaves updates to the software centre, hides the Terminal CLI and explains why the system voice is missing. Desktop and AppStream metadata for `work.fundaments.theorem` are in `packaging/linux/`. Not on Flathub yet.
+
 ### Fixed
 
+- **Start without an appindicator library** — On Linux, Theorem no longer ends at startup when neither the Ayatana nor the older appindicator library is installed; it runs without a tray, and closing the window no longer hides it.
 - **Release targeting** — Refuse an existing release or draft before building, target desktop uploads and publication by release ID, and document the limits of release recovery and repository protection.
 
 ### Maintenance

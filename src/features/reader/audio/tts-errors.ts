@@ -37,6 +37,12 @@ export function describeTtsError(message: string, engine: TtsEngine): TtsErrorIn
             description: `${why ? `${why}. ` : ""}You can continue with the system voice.`,
         };
     }
+    if (m.includes("unavailable in flatpak")) {
+        return {
+            title: "No system voice in the Flatpak",
+            description: "The Flatpak version cannot use your system's speech engine. On 64-bit x86 computers you can download the neural voice in Settings → General → Neural Voice.",
+        };
+    }
     if (/spd-say|speech-dispatcher|no such file|os error 2|not found|cannot find|is not recognized/.test(m)) {
         return {
             title: "No system voice is installed",

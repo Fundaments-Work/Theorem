@@ -16,7 +16,7 @@ already use. Nothing here ships in the app — it's for maintainers.
 | AUR | Arch | 🟡 template | `docs/PKGBUILD` |
 | Homebrew cask | macOS | 🟡 template | `packaging/homebrew/theorem.rb` |
 | WinGet | Windows | 🟡 template | `packaging/winget/` |
-| Flathub | Linux | ⬜ not started | — |
+| Flathub | Linux | 🟡 metadata | `packaging/linux/` |
 | F-Droid | Android | ⬜ not started | — |
 
 ## macOS — Homebrew cask
@@ -53,6 +53,12 @@ wingetcreate update Fundaments-Work.Theorem \
 
 Use `docs/PKGBUILD` (bump `pkgver`, refresh `sha256sums` with `makepkg -g`,
 then `makepkg --printsrcinfo > .SRCINFO`). See `docs/DISTRIBUTION.md`.
+
+## Linux — Flathub
+
+`packaging/linux/` holds the desktop entry and AppStream metainfo for
+`work.fundaments.theorem`. The manifest is not kept here: Flathub requires it to
+be written without AI. See [`docs/DISTRIBUTION.md`](../docs/DISTRIBUTION.md).
 
 ## Android — F-Droid
 

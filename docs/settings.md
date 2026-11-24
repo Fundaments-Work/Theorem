@@ -38,7 +38,7 @@ three-column, two-row grid with every tab visible.
 ### Devices & Export (id: `integrations`)
 - **Vault sync**: Path to Obsidian/Logseq vault, auto-export toggle, filenames. Rendered only when `isTauriDesktop()`; on mobile and web the section is hidden and the tab is labelled "Devices"
 - **Device sync**: Device identity, QR pair, paired devices list, unpair, auto-sync toggle
-- **CLI Setup**: enable/disable the headless `theorem` CLI with auto-heal — see [plans/done/2026-09-01-headless-cli-architecture.md](plans/done/2026-09-01-headless-cli-architecture.md)
+- **CLI Setup**: enable/disable the headless `theorem` CLI with auto-heal. Hidden inside Flatpak, where the symlink would never work — see [plans/done/2026-09-01-headless-cli-architecture.md](plans/done/2026-09-01-headless-cli-architecture.md)
 
 ### Data & Storage (id: `storage`)
 - Storage statistics (Books, Highlights & Notes, RSS Articles, Offline Dictionaries)
@@ -63,7 +63,8 @@ three-column, two-row grid with every tab visible.
 - **Check for Updates** appears only in the desktop app. Android and browser
   users get a release-download link, including prereleases, without a control
   that ends in a desktop-only error. Release and issue links open externally
-  through the shared URL-safety path.
+  through the shared URL-safety path. Inside Flatpak both update controls are
+  replaced by a line pointing to the software centre.
 - **Report an Issue** opens the project's issue page.
 - **Export Logs** (desktop and Android): saves `theorem-logs-<date>.zip` with
   the log files and a `diagnostics.txt` (app version, OS, architecture,

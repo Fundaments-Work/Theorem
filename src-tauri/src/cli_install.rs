@@ -13,6 +13,7 @@ pub(crate) fn setup_linux_cli_symlink() -> Result<String, String> {
 pub fn setup_linux_cli_symlink_inner() -> Result<String, String> {
     #[cfg(target_os = "linux")]
     {
+        refuse_in_flatpak(crate::linux_sandbox::flatpak_id().as_deref())?;
         let exe = cli_symlink_target_exe()?;
         let link = cli_symlink_path()?;
 
@@ -169,4 +170,31 @@ fn cli_symlink_path() -> Result<PathBuf, String> {
         .join(".local")
         .join("bin")
         .join("theorem"))
+}
+
+/// Inside Flatpak the executable is `/app/bin/theorem` and `~/.local/bin`
+/// belongs to the sandbox, so a symlink would report success and never work.
+#[cfg(target_os = "linux")]
+fn refuse_in_flatpak(flatpak_id: Option<&str>) -> Result<(), String> {
+    match flatpak_id {
+        Some(id) => Err(format!(
+            "The theorem command cannot be installed from Flatpak. Run: flatpak run {id} help"
+        )),
+        None => Ok(()),
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::refuse_in_flatpak;
+
+    #[test]
+    fn the_symlink_is_refused_only_inside_flatpak() {
+        assert_eq!(refuse_in_flatpak(None), Ok(()));
+        let error = refuse_in_flatpak(Some("work.fundaments.theorem")).unwrap_err();
+        assert!(
+            error.contains("flatpak run work.fundaments.theorem"),
+            "{error}"
+        );
+    }
 }
