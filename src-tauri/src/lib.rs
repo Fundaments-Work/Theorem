@@ -141,7 +141,10 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .manage(PendingOpenFiles::default())
-        .manage(QuitCoordinator::default())
+        .manage(QuitCoordinator::default());
+    #[cfg(desktop)]
+    let builder = builder.manage(tray::TrayState::default());
+    let builder = builder
         .register_asynchronous_uri_scheme_protocol(
             cover_protocol::COVER_SCHEME,
             |ctx, request, responder| {
@@ -168,8 +171,16 @@ pub fn run() {
 
                     #[cfg(not(debug_assertions))]
                     {
-                        let _ = window.hide();
-                        api.prevent_close();
+                        // A hidden window comes back through the tray. Without
+                        // one the page's own close handler decides instead.
+                        #[cfg(target_os = "linux")]
+                        let hide = window.state::<tray::TrayState>().is_built();
+                        #[cfg(not(target_os = "linux"))]
+                        let hide = true;
+                        if hide {
+                            let _ = window.hide();
+                            api.prevent_close();
+                        }
                     }
                 }
             }
