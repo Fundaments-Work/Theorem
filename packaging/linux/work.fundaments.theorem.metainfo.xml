@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>work.fundaments.theorem</id>
+
+  <name>Theorem</name>
+  <summary>Read and annotate books and feeds</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <developer id="work.fundaments">
+    <name>Fundaments</name>
+  </developer>
+
+  <description>
+    <p>
+      Theorem is a local-first reader for e-books, PDFs, comics and RSS feeds. Your library,
+      highlights and notes stay on your device: there is no account and no subscription.
+    </p>
+    <ul>
+      <li>Read DRM-free EPUB, PDF, MOBI, AZW, FB2, CBZ and CBR files</li>
+      <li>Highlight in six colors, add notes and bookmarks, and review them in one place</li>
+      <li>Export highlights and notes to plain Markdown for Obsidian or Logseq</li>
+      <li>Look words up in offline dictionaries and build a vocabulary</li>
+      <li>Follow RSS feeds and browse free books and OPDS catalogs</li>
+      <li>Sync directly between your own devices</li>
+      <li>Listen to books with an optional neural voice (64-bit x86 only, downloaded separately)</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">work.fundaments.theorem.desktop</launchable>
+
+  <url type="homepage">https://theorem.fundaments.work</url>
+  <url type="bugtracker">https://github.com/Fundaments-Work/Theorem/issues</url>
+  <url type="help">https://fundaments.work/docs/theorem/</url>
+  <url type="vcs-browser">https://github.com/Fundaments-Work/Theorem</url>
+  <url type="contribute">https://github.com/Fundaments-Work/Theorem/blob/main/CONTRIBUTING.md</url>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#c6f135</color>
+    <color type="primary" scheme_preference="dark">#141416</color>
+  </branding>
+
+  <content_rating type="oars-1.1" />
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Fundaments-Work/Theorem/v1.6.1/docs/screenshots/library-grid.png</image>
+      <caption>The library, with covers and reading progress</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Fundaments-Work/Theorem/v1.6.1/docs/screenshots/reader-dark-highlights.png</image>
+      <caption>Reading a book with highlights</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Fundaments-Work/Theorem/v1.6.1/docs/screenshots/notes.png</image>
+      <caption>Highlights and notes in the Workbench</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Fundaments-Work/Theorem/v1.6.1/docs/screenshots/discover.png</image>
+      <caption>Finding free books in Discover</caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="1.6.1" type="development" date="2026-11-05">
+      <url type="details">https://github.com/Fundaments-Work/Theorem/releases/tag/v1.6.1</url>
+      <description>
+        <ul>
+          <li>Edited book details and covers stay edited after sync</li>
+          <li>Automatic database copies can be deleted one by one</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.6.0" date="2026-10-26">
+      <url type="details">https://github.com/Fundaments-Work/Theorem/releases/tag/v1.6.0</url>
+      <description>
+        <ul>
+          <li>Smart shelves that fill themselves, and nested shelves</li>
+          <li>Continuous vertical reading for comics</li>
+          <li>A new Discover page and support for any OPDS catalog</li>
+          <li>Backup and restore, and a startup check that protects the library</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
