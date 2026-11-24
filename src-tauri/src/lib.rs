@@ -252,8 +252,15 @@ pub fn run() {
                 )
                 .build(),
         )
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    // Flatpak updates the app itself, and `/app` is read-only.
+    #[cfg(desktop)]
+    let builder = if linux_sandbox::flatpak_id().is_some() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    };
 
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
